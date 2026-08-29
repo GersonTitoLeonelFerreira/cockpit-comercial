@@ -36,7 +36,6 @@
   }
 
   let panel = null
-  let restoring = false
   // Uma única sequência compartilhada entre restoreActionVisualAnchor() e
   // restorePanelInteraction(): qualquer chamada nova a QUALQUER uma das
   // duas invalida passes ainda em voo da outra. Antes disso eram dois
@@ -46,6 +45,15 @@
   // então os dois podiam escrever scrollTop em frames diferentes para a
   // MESMA transição.
   let scrollRestoreSequence = 0
+  // Dono exclusivo: só restorePanelInteraction() escreve `true`. Existe
+  // para impedir que captureScroll() capture, como se fosse um scroll real
+  // do vendedor, o próprio scrollTop que restorePanelInteraction ainda está
+  // no meio de escrever (uma escrita absoluta se espalha por duas
+  // passagens de rAF). QUALQUER bump de scrollRestoreSequence encerra essa
+  // posse imediatamente — ver nextScrollRestoreSequence() logo abaixo — em
+  // vez de deixar para as próprias passagens (já invalidadas, e por isso
+  // nunca mais executadas) perceberem isso sozinhas mais tarde.
+  let restoring = false
   let interactionLocked = false
   let interactionMode = null
   let pendingPanelHtml = null
@@ -62,6 +70,27 @@
 
   function getPanel() {
     return document.getElementById(PANEL_ID)
+  }
+
+  // Único ponto que avança scrollRestoreSequence. Cada chamada representa
+  // uma nova operação assumindo a autoridade sobre o scroll — e assumir
+  // autoridade cancela, AGORA, qualquer restauração absoluta que ainda
+  // estivesse em voo (restorePanelInteraction espalha sua escrita por duas
+  // passagens de rAF). Sem isto, `restoring` só voltava a `false` quando a
+  // própria passagem cancelada checava sua sequência e desistia sozinha —
+  // e uma passagem cancelada NUNCA roda esse código, porque o próprio
+  // motivo dela ser cancelada é justamente não rodar. `restoring` ficava
+  // preso em `true` para sempre, e captureScroll() (que ignora scroll
+  // enquanto `restoring` é true) parava de atualizar scrollSnapshot a
+  // partir daí — inclusive para scroll manual legítimo do vendedor depois
+  // disso, que um render de fundo seguinte então reescrevia por cima com a
+  // posição antiga. Centralizar aqui garante que cancelar uma operação
+  // sempre libera o que ela possuía, no mesmo instante em que ela deixa de
+  // ser a dona — não é uma autoridade nova, é a mesma autoridade única
+  // (scrollRestoreSequence) também dona do lifecycle de `restoring`.
+  function nextScrollRestoreSequence() {
+    restoring = false
+    return ++scrollRestoreSequence
   }
 
   function isResumeGuardActive() {
@@ -362,7 +391,7 @@
       !Number.isFinite(rect.top)
     ) {
       actionVisualAnchor = null
-      scrollRestoreSequence += 1
+      nextScrollRestoreSequence()
       return
     }
 
@@ -370,12 +399,12 @@
       identity,
       viewportTop: rect.top,
     }
-    scrollRestoreSequence += 1
+    nextScrollRestoreSequence()
   }
 
   function releaseActionVisualAnchor() {
     actionVisualAnchor = null
-    scrollRestoreSequence += 1
+    nextScrollRestoreSequence()
 
     const currentPanel =
       getPanel()
@@ -407,7 +436,7 @@
     }
 
     const sequence =
-      ++scrollRestoreSequence
+      nextScrollRestoreSequence()
 
     const settle = (isFinalPass) => {
       if (
@@ -549,8 +578,6 @@
     }
 
     pendingPanelHtml = null
-    const restoreTop =
-      getRestoreTop(currentPanel)
 
     applyPanelHtml(
       currentPanel,
@@ -558,14 +585,20 @@
     )
 
     bindPanel(currentPanel)
-    currentPanel.scrollTop = Math.min(
-      restoreTop,
-      Math.max(
-        0,
-        currentPanel.scrollHeight - currentPanel.clientHeight,
-      ),
-    )
-    captureScroll(currentPanel)
+
+    // Este é OUTRO ponto que escreve o DOM de verdade (o setter de
+    // innerHTML chama isto quando uma escrita que tinha ficado retida por
+    // interactionLocked/resume guard finalmente é liberada). Precisa
+    // passar pela MESMA autoridade única do setter — restoreAfterRender(),
+    // que sabe decidir entre âncora de ação e snapshot absoluto — em vez
+    // de ter sua própria lógica de restauração paralela. A versão anterior
+    // sempre fazia um restore absoluto aqui, ignorando uma âncora de ação
+    // ativa: dependendo da ordem em que os dois runtimes de estabilidade
+    // instalam seus descriptors de innerHTML, uma escrita retida durante o
+    // clique podia ser aplicada por ESTE caminho em vez do setter direto —
+    // e como só o setter chamava restoreAfterRender(), a âncora nunca
+    // recebia sua correção nem se liberava, ficando presa indefinidamente.
+    restoreAfterRender()
   }
 
   function finishResumeGuard() {
@@ -713,7 +746,7 @@
       return
     }
 
-    const sequence = ++scrollRestoreSequence
+    const sequence = nextScrollRestoreSequence()
     restoring = true
 
     const restore = () => {
@@ -822,13 +855,14 @@
     interactionMode = null
     pendingPanelHtml = null
     actionVisualAnchor = null
-    scrollRestoreSequence += 1
+    // Também encerra a posse de `restoring`, se alguma restauração
+    // absoluta estivesse em voo — ver nextScrollRestoreSequence().
+    nextScrollRestoreSequence()
     scrollSnapshot = {
       top: 0,
       distanceFromBottom: 0,
       nearBottom: false,
     }
-    restoring = false
 
     if (currentPanel) {
       currentPanel.scrollTop = 0

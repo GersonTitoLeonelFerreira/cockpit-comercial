@@ -338,6 +338,198 @@ for (const order of ORDERS) {
     }
   })
 
+  // Regressão do BLOCKER apontado na auditoria do PR #246: unificar
+  // scrollRestoreSequence não bastava — restorePanelInteraction() tinha seu
+  // próprio lifecycle de `restoring` que só virava `false` quando a PRÓPRIA
+  // segunda passagem de rAF rodava e via a sequência ainda válida. Se essa
+  // passagem fosse cancelada por uma âncora de ação assumindo a sequência
+  // no meio do caminho, ela nunca chegava a rodar — e por isso nunca
+  // zerava `restoring`. Com `restoring` preso em `true`, captureScroll()
+  // parava de atualizar scrollSnapshot para SEMPRE depois disso, então um
+  // scroll manual legítimo do vendedor era perdido e um render de fundo
+  // seguinte revertia a posição para a última capturada antes do trava.
+  //
+  // Importante: NÃO deixamos a restauração de fundo assentar antes do
+  // pointerdown — a corrida só existe se a âncora assume no MEIO do voo.
+  test(`[${orderLabel}] restauração absoluta cancelada por uma âncora de ação no meio do voo não deixa "restoring" preso`, async () => {
+    const { document, getPanel } = loadStabilityRuntimes({
+      order,
+      panelHtml: buildPanelHtml({ leadName: 'Cliente A' }),
+    })
+    const panel = getPanel()
+    makeScrollable(panel)
+
+    panel.scrollTop = 1200
+    dispatch(panel, 'scroll')
+    await flushStabilityQueues()
+
+    // 1) Render de fundo: dispara restorePanelInteraction() (sem âncora
+    // ativa ainda). Isto agenda queueMicrotask -> rAF -> rAF — de propósito
+    // NÃO esperamos essa cadeia terminar antes do próximo passo.
+    panel.innerHTML = buildPanelHtml({
+      leadName: 'Cliente A',
+      nameValue: 'Fundo em voo',
+    })
+
+    // 2) Antes do settle final dessa restauração absoluta: pointerdown na
+    // ação. captureActionVisualAnchor() assume a sequência AGORA, cancelando
+    // a restauração de fundo que ainda estava no meio das duas passagens de
+    // rAF.
+    const button = document.querySelector(
+      '[data-yolen-action="submit"]',
+    )
+    dispatch(button, 'pointerdown')
+    dispatch(button, 'click')
+
+    // 3) Render da própria ação (o que a âncora vai corrigir) + assentamento.
+    panel.innerHTML = buildPanelHtml({
+      leadName: 'Cliente A',
+      nameValue: 'Resultado da ação',
+    })
+    await flushStabilityQueues()
+
+    // 4) Vendedor rola manualmente. Se `restoring` ficou preso em `true`
+    // pela cancelação do passo 2, captureScroll() ignora este scroll.
+    panel.scrollTop = 640
+    dispatch(panel, 'scroll')
+    await flushStabilityQueues()
+
+    assert.equal(
+      panel.scrollTop,
+      640,
+      'o scroll manual do vendedor precisa ser aceito imediatamente',
+    )
+
+    // 5) Render de fundo posterior, não relacionado ao clique. Se
+    // scrollSnapshot ficou congelado (porque captureScroll nunca mais
+    // rodou), esta restauração absoluta reverte para a posição antiga.
+    panel.innerHTML = buildPanelHtml({
+      leadName: 'Cliente A',
+      nameValue: 'Fundo posterior',
+    })
+    await flushStabilityQueues()
+
+    assert.equal(
+      panel.scrollTop,
+      640,
+      '"restoring" preso não pode fazer um render de fundo reverter o scroll manual do vendedor',
+    )
+  })
+
+  // Comportamento exigido pela auditoria do PR #246 (TESTE OBRIGATÓRIO 2):
+  // uma resposta assíncrona do MESMO clique que chega DEPOIS que a âncora
+  // já assentou e se soltou (janela de vida limitada, ver
+  // restoreActionVisualAnchor()) — e que altera de verdade a altura do
+  // conteúdo ACIMA do controle clicado.
+  //
+  // Comportamento CORRETO definido e provado aqui (não é a implementação
+  // ditando o teste): depois que a janela de assentamento do clique
+  // termina, a âncora não existe mais — não há mais "o controle clicado"
+  // para perseguir. Uma resposta tardia (ainda que do mesmo clique) entra
+  // no MESMO fluxo de qualquer render de fundo não relacionado: preserva o
+  // scrollTop ABSOLUTO (a posição de leitura do vendedor), sem recalcular
+  // para manter o controle antigo fixo na viewport. Se perseguíssemos o
+  // controle indefinidamente mesmo depois do assentamento, estaríamos
+  // reproduzindo exatamente a causa raiz original (âncora sem prazo de
+  // vida barganhando contra o que vier depois). O controle PODE se
+  // deslocar na viewport como consequência — isso é aceito, não uma falha:
+  // é a mesma garantia de "renders de fundo não deslocam o vendedor" já
+  // provada para qualquer atualização não relacionada a um clique.
+  test(`[${orderLabel}] resposta assíncrona tardia do mesmo clique, após a âncora já ter assentado e se soltado, preserva a posição de leitura em vez de perseguir o controle antigo`, async () => {
+    const { document, window, getPanel } = loadStabilityRuntimes({
+      order,
+      panelHtml: buildPanelHtml({ leadName: 'Cliente A' }),
+    })
+    const panel = getPanel()
+    makeScrollable(panel)
+
+    // documentTop do botão é ajustável para simular conteúdo crescendo
+    // ACIMA dele entre o primeiro render (imediato) e a resposta tardia.
+    let buttonDocumentTop = 1800
+    const originalGetBoundingClientRect =
+      window.Element.prototype.getBoundingClientRect
+
+    window.Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      if (this.matches?.('[data-yolen-action="submit"]')) {
+        const top = buttonDocumentTop - panel.scrollTop
+        return {
+          x: 0,
+          y: top,
+          top,
+          bottom: top + 40,
+          left: 0,
+          right: 120,
+          width: 120,
+          height: 40,
+          toJSON() {
+            return {}
+          },
+        }
+      }
+
+      return originalGetBoundingClientRect.call(this)
+    }
+
+    try {
+      panel.scrollTop = 1375
+      dispatch(panel, 'scroll')
+      await flushStabilityQueues()
+
+      const button = document.querySelector(
+        '[data-yolen-action="submit"]',
+      )
+      assert.equal(button.getBoundingClientRect().top, 425)
+
+      // Primeiro render do clique: a âncora corrige e MANTÉM o botão em
+      // 425 — mecanismo já coberto por outro teste, aqui é só o ponto de
+      // partida.
+      dispatch(button, 'pointerdown')
+      dispatch(button, 'click')
+      panel.innerHTML = buildPanelHtml({
+        leadName: 'Cliente A',
+        nameValue: 'Resultado imediato',
+      })
+      await flushStabilityQueues()
+
+      assert.equal(
+        document
+          .querySelector('[data-yolen-action="submit"]')
+          .getBoundingClientRect().top,
+        425,
+        'a correção do próprio clique precisa manter o botão na mesma altura',
+      )
+
+      const scrollTopAfterOwnRender = panel.scrollTop
+
+      // Resposta assíncrona TARDIA do mesmo clique: conteúdo acima do
+      // botão cresce de verdade (documentTop sobe 400px) — não é mais
+      // "o mesmo layout", é uma mudança real de geometria.
+      buttonDocumentTop += 400
+      panel.innerHTML = buildPanelHtml({
+        leadName: 'Cliente A',
+        nameValue: 'Resposta assíncrona tardia do mesmo clique',
+      })
+      await flushStabilityQueues()
+
+      assert.equal(
+        panel.scrollTop,
+        scrollTopAfterOwnRender,
+        'depois que a âncora já assentou e se soltou, uma resposta tardia preserva o scrollTop absoluto em vez de recalcular para perseguir o controle',
+      )
+
+      assert.notEqual(
+        document
+          .querySelector('[data-yolen-action="submit"]')
+          .getBoundingClientRect().top,
+        425,
+        'o controle pode se deslocar na viewport nesse cenário — não há mais âncora para persegui-lo, e isso é o comportamento correto, não uma falha',
+      )
+    } finally {
+      window.Element.prototype.getBoundingClientRect =
+        originalGetBoundingClientRect
+    }
+  })
+
   test(`[${orderLabel}] enriquecimento ancora o candidato exato quando ações repetem o mesmo data-yolen-action`, async () => {
     const initialHtml = `
       <div class="yolen-lead-name">Cliente A</div>
