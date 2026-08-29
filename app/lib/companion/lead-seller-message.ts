@@ -327,8 +327,39 @@ function summaryHasDeclarativeSupport(summary: string) {
 
 function getProtectedFacts(value: string) {
   return value.match(
-    /R\$\s*\d[\d.,]*|\b\d+(?:[.,]\d+)?\s*%|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b|\b\d{1,2}h(?:\d{2})?\b/giu,
+    /R\$\s*\d[\d.,]*|\b\d+(?:[.,]\d+)?\s*%|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b|\b(?:[01]?\d|2[0-3])(?::[0-5]\d|h(?:[0-5]\d)?)\b/giu,
   ) ?? []
+}
+
+function normalizeProtectedTime(
+  value: string,
+): string | null {
+  const match =
+    normalizeForGrounding(value).match(
+      /^(?:0?(\d)|1(\d)|2([0-3]))(?::([0-5]\d)|h([0-5]\d)?)$/,
+    )
+
+  if (!match) {
+    return null
+  }
+
+  const hour =
+    match[1] !== undefined
+      ? Number(match[1])
+      : match[2] !== undefined
+        ? 10 + Number(match[2])
+        : 20 + Number(match[3])
+
+  const minuteText =
+    match[4] ??
+    match[5] ??
+    '00'
+
+  const minute = Number(
+    minuteText.padStart(2, '0'),
+  )
+
+  return `${hour}:${String(minute).padStart(2, '0')}`
 }
 
 function hasUnsupportedProtectedFact({
@@ -341,11 +372,43 @@ function hasUnsupportedProtectedFact({
   const normalizedContext =
     normalizeForGrounding(allowedContext)
 
+  const allowedTimes =
+    new Set(
+      getProtectedFacts(allowedContext)
+        .map(normalizeProtectedTime)
+        .filter(
+          (value): value is string =>
+            Boolean(value),
+        ),
+    )
+
   return getProtectedFacts(message).some(
-    (fact) =>
-      !normalizedContext.includes(
-        normalizeForGrounding(fact),
-      ),
+    (fact) => {
+      const normalizedFact =
+        normalizeForGrounding(fact)
+
+      if (
+        normalizedContext.includes(
+          normalizedFact,
+        )
+      ) {
+        return false
+      }
+
+      const normalizedTime =
+        normalizeProtectedTime(fact)
+
+      if (
+        normalizedTime &&
+        allowedTimes.has(
+          normalizedTime,
+        )
+      ) {
+        return false
+      }
+
+      return true
+    },
   )
 }
 

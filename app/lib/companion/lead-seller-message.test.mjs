@@ -240,6 +240,76 @@ test('interação canônica atual entra como contexto factual da mensagem', asyn
   )
 })
 
+test('horário equivalente 09:00 no contexto pode ser escrito como 9h na mensagem', async () => {
+  const message =
+    'Se tiver alguma dúvida sobre a aula de amanhã às 9h, pode me chamar por aqui.'
+
+  const result = await composeSellerMessage({
+    workingSummary:
+      'A cliente pediu informações sobre a aula de emagrecimento e recebeu o horário.',
+    currentInteraction: [
+      {
+        direction: 'incoming',
+        occurred_at:
+          '2026-08-28T22:41:00.000Z',
+        text:
+          'Oi boa noite, q horas é aula amanhã de emagrecimento?',
+      },
+      {
+        direction: 'outgoing',
+        occurred_at:
+          '2026-08-28T22:56:00.000Z',
+        text:
+          '09:00 da manhã',
+      },
+    ],
+    sellerIntent:
+      'Quero responder ao ponto principal desta conversa.',
+    method,
+    guidance: null,
+    provider: createProvider([
+      { message },
+      reviewedSame(message),
+    ]),
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.match(result.message, /9h/)
+})
+
+test('horário realmente diferente continua bloqueado pelo gate', async () => {
+  const message =
+    'Se tiver alguma dúvida sobre a aula de amanhã às 10h, pode me chamar por aqui.'
+
+  const result = await composeSellerMessage({
+    workingSummary:
+      'A cliente pediu informações sobre a aula de emagrecimento e recebeu o horário.',
+    currentInteraction: [
+      {
+        direction: 'outgoing',
+        occurred_at:
+          '2026-08-28T22:56:00.000Z',
+        text:
+          '09:00 da manhã',
+      },
+    ],
+    sellerIntent:
+      'Quero responder ao ponto principal desta conversa.',
+    method,
+    guidance: null,
+    provider: createProvider([
+      { message },
+      { message },
+    ]),
+  })
+
+  assert.equal(result.status, 'error')
+  assert.match(
+    result.error,
+    /horário sem base/i,
+  )
+})
+
 test('intenção do vendedor pode contrariar a orientação sem ser bloqueada', async () => {
   const calls = []
   const message =
