@@ -910,4 +910,187 @@ for (const order of ORDERS) {
     )
     assert.equal(panel.scrollTop, 0, 'uma mudança real de conversa deve resetar o scroll para o topo')
   })
+
+  // Reprodução obrigatória da auditoria "LIVE FIREFOX FAIL" no PR #246:
+  // vendedor no meio/baixo do painel, lendo algo; um card ACIMA (fora da
+  // viewport) termina de carregar e muda de altura; o conteúdo que o
+  // vendedor estava lendo precisa continuar na MESMA posição visual da
+  // tela — não é suficiente que scrollTop mantenha o mesmo número (esse
+  // era exatamente o defeito: "preservar scrollTop" preserva a posição no
+  // DOCUMENTO, não na TELA, e quando algo muda de altura acima, as duas
+  // divergem).
+  //
+  // Mede exatamente o que a auditoria pediu: scrollTop antes/depois,
+  // scrollHeight antes/depois, altura da região que mudou antes/depois, e
+  // getBoundingClientRect().top do elemento estável (o que o vendedor
+  // está lendo) antes/depois.
+  test(`[${orderLabel}] card ACIMA termina de carregar e muda de altura: o conteúdo que o vendedor está lendo, mais abaixo, permanece na mesma posição visual da tela`, async () => {
+    function buildTwoBlockHtml(aboveHeight) {
+      return `
+        <div class="yolen-lead-name">Cliente A</div>
+        <div
+          id="region-above"
+          data-mock-height="${aboveHeight}"
+        >${aboveHeight < 100 ? 'Carregando...' : 'Resultado da análise pronto, com bastante texto novo aqui.'}</div>
+        <div id="region-below" data-mock-height="400">
+          <p id="reading-target">Isto é o conteúdo que o vendedor está lendo agora mesmo.</p>
+        </div>
+        <div class="yolen-filler" style="height:4000px" data-mock-height="4000"></div>
+      `
+    }
+
+    const { document, window, getPanel, sandbox } = loadStabilityRuntimes({
+      order,
+      panelHtml: buildTwoBlockHtml(60),
+    })
+    const panel = getPanel()
+
+    function computeScrollHeight() {
+      let total = 0
+      panel
+        .querySelectorAll('[data-mock-height]')
+        .forEach((el) => {
+          total += Number(el.getAttribute('data-mock-height')) || 0
+        })
+      return total
+    }
+
+    Object.defineProperty(panel, 'scrollHeight', {
+      get: () => computeScrollHeight(),
+      configurable: true,
+    })
+    Object.defineProperty(panel, 'clientHeight', {
+      get: () => 600,
+      configurable: true,
+    })
+
+    function documentTopOf(el) {
+      let node = el
+      while (
+        node &&
+        node !== panel &&
+        !node.hasAttribute?.('data-mock-height')
+      ) {
+        node = node.parentElement
+      }
+      if (!node || node === panel) {
+        return 0
+      }
+      let total = 0
+      let sibling = panel.firstElementChild
+      while (sibling && sibling !== node) {
+        if (sibling.hasAttribute?.('data-mock-height')) {
+          total += Number(sibling.getAttribute('data-mock-height')) || 0
+        }
+        sibling = sibling.nextElementSibling
+      }
+      return total
+    }
+
+    const originalGetBoundingClientRect =
+      window.Element.prototype.getBoundingClientRect
+
+    window.Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      const docTop = documentTopOf(this)
+      const top = docTop - panel.scrollTop
+      return {
+        x: 0,
+        y: top,
+        top,
+        bottom: top + 20,
+        left: 0,
+        right: 300,
+        width: 300,
+        height: 20,
+        toJSON() {
+          return {}
+        },
+      }
+    }
+
+    try {
+      // Vendedor rolou para o meio/baixo do painel para ler #reading-target
+      // (dentro de region-below) — region-above (curta, "carregando") está
+      // fora da tela, acima.
+      panel.scrollTop = 250
+      dispatch(panel, 'scroll')
+      await flushStabilityQueues()
+
+      const target = document.getElementById('reading-target')
+      const scrollTopBefore = panel.scrollTop
+      const scrollHeightBefore = panel.scrollHeight
+      const aboveHeightBefore = Number(
+        document
+          .getElementById('region-above')
+          .getAttribute('data-mock-height'),
+      )
+      const targetTopBefore =
+        target.getBoundingClientRect().top
+
+      // Card ACIMA termina de carregar: cresce de 60px para 260px
+      // (+200px) — o mesmo tipo de transição loading -> resultado
+      // relatada ao vivo.
+      const heightDeltaAboveFold = 260 - aboveHeightBefore
+
+      const aboveRegion =
+        document.getElementById('region-above')
+      aboveRegion.setAttribute(
+        'data-mock-height',
+        '260',
+      )
+      aboveRegion.textContent =
+        'Resultado da análise pronto, com bastante texto novo aqui.'
+
+      // Isto é exatamente o que content-script.js faz de verdade em
+      // renderPanel()/flushPendingPanelRegions(): mede a altura de cada
+      // região antes de escrever, aplica a escrita, mede de novo, e
+      // repassa a diferença medida acima do fold para
+      // panelStabilityRuntime.restore(heightDeltaAboveFold) — nenhum
+      // clique envolvido, é uma atualização de fundo pura.
+      sandbox.YolenCompanionPanelStabilityRuntime.restore(
+        heightDeltaAboveFold,
+      )
+      await flushStabilityQueues()
+
+      const targetAfter =
+        document.getElementById('reading-target')
+      const scrollTopAfter = panel.scrollTop
+      const scrollHeightAfter = panel.scrollHeight
+      const aboveHeightAfter = Number(
+        document
+          .getElementById('region-above')
+          .getAttribute('data-mock-height'),
+      )
+      const targetTopAfter =
+        targetAfter.getBoundingClientRect().top
+
+      assert.equal(
+        scrollHeightAfter - scrollHeightBefore,
+        200,
+        'sanity check: a altura total do painel deveria ter crescido exatamente o que a região acima cresceu',
+      )
+      assert.equal(
+        aboveHeightAfter - aboveHeightBefore,
+        200,
+        'sanity check: a região acima realmente cresceu 200px, do jeito que o cenário exige',
+      )
+      assert.notEqual(
+        scrollTopAfter,
+        scrollTopBefore,
+        'scrollTop PRECISA mudar — preservar o número antigo é exatamente o defeito relatado ao vivo',
+      )
+      assert.equal(
+        scrollTopAfter - scrollTopBefore,
+        200,
+        'scrollTop deve compensar exatamente a altura que apareceu acima da viewport',
+      )
+      assert.ok(
+        Math.abs(targetTopAfter - targetTopBefore) < 1,
+        `o conteúdo que o vendedor estava lendo precisa permanecer na mesma posição visual da tela (antes: ${targetTopBefore}, depois: ${targetTopAfter})`,
+      )
+    } finally {
+      window.Element.prototype.getBoundingClientRect =
+        originalGetBoundingClientRect
+    }
+  })
 }

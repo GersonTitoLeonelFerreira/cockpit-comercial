@@ -517,16 +517,56 @@
   // de innerHTML do próprio painel logo abaixo, e content-script.js depois
   // de aplicar uma região) — nunca mais por um MutationObserver reagindo
   // genericamente a qualquer mutation dentro do painel. Ver handlePanelMutation().
-  function restoreAfterRender() {
+  //
+  // heightDeltaAboveFold: quanto a altura do conteúdo ACIMA do topo da
+  // viewport atual mudou nesta passagem (positivo = cresceu, negativo =
+  // encolheu), medido por quem escreveu o DOM (content-script.js sabe
+  // quais regiões mudaram e onde ficam). Sem isto, "preservar scrollTop"
+  // preserva a POSIÇÃO NO DOCUMENTO, não a posição na tela: se 200px
+  // aparecem acima do que o vendedor está lendo, manter scrollTop igual
+  // faz esse conteúdo pular 200px na viewport — exatamente o defeito
+  // relatado ao vivo no Firefox. Ver getRestoreTop() logo abaixo.
+  // As duas correções abaixo NÃO competem — cobrem áreas disjuntas do
+  // painel por design, então rodam as DUAS, sempre, na mesma passagem:
+  //
+  // 1) restorePanelInteraction() com heightDeltaAboveFold: compensação
+  //    GERAL, por região, para QUALQUER conteúdo cuja região esteja
+  //    inteiramente acima da viewport atual — cobre o que o vendedor está
+  //    lendo agora, seja lá o que for, mesmo sem nenhuma relação com um
+  //    clique recente (a causa raiz relatada ao vivo: um card acima
+  //    termina de carregar enquanto o vendedor lê outra coisa mais
+  //    abaixo). computeAboveFoldRegionHeightDelta() em content-script.js
+  //    exclui de propósito a região que contém a ação clicada (ela não
+  //    está "acima do fold" — está visível, é o que foi clicado), então
+  //    esta correção geral nunca inclui o que a âncora abaixo cobre.
+  //
+  // 2) restoreActionVisualAnchor(), só quando existe uma âncora ativa:
+  //    correção FINA, específica do controle exatamente clicado, para
+  //    mudanças DENTRO da própria região dele (ex.: um item de
+  //    enriquecimento acima do botão clicado, na MESMA região, some) —
+  //    exatamente o que a correção geral por região, de propósito, não
+  //    cobre.
+  //
+  // Aplicar as duas em sequência nunca "briga": a correção geral parte de
+  // scrollSnapshot.top (capturado antes) somado ao delta medido; a âncora
+  // lê a posição JÁ CORRIGIDA do controle na viewport (ao vivo, depois da
+  // escrita) e ajusta só a diferença que sobrar — se a geral já resolveu
+  // tudo, a âncora mede delta ≈ 0 e não escreve nada.
+  function restoreAfterRender(heightDeltaAboveFold = 0) {
+    restorePanelInteraction(
+      getPanel(),
+      heightDeltaAboveFold,
+    )
+
     if (actionVisualAnchor) {
       restoreActionVisualAnchor()
-      return
     }
-
-    restorePanelInteraction(getPanel())
   }
 
-  function getRestoreTop(targetPanel) {
+  function getRestoreTop(
+    targetPanel,
+    heightDeltaAboveFold = 0,
+  ) {
     const maxScroll = Math.max(
       0,
       targetPanel.scrollHeight - targetPanel.clientHeight,
@@ -539,8 +579,15 @@
       )
     }
 
+    // Compensa pela mudança de altura medida acima do que estava visível —
+    // não apenas repete o número antigo de scrollSnapshot.top. Um valor
+    // negativo (conteúdo acima encolheu) é igualmente válido: o vendedor
+    // não pode ficar "acima" do que estava lendo por causa disso.
     return Math.min(
-      scrollSnapshot.top,
+      Math.max(
+        0,
+        scrollSnapshot.top + heightDeltaAboveFold,
+      ),
       maxScroll,
     )
   }
@@ -737,48 +784,52 @@
     captureScroll(targetPanel)
   }
 
-  function restorePanelInteraction(targetPanel) {
+  // Correção síncrona, uma única escrita — não uma cadeia de queueMicrotask
+  // + dois requestAnimationFrame como antes. A versão anterior precisava
+  // desse adiamento porque só sabia PRESERVAR um número antigo de
+  // scrollTop (chute às cegas sobre uma posição que talvez nem
+  // significasse mais a mesma coisa depois do reflow). heightDeltaAboveFold
+  // já chega aqui como uma medida EXATA (quem chamou já mediu a altura do
+  // que mudou acima da viewport, antes e depois de escrever o DOM, no
+  // mesmo passo síncrono) — não há mais nada para "esperar assentar".
+  // Escrever de uma vez, no mesmo instante em que o DOM já mudou, é o que
+  // evita qualquer frame intermediário visível com a posição errada.
+  // interactionLocked NÃO entra na guarda aqui — de propósito. Os dois
+  // chamadores (o setter de innerHTML do painel, via restoreAfterRender(),
+  // e content-script.js depois de renderPanel()/flushPendingPanelRegions())
+  // só chegam até aqui DEPOIS de já terem confirmado, cada um à sua
+  // maneira, que a escrita de DOM que motiva esta correção já aconteceu de
+  // verdade (o setter só chama isto quando NÃO estava bloqueado; o flush
+  // por região só chama isto quando alguma região realmente aplicou uma
+  // troca). Bloquear aqui de novo por causa de interactionLocked — que
+  // pertence ao ciclo de vida do CLIQUE que ainda está em andamento
+  // (pointerdown já disparou, o `click` handler de content-script.js
+  // libera a região numa fila de microtasks própria que roda ANTES do
+  // unlockInteraction() de panel-stability-runtime.js) — descartava
+  // exatamente a correção que este mesmo clique acabou de tornar
+  // necessária: a região já mudou de altura, mas a correção era jogada
+  // fora só porque um flag de um mecanismo totalmente diferente (a âncora
+  // do elemento clicado) ainda não tinha sido liberado.
+  function restorePanelInteraction(
+    targetPanel,
+    heightDeltaAboveFold = 0,
+  ) {
     if (
       !targetPanel ||
-      interactionLocked ||
       isResumeGuardActive()
     ) {
       return
     }
 
-    const sequence = nextScrollRestoreSequence()
+    nextScrollRestoreSequence()
     restoring = true
-
-    const restore = () => {
-      if (sequence !== scrollRestoreSequence) {
-        return
-      }
-
-      const currentPanel = getPanel()
-
-      if (!currentPanel) {
-        restoring = false
-        return
-      }
-
-      bindPanel(currentPanel)
-      currentPanel.scrollTop = getRestoreTop(currentPanel)
-    }
-
-    queueMicrotask(() => {
-      root.requestAnimationFrame(() => {
-        restore()
-
-        root.requestAnimationFrame(() => {
-          if (sequence !== scrollRestoreSequence) {
-            return
-          }
-
-          restore()
-          restoring = false
-        })
-      })
-    })
+    bindPanel(targetPanel)
+    targetPanel.scrollTop = getRestoreTop(
+      targetPanel,
+      heightDeltaAboveFold,
+    )
+    restoring = false
+    captureScroll(targetPanel)
   }
 
   function lockInteraction(target, mode) {
@@ -1214,8 +1265,17 @@
     // avisar que terminou e que agora é hora de corrigir o scroll — uma
     // única vez, decidindo entre âncora de ação ou snapshot absoluto
     // conforme o que estiver ativo no momento da chamada.
-    restore() {
-      restoreAfterRender()
+    //
+    // heightDeltaAboveFold (opcional): quanto a altura do conteúdo acima
+    // do topo da viewport mudou nesta passagem, já medida por quem chama
+    // (ver renderPanel()/flushPendingPanelRegions() em content-script.js).
+    // Sem isto (chamadas antigas, ou o setter de innerHTML do painel para
+    // o caminho legado de troca do painel inteiro), o comportamento cai
+    // para preservar scrollTop tal como estava — correto quando nada
+    // mudou de altura acima, mas não é mais o caminho usado pelo render
+    // real por região.
+    restore(heightDeltaAboveFold = 0) {
+      restoreAfterRender(heightDeltaAboveFold)
     },
     // content-script.js chama isto de dentro de
     // clearLeadStateForNewConversation() — o único lugar que sabe, com

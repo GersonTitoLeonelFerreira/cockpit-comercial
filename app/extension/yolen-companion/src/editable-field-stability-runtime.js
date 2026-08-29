@@ -19,8 +19,6 @@
   let mode = null
   let pendingHtml = null
   let baseInnerHtmlDescriptor = null
-  let lockedScrollTop = null
-  let restoreSequence = 0
 
   function getPanel() {
     return document.getElementById(PANEL_ID)
@@ -50,45 +48,28 @@
     )
   }
 
-  function restoreLockedScroll(targetPanel) {
-    if (
-      !targetPanel ||
-      lockedScrollTop === null
-    ) {
-      return
-    }
-
-    const sequence = ++restoreSequence
-    const intendedTop = lockedScrollTop
-
-    const restore = () => {
-      if (sequence !== restoreSequence) {
-        return
-      }
-
-      const currentPanel = getPanel()
-
-      if (!currentPanel) {
-        return
-      }
-
-      currentPanel.scrollTop = Math.min(
-        intendedTop,
-        Math.max(
-          0,
-          currentPanel.scrollHeight - currentPanel.clientHeight,
-        ),
-      )
-    }
-
-    restore()
-    queueMicrotask(restore)
-    root.requestAnimationFrame(() => {
-      restore()
-      root.requestAnimationFrame(restore)
-    })
-  }
-
+  // Este runtime NÃO escreve scrollTop. Escrevia antes, por dois caminhos
+  // próprios (restoreLockedScroll(), acionado a cada pointerdown/focusin/
+  // input num campo editável, e o próprio flushPending()) — uma segunda
+  // autoridade completamente independente de panel-stability-runtime.js,
+  // que capturava scrollTop UMA VEZ no foco e o reimpunha a cada tecla
+  // digitada, ignorando qualquer mudança de layout legítima que tivesse
+  // acontecido nesse meio tempo (ex.: um card acima terminando de
+  // carregar). Provado na prática: reimpõe o valor congelado no
+  // pointerdown/focusin, e o próximo keystroke desfaz qualquer correção
+  // que panel-stability-runtime.js tivesse acabado de aplicar — a causa
+  // raiz de o painel continuar pulando mesmo depois da âncora de ação e da
+  // restauração absoluta terem sido corrigidas.
+  //
+  // A proteção que este runtime EXISTIA para dar (não perder o valor nem a
+  // posição de um campo com foco durante um rerender de fundo) já é
+  // coberta, para a arquitetura real de renderização por região, pelo
+  // próprio lock por região de content-script.js (isRegionInteractionActive
+  // adia a troca de HTML de uma região enquanto ela tem um campo focado) —
+  // e a correção de scroll em si passa a ser responsabilidade única de
+  // panel-stability-runtime.js/restoreAfterRender(), a mesma autoridade
+  // usada para qualquer outro render. Duas autoridades escrevendo scrollTop
+  // nunca convergem de forma confiável; só uma pode decidir.
   function flushPending() {
     if (locked || pendingHtml === null) {
       return
@@ -102,15 +83,7 @@
       return
     }
 
-    const previousTop = currentPanel.scrollTop
     applyThroughBase(currentPanel, html)
-    currentPanel.scrollTop = Math.min(
-      previousTop,
-      Math.max(
-        0,
-        currentPanel.scrollHeight - currentPanel.clientHeight,
-      ),
-    )
   }
 
   function patchPanel(targetPanel) {
@@ -165,7 +138,6 @@
       locked = false
       mode = null
       pendingHtml = null
-      lockedScrollTop = null
       return null
     }
 
@@ -179,7 +151,7 @@
     return currentPanel
   }
 
-  function lock(target, nextMode, { preserveCurrentScroll = false } = {}) {
+  function lock(target, nextMode) {
     const currentPanel = bindPanel()
 
     if (
@@ -190,20 +162,8 @@
       return
     }
 
-    if (
-      preserveCurrentScroll ||
-      !locked ||
-      lockedScrollTop === null
-    ) {
-      lockedScrollTop = currentPanel.scrollTop
-    }
-
     locked = true
     mode = nextMode
-
-    if (nextMode === 'editable') {
-      restoreLockedScroll(currentPanel)
-    }
   }
 
   function unlock({ flush = true } = {}) {
@@ -213,8 +173,6 @@
 
     locked = false
     mode = null
-    lockedScrollTop = null
-    restoreSequence += 1
 
     if (flush) {
       flushPending()
@@ -247,11 +205,7 @@
         editable &&
         currentPanel.contains(editable)
       ) {
-        lock(
-          editable,
-          'editable',
-          { preserveCurrentScroll: true },
-        )
+        lock(editable, 'editable')
         return
       }
 
@@ -261,11 +215,7 @@
         action &&
         currentPanel.contains(action)
       ) {
-        lock(
-          action,
-          'action',
-          { preserveCurrentScroll: true },
-        )
+        lock(action, 'action')
         return
       }
 
@@ -290,7 +240,6 @@
         currentPanel?.contains(editable)
       ) {
         lock(editable, 'editable')
-        restoreLockedScroll(currentPanel)
       }
     },
     true,
@@ -307,7 +256,6 @@
         currentPanel?.contains(editable)
       ) {
         lock(editable, 'editable')
-        restoreLockedScroll(currentPanel)
       }
     },
     true,
@@ -335,11 +283,7 @@
           activeEditable &&
           currentPanel?.contains(activeEditable)
         ) {
-          lock(
-            activeEditable,
-            'editable',
-            { preserveCurrentScroll: true },
-          )
+          lock(activeEditable, 'editable')
           return
         }
 
@@ -392,7 +336,6 @@
       locked = false
       mode = null
       pendingHtml = null
-      lockedScrollTop = null
       return
     }
 
