@@ -6,7 +6,7 @@
       "experimentalTriggers": [
         {
           "type": "queue/v2beta",
-          "topic": "companion-deep-analysis-v1",
+          "topic": "companion-deep-analysis-v2",
           "retryAfterSeconds": 15,
           "initialDelaySeconds": 0
         }
