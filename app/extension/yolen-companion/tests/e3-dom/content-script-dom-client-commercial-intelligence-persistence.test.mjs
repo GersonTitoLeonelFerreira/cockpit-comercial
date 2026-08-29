@@ -502,3 +502,190 @@ test('CLIENTE deixa de apresentar a inteligência comercial como atual assim que
     'CLIENTE não pode apresentar uma leitura comercial desatualizada como se fosse atual só porque ela ficou memorizada',
   )
 })
+
+// Reauditoria do Controle Mestre — BLOCKER: o snapshot era identificado só
+// por fingerprint, sem cycle_id/conversation_key/company_id. Isso resolve
+// A→B (troca real de conversa, via clearLeadStateForNewConversation), mas
+// não cobre a MESMA conversation_key sendo resolvida para um cycle_id
+// diferente — cenário real via resolveCurrentLead() (ex.: botão global
+// "Atualizar", que rechama loadYolenSession()+resolveCurrentLead() para a
+// conversa aberta) sem nenhuma mudança de header/mensagens, então o
+// fingerprint continua idêntico e o snapshot antigo ficaria elegível para
+// o ciclo novo.
+function getRefreshButton(document) {
+  return document
+    .getElementById('yolen-companion-panel')
+    ?.querySelector('[data-yolen-action="refresh"]')
+}
+
+test('CLIENTE nunca mostra a inteligência comercial de um ciclo antigo quando a mesma conversa resolve para um ciclo novo', async () => {
+  // Não depende de quantas vezes RESOLVE_LEAD é chamado antes do clique em
+  // "Atualizar" (pode haver mais de uma chamada legítima na resolução
+  // inicial) — só do momento em que o teste explicitamente sinaliza a
+  // troca de ciclo, imediatamente antes do clique.
+  let activeCycleId = CYCLE_A
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Olá, quero saber mais sobre o plano mensal.',
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: () => leadResolutionFor(activeCycleId, PHONE_A),
+    },
+    analysisResult: analysisResultWithDeepJob({
+      analysisJobId: 'a'.repeat(64),
+      watermark: 'wm-1',
+    }),
+    analysisJobStatusResult: async (requestPayload) => {
+      if (requestPayload.analysis_job_id === 'a'.repeat(64)) {
+        return succeededStatus({
+          analysisJobId: 'a'.repeat(64),
+          watermark: 'wm-1',
+          result: deepOutputWithNeed('CONHECIMENTO DO CICLO A'),
+        })
+      }
+
+      // Job do ciclo B nunca resolve dentro da janela do teste — prova
+      // que a proteção não espera nenhuma análise de B terminar.
+      return new Promise(() => {})
+    },
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  await openSellerPanel(document, 'client')
+  await waitFor(
+    () => getSellerPanelText(document, 'client').includes('CONHECIMENTO DO CICLO A'),
+    { timeoutMs: 8000 },
+  )
+
+  // Mesma conversation_key, mesmo header, mensagens inalteradas — só o
+  // ciclo por trás da resolução muda, via o botão global "Atualizar".
+  const resolveLeadCountBeforeRefresh =
+    resolveLeadCalls(calls).length
+
+  activeCycleId = CYCLE_B
+
+  const refreshButton = getRefreshButton(document)
+  assert.ok(refreshButton, 'esperava o botão global de atualizar no painel')
+
+  refreshButton.dispatchEvent(
+    new document.defaultView.Event('click', { bubbles: true }),
+  )
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > resolveLeadCountBeforeRefresh,
+  )
+
+  // A chamada já foi registrada em `calls`, mas o handler assíncrono do
+  // mock ainda precisa resolver e o resultado ainda precisa ser aplicado a
+  // `state` — mesmo padrão de assentamento usado pelos outros testes deste
+  // arquivo/pasta (ex.: "resolveStatusA1()" em content-script-dom-deep-
+  // analysis-delivery.test.mjs).
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  // A resolução para cycle-B já chegou (aguardado acima); nenhuma análise
+  // de cycle-B terminou ainda (o mock trava em voo) — o conhecimento do
+  // ciclo A precisa já estar inelegível neste exato momento, sem esperar
+  // nada mais.
+  await openSellerPanel(document, 'client')
+
+  assert.doesNotMatch(
+    getSellerPanelText(document, 'client'),
+    /CONHECIMENTO DO CICLO A/,
+    'CLIENTE não pode continuar mostrando conhecimento do ciclo antigo quando a mesma conversa já resolveu para um ciclo novo',
+  )
+})
+
+test('CLIENTE nunca mostra a inteligência comercial de outra empresa quando a mesma sessão resolve para uma empresa diferente', async () => {
+  let getMeCallCount = 0
+
+  // Não depende de quantas vezes GET_ME é chamado antes do clique em
+  // "Atualizar" — só do momento em que o teste explicitamente sinaliza a
+  // troca de empresa ativa, imediatamente antes do clique.
+  let activeCompanyId = 'company-1'
+
+  function getMeResponse(companyId) {
+    return {
+      ok: true,
+      statusCode: 200,
+      origin: 'https://cockpit-comercial-vocn.vercel.app',
+      payload: {
+        ok: true,
+        user: { full_name: 'Vendedor Teste' },
+        active_company: { id: companyId, name: 'Empresa Teste', role: 'member' },
+      },
+    }
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Olá, quero saber mais sobre o plano mensal.',
+    }),
+    getMeResult: () => {
+      getMeCallCount += 1
+      return getMeResponse(activeCompanyId)
+    },
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: analysisResultWithDeepJob({
+      analysisJobId: 'a'.repeat(64),
+      watermark: 'wm-1',
+    }),
+    analysisJobStatusResult: succeededStatus({
+      analysisJobId: 'a'.repeat(64),
+      watermark: 'wm-1',
+      result: deepOutputWithNeed('CONHECIMENTO DA EMPRESA 1'),
+    }),
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  await openSellerPanel(document, 'client')
+  await waitFor(
+    () => getSellerPanelText(document, 'client').includes('CONHECIMENTO DA EMPRESA 1'),
+    { timeoutMs: 8000 },
+  )
+
+  const refreshButton = getRefreshButton(document)
+  assert.ok(refreshButton, 'esperava o botão global de atualizar no painel')
+
+  const resolveLeadCountBeforeRefresh = resolveLeadCalls(calls).length
+  const getMeCallCountBeforeRefresh = getMeCallCount
+
+  activeCompanyId = 'company-2'
+
+  refreshButton.dispatchEvent(
+    new document.defaultView.Event('click', { bubbles: true }),
+  )
+
+  await waitFor(() => getMeCallCount > getMeCallCountBeforeRefresh)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > resolveLeadCountBeforeRefresh,
+  )
+
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  await openSellerPanel(document, 'client')
+
+  assert.doesNotMatch(
+    getSellerPanelText(document, 'client'),
+    /CONHECIMENTO DA EMPRESA 1/,
+    'CLIENTE não pode continuar mostrando conhecimento comercial de uma empresa que não é mais a empresa ativa da sessão',
+  )
+})
