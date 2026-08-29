@@ -197,22 +197,40 @@ function createFakeBackground({
   leadSummaryResult,
   saveLeadSummaryResult,
   createLeadResult,
+  getMeResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
   let loadLeadSummaryCallCount = 0
 
+  let getMeCallCount = 0
+
   const handlers = {
-    GET_ME: async () => ({
-      ok: true,
-      statusCode: 200,
-      origin: 'https://cockpit-comercial-vocn.vercel.app',
-      payload: {
+    // getMeResult segue o mesmo padrão function-per-call de
+    // resolutionsByPhone/analysisJobStatusResult — usado pelo teste de
+    // isolamento por company_id para simular a mesma sessão trocando de
+    // empresa ativa entre uma resolução e a próxima (ex.: botão
+    // "Atualizar", que rechama loadYolenSession() e resolveCurrentLead()
+    // para a MESMA conversa).
+    GET_ME: async () => {
+      getMeCallCount += 1
+
+      const configured =
+        typeof getMeResult === 'function'
+          ? await getMeResult(getMeCallCount)
+          : getMeResult
+
+      return configured ?? {
         ok: true,
-        user: { full_name: 'Vendedor Teste' },
-        active_company: { name: 'Empresa Teste', role: 'member' },
-      },
-    }),
+        statusCode: 200,
+        origin: 'https://cockpit-comercial-vocn.vercel.app',
+        payload: {
+          ok: true,
+          user: { full_name: 'Vendedor Teste' },
+          active_company: { id: 'company-1', name: 'Empresa Teste', role: 'member' },
+        },
+      }
+    },
     RESOLVE_LEAD: async (payload) => {
       const phoneDigits = String(payload?.phone ?? '').replace(/\D/g, '')
       const configured = resolutionsByPhone[phoneDigits]
@@ -366,6 +384,7 @@ export function loadContentScript({
   leadSummaryResult,
   saveLeadSummaryResult,
   createLeadResult,
+  getMeResult,
   withStabilityRuntimes = false,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
@@ -377,6 +396,7 @@ export function loadContentScript({
     leadSummaryResult,
     saveLeadSummaryResult,
     createLeadResult,
+    getMeResult,
   })
 
   const fakeChrome = {

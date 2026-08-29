@@ -47,9 +47,17 @@ function getBlock(
 test(
   'B3.1 ativa leitura rica somente com stateful e commercial_reading',
   () => {
+    // FASE 13 Frente 2 — a checagem engine_source/commercial_reading saiu
+    // do corpo de getActiveCommercialReading() e passou para
+    // extractStatefulCommercialReading(), a função pura que agora decide
+    // "isto é uma leitura comercial stateful válida?" tanto para o
+    // resultado ao vivo (getActiveCommercialReading) quanto para o
+    // snapshot persistido de CLIENTE (rememberLastKnownClientCommercial
+    // ReadingIfPresent) — getActiveCommercialReading() virou um delegador
+    // fino. O gate continua o mesmo; só a localização mudou.
     const gate =
       getBlock(
-        'function getActiveCommercialReading()',
+        'function extractStatefulCommercialReading',
         'function normalizeOperationalText',
       )
 

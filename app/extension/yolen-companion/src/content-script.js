@@ -238,6 +238,7 @@
     connected: false,
     loading: true,
     userName: null,
+    companyId: null,
     companyName: null,
     companyRole: null,
     conversationTitle: null,
@@ -278,6 +279,18 @@
     automaticAnalysisStatus: null,
     deepAnalysisStatus: null,
     deepAnalysisResult: null,
+    // CLIENTE precisa continuar mostrando a última inteligência comercial
+    // válida enquanto uma nova tentativa de análise (automática ou manual)
+    // está em voo ou termina em erro — ver getLastKnownClientCommercialReading.
+    // lastKnownCommercialReadingContext carrega companyId/cycleId/
+    // conversationKey/fingerprint da requisição que originou o snapshot —
+    // qualquer divergência (inclusive a mesma conversation_key resolvendo
+    // para um cycle_id novo) já invalida o snapshot no próximo render, sem
+    // esperar uma análise nova terminar. ANÁLISE/AGORA continuam lendo só
+    // conversationAnalysis/getActiveCommercialReading, sem nenhuma mudança
+    // de comportamento.
+    lastKnownCommercialReading: null,
+    lastKnownCommercialReadingContext: null,
     suggestionApplyLoading: false,
     suggestionApplyResult: null,
     suggestionApplyError: null,
@@ -4752,6 +4765,8 @@
       automaticAnalysisStatus: null,
       deepAnalysisStatus: null,
       deepAnalysisResult: null,
+      lastKnownCommercialReading: null,
+      lastKnownCommercialReadingContext: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
@@ -5651,11 +5666,9 @@
     )
   }
 
-  function getActiveCommercialReading() {
-    const analysis =
-      state
-        .conversationAnalysis
-
+  function extractStatefulCommercialReading(
+    analysis,
+  ) {
     const reading =
       analysis
         ?.commercial_reading
@@ -5672,6 +5685,130 @@
     }
 
     return reading
+  }
+
+  function getActiveCommercialReading() {
+    return extractStatefulCommercialReading(
+      state
+        .conversationAnalysis,
+    )
+  }
+
+  // CLIENTE representa conhecimento acumulado sobre o cliente ("o que já
+  // sabemos"), não um indicador de execução ao vivo — diferente de ANÁLISE/
+  // AGORA, que legitimamente precisam refletir só a tentativa corrente.
+  // Toda nova tentativa de análise (automática por nova mensagem, ou
+  // manual) zera conversationAnalysis de imediato, antes mesmo de saber se
+  // vai suceder — então, sem este snapshot, uma leitura comercial válida
+  // desaparece de CLIENTE a cada re-análise em voo e permanece perdida se
+  // essa nova tentativa falhar, mesmo sem nenhuma mensagem nova que a
+  // invalidasse de fato. getLastKnownClientCommercialReading() devolve o
+  // último resultado promovido com sucesso, mas só quando TODA a
+  // identidade que originou aquele resultado (company/cycle/conversation)
+  // ainda bate com o contexto atual — reavaliado a cada renderPanel(), sem
+  // esperar uma análise nova terminar. Isto cobre um caso que
+  // clearLeadStateForNewConversation() (troca real de aba/conversa) não
+  // cobre: a MESMA conversation_key ser resolvida para um cycle_id
+  // diferente (ex.: resolveCurrentLead() encontrando um ciclo novo para o
+  // mesmo lead), o que não é uma "troca de conversa" no sentido de DOM/
+  // captura, mas muda de quem estamos falando comercialmente. O
+  // fingerprint sozinho não protege esse caso: mensagens idênticas podem
+  // continuar visíveis enquanto o ciclo por trás delas mudou.
+  function getLastKnownClientCommercialReading() {
+    const snapshot =
+      state.lastKnownCommercialReading
+
+    const context =
+      state.lastKnownCommercialReadingContext
+
+    if (!snapshot || !context) {
+      return null
+    }
+
+    const currentCycleId =
+      state.leadResolution?.cycle?.id ||
+      null
+
+    const currentConversationKey =
+      getCaptureConversationKey()
+
+    const currentCompanyId =
+      state.companyId ||
+      null
+
+    if (
+      context.cycleId !==
+        currentCycleId ||
+      context.conversationKey !==
+        currentConversationKey ||
+      context.companyId !==
+        currentCompanyId
+    ) {
+      return null
+    }
+
+    const currentFingerprint =
+      getCurrentConversationFingerprint()
+
+    if (
+      currentFingerprint &&
+      currentFingerprint !==
+        context.fingerprint
+    ) {
+      return null
+    }
+
+    return snapshot
+  }
+
+  // Chamado só nos pontos em que uma análise stateful válida acabou de ser
+  // aplicada a state.conversationAnalysis (sucesso do polling profundo e
+  // sucesso da resposta rápida V1/shadow) — nunca em erro/loading/timeout,
+  // então nunca grava lixo por cima de um snapshot bom anterior. Toda a
+  // identidade gravada (companyId/cycleId/conversationKey) é a da
+  // REQUISIÇÃO que originou este resultado (companyIdAtRequest/cycleId/
+  // conversationKeyAtRequest capturados no início de
+  // analyzeCurrentConversation(), nunca relidos tarde demais de state) —
+  // inclusive companyId: reler state.companyId aqui, no momento da
+  // promoção, poderia gravar um resultado iniciado na empresa A com a
+  // identidade da empresa B se a sessão ativa tivesse mudado enquanto o
+  // job ainda estava em voo. Na prática isAnalysisResponseStillCurrent()
+  // já barra esse caso antes de chegar aqui, mas a identidade gravada não
+  // pode depender só dessa checagem anterior.
+  function rememberLastKnownClientCommercialReadingIfPresent({
+    fingerprint,
+    cycleId,
+    conversationKey,
+    companyId,
+    analysis =
+      state
+        .conversationAnalysis,
+  }) {
+    const reading =
+      extractStatefulCommercialReading(
+        analysis,
+      )
+
+    if (
+      !reading ||
+      !fingerprint ||
+      !cycleId ||
+      !conversationKey
+    ) {
+      return {}
+    }
+
+    return {
+      lastKnownCommercialReading: reading,
+      lastKnownCommercialReadingContext: {
+        companyId:
+          companyId ||
+          null,
+        cycleId,
+        conversationKey,
+        fingerprint,
+      },
+    }
   }
 
   // B4_PRE_SEND_EVALUATOR_START
@@ -10253,13 +10390,24 @@
   }
 
   function getClientInformationAreaHtml() {
+    // CLIENTE usa exclusivamente o snapshot com identidade
+    // (getLastKnownClientCommercialReading), nunca getActiveCommercialReading()
+    // direto — ANÁLISE/AGORA continuam usando getActiveCommercialReading()
+    // sozinho, sem nenhuma mudança de comportamento. Dois motivos:
+    // 1) conversationAnalysis não carrega identidade de requisição (cycle/
+    //    conversation/company) — só o snapshot carrega, capturada no exato
+    //    momento da promoção bem-sucedida — então só o snapshot pode
+    //    recusar corretamente um resultado cuja identidade não bate mais
+    //    com o contexto atual (ex.: mesma conversation_key resolvendo para
+    //    um cycle_id novo, sem nenhuma mensagem nova mudar o fingerprint).
+    // 2) toda vez que a leitura ao vivo é válida, o snapshot já foi
+    //    atualizado com o mesmo conteúdo no mesmo evento de sucesso — não
+    //    há perda de informação em usar só o snapshot aqui.
     const commercialReading =
-      getActiveCommercialReading()
+      getLastKnownClientCommercialReading()
 
     const commercialHtml =
-      commercialReading &&
-      !state.conversationAnalysisError &&
-      !isCurrentAnalysisOutdated()
+      commercialReading
         ? sellerInformationViewTools
             .renderClientCommercialArea(
               commercialReading,
@@ -12361,6 +12509,7 @@
           connected: false,
           loading: false,
           userName: null,
+          companyId: null,
           companyName: null,
           companyRole: null,
           lastError:
@@ -12372,15 +12521,59 @@
         return
       }
 
+      const previousCompanyId =
+        state.companyId
+
+      const nextCompanyId =
+        result.payload.active_company?.id ||
+        null
+
+      // A troca de empresa ativa da sessão invalida qualquer ownership de
+      // análise em voo pertencente à empresa anterior —
+      // isAnalysisResponseStillCurrent() já impede o resultado antigo de
+      // ser aplicado (ver companyIdAtRequest), mas sozinho isso deixaria
+      // conversationAnalysisLoading/activeAnalysisAttempt presos donos de
+      // uma tentativa que nunca mais vai chegar a um estado terminal,
+      // bloqueando canScheduleAutomaticAnalysis() para a empresa nova.
+      // Só dispara quando as duas empresas são conhecidas e diferentes —
+      // nunca no primeiro GET_ME da sessão (previousCompanyId null) nem
+      // quando nada mudou.
+      const companyChanged =
+        previousCompanyId !== null &&
+        nextCompanyId !== null &&
+        previousCompanyId !==
+          nextCompanyId
+
+      if (companyChanged) {
+        clearDeepAnalysisPollTimer()
+        clearAnalysisWatchdogTimer()
+        clearAutomaticAnalysisTimer()
+        activeAnalysisAttempt = null
+      }
+
       state = {
         ...state,
         connected: true,
         loading: false,
         userName: result.payload.user?.full_name || result.payload.user?.email || null,
+        companyId: nextCompanyId,
         companyName: result.payload.active_company?.name || null,
         companyRole: result.payload.active_company?.role || null,
         lastError: null,
         lastSessionSyncAt: getCurrentTimeLabel(),
+        ...(companyChanged
+          ? {
+              conversationAnalysisLoading: false,
+              conversationAnalysis: null,
+              conversationAnalysisError: null,
+              analyzedConversationFingerprint: null,
+              automaticAnalysisStatus: null,
+              deepAnalysisStatus: null,
+              deepAnalysisResult: null,
+              lastKnownCommercialReading: null,
+              lastKnownCommercialReadingContext: null,
+            }
+          : {}),
       }
 
       renderPanel()
@@ -13339,6 +13532,7 @@
     analysisJobId,
     cycleId,
     conversationKeyAtRequest,
+    companyIdAtRequest,
     isAnalysisResponseStillCurrent,
     conversationFingerprint,
     isAutomatic,
@@ -13441,6 +13635,15 @@
               : null,
           deepAnalysisStatus: 'succeeded',
           deepAnalysisResult: data.result || null,
+          ...rememberLastKnownClientCommercialReadingIfPresent({
+            fingerprint:
+              conversationFingerprint,
+            cycleId,
+            conversationKey:
+              conversationKeyAtRequest,
+            companyId:
+              companyIdAtRequest,
+          }),
         }
 
         renderPanel()
@@ -13514,6 +13717,17 @@
 
     const conversationKeyAtRequest =
       getCaptureConversationKey()
+
+    // Identidade da EMPRESA no momento da requisição — nunca relida de
+    // state depois disso. Sem isto, um job em voo iniciado na empresa A
+    // que retorna succeeded depois de a sessão ativa já ter mudado para a
+    // empresa B seria promovido lendo state.companyId (já B), gravando o
+    // conhecimento de A com a identidade de B. Ver
+    // isAnalysisResponseStillCurrent abaixo e
+    // rememberLastKnownClientCommercialReadingIfPresent.
+    const companyIdAtRequest =
+      state.companyId ||
+      null
 
     const companionMessages =
       getStructuredMessagesForAnalysis()
@@ -13596,6 +13810,11 @@
     const isAnalysisResponseStillCurrent = () =>
       requestSequence ===
         conversationAnalysisRequestSequence &&
+      companyIdAtRequest ===
+        (
+          state.companyId ||
+          null
+        ) &&
       globalThis.YolenCompanionConversationRegistrationTools
         .shouldApplyConversationRegistrationResult({
           requestCycleId: cycleId,
@@ -13738,6 +13957,17 @@
             isAutomatic
               ? 'Análise automática concluída.'
               : null,
+          ...rememberLastKnownClientCommercialReadingIfPresent({
+            fingerprint:
+              conversationFingerprint,
+            cycleId,
+            conversationKey:
+              conversationKeyAtRequest,
+            companyId:
+              companyIdAtRequest,
+            analysis:
+              result.payload.data,
+          }),
         }
       } else {
         activeAnalysisAttempt = null
@@ -13786,6 +14016,7 @@
             deepAnalysisJob.analysis_job_id,
           cycleId,
           conversationKeyAtRequest,
+          companyIdAtRequest,
           isAnalysisResponseStillCurrent,
           conversationFingerprint,
           isAutomatic,
