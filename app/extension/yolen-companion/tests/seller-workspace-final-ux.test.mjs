@@ -2,10 +2,11 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const [contentScript, summaryView, sellerRuntime] = await Promise.all([
+const [contentScript, summaryView, sellerRuntime, styles] = await Promise.all([
   readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/companion-lead-summary-view.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/seller-message-runtime.js', 'utf8'),
+  readFile('app/extension/yolen-companion/src/styles.css', 'utf8'),
 ])
 
 test('UX7 dá responsabilidade única para AGORA ANÁLISE CLIENTE', () => {
@@ -117,6 +118,21 @@ test('erro e loading da análise profunda nunca bloqueiam nem aparecem em AGORA'
     summaryView,
     /deep.?analysis|analysis.?job|conversationAnalysis/i,
   )
+})
+
+test('abas AGORA ANÁLISE CLIENTE permanecem no fluxo e não flutuam sobre o conteúdo', () => {
+  const start = styles.indexOf(
+    '.yolen-seller-workspace--ux7 .yolen-seller-tabs {',
+  )
+  const end = styles.indexOf('}', start)
+  const block = styles.slice(start, end)
+
+  assert.notEqual(start, -1)
+  assert.match(block, /position:\s*static/)
+  assert.doesNotMatch(block, /position:\s*sticky/)
+  assert.doesNotMatch(block, /top:\s*62px/)
+  assert.doesNotMatch(block, /z-index:\s*8/)
+  assert.doesNotMatch(block, /backdrop-filter/)
 })
 
 test('AGORA não é escondido e possui composer contextual', () => {
