@@ -1931,16 +1931,12 @@ html.yolen-companion-collapsed #app {
 }
 
 .yolen-seller-workspace--ux7 .yolen-seller-tabs {
-  position: sticky;
-  top: 62px;
-  z-index: 8;
+  position: static;
   margin: 0 0 9px;
   padding: 3px;
   gap: 3px;
   border-radius: 11px;
   background: rgba(7,12,20,.96);
-  box-shadow: 0 8px 20px rgba(0,0,0,.14);
-  backdrop-filter: blur(14px);
 }
 .yolen-seller-workspace--ux7 .yolen-seller-tab {
   padding: 8px 5px;
