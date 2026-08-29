@@ -950,6 +950,129 @@ export async function processStatefulCopilotBackgroundMessage(
       statefulResult
         .stateful_execution
 
+    const v2OnlyActivationViolation =
+      statefulResult.mode ===
+        'v1' ||
+      statefulResult.mode ===
+        'shadow'
+
+    if (
+      v2OnlyActivationViolation
+    ) {
+      const {
+        error:
+          activationViolationWriteError,
+      } =
+        await admin
+          .from(
+            'companion_background_analysis_jobs',
+          )
+          .update({
+            status:
+              'failed',
+
+            completed_at:
+              completedAt,
+
+            updated_at:
+              completedAt,
+
+            runtime_mode:
+              statefulResult
+                .mode,
+
+            response_source:
+              statefulResult
+                .response_source,
+
+            candidate_state_version:
+              null,
+
+            failure_code:
+              'V2_ONLY_ACTIVATION_BYPASSED',
+
+            failure_path:
+              'activation',
+
+            failure_invariant:
+              'V2_ONLY_ACTIVE_REQUIRED',
+
+            communication_attempts:
+              null,
+
+            automatic_crm_write:
+              false,
+
+            automatic_agenda_write:
+              false,
+          })
+          .eq(
+            'analysis_job_id',
+            job.analysis_job_id,
+          )
+          .eq(
+            'company_id',
+            job.company_id,
+          )
+          .eq(
+            'cycle_id',
+            job.cycle_id,
+          )
+          .eq(
+            'conversation_key',
+            job.conversation_key,
+          )
+          .eq(
+            'message_watermark',
+            job.message_watermark,
+          )
+          .eq(
+            'status',
+            'running',
+          )
+          .eq(
+            'started_at',
+            startedAt,
+          )
+
+      if (
+        activationViolationWriteError
+      ) {
+        throw new StatefulCopilotBackgroundRetryError(
+          'BACKGROUND_V2_ONLY_ACTIVATION_WRITE_FAILED',
+        )
+      }
+
+      console.warn(
+        'YOLEN_COMPANION_STATEFUL_BACKGROUND',
+        JSON.stringify({
+          event:
+            'background_v2_only_activation_bypassed',
+
+          company_id:
+            job.company_id,
+
+          cycle_id:
+            job.cycle_id,
+
+          analysis_job_id:
+            job.analysis_job_id,
+
+          runtime_mode:
+            statefulResult
+              .mode,
+
+          activation_reason:
+            statefulResult
+              .activation
+              ?.reason ??
+            null,
+        }),
+      )
+
+      return
+    }
+
     // `failure` vem null tanto quando o motor não produziu saída de
     // modelo (execution.engine_mode === 'blocked') quanto quando a
     // persistência recusou por conflito de versão
