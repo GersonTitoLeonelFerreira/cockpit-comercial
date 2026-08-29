@@ -1,10 +1,23 @@
 import type {
+  CommercialConfigBundle,
+  CommercialConfigProductOption,
+} from '@/app/types/commercial-config'
+
+import type {
   CommercialReading,
 } from '../commercial-reading-contract'
 
 import type {
-  StatefulCopilotRealContext,
-} from '../stateful-copilot-real-context-loader'
+  CompanionDiagnosticInput,
+} from '../diagnostic-input'
+
+import type {
+  DurableMemorySeed,
+} from '../durable-memory-seed'
+
+import type {
+  StatefulCopilotStateReadResult,
+} from '../stateful-copilot-supabase-reader'
 
 export const MESSAGE_INTELLIGENCE_REQUEST_CONTRACT_VERSION =
   'message-intelligence-request-v1' as const
@@ -20,6 +33,68 @@ export type MessageIntelligenceRequestV1 = {
   conversation_key: string
   seller_intent: string
   reference_time: string
+}
+
+export type MessageIntelligenceCanonicalScopeV1 = {
+  company: {
+    id: string
+    name: string
+    platform_status: string
+    onboarding_status: string
+  }
+
+  lead: {
+    id: string
+    company_id: string
+    name: string
+    phone: string | null
+    email: string | null
+    updated_at: string
+  }
+
+  cycle: {
+    id: string
+    company_id: string
+    lead_id: string
+    owner_user_id: string | null
+    status: string
+    next_action: string | null
+    next_action_date: string | null
+    updated_at: string
+  }
+
+  conversation_key: string
+}
+
+export type MessageIntelligenceCanonicalContextV1 = {
+  loaded_at: string
+
+  scope:
+    MessageIntelligenceCanonicalScopeV1
+
+  commercial_config_status:
+    'published' | 'missing'
+
+  commercial_config:
+    CommercialConfigBundle | null
+
+  products:
+    CommercialConfigProductOption[]
+
+  diagnostic_input:
+    CompanionDiagnosticInput
+
+  known_message_ids:
+    string[]
+
+  active_message_ids:
+    string[]
+
+  state_read:
+    StatefulCopilotStateReadResult
+
+  durable_memory_seed:
+    DurableMemorySeed | null
 }
 
 export type MessageIntelligenceCommercialReadingSourceV1 = {
@@ -38,7 +113,7 @@ export type MessageIntelligenceCommercialReadingSourceV1 = {
 
 export type MessageIntelligenceContextSourcesV1 = {
   real_context:
-    StatefulCopilotRealContext
+    MessageIntelligenceCanonicalContextV1
 
   commercial_reading:
     MessageIntelligenceCommercialReadingSourceV1 | null
