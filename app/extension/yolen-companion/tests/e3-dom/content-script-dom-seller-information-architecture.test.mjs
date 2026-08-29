@@ -398,8 +398,38 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
 
   const wants = clientPanel.querySelector('[data-yolen-client-intelligence-group="wants"]')
   assert.equal(wants.open, false)
-  wants.querySelector('summary').click()
-  assert.equal(wants.open, true)
+
+  const wantsSummary =
+    wants.querySelector('summary')
+
+  wantsSummary.dispatchEvent(
+    new runtime.dom.window.Event(
+      'pointerdown',
+      {
+        bubbles: true,
+      },
+    ),
+  )
+
+  wantsSummary.click()
+
+  assert.equal(
+    clientPanel
+      .querySelector('[data-yolen-client-intelligence-group="wants"]')
+      .open,
+    true,
+  )
+
+  await new Promise((resolve) => {
+    setTimeout(resolve, 250)
+  })
+
+  assert.equal(
+    runtime.document
+      .querySelector('[data-yolen-client-intelligence-group="wants"]')
+      ?.open,
+    true,
+  )
 })
 
 test('non-commercial neutraliza AGORA e ANÁLISE sem apagar fatos persistidos do cliente', async () => {

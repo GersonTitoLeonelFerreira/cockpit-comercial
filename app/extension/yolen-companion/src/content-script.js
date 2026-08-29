@@ -423,6 +423,7 @@
     'button',
     '[role="button"]',
     'a[href]',
+    'summary',
     'input[type="button"]',
     'input[type="submit"]',
   ].join(',')
