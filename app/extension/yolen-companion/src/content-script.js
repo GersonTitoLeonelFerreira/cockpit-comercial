@@ -13903,8 +13903,12 @@
               0,
             force_reanalysis:
               forceReanalysis,
-            retry_failed_job:
-              retryFailedJob,
+            ...(retryFailedJob
+              ? {
+                  retry_failed_job:
+                    true,
+                }
+              : {}),
             message_snapshot_hash:
               conversationFingerprint,
           })
