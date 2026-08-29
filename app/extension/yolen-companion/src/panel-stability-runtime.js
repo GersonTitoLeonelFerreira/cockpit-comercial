@@ -172,6 +172,32 @@
       return null
     }
 
+    const enrichmentAction =
+      action.getAttribute?.(
+        'data-yolen-action',
+      )
+    const enrichmentKey =
+      action.getAttribute?.(
+        'data-yolen-enrichment-key',
+      )
+
+    if (
+      enrichmentAction &&
+      enrichmentKey
+    ) {
+      return {
+        type: 'attribute-pair',
+        firstAttribute:
+          'data-yolen-action',
+        firstValue:
+          enrichmentAction,
+        secondAttribute:
+          'data-yolen-enrichment-key',
+        secondValue:
+          enrichmentKey,
+      }
+    }
+
     for (const attribute of ACTION_IDENTITY_ATTRIBUTES) {
       const value =
         action.getAttribute?.(attribute)
@@ -255,6 +281,29 @@
             action.getAttribute?.(
               identity.attribute,
             ) === identity.value,
+        ) || null
+      )
+    }
+
+    if (
+      identity.type ===
+      'attribute-pair'
+    ) {
+      return (
+        Array.from(
+          targetPanel.querySelectorAll(
+            ACTION_SELECTOR,
+          ),
+        ).find(
+          (action) =>
+            action.getAttribute?.(
+              identity.firstAttribute,
+            ) ===
+              identity.firstValue &&
+            action.getAttribute?.(
+              identity.secondAttribute,
+            ) ===
+              identity.secondValue,
         ) || null
       )
     }
@@ -876,6 +925,7 @@
           'PageDown',
           'Home',
           'End',
+          'Tab',
           ' ',
         ].includes(event.key)
       ) {
