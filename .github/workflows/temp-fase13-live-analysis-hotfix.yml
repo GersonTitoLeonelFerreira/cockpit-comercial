@@ -1,0 +1,61 @@
+name: TEMP FASE13 Live Analysis Hotfix
+
+on:
+  pull_request:
+    paths:
+      - 'app/extension/yolen-companion/**'
+      - 'app/lib/server/stateful-copilot-background-worker.ts'
+      - 'app/lib/server/stateful-copilot-background-worker.test.mjs'
+      - '.github/workflows/temp-fase13-live-analysis-hotfix.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  extension-first-retry:
+    name: Retry explícito após reload
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: >
+          node --conditions=react-server
+          --import ./scripts/register-typescript-test-loader.mjs
+          --test
+          app/extension/yolen-companion/tests/yolen-api-failed-job-first-retry.test.mjs
+
+  worker-v2-only:
+    name: Worker V2-only + recovery
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: >
+          node --conditions=react-server
+          --import ./scripts/register-typescript-test-loader.mjs
+          --test
+          app/lib/server/stateful-copilot-background-worker.test.mjs
+
+  deep-analysis-dom:
+    name: Deep analysis seller-facing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: >
+          node --conditions=react-server
+          --import ./scripts/register-typescript-test-loader.mjs
+          --test
+          app/extension/yolen-companion/tests/e3-dom/content-script-dom-deep-analysis-delivery.test.mjs
