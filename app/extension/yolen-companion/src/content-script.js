@@ -644,15 +644,39 @@
         return
       }
 
-      // Roda depois do handler de click real do botão (já disparado nesse
-      // mesmo evento): qualquer render pendente ficou retido em
-      // panelRegionPendingHtml e só é aplicado agora que o clique já
-      // concluiu.
-      queueMicrotask(() => {
+      const action =
+        event.target?.closest?.(
+          REGION_ACTION_SELECTOR,
+        )
+
+      const releaseRegionActionLock = () => {
         delete region.dataset
           .yolenRegionActionLock
         flushPendingPanelRegions()
-      })
+      }
+
+      // SUMMARY depende da ação nativa do navegador para alternar o
+      // atributo open do DETAILS. No Firefox, um microtask pode rodar
+      // antes dessa ação padrão terminar; se houver HTML pendente da mesma
+      // região, o DOM é substituído e o accordion volta fechado.
+      //
+      // Para SUMMARY, soltamos a trava apenas no próximo macrotask, quando
+      // o open já foi aplicado. Os demais botões mantêm o comportamento
+      // anterior, liberando logo após os handlers do clique.
+      if (
+        action?.tagName ===
+        'SUMMARY'
+      ) {
+        window.setTimeout(
+          releaseRegionActionLock,
+          0,
+        )
+        return
+      }
+
+      queueMicrotask(
+        releaseRegionActionLock,
+      )
     },
     true,
   )
