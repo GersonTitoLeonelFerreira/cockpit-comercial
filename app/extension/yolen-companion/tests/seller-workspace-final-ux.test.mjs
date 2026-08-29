@@ -135,7 +135,7 @@ test('abas AGORA ANÁLISE CLIENTE permanecem no fluxo e não flutuam sobre o con
   assert.doesNotMatch(block, /backdrop-filter/)
 })
 
-test('summary de accordion só libera a região depois da ação nativa do navegador', () => {
+test('accordions do CLIENTE são controlados pelo Companion e não pelo toggle nativo', () => {
   const start = contentScript.indexOf(
     "document.addEventListener(\n    'click',",
   )
@@ -148,16 +148,28 @@ test('summary de accordion só libera a região depois da ação nativa do naveg
 
   assert.notEqual(start, -1)
   assert.match(
-    block,
-    /action\?\.tagName ===\s*'SUMMARY'/,
+    contentScript,
+    /const controlledOpenClientIntelligenceGroups =\s*new Set\(\)/,
   )
   assert.match(
     block,
-    /window\.setTimeout\(\s*releaseRegionActionLock,\s*0,/,
+    /event\.preventDefault\(\)/,
   )
   assert.match(
     block,
-    /queueMicrotask\(\s*releaseRegionActionLock,/,
+    /clientDetails\.open =\s*nextOpen/,
+  )
+  assert.match(
+    block,
+    /controlledOpenClientIntelligenceGroups\.add/,
+  )
+  assert.match(
+    block,
+    /controlledOpenClientIntelligenceGroups\.delete/,
+  )
+  assert.match(
+    contentScript,
+    /controlledOpenClientIntelligenceGroups\.clear\(\)/,
   )
 })
 test('AGORA não é escondido e possui composer contextual', () => {
