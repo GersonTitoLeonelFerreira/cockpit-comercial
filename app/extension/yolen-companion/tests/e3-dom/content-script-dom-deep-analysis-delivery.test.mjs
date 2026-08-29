@@ -967,6 +967,24 @@ test('non-commercial deep substitui atomicamente mensagem/CTA comercial antigo',
     { timeoutMs: 8000 },
   )
 
+  const neutralText =
+    getAnalysisAreaNeutralText(document) ?? ''
+
+  assert.match(
+    neutralText,
+    /Conversa sem evidência comercial relevante\./,
+  )
+
+  assert.match(
+    neutralText,
+    /Nenhuma ação comercial necessária\./,
+  )
+
+  assert.doesNotMatch(
+    neutralText,
+    /não possui análise comercial atual/i,
+  )
+
   const panelText = getPanel(document)?.textContent ?? ''
   assert.doesNotMatch(panelText, /CTA ANTIGO NÃO PODE SOBREVIVER/)
   assert.doesNotMatch(panelText, /MENSAGEM V1 ANTIGA NÃO PODE SOBREVIVER/)
