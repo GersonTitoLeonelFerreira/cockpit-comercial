@@ -8,7 +8,6 @@
 // real de background.js roda sem nenhuma alteração.
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -20,26 +19,6 @@ import {
 
 const SESSION_KEY = 'yolen_companion_session'
 const DEVICE_KEY_STORAGE_KEY = 'yolen_companion_device_key'
-
-// TEMP-TEST-ENV-FASE12A — ver app/companion/connect/page.tsx e
-// background.js. Enquanto esse marcador existir no código real, o preview
-// desta branch tem prioridade sobre QUALQUER origem (sessão ou
-// message.baseUrl) em requestYolenWithToken — de propósito, para não
-// depender de reconectar uma sessão já capturada em produção. Os dois
-// testes abaixo, que documentavam a prioridade "definitiva" (sem o
-// TEMP_TEST_BASE_URL), foram ajustados para refletir esse estado
-// temporário; devem voltar ao comportamento original quando os
-// marcadores TEMP-TEST-ENV-FASE12A forem removidos.
-const backgroundSourceForTempTestUrl = readFileSync(
-  new URL('../src/background.js', import.meta.url),
-  'utf8',
-)
-
-const tempTestBaseUrlMatch = backgroundSourceForTempTestUrl.match(
-  /const TEMP_TEST_BASE_URL =\s*\n?\s*'([^']+)'/,
-)
-
-const TEMP_TEST_BASE_URL = tempTestBaseUrlMatch ? tempTestBaseUrlMatch[1] : null
 
 function futureIso(secondsFromNow) {
   return new Date(Date.now() + secondsFromNow * 1000).toISOString()
@@ -117,13 +96,10 @@ test('background/RESOLVE_LEAD: com sessão válida chama o endpoint certo com Be
 
   const call = fetchQueue.calls[0]
 
-  // TEMP-TEST-ENV-FASE12A: com o marcador presente, TEMP_TEST_BASE_URL
-  // vence a origem da sessão (ver bloco de testes de baseUrl mais abaixo).
-  const expectedUrl = TEMP_TEST_BASE_URL
-    ? `${TEMP_TEST_BASE_URL}/api/companion/resolve-lead`
-    : 'https://cockpit-comercial-vocn.vercel.app/api/companion/resolve-lead'
-
-  assert.equal(call.url, expectedUrl)
+  assert.equal(
+    call.url,
+    'https://cockpit-comercial-vocn.vercel.app/api/companion/resolve-lead',
+  )
   assert.equal(call.init.headers.Authorization, 'Bearer fake.token.value')
   assert.equal(JSON.parse(call.init.body).phone, '11988887777')
 })
@@ -196,7 +172,7 @@ test('background: resposta que não é JSON válido não derruba a chamada (payl
 // Origem da baseUrl: a origem que assinou a sessão tem prioridade
 // ---------------------------------------------------------------------
 
-test('background: com TEMP_TEST_BASE_URL definido, ele vence a origem da sessão (produção) e message.baseUrl (localhost)', async () => {
+test('background: origem autorizada da sessão prevalece sobre message.baseUrl', async () => {
   const fetchQueue = createFakeFetchQueue([async () => jsonResponse(200, { ok: true })])
   const bg = loadBackgroundScript({
     fetchFn: fetchQueue.fetchFn,
@@ -212,14 +188,13 @@ test('background: com TEMP_TEST_BASE_URL definido, ele vence a origem da sessão
     payload: {},
   })
 
-  const expectedUrl = TEMP_TEST_BASE_URL
-    ? `${TEMP_TEST_BASE_URL}/api/companion/resolve-lead`
-    : 'https://cockpit-comercial-vocn.vercel.app/api/companion/resolve-lead'
-
-  assert.equal(fetchQueue.calls[0].url, expectedUrl)
+  assert.equal(
+    fetchQueue.calls[0].url,
+    'https://cockpit-comercial-vocn.vercel.app/api/companion/resolve-lead',
+  )
 })
 
-test('background: baseUrl não reconhecida (nem produção nem localhost) cai para TEMP_TEST_BASE_URL (ou produção, sem o marcador)', async () => {
+test('background: origem de sessão não reconhecida cai para produção', async () => {
   const fetchQueue = createFakeFetchQueue([async () => jsonResponse(200, { ok: true })])
   const bg = loadBackgroundScript({
     fetchFn: fetchQueue.fetchFn,
@@ -234,11 +209,10 @@ test('background: baseUrl não reconhecida (nem produção nem localhost) cai pa
     payload: {},
   })
 
-  const expectedUrl = TEMP_TEST_BASE_URL
-    ? `${TEMP_TEST_BASE_URL}/api/companion/resolve-lead`
-    : 'https://cockpit-comercial-vocn.vercel.app/api/companion/resolve-lead'
-
-  assert.equal(fetchQueue.calls[0].url, expectedUrl)
+  assert.equal(
+    fetchQueue.calls[0].url,
+    'https://cockpit-comercial-vocn.vercel.app/api/companion/resolve-lead',
+  )
 })
 
 // ---------------------------------------------------------------------
