@@ -517,10 +517,22 @@ test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
     resolutionsByPhone: {
       [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
     },
-    analysisResult: analysisResultWithDeepJob({
-      summary: 'RESUMO RAPIDO A',
-      analysisJobId: 'a'.repeat(64),
-    }),
+    analysisResult: (() => {
+      let analyzeCallCount = 0
+
+      return () => {
+        analyzeCallCount += 1
+
+        return analysisResultWithDeepJob({
+          analysisJobId:
+            'a'.repeat(64),
+          deepStatus:
+            analyzeCallCount === 1
+              ? 'queued'
+              : 'failed',
+        })
+      }
+    })(),
     analysisJobStatusResult: {
       ok: true,
       data: {
@@ -591,8 +603,33 @@ test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
   assert.equal(
     retryAnalyzeCall?.payload
       ?.retry_failed_job,
-    true,
-    'o botão Tentar novamente precisa marcar explicitamente que um job failed deve ser reaberto',
+    undefined,
+    'retry_failed_job é interno da extensão e não deve chegar ao backend normal de análise',
+  )
+
+  await waitFor(
+    () =>
+      calls.some(
+        (call) =>
+          call.action ===
+          'RETRY_ANALYSIS_JOB',
+      ),
+  )
+
+  const retryJobCall =
+    calls.find(
+      (call) =>
+        call.action ===
+          'RETRY_ANALYSIS_JOB',
+    )
+
+  assert.deepEqual(
+    retryJobCall?.payload,
+    {
+      analysis_job_id:
+        'a'.repeat(64),
+    },
+    'o clique seller-facing precisa reabrir exatamente o job failed do snapshot atual',
   )
 
   const panelHtml = getPanel(document)?.innerHTML ?? ''
