@@ -135,6 +135,31 @@ test('abas AGORA ANÁLISE CLIENTE permanecem no fluxo e não flutuam sobre o con
   assert.doesNotMatch(block, /backdrop-filter/)
 })
 
+test('summary de accordion só libera a região depois da ação nativa do navegador', () => {
+  const start = contentScript.indexOf(
+    "document.addEventListener(\n    'click',",
+  )
+  const end = contentScript.indexOf(
+    'for (const eventName of [',
+    start,
+  )
+  const block =
+    contentScript.slice(start, end)
+
+  assert.notEqual(start, -1)
+  assert.match(
+    block,
+    /action\?\.tagName ===\s*'SUMMARY'/,
+  )
+  assert.match(
+    block,
+    /window\.setTimeout\(\s*releaseRegionActionLock,\s*0,/,
+  )
+  assert.match(
+    block,
+    /queueMicrotask\(\s*releaseRegionActionLock,/,
+  )
+})
 test('AGORA não é escondido e possui composer contextual', () => {
   assert.doesNotMatch(
     summaryView,
