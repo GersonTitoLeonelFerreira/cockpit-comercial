@@ -1,152 +1,134 @@
-# FASE 13 — FRENTE 3A — Validação integrada preparatória (AGORA + ANÁLISE + CLIENTE)
+# FASE 13 — FRENTE 3A — Gate final integrado (AGORA + ANÁLISE + CLIENTE)
 
-Auditoria + testes, sem competir com o PR #226 (Frente 2 — CLIENTE:
-persistência de inteligência comercial). Nenhum dos quatro arquivos
-pertencentes à Frente 2 foi alterado por esta frente:
-
-- `app/extension/yolen-companion/src/content-script.js`
-- `app/extension/yolen-companion/tests/b3-commercial-reading-ui.test.mjs`
-- `app/extension/yolen-companion/tests/e3-dom/content-script-dom-client-commercial-intelligence-persistence.test.mjs`
-- `app/extension/yolen-companion/tests/e3-test-support/load-content-script.mjs`
+Auditoria + testes do gate final seller-facing do Companion, executado
+**depois do merge do PR #226** (Frente 2 — CLIENTE: persistência de
+inteligência comercial + relacionamento real).
 
 ## Estado auditado
 
-- `main` SHA: `1fa39e9b561d4c1179c5b7c1fa18106791814a9c` (PR #225 merged).
-- Branch desta frente: `claude/fase13-frente3a-validacao-db2545`, criada
-  diretamente sobre o SHA acima (`git merge-base --is-ancestor origin/main
-  HEAD` confirma ancestralidade).
-- PR #226 (Frente 2): `OPEN`/`DRAFT`, branch `claude/fase13-frente2-cliente`,
-  HEAD `f1f1619348d6b43fd8fc3c541200d1f061611c8d`, base `main`
-  (`1fa39e9b...`) — mesmo SHA auditado aqui.
+- `main` SHA: `d3e114d0981b56ec82a32daf1bdd151d4574136e`.
+  Contém PR #225 (merged) e PR #226 (merged, merge commit = este SHA).
+- Branch desta frente: `claude/fase13-frente3a-validacao-db2545`.
+- `git merge-base HEAD origin/main` = `d3e114d0981b56ec82a32daf1bdd151d4574136e`
+  (branch integrada limpa contra a main atual via merge, sem conflitos).
+- Vercel da main: `READY`/`SUCCESS`.
 
-## Arquitetura das três superfícies (auditoria de código, `main`)
+## O que o PR #226 entregou (lido do histórico real, não do relato)
 
-Todas em `content-script.js`, delegando renderização pura para
-`companion-seller-information-view.js` (AGORA/ANÁLISE/CLIENTE-comercial) e
-`companion-client-context-view.js` (CLIENTE-relacionamento):
+Três commits, na main:
 
-- **AGORA** — `getNowAttentionSnapshotHtml()` (~10340) + `getCompanionLeadSummaryCardHtml()`.
-  Usa `getActiveCommercialReading()` (~5654) gateado por
-  `!conversationAnalysisLoading && !isCurrentAnalysisOutdated() &&
-  analysis_status === 'complete'`, e delega a decisão de qual alerta mostrar
-  (no máximo um, o de maior prioridade) para
-  `resolveSellerAttentionSnapshot()` em `companion-seller-information-view.js`
-  (~1359), que combina a leitura comercial com `state.companionClientContext`
-  (SLA/waiting) só quando este está `ready`.
-- **ANÁLISE** — `getDetailedAnalysisAreaHtml()` (~10147). Mesmo gate
-  (`getActiveCommercialReading()` + `!conversationAnalysisLoading &&
-  !conversationAnalysisError && !isCurrentAnalysisOutdated()`), com estados
-  DOM explícitos e mutuamente exclusivos: rico (`renderAnalysisArea`),
-  loading (`data-yolen-analysis-loading`), erro
-  (`data-yolen-analysis-error`), desatualizado
-  (`data-yolen-analysis-outdated`), progressivo (V1 sem detalhe) e vazio.
-- **CLIENTE** — `getClientInformationAreaHtml()` (~10255) = duas metades
-  independentes concatenadas: `commercialHtml` (mesmo
-  `getActiveCommercialReading()` + mesmo gate de AGORA/ANÁLISE — **em
-  `main`, sem persistência própria**) e `relationshipHtml`
-  (`getCompanionClientRelationshipCardHtml()`, buscado por
-  `loadCompanionClientContextForCurrentCycle()`, com seu próprio guard de
-  identidade `isStillCurrentContext()`). Estado vazio de nível superior
-  (`data-yolen-client-empty`) só aparece quando NENHUMA das duas metades
-  tem conteúdo.
+1. `f1f1619` — `getClientInformationAreaHtml()` passa a usar
+   `getLastKnownClientCommercialReading()` (um snapshot com identidade
+   própria: `companyId`/`cycleId`/`conversationKey`/`fingerprint`,
+   capturados na REQUISIÇÃO que originou o resultado, nunca relidos tarde
+   demais de `state`) em vez de `getActiveCommercialReading()` direto.
+   ANÁLISE/AGORA **não foram alterados** — continuam usando
+   `getActiveCommercialReading()` sozinho.
+2. `89c9e84` — corrige um race remanescente: `companyId` também passa a
+   ser capturado no momento da requisição (`companyIdAtRequest`), nunca
+   relido de `state` no momento da promoção; `isAnalysisResponseStillCurrent()`
+   ganha uma checagem de `companyId` — um resultado cuja empresa não bate
+   mais com a empresa ativa é rejeitado **antes** de chegar a
+   `conversationAnalysis`, não só antes de chegar ao snapshot de CLIENTE.
+3. `3bf09f5` — `loadYolenSession()` (o handler de `GET_ME`) agora detecta
+   troca de empresa ativa e, quando detecta, cancela todos os timers de
+   análise em voo (poll, watchdog, automático), zera `activeAnalysisAttempt`
+   e reseta todo o estado derivado de análise (incluindo o snapshot de
+   CLIENTE) — sem isso, uma tentativa presa da empresa antiga bloquearia
+   `canScheduleAutomaticAnalysis()` para a empresa nova para sempre.
 
-`clearLeadStateForNewConversation()` (~4695) é o reset de troca real de
-conversa: cancela todos os timers (debounce automático, poll profundo,
-watchdog), zera `activeAnalysisAttempt`, `conversationAnalysis`,
-`companionClientContext` e `companionLeadSummary`, e volta
-`activeSellerArea` para `'now'`. A proteção contra respostas tardias
-entre conversas é feita por uma guarda de identidade separada
-(`shouldApplyConversationRegistrationResult`, comparando `cycleId` +
-`conversationKey` capturados no início da requisição contra o estado
-atual), não pelo reset em si — o que a torna válida mesmo quando a resposta
-tardia chega bem depois do reset.
+## Matriz final dos 21 cenários
 
-**Achado relevante para o próximo merge:** em `main` (pré-PR #226), a
-metade comercial de CLIENTE usa **o mesmo** `getActiveCommercialReading()`
-de ANÁLISE/AGORA, sem identidade própria (`cycle_id`/`company_id`) e sem
-sobreviver a uma nova tentativa de análise em voo ou a uma falha — esse é
-exatamente o defeito que o PR #226 corrige. Nenhuma mudança foi feita aqui;
-os testes desta frente que dependem da correção estão listados como
-`PENDING_AFTER_PR_226` abaixo.
-
-## Matriz dos 16 cenários
-
-| # | Cenário | Status (main, sem PR #226) | Evidência |
+| # | Cenário | Status | Evidência |
 |---|---|---|---|
-| 1 | Conversa comercial ativa, leitura completa | PASS | `content-script-dom-seller-information-architecture.test.mjs` ("V2 rico distribui..."); reforçado por `content-script-dom-integrated-seller-gate.test.mjs` (novo) |
-| 2 | Conversa sem relevância comercial | PASS | `content-script-dom-seller-information-architecture.test.mjs` ("non-commercial neutraliza..."); `content-script-dom-deep-analysis-delivery.test.mjs` ("non_commercial atual preserva memória..."); `companion-seller-information-view.test.mjs` ("sessões non-commercial e uncertain...") |
-| 3 | Objeção aberta | PASS | `companion-seller-information-view.test.mjs:304` ("objeção fica em CLIENTE e ANÁLISE mostra somente risco..."); prova end-to-end nova em `content-script-dom-integrated-seller-gate.test.mjs` |
-| 4 | Cliente aguardando vendedor (SLA/waiting) | PASS | `content-script-dom-client-relationship.test.mjs` ("SLA configurado e estourado..."); `content-script-dom-client-relationship-live-refresh.test.mjs`; `companion-seller-information-view.test.mjs:489` |
-| 5 | Vendedor aguardando cliente | PASS | `companion-seller-information-view.test.mjs:518` (unitário); prova end-to-end nova em `content-script-dom-integrated-seller-gate.test.mjs` |
-| 6 | Análise profunda falha | PASS (AGORA/ANÁLISE) · PENDING_AFTER_PR_226 (persistência comercial de CLIENTE) | `content-script-dom-deep-analysis-delivery.test.mjs` ("failed: mostra falha..."). Relacionamento de CLIENTE continua funcional (fetch independente); a parte comercial de CLIENTE **hoje não persiste** através de uma falha — é exatamente o que o PR #226 entrega |
-| 7 | Client-context falha | PASS | `content-script-dom-client-relationship.test.mjs` ("quando a busca do relacionamento falha..."); prova cross-surface nova em `content-script-dom-integrated-seller-gate.test.mjs` |
-| 8 | A → B | PASS | `content-script-dom-stale-analysis-cross-conversation-race.test.mjs` (5/5), `content-script-dom-analysis-context-guard.test.mjs`, `content-script-dom-conversation-switch.test.mjs`, `content-script-dom-lead-create-conversation-isolation.test.mjs` |
-| 9 | A → B → A | PASS | `content-script-dom-analysis-context-guard.test.mjs` ("A -> B -> C -> volta para A...") |
-| 10 | Resultado tardio de A chega com B aberta | PASS | `content-script-dom-stale-analysis-cross-conversation-race.test.mjs`, `content-script-dom-analysis-request-lifecycle.test.mjs` ("A→B durante análise...") |
-| 11 | Nova mensagem após análise válida | PASS | `content-script-dom-deep-analysis-delivery.test.mjs` ("mutação de mensagem enquanto poll está em voo invalida succeeded...") — `isCurrentAnalysisOutdated()` é o mesmo gate usado por AGORA/ANÁLISE/CLIENTE em `main` |
-| 12 | Superseded job | PASS | `content-script-dom-deep-analysis-delivery.test.mjs` ("superseded: nunca aparece como resultado corrente") |
-| 13 | Manual em voo + gatilho automático | PASS | `content-script-dom-analysis-request-lifecycle.test.mjs` ("análise automática já agendada não compete...", "manual iniciada durante automática em voo tem prioridade...") |
-| 14 | Erro de rede temporário em polling | PASS (gap coberto nesta frente) | **Novo**: `content-script-dom-integrated-seller-gate.test.mjs` — nenhum teste pré-existente localizado exercitava especificamente uma rejeição isolada dentro de `runTick()` do poll profundo |
-| 15 | Relacionamento vazio | PASS | Sub-card: `content-script-dom-client-relationship-live-refresh.test.mjs` (`emptyClientContext`). Estado vazio de nível superior (`data-yolen-client-empty`, gap coberto nesta frente): **novo**, `content-script-dom-integrated-seller-gate.test.mjs` |
-| 16 | Sem mensagens suficientes / não inventar diagnóstico | PASS | `companion-seller-information-view.test.mjs` ("non-commercial e fallback V1 sem dados ricos nunca fabricam alerta", "not_configured e insufficient_evidence não inventam..."); `content-script-dom-deep-analysis-delivery.test.mjs` ("deep succeeded sem commercial_reading válido não é usado...") |
+| 1 | Leitura comercial completa | **PASS** | `content-script-dom-seller-information-architecture.test.mjs`; `content-script-dom-integrated-seller-gate.test.mjs` |
+| 2 | Sem relevância comercial | **PASS** | `content-script-dom-seller-information-architecture.test.mjs`; `content-script-dom-deep-analysis-delivery.test.mjs`; `companion-seller-information-view.test.mjs` |
+| 3 | Objeção aberta | **PASS** | `companion-seller-information-view.test.mjs:304`; `content-script-dom-integrated-seller-gate.test.mjs` (prova end-to-end: AGORA usa rótulo fixo, ANÁLISE nunca repete o texto da objeção, CLIENTE registra a objeção) |
+| 4 | Cliente aguardando vendedor | **PASS** | `content-script-dom-client-relationship.test.mjs`; `content-script-dom-client-relationship-live-refresh.test.mjs`; `companion-seller-information-view.test.mjs:489` |
+| 5 | Vendedor aguardando cliente | **PASS** | `companion-seller-information-view.test.mjs:518`; `content-script-dom-integrated-seller-gate.test.mjs` (AGORA sem `data-yolen-now-attention`, CLIENTE mostra "Aguardando resposta do cliente") |
+| 6 | Análise profunda falha | **PASS** | `content-script-dom-deep-analysis-delivery.test.mjs` ("failed: mostra falha..."); `content-script-dom-client-commercial-intelligence-persistence.test.mjs` (CLIENTE mantém conhecimento anterior); `content-script-dom-integrated-seller-gate.test.mjs` (novo: ANÁLISE mostra erro localizado + AGORA não usa resultado inválido + CLIENTE mantém conhecimento, as três juntas) |
+| 7 | Client-context falha | **PASS** | `content-script-dom-client-relationship.test.mjs`; `content-script-dom-integrated-seller-gate.test.mjs` (cross-surface: ANÁLISE/AGORA não contaminados, CLIENTE mostra as duas metades independentes — comercial OK, relacionamento em erro) |
+| 8 | A → B | **PASS** | `content-script-dom-stale-analysis-cross-conversation-race.test.mjs` (5/5); `content-script-dom-analysis-context-guard.test.mjs`; `content-script-dom-conversation-switch.test.mjs`; `content-script-dom-client-commercial-intelligence-persistence.test.mjs` |
+| 9 | A → B → A | **PASS** | `content-script-dom-analysis-context-guard.test.mjs` ("A -> B -> C -> volta para A...") |
+| 10 | Resultado tardio de A com B aberta | **PASS** | `content-script-dom-stale-analysis-cross-conversation-race.test.mjs`; `content-script-dom-analysis-request-lifecycle.test.mjs` |
+| 11 | Nova mensagem invalida leitura antiga | **PASS** | `content-script-dom-deep-analysis-delivery.test.mjs`; `content-script-dom-client-commercial-intelligence-persistence.test.mjs` ("CLIENTE deixa de apresentar a inteligência comercial como atual...") |
+| 12 | Superseded | **PASS** | `content-script-dom-deep-analysis-delivery.test.mjs` ("superseded: nunca aparece como resultado corrente") |
+| 13 | Manual em voo + automático | **PASS** | `content-script-dom-analysis-request-lifecycle.test.mjs` (2 testes dedicados) |
+| 14 | Erro transitório no polling | **PASS** | `content-script-dom-integrated-seller-gate.test.mjs` — reforçado nesta rodada com asserções reais em AGORA e CLIENTE (ausência antes da recuperação, presença depois), além de ANÁLISE |
+| 15 | Relacionamento vazio | **PASS** | Sub-card: `content-script-dom-client-relationship-live-refresh.test.mjs`. Estado vazio de nível superior: `content-script-dom-integrated-seller-gate.test.mjs` |
+| 16 | Conteúdo insuficiente | **PASS** | `companion-seller-information-view.test.mjs`; `content-script-dom-deep-analysis-delivery.test.mjs` ("deep succeeded sem commercial_reading válido não é usado...") |
+| 17 | Reanálise em voo | **PASS** | `content-script-dom-client-commercial-intelligence-persistence.test.mjs` (CLIENTE); `content-script-dom-integrated-seller-gate.test.mjs` (novo: prova as três superfícies juntas — CLIENTE mantém, ANÁLISE mostra loading da tentativa atual, AGORA fica quieta em vez de usar a leitura anterior como decisão atual) |
+| 18 | Reanálise falha | **PASS** | `content-script-dom-client-commercial-intelligence-persistence.test.mjs` (CLIENTE + ANÁLISE); `content-script-dom-integrated-seller-gate.test.mjs` (novo: adiciona a asserção de AGORA não usando o resultado inválido) |
+| 19 | Mesma conversa / novo ciclo | **PASS** | `content-script-dom-client-commercial-intelligence-persistence.test.mjs` ("CLIENTE nunca mostra a inteligência comercial de um ciclo antigo...") — troca real de `cycle_id` via o botão global "Atualizar", mesma `conversation_key`/mensagens |
+| 20 | Troca de empresa | **PASS** | `content-script-dom-client-commercial-intelligence-persistence.test.mjs` ("CLIENTE nunca mostra a inteligência comercial de outra empresa...") — troca real de `company_id` via `getMeResult` + botão "Atualizar" |
+| 21 | Troca de empresa com job em voo | **PASS** | `content-script-dom-client-commercial-intelligence-persistence.test.mjs`: `COMPANY_IN_FLIGHT_ISOLATION` (resultado de A nunca promovido depois da troca) + `COMPANY_IN_FLIGHT_RECOVERY` (loading não fica preso; B consegue analisar normalmente) |
 
-Nenhum cenário está `BLOCKED_BY_FRENTE_2` (nenhum defeito foi encontrado
-nos 4 arquivos bloqueados que exigisse correção ali). O único acoplamento
-real ao PR #226 é a persistência comercial de CLIENTE do cenário 6 —
-estrutural, não um defeito descoberto nesta auditoria.
+Nenhum item ficou `FAIL`. Nenhum item ficou `BLOCKED_BY_FRENTE_2` (regra
+não se aplica mais — PR #226 mergeado). **Nenhum item ficou
+`PENDING_AFTER_PR_226`** — a persistência comercial de CLIENTE com
+identidade própria, que era o único pendente do relatório anterior, foi
+provada `PASS` nesta rodada contra o produto real pós-merge.
 
-## Achado secundário (não bloqueante, fora do escopo desta frente)
+## O que mudou desde a rodada anterior (pré-merge)
 
-`handleConversationActivityForAutomaticAnalysis()` (`content-script.js`,
-~linha 4200) não tem nenhum call site em `content-script.js` — o gatilho
-automático real é `observeWhatsAppChanges()` chamando
-`scheduleAutomaticAnalysis()` diretamente. A função só é referenciada em
-`tests/automatic-analysis-message-change.test.mjs`. Não é um defeito
-funcional (nenhuma superfície depende dela), mas é código órfão.
-Classificação: **P3** (melhoria futura / limpeza). Fora do escopo desta
-frente corrigir — não está em nenhum dos 4 arquivos bloqueados, mas também
-não é um problema desta auditoria (nenhum dos 16 cenários depende dela).
+- `content-script-dom-integrated-seller-gate.test.mjs`: o teste de
+  recuperação de rede (cenário 14) ganhou asserções reais em AGORA
+  (ausência de `data-yolen-now-attention` antes da recuperação, presença
+  do rótulo correto depois) e CLIENTE (ausência do conhecimento antes,
+  presença depois) — antes só provava ANÁLISE diretamente.
+- Dois testes novos (cenários 17 e 18) provam AGORA + ANÁLISE + CLIENTE
+  juntos durante reanálise em voo e reanálise com falha — complementando
+  os 8 testes de `content-script-dom-client-commercial-intelligence-persistence.test.mjs`
+  (escopo exclusivo de CLIENTE, já muito rigorosos, mas sem necessidade de
+  também provar AGORA/ANÁLISE).
+- Nenhuma mudança de runtime. Nenhum arquivo fora do escopo desta frente
+  (teste integrado + esta documentação) foi tocado.
 
-## Novo artefato de teste
-
-`app/extension/yolen-companion/tests/e3-dom/content-script-dom-integrated-seller-gate.test.mjs`
-(5 testes, todos usando só as capacidades já existentes do harness
-`load-content-script.mjs` — nenhuma mudança no harness foi necessária):
-
-1. AGORA/ANÁLISE/CLIENTE concordam sobre a mesma objeção sem se
-   contradizer (prova end-to-end do que `companion-seller-information-view.test.mjs:304`
-   já prova no nível de função pura).
-2. Estado vazio de nível superior de CLIENTE (`data-yolen-client-empty`).
-3. Um tick isolado de erro de rede no polling profundo não vira falha
-   terminal.
-4. "Vendedor aguardando cliente" nunca cria urgência artificial em AGORA.
-5. Falha isolada de client-context não contamina ANÁLISE/AGORA nem apaga
-   a inteligência comercial já válida em CLIENTE.
-
-## Execução
+## Testes obrigatórios executados (main pós-#226)
 
 ```
-node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/extension/yolen-companion/tests/*.test.mjs
-→ 450/450 PASS
+content-script-dom-integrated-seller-gate.test.mjs                          → 7/7 PASS
+content-script-dom-client-commercial-intelligence-persistence.test.mjs      → 8/8 PASS
+content-script-dom-deep-analysis-delivery.test.mjs                          → 11/11 PASS
+content-script-dom-stale-analysis-cross-conversation-race.test.mjs          → 5/5 PASS
+content-script-dom-conversation-switch.test.mjs                             → 1/1 PASS
+seller-information-architecture + client-relationship +
+client-relationship-live-refresh + analysis-request-lifecycle (combinados) → 26/26 PASS
 
-node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/*.test.mjs
-→ 91/91 PASS (86 pré-existentes + 5 novos desta frente), 0 regressão
+Full e3-dom sweep (--test-force-exit tests/e3-dom/*.test.mjs)               → 101/101 PASS
+Flat extension suite (tests/*.test.mjs)                                     → 450/450 PASS
 ```
+
+Total: **551/551 subtestes PASS, 0 regressão, 0 skip.**
+
+## Contradições seller-facing procuradas
+
+Auditadas explicitamente as combinações AGORA/ANÁLISE/CLIENTE para: leitura
+rica completa, objeção aberta, non-commercial, waiting (cliente e
+vendedor), falha de análise, falha de client-context, reanálise em voo e
+reanálise falha. Nenhuma contradição do tipo "AGORA diz uma coisa, ANÁLISE
+diz outra, CLIENTE diz uma terceira" foi encontrada — as três superfícies
+sempre derivam da mesma leitura comercial (`getActiveCommercialReading()`
+para AGORA/ANÁLISE; snapshot com identidade equivalente para CLIENTE) e
+nunca divergem sobre qual é a "leitura atual".
 
 ## Confirmações
 
 - `AGORA_ISOLATION` = **PASS**
 - `ANALYSIS_ISOLATION` = **PASS**
-- `CLIENT_ISOLATION` = **PASS** (relacionamento, hoje) / **PENDING_AFTER_PR_226** (inteligência comercial com identidade própria — cycle/company)
+- `CLIENT_ISOLATION` = **PASS**
+- `CYCLE_ISOLATION` = **PASS** (cenário 19)
+- `COMPANY_ISOLATION` = **PASS** (cenário 20)
+- `COMPANY_IN_FLIGHT_RECOVERY` = **PASS** (cenário 21)
 - `STALE_PROTECTION` = **PASS**
 - `SUPERSEDED_PROTECTION` = **PASS**
-- `V2_ONLY` = **PASS** (nenhum caminho de runtime chama V1 quando `deep_analysis` está presente — comentários "V2 como único motor" em `content-script.js` ~13329/13714/13797, confirmado pelos testes de `deep-analysis-delivery`)
-- `automatic_crm_write=false` / `automatic_agenda_write=false` = **PASS** (todo `operations.crm`/`operations.agenda` do contrato exige `requires_human_confirmation`; nenhuma escrita automática encontrada nos caminhos auditados)
+- `V2_ONLY` = **PASS**
+- `automatic_crm_write=false` / `automatic_agenda_write=false` = **PASS**
 
 ## Status final
 
-**READY_FOR_FINAL_GATE** para tudo que é independente do PR #226. O único
-item pendente (`PENDING_AFTER_PR_226`) é a persistência comercial de
-CLIENTE com identidade própria (cycle/company/conversation) — escopo
-exclusivo da Frente 2. Após o merge do PR #226, esta mesma frente deve ser
-reexecutada contra a nova `main` para validar especificamente essa parte.
+**PASS — READY_FOR_CONTROL_MASTER_FINAL_GATE.**
+
+Nenhum defeito de runtime encontrado. Nenhuma pendência real registrada.
+Entrega ao Controle Mestre para a auditoria final e decisão sobre o
+encerramento da FASE 13.

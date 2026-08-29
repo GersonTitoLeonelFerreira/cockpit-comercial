@@ -340,6 +340,18 @@ function succeededStatus({ analysisJobId, watermark, result }) {
   }
 }
 
+function failedStatus({ analysisJobId, watermark }) {
+  return {
+    ok: true,
+    data: {
+      analysis_job_id: analysisJobId,
+      status: 'failed',
+      message_watermark: watermark,
+      result: null,
+    },
+  }
+}
+
 test(
   'AGORA, ANÁLISE e CLIENTE concordam sobre a mesma objeção e nunca a duplicam fora do lugar certo',
   async () => {
@@ -459,6 +471,15 @@ test(
 test(
   'um único tick de erro de rede no polling de análise profunda não vira falha terminal — próximo tick ainda é aplicado a AGORA/ANÁLISE/CLIENTE',
   async () => {
+    // Reforço pedido pelo Controle Mestre (gate final pós-#226): a versão
+    // anterior deste teste só fazia assertions reais em ANÁLISE. Usa
+    // objectionReading() (em vez de uma leitura quieta) para que a
+    // recuperação produza um sinal verificável tanto em AGORA
+    // (`Atenção · Objeção aberta`) quanto em CLIENTE
+    // (`OBJECAO_PRECO_ALTO_DEMAIS`) — e checa explicitamente a AUSÊNCIA
+    // desses sinais enquanto o tick ruim ainda não foi superado, para não
+    // aceitar um falso PASS por a análise simplesmente não ter chegado a
+    // lugar nenhum ainda.
     let statusCallCount = 0
 
     const { document, calls } = loadContentScript({
@@ -466,7 +487,7 @@ test(
         headerTitle: CONVERSATION_A_TITLE,
         messageId: 'msg-a1',
         prePlainText: '[10:00, 21/08/2026] Cliente A: ',
-        text: 'Quero saber mais sobre o plano.',
+        text: 'O preço ficou acima do que eu esperava.',
       }),
       resolutionsByPhone: {
         [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
@@ -491,7 +512,7 @@ test(
         return succeededStatus({
           analysisJobId: 'a'.repeat(64),
           watermark: 'wm-1',
-          result: deepOutput(quietCommercialReading()),
+          result: deepOutput(objectionReading()),
         })
       },
     })
@@ -507,7 +528,10 @@ test(
     await waitForSellerAreaOpen(document, 'analysis')
 
     // Logo após o primeiro tick (que falhou), a UI ainda precisa estar em
-    // loading — nunca em erro terminal por causa de uma falha isolada.
+    // loading — nunca em erro terminal por causa de uma falha isolada — e
+    // nenhuma das três superfícies pode ter fabricado conteúdo que ainda
+    // não existe (prova de que a asserção de "ausência" abaixo não passa
+    // só porque a análise nunca terminou).
     assert.ok(
       isAnalysisAreaLoading(document),
       'um único tick de rede ruim não pode tirar ANÁLISE do estado de loading',
@@ -517,16 +541,43 @@ test(
       'um único tick de rede ruim não pode virar erro terminal seller-facing',
     )
 
+    await waitForSellerAreaOpen(document, 'now')
+    assert.equal(
+      document.querySelector('[data-yolen-now-attention]'),
+      null,
+      'enquanto o tick ruim ainda não foi superado, AGORA não pode fabricar nenhum alerta',
+    )
+
+    await waitForSellerAreaOpen(document, 'client')
+    assert.doesNotMatch(
+      getSellerPanelText(document, 'client'),
+      /OBJECAO_PRECO_ALTO_DEMAIS/,
+      'enquanto o tick ruim ainda não foi superado, CLIENTE não pode antecipar conhecimento que ainda não foi promovido',
+    )
+
     // O próximo tick (backoff real de até 5s, ver DEEP_ANALYSIS_POLL_DELAYS_MS)
-    // deve suceder e promover o resultado normalmente.
+    // deve suceder e promover o resultado normalmente às três superfícies.
+    await waitForSellerAreaOpen(document, 'analysis')
     await waitFor(
-      () => getSellerPanelText(document, 'analysis').includes('PONTO_QUIETO_SEM_ATENCAO'),
+      () => getSellerPanelText(document, 'analysis').includes('Método comercial não configurado'),
       { timeoutMs: 8000 },
     )
 
     assert.ok(
       !isAnalysisAreaError(document),
       'depois da recuperação, ANÁLISE não deveria continuar marcada como erro',
+    )
+
+    await waitForSellerAreaOpen(document, 'now')
+    await waitFor(
+      () => getSellerPanelText(document, 'now').includes('Atenção · Objeção aberta'),
+      { timeoutMs: 8000 },
+    )
+
+    await waitForSellerAreaOpen(document, 'client')
+    await waitFor(
+      () => getSellerPanelText(document, 'client').includes('OBJECAO_PRECO_ALTO_DEMAIS'),
+      { timeoutMs: 8000 },
     )
   },
 )
@@ -671,6 +722,194 @@ test(
       clientText,
       /Falha simulada ao carregar relacionamento/,
       'o card de relacionamento, por sua vez, precisa mostrar seu próprio erro em vez de travar o painel inteiro',
+    )
+  },
+)
+
+// A partir daqui: cenários 17/18 da FASE 13 (pós-merge do PR #226/Frente 2 —
+// persistência comercial de CLIENTE com identidade própria). As 8
+// asserções de content-script-dom-client-commercial-intelligence-persistence.test.mjs
+// já provam a metade de CLIENTE destes dois cenários com rigor (inclusive
+// COMPANY_IN_FLIGHT_ISOLATION/RECOVERY); os dois testes abaixo cobrem o
+// que aquele arquivo (escopo exclusivo de CLIENTE) não precisava provar:
+// que AGORA e ANÁLISE, na MESMA janela em que CLIENTE preserva o
+// conhecimento anterior, continuam corretos — AGORA nunca usa a leitura
+// anterior como decisão atual (fica quieta, não "presa" na leitura velha)
+// e ANÁLISE reflete o estado real da tentativa em curso (loading ou erro
+// localizado), nunca o resultado antigo.
+
+test(
+  'reanálise em voo: CLIENTE mantém conhecimento anterior, ANÁLISE mostra loading da tentativa atual, AGORA não usa a leitura anterior como decisão atual',
+  async () => {
+    let analyzeCallCount = 0
+
+    const { document, calls } = loadContentScript({
+      initialHtml: pageHtmlFor({
+        headerTitle: CONVERSATION_A_TITLE,
+        messageId: 'msg-a1',
+        prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+        text: 'O preço ficou acima do que eu esperava.',
+      }),
+      resolutionsByPhone: {
+        [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+      },
+      analysisResult: async () => {
+        analyzeCallCount += 1
+
+        return analysisResultWithDeepJob({
+          analysisJobId: analyzeCallCount === 1 ? 'a'.repeat(64) : 'b'.repeat(64),
+          watermark: analyzeCallCount === 1 ? 'wm-1' : 'wm-2',
+        })
+      },
+      analysisJobStatusResult: async (requestPayload) => {
+        if (requestPayload.analysis_job_id === 'a'.repeat(64)) {
+          return succeededStatus({
+            analysisJobId: 'a'.repeat(64),
+            watermark: 'wm-1',
+            result: deepOutput(objectionReading()),
+          })
+        }
+
+        // Segunda tentativa (reanálise) fica presa em voo dentro da
+        // janela do teste — exatamente a janela em que conversationAnalysis
+        // já foi zerado (início de uma nova tentativa) mas nenhum
+        // resultado novo chegou ainda.
+        return new Promise(() => {})
+      },
+    })
+
+    await waitFor(
+      () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+    )
+
+    await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+    await waitForSellerAreaOpen(document, 'now')
+    await waitFor(
+      () => getSellerPanelText(document, 'now').includes('Atenção · Objeção aberta'),
+      { timeoutMs: 8000 },
+    )
+
+    await waitForSellerAreaOpen(document, 'client')
+    await waitFor(
+      () => getSellerPanelText(document, 'client').includes('OBJECAO_PRECO_ALTO_DEMAIS'),
+      { timeoutMs: 8000 },
+    )
+
+    // Dispara a reanálise (a mesma leitura anterior segue válida em
+    // CLIENTE até aqui) — o job da segunda tentativa nunca resolve.
+    await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+    await waitFor(() => analyzeCallCount === 2)
+
+    await waitForSellerAreaOpen(document, 'analysis')
+    await waitFor(
+      () => isAnalysisAreaLoading(document),
+      { timeoutMs: 8000 },
+    )
+    assert.ok(
+      isAnalysisAreaLoading(document),
+      'ANÁLISE precisa refletir a tentativa em curso (loading), não o resultado da tentativa anterior',
+    )
+
+    // AGORA não pode continuar "presa" mostrando a decisão da leitura
+    // anterior como se fosse a atual — getActiveCommercialReading() já foi
+    // zerado para esta nova tentativa, então AGORA fica quieta em vez de
+    // usar dado stale como base de decisão.
+    await waitForSellerAreaOpen(document, 'now')
+    assert.equal(
+      document.querySelector('[data-yolen-now-attention]'),
+      null,
+      'AGORA não pode usar a leitura da tentativa anterior como decisão atual enquanto a reanálise está em voo',
+    )
+
+    // CLIENTE, por outro lado, precisa continuar mostrando o conhecimento
+    // já promovido — é exatamente o que o PR #226 entrega.
+    await waitForSellerAreaOpen(document, 'client')
+    assert.match(
+      getSellerPanelText(document, 'client'),
+      /OBJECAO_PRECO_ALTO_DEMAIS/,
+      'CLIENTE precisa manter o conhecimento comercial já promovido enquanto a reanálise está em voo',
+    )
+  },
+)
+
+test(
+  'reanálise falha: CLIENTE mantém conhecimento anterior, ANÁLISE mostra erro localizado, AGORA não usa o resultado inválido da tentativa falha',
+  async () => {
+    let analyzeCallCount = 0
+
+    const { document, calls } = loadContentScript({
+      initialHtml: pageHtmlFor({
+        headerTitle: CONVERSATION_A_TITLE,
+        messageId: 'msg-a1',
+        prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+        text: 'O preço ficou acima do que eu esperava.',
+      }),
+      resolutionsByPhone: {
+        [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+      },
+      analysisResult: async () => {
+        analyzeCallCount += 1
+
+        return analysisResultWithDeepJob({
+          analysisJobId: analyzeCallCount === 1 ? 'a'.repeat(64) : 'b'.repeat(64),
+          watermark: analyzeCallCount === 1 ? 'wm-1' : 'wm-2',
+        })
+      },
+      analysisJobStatusResult: async (requestPayload) => {
+        if (requestPayload.analysis_job_id === 'a'.repeat(64)) {
+          return succeededStatus({
+            analysisJobId: 'a'.repeat(64),
+            watermark: 'wm-1',
+            result: deepOutput(objectionReading()),
+          })
+        }
+
+        return failedStatus({
+          analysisJobId: 'b'.repeat(64),
+          watermark: 'wm-2',
+        })
+      },
+    })
+
+    await waitFor(
+      () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+    )
+
+    await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+    await waitForSellerAreaOpen(document, 'client')
+    await waitFor(
+      () => getSellerPanelText(document, 'client').includes('OBJECAO_PRECO_ALTO_DEMAIS'),
+      { timeoutMs: 8000 },
+    )
+
+    await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+    await waitForSellerAreaOpen(document, 'analysis')
+    await waitFor(() => isAnalysisAreaError(document), { timeoutMs: 8000 })
+    assert.ok(
+      isAnalysisAreaError(document),
+      'ANÁLISE precisa mostrar o erro real e localizado da tentativa nova, sem escondê-lo',
+    )
+
+    // AGORA não pode usar o resultado inválido (a tentativa que falhou)
+    // como decisão atual.
+    await waitForSellerAreaOpen(document, 'now')
+    assert.equal(
+      document.querySelector('[data-yolen-now-attention]'),
+      null,
+      'AGORA não pode derivar nenhuma decisão do resultado inválido de uma tentativa de análise que falhou',
+    )
+
+    // CLIENTE precisa continuar mostrando o conhecimento válido anterior —
+    // o fingerprint/contexto (cycle/company/conversation) continuam
+    // válidos, só a tentativa mais nova falhou.
+    await waitForSellerAreaOpen(document, 'client')
+    assert.match(
+      getSellerPanelText(document, 'client'),
+      /OBJECAO_PRECO_ALTO_DEMAIS/,
+      'CLIENTE precisa manter o conhecimento comercial já promovido mesmo depois de uma tentativa de reanálise falhar',
     )
   },
 )
