@@ -64,6 +64,7 @@
     off_method: 50,
     open_question: 40,
     customer_objection: 30,
+    commercial_intent_uncertain: 25,
     improvement: 20,
     waiting: 10,
   }
@@ -1481,6 +1482,27 @@
       })
     }
 
+    const productFitUncertainty =
+      getActiveMissingDiscovery(
+        reading.customer,
+      ).find(
+        (item) =>
+          item?.topic === 'product_fit' &&
+          displayText(item.summary),
+      )
+
+    if (productFitUncertainty) {
+      addCandidate({
+        priority: 'medium',
+        source:
+          'commercial_intent_uncertain',
+        label:
+          'Intenção comercial ainda não confirmada',
+        copy:
+          productFitUncertainty.summary,
+      })
+    }
+
     for (const improvement of displayItems(reading.improvement_points)) {
       if (!displayText(improvement.summary)) {
         continue
@@ -1519,9 +1541,17 @@
       return ''
     }
 
+    const visualTone =
+      source ===
+        'commercial_intent_uncertain'
+        ? 'information'
+        : priority === 'critical'
+          ? 'risk'
+          : 'warning'
+
     return `
       <div
-        class="yolen-now-attention yolen-now-attention--${priority === 'critical' ? 'risk' : 'warning'}"
+        class="yolen-now-attention yolen-now-attention--${visualTone}"
         data-yolen-now-attention="${escapeHtml(source)}"
         data-yolen-alert-priority="${escapeHtml(priority)}"
       >
