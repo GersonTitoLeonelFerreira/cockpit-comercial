@@ -551,6 +551,50 @@ test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
     'retry deveria estar disponível depois de uma falha do V2',
   )
 
+  const analyzeCallsBeforeRetry =
+    calls.filter(
+      (call) =>
+        call.action ===
+          'ANALYZE_CONVERSATION' &&
+        call.payload?.cycle_id ===
+          CYCLE_A,
+    ).length
+
+  getAnalyzeButton(document).dispatchEvent(
+    new document.defaultView.Event(
+      'click',
+      { bubbles: true },
+    ),
+  )
+
+  await waitFor(
+    () =>
+      calls.filter(
+        (call) =>
+          call.action ===
+            'ANALYZE_CONVERSATION' &&
+          call.payload?.cycle_id ===
+            CYCLE_A,
+      ).length >
+        analyzeCallsBeforeRetry,
+  )
+
+  const retryAnalyzeCall =
+    calls.filter(
+      (call) =>
+        call.action ===
+          'ANALYZE_CONVERSATION' &&
+        call.payload?.cycle_id ===
+          CYCLE_A,
+    ).at(-1)
+
+  assert.equal(
+    retryAnalyzeCall?.payload
+      ?.retry_failed_job,
+    true,
+    'o botão Tentar novamente precisa marcar explicitamente que um job failed deve ser reaberto',
+  )
+
   const panelHtml = getPanel(document)?.innerHTML ?? ''
   assert.doesNotMatch(panelHtml, new RegExp('a'.repeat(64)))
   assert.doesNotMatch(panelHtml, /wm-1/)
