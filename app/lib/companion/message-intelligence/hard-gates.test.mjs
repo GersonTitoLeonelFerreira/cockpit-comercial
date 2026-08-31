@@ -739,3 +739,30 @@ test('58. uppercase GAP é tratado como framework explícito', () => {
   const result = evaluate(plan, generation(plan, [candidate]))
   assert.ok(candidateCodes(result).includes('FRAMEWORK_EXPOSED'))
 })
+
+test('59. frameworks são bloqueados independentemente de capitalização', () => {
+  const plan = noFactPlan()
+
+  for (const framework of [
+    'spin',
+    'sandler',
+    'jolt',
+    'meddpicc',
+    'challenger',
+    'cialdini',
+  ]) {
+    const candidate = noFactCandidate({
+      text: `Vou usar ${framework} nesta conversa.`,
+    })
+
+    const result = evaluate(
+      plan,
+      generation(plan, [candidate]),
+    )
+
+    assert.ok(
+      candidateCodes(result).includes('FRAMEWORK_EXPOSED'),
+      `${framework} deveria ser bloqueado`,
+    )
+  }
+})

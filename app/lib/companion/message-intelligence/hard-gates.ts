@@ -19,8 +19,8 @@ const JARGON = [
   /\bmessage\s+planner\b/iu, /\bprovenance\b/iu, /\bframework\b/iu,
 ] as const
 const FRAMEWORKS = [
-  /\bSPIN\b/u, /\bSandler\b/u, /\bJOLT\b/u, /\bMEDDPICC\b/u,
-  /\bChallenger\b/u, /\bCialdini\b/u, /\bGAP\b/u,
+  /\bSPIN\b/iu, /\bSandler\b/iu, /\bJOLT\b/iu, /\bMEDDPICC\b/iu,
+  /\bChallenger\b/iu, /\bCialdini\b/iu, /\bGAP\b/u,
 ] as const
 const COMMANDS = [
   /\bSEND_MESSAGE\b/iu, /\bAUTO_SEND\b/iu,
