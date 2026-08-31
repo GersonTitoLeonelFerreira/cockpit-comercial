@@ -2098,6 +2098,35 @@ function collectEvidence(
         ),
     )
 
+  const activeMemoryIds =
+    new Set(
+      activeCustomerItems(
+        snapshot,
+      )
+        .map(
+          entry =>
+            entry.item.memory_id,
+        )
+        .filter(
+          (
+            id,
+          ): id is string =>
+            typeof id === 'string',
+        ),
+    )
+
+  const situationMemoryEvidenceIds =
+    strategy.situation.evidence
+      .filter(
+        evidence =>
+          evidence.source ===
+            'memory',
+      )
+      .flatMap(
+        evidence =>
+          evidence.ids,
+      )
+
   const messageIds =
     stableUniqueStrings([
       ...strategy.situation.evidence
@@ -2109,6 +2138,11 @@ function collectEvidence(
         .flatMap(
           evidence =>
             evidence.ids,
+        ),
+      ...situationMemoryEvidenceIds
+        .filter(
+          id =>
+            activeMessages.has(id),
         ),
       ...traces.flatMap(
         trace =>
@@ -2122,35 +2156,20 @@ function collectEvidence(
 
   const memoryIds =
     stableUniqueStrings([
-      ...strategy.situation.evidence
+      ...situationMemoryEvidenceIds
         .filter(
-          evidence =>
-            evidence.source ===
-              'memory',
-        )
-        .flatMap(
-          evidence =>
-            evidence.ids,
+          id =>
+            activeMemoryIds.has(id),
         ),
       ...traces.flatMap(
         trace =>
           trace.evidence_memory_ids ??
           [],
       ),
-      ...activeCustomerItems(
-        snapshot,
-      )
-        .map(
-          entry =>
-            entry.item.memory_id,
-        )
-        .filter(
-          (
-            id,
-          ): id is string =>
-            typeof id === 'string',
-        ),
-    ])
+    ]).filter(
+      id =>
+        activeMemoryIds.has(id),
+    )
 
   return {
     message_ids: messageIds,
