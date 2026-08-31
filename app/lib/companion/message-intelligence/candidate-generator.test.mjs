@@ -1752,3 +1752,35 @@ test(
     )
   },
 )
+
+test(
+  '44. forbidden claim por paráfrase determinística também é bloqueado',
+  () => {
+    const plan =
+      basePlan({
+        fact_requirements: [
+          knownFact(
+            'fact.outcome',
+            'Garantimos o resultado.',
+          ),
+        ],
+        forbidden_content: [{
+          code:
+            'PRODUCT_FORBIDDEN_CLAIM',
+          source:
+            'commercial_product',
+          rule:
+            'Resultado garantido.',
+          provenance: [TRACE],
+        }],
+      })
+
+    const result =
+      generate(plan)
+
+    assert.equal(
+      result.candidates.length,
+      0,
+    )
+  },
+)
