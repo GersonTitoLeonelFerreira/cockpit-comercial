@@ -725,6 +725,31 @@ test('34. insufficient context vira needs information', () => {
   assert.equal(result.question_plan.purpose, 'obtain_context')
 })
 
+test('36. evidence mantém apenas IDs usados e separa mensagem de memória', () => {
+  const snapshot = setMessages(baseSnapshot(), ['Quero entender se serve.'])
+
+  snapshot.customer.missing_discovery.push(memory({
+    id: 'mem-missing-need',
+    kind: 'client.missing_discovery.need',
+    summary: 'Necessidade ainda precisa ser esclarecida.',
+    evidence: ['11'],
+  }))
+
+  snapshot.customer.preferences.push(memory({
+    id: 'mem-unrelated-preference',
+    kind: 'client.preference',
+    summary: 'Preferência não usada pelo movimento atual.',
+    evidence: ['11'],
+  }))
+
+  const result = plan(snapshot)
+
+  assert.ok(result.evidence.message_ids.includes('11'))
+  assert.ok(result.evidence.memory_ids.includes('mem-missing-need'))
+  assert.equal(result.evidence.memory_ids.includes('11'), false)
+  assert.equal(result.evidence.memory_ids.includes('mem-unrelated-preference'), false)
+})
+
 test('35. strategy permanece separada de communication style', () => {
   const shortSnapshot = setMessages(
     baseSnapshot(),
