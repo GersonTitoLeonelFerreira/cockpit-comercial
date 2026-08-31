@@ -194,19 +194,6 @@ const quotePricing = () => ({
   note: null,
 })
 
-const recurringPricing = () => ({
-  model: 'recurring',
-  amount: 199.9,
-  currency: 'BRL',
-  amount_qualifier:
-    'exact',
-  recurrence: 'monthly',
-  installment_count: null,
-  installment_amount_basis:
-    null,
-  note: null,
-})
-
 const objectionPlan = () =>
   basePlan({
     situation: {
