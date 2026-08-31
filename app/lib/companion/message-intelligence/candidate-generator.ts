@@ -601,13 +601,37 @@ function joinSegments(
   return rest ? first + '\n\n' + rest : first
 }
 
-function containsForbiddenContent(text: string, plan: MessagePlanV1): boolean {
-  const normalized = normalizeText(text)
+function semanticTokens(value: string): string[] {
+  return normalizeText(value)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/u)
+    .filter(token => token.length >= 4)
+    .map(token => token.length >= 6 ? token.slice(0, 6) : token)
+}
 
-  return plan.forbidden_content.some(item => {
-    const rule = normalizeText(item.rule)
-    return Boolean(rule) && normalized.includes(rule)
-  })
+function semanticRuleMatch(text: string, rule: string): boolean {
+  const normalizedText = normalizeText(text)
+  const normalizedRule = normalizeText(rule)
+
+  if (!normalizedRule) return false
+  if (normalizedText.includes(normalizedRule)) return true
+
+  const ruleTokens = new Set(semanticTokens(normalizedRule))
+  const textTokens = new Set(semanticTokens(normalizedText))
+  if (ruleTokens.size === 0) return false
+
+  let matches = 0
+  for (const token of ruleTokens) {
+    if (textTokens.has(token)) matches += 1
+  }
+
+  return matches / ruleTokens.size >= 0.75
+}
+
+function containsForbiddenContent(text: string, plan: MessagePlanV1): boolean {
+  return plan.forbidden_content.some(item =>
+    semanticRuleMatch(text, item.rule),
+  )
 }
 
 function containsInternalJargon(text: string): boolean {
