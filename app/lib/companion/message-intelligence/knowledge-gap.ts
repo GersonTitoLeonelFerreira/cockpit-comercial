@@ -87,6 +87,14 @@ export const KNOWLEDGE_GAP_REASONS = [
    * A informação foi superada por uma informação mais recente.
    */
   'superseded_by_newer_information',
+
+  /**
+   * A consulta encontrou mais de um item legítimo e a fonte não
+   * permite escolher um deles silenciosamente (ex.: memória do
+   * cliente consultada por `kind`, sem `memory_id`, com múltiplos
+   * itens ativos do mesmo kind — coexistir não é conflito).
+   */
+  'ambiguous_multiple_matches',
 ] as const
 
 export type KnowledgeGapReason =

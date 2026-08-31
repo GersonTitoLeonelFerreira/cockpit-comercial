@@ -380,7 +380,7 @@ test(
 // ----------------------------------------------------------------------------
 
 test(
-  '7 / 10. produto preserva allowed_claims e forbidden_claims (forbidden é proibido, não ausência)',
+  '7 / 10. produto preserva allowed_claims e forbidden_claims — a lista oficial de proibições é conhecimento resolvido, não um gap',
   () => {
     const snapshot = baseSnapshot()
 
@@ -413,9 +413,13 @@ test(
         },
       )
 
+    // Consultar a lista oficial de claims proibidos é conhecimento
+    // plenamente resolvido — nunca um Knowledge Gap. `status:
+    // 'forbidden'` fica reservado para a avaliação futura de uma
+    // afirmação candidata concreta.
     assert.equal(
       forbidden.status,
-      'forbidden',
+      'resolved',
     )
     assert.deepEqual(
       forbidden.value,
@@ -423,7 +427,7 @@ test(
         'Resultado garantido.',
       ],
     )
-    assert.notEqual(
+    assert.equal(
       forbidden.gap,
       null,
     )
@@ -431,7 +435,7 @@ test(
 )
 
 test(
-  'produto desconhecido vira missing, produto sem preço quote_required vira approval_required',
+  'produto desconhecido vira missing; quote_required é modelo de preço resolvido, não aprovação inferida',
   () => {
     const snapshot = baseSnapshot()
 
@@ -468,17 +472,21 @@ test(
         },
       )
 
+    // `quote_required` é, em si, um modelo de precificação conhecido
+    // e comprovado — não é, sozinho, uma aprovação/governança exigida
+    // por nenhuma fonte canônica. A Frente 2 não infere
+    // approval_required sem uma fonte que declare isso explicitamente.
     assert.equal(
       quoteResolution.status,
-      'approval_required',
+      'resolved',
     )
     assert.equal(
       quoteResolution.value.model,
       'quote_required',
     )
     assert.equal(
-      quoteResolution.gap.reason,
-      'requires_quote_or_approval',
+      quoteResolution.gap,
+      null,
     )
   },
 )
@@ -870,6 +878,113 @@ test(
   },
 )
 
+test(
+  'BLOCKER 3 — consulta por kind com múltiplos itens legítimos nunca escolhe um silenciosamente',
+  () => {
+    const base = baseSnapshot()
+
+    const secondObjective = {
+      memory_id: 'mem-objective-2',
+      collection: 'facts',
+      kind: 'client.objective',
+      summary:
+        'Reduzir tempo de resposta ao cliente.',
+      value: null,
+      confidence: 'medium',
+      memory_status: 'active',
+      created_in_state_version: 3,
+      updated_in_state_version: 3,
+      closed_in_state_version: null,
+      evidence_message_ids: [
+        '2',
+      ],
+      attributes: {},
+      provenance: [
+        createSourceTraceV1({
+          source_type: 'state_memory',
+          source_id:
+            'mem-objective-2',
+          source_version: '3',
+          observed_at:
+            base.reference_time,
+          source_cycle_id: ids.cycle_id,
+          inheritance:
+            'observed_in_current_cycle',
+          evidence_message_ids: [
+            '2',
+          ],
+        }),
+      ],
+    }
+
+    const snapshot =
+      withCustomerMemoryItem(
+        base,
+        secondObjective,
+      )
+
+    // Dois objetivos legítimos e distintos do mesmo kind coexistem —
+    // isso NUNCA é tratado como conflito.
+    const byKind =
+      resolveCustomerMemoryKnowledgeV1(
+        snapshot,
+        {
+          category: 'objectives',
+          kind: 'client.objective',
+        },
+      )
+
+    assert.equal(
+      byKind.status,
+      'insufficient_evidence',
+    )
+    assert.equal(
+      byKind.value,
+      null,
+    )
+    assert.equal(
+      byKind.gap.reason,
+      'ambiguous_multiple_matches',
+    )
+
+    // Determinístico: repetir a mesma consulta produz o mesmo
+    // resultado — nenhum item é escolhido arbitrariamente em nenhuma
+    // chamada.
+    const byKindAgain =
+      resolveCustomerMemoryKnowledgeV1(
+        snapshot,
+        {
+          category: 'objectives',
+          kind: 'client.objective',
+        },
+      )
+
+    assert.deepEqual(
+      byKind,
+      byKindAgain,
+    )
+
+    // memory_id desambigua e resolve o item específico normalmente.
+    const byMemoryId =
+      resolveCustomerMemoryKnowledgeV1(
+        snapshot,
+        {
+          category: 'objectives',
+          memory_id: 'mem-objective-2',
+        },
+      )
+
+    assert.equal(
+      byMemoryId.status,
+      'resolved',
+    )
+    assert.equal(
+      byMemoryId.value.summary,
+      'Reduzir tempo de resposta ao cliente.',
+    )
+  },
+)
+
 // ----------------------------------------------------------------------------
 // 14. provenance chega ao resultado
 // ----------------------------------------------------------------------------
@@ -1109,7 +1224,7 @@ test(
 
     assert.equal(
       pricingResolution.status,
-      'approval_required',
+      'resolved',
     )
     assert.equal(
       'approved' in pricingResolution,

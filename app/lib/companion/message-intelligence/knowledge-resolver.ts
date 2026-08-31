@@ -603,33 +603,6 @@ export function resolveProductClaimKnowledgeV1(
       provenance: product.provenance,
     })
 
-  const forbiddenOrResolved = (
-    claims: readonly string[],
-  ): KnowledgeProductResolutionV1 => {
-    const value = [
-      ...claims,
-    ]
-
-    if (value.length === 0) {
-      return resolved(value)
-    }
-
-    return createKnowledgeResolutionV1({
-      domain: 'commercial_product',
-      subject,
-      status: 'forbidden',
-      value,
-      gap: createKnowledgeGapV1({
-        domain: 'commercial_product',
-        reason: 'not_found',
-        sought,
-        explanation:
-          `Existem afirmações explicitamente proibidas para "${query.product_id}"${variantKey ? ` (variante ${variantKey})` : ''}.`,
-      }),
-      provenance: product.provenance,
-    })
-  }
-
   switch (query.claim) {
     case 'contract_conditions':
       return resolved([
@@ -648,10 +621,14 @@ export function resolveProductClaimKnowledgeV1(
       ])
 
     case 'forbidden_claims':
-      return forbiddenOrResolved(
-        variant?.forbidden_claims ??
-          definition.forbidden_claims,
-      )
+      // A lista oficial de claims proibidos é conhecimento plenamente
+      // resolvido (nunca um Knowledge Gap). `status: 'forbidden'`
+      // permanece reservado, no contrato, para a avaliação futura de
+      // uma afirmação candidata concreta — não para esta consulta.
+      return resolved([
+        ...(variant?.forbidden_claims ??
+          definition.forbidden_claims),
+      ])
 
     case 'limitations':
       return resolved([
@@ -775,23 +752,12 @@ export function resolveProductClaimKnowledgeV1(
         })
       }
 
-      if (pricing.model === 'quote_required') {
-        return createKnowledgeResolutionV1({
-          domain: 'commercial_product',
-          subject,
-          status: 'approval_required',
-          value: pricing,
-          gap: createKnowledgeGapV1({
-            domain: 'commercial_product',
-            reason: 'requires_quote_or_approval',
-            sought,
-            explanation:
-              `O preço de "${query.product_id}" depende de cotação individual antes de poder ser afirmado.`,
-          }),
-          provenance: product.provenance,
-        })
-      }
-
+      // `quote_required` é, em si, um modelo de precificação conhecido
+      // e comprovado pela fonte canônica — o valor exato depender de
+      // cotação individual não é, sozinho, uma aprovação/governança
+      // exigida por nenhuma fonte. `status: 'approval_required'`
+      // permanece reservado, no contrato, para quando uma fonte
+      // canônica declarar explicitamente que uma aprovação é exigida.
       return resolved(pricing)
     }
 
@@ -1064,15 +1030,33 @@ export function resolveCustomerMemoryKnowledgeV1(
     })
   }
 
-  const sortedMatches = [
-    ...matches,
-  ].sort((left, right) =>
-    (left.memory_id ?? '').localeCompare(
-      right.memory_id ?? '',
-    ),
-  )
+  if (
+    query.memory_id === undefined &&
+    matches.length > 1
+  ) {
+    // Múltiplos itens legítimos do mesmo `kind` podem coexistir (ex.:
+    // dois objetivos distintos do cliente) — isso NUNCA é um conflito
+    // e NUNCA é escolhido silenciosamente. A consulta precisa de
+    // `memory_id` para apontar um item específico.
+    return createKnowledgeResolutionV1({
+      domain: 'customer_memory',
+      subject,
+      status: 'insufficient_evidence',
+      gap: createKnowledgeGapV1({
+        domain: 'customer_memory',
+        reason: 'ambiguous_multiple_matches',
+        sought,
+        explanation:
+          `Existem ${matches.length} itens de memória do cliente para "${sought}". A consulta por kind não pode escolher um item silenciosamente — informe memory_id.`,
+        partial_sources:
+          matches.flatMap(
+            match => match.provenance,
+          ),
+      }),
+    })
+  }
 
-  const item = sortedMatches[0]
+  const item = matches[0]
 
   const {
     valid: validEvidence,
