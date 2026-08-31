@@ -300,7 +300,7 @@ export function selectTechniqueV1({
   ) {
     return {
       status:
-        'witheld_by_governance',
+        'withheld_by_governance',
       technique_key: null,
       commercial_move,
       framework_reference: null,
