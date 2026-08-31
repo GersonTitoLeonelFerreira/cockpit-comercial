@@ -148,6 +148,7 @@ test('15. approval required', () => {
   })
   assert.equal(result.governance.status, 'approval_required')
   assert.equal(result.governance.requires_human_approval, true)
+  assert.equal(result.technique_selection.status, 'withheld_by_governance')
 })
 
 test('16. técnica subordinada ao commercial move', () => {
