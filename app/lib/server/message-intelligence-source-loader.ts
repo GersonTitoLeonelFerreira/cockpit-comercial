@@ -24,9 +24,8 @@ import {
 } from '@/app/lib/companion/stateful-copilot-supabase-reader'
 
 import {
-  buildCanonicalLedger,
+  loadCanonicalLedgerAtReferenceTime,
   loadDurableMemorySeedForMissingState,
-  loadLedgerRows,
   loadStatefulCopilotCanonicalScope,
   selectStatefulDiagnosticMessages,
   type StatefulCopilotCanonicalScope,
@@ -126,8 +125,11 @@ async function loadConversationContext({
   commercial_context:
     MessageIntelligenceCommercialContextLoadV1
 }): Promise<MessageIntelligenceConversationContextLoadV1> {
-  const ledgerRows =
-    await loadLedgerRows({
+  const {
+    knownMessageIds,
+    canonicalMessages,
+  } =
+    await loadCanonicalLedgerAtReferenceTime({
       client:
         admin as unknown as
           StatefulCopilotRealContextSupabaseClient,
@@ -137,18 +139,6 @@ async function loadConversationContext({
         request.conversation_key,
       referenceTime:
         request.reference_time,
-    })
-
-  const {
-    knownMessageIds,
-    canonicalMessages,
-  } =
-    buildCanonicalLedger({
-      rows: ledgerRows,
-      companyId: request.company_id,
-      cycleId: request.cycle_id,
-      conversationKey:
-        request.conversation_key,
     })
 
   const diagnosticMessages =
