@@ -324,10 +324,7 @@ function requirementIsAnchored(
       return /\b(?:entendi|entendo|compreendo|faz sentido|seu ponto|esse ponto)\b/u.test(text)
 
     case 'answer_requested_information':
-      return (
-        facts > 0 ||
-        /\b(?:valor|preco|inclui|incluido|incluida|cotacao|condicao|prazo|suporte|pagamento|contrato)\b/u.test(text)
-      )
+      return facts > 0
 
     case 'explain_quote_requirement':
       return /\b(?:cotacao|confirmar|confirmacao|depende|calculad|verific)\b/u.test(text)
@@ -339,7 +336,7 @@ function requirementIsAnchored(
       )
 
     case 'address_objection':
-      return /\b(?:ponto|pesando|pesou|duvida|preocup|questao|percepcao)\b/u.test(text)
+      return /\b(?:pesando|pesou|duvida|preocup|questao|percepcao)\b/u.test(text)
 
     case 'clarify_missing_information':
       return hasQuestion
@@ -571,6 +568,25 @@ function scoreCommercialCoherence(
       'WEAK_ACKNOWLEDGEMENT',
       'commercial_coherence',
       'O reconhecimento do ponto do cliente é correto, mas sozinho não sustenta o restante do movimento planejado.',
+    ))
+  }
+
+  if (
+    plan.content_requirements.includes(
+      'address_objection',
+    ) &&
+    !requirementIsAnchored(
+      'address_objection',
+      plan,
+      candidate,
+    )
+  ) {
+    score -= 18
+    issues.push(issue(
+      'WEAK_COMMERCIAL_EXECUTION',
+      'commercial_coherence',
+      'A mensagem reconhece a objeção, mas não a trabalha de forma suficiente para executar o movimento planejado.',
+      'major',
     ))
   }
 

@@ -778,3 +778,56 @@ test('55. exports não incluem winner/final/selected nem geração', () => {
   assert.ok(exports.includes('createCommercialNaturalnessCriticV1'))
   assert.ok(exports.includes('critiqueMessageCandidatesV1'))
 })
+
+test('56. acknowledgement isolado não conta como tratamento completo de objeção', () => {
+  const p = objectionPlan()
+
+  const c = candidateFor(
+    p,
+    'Entendi seu ponto.',
+    {
+      fact_requirements_used: [],
+    },
+  )
+
+  const result = evaluate(p, [c])
+  const evaluated = critique(result)
+
+  assert.ok(
+    evaluated.dimensions.commercial_coherence < 80,
+  )
+
+  assert.ok(
+    issueCodes(result).includes(
+      'WEAK_COMMERCIAL_EXECUTION',
+    ),
+  )
+
+  assert.notEqual(
+    evaluated.status,
+    'recommended',
+  )
+})
+
+test('57. mera menção temática não conta como resposta factual', () => {
+  const p = plan()
+
+  const c = candidateFor(
+    p,
+    'Sobre o valor, posso te explicar.',
+    {
+      fact_requirements_used: [],
+    },
+  )
+
+  const result = evaluate(p, [c])
+  const evaluated = critique(result)
+
+  assert.ok(
+    evaluated.dimensions.commercial_coherence < 80,
+  )
+
+  assert.ok(
+    evaluated.dimensions.specificity < 80,
+  )
+})
