@@ -383,3 +383,87 @@ test(
     assert.equal(shadowEvaluation.selected_candidate_id, null)
   },
 )
+
+
+test(
+  'pipeline/harness: Critic weak-only válido termina em no_acceptable_message sem gerar fallback',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildDecisionPendingSnapshot(),
+      )
+
+    assert.ok(
+      run.hard_gate_result
+        .passed_candidate_ids.length > 0,
+    )
+
+    const weakCritiques =
+      run.critic_result.critiques.map(
+        (critique) => ({
+          ...critique,
+          status: 'weak',
+        }),
+      )
+
+    const weakCriticResult = {
+      ...run.critic_result,
+      status: 'evaluated',
+      critiques:
+        weakCritiques,
+      recommended_candidate_ids: [],
+      acceptable_candidate_ids: [],
+      weak_candidate_ids:
+        run.critic_result
+          .ranked_candidate_ids
+          .filter((candidateId) =>
+            weakCritiques.some(
+              (critique) =>
+                critique.candidate_id ===
+                candidateId,
+            ),
+          ),
+    }
+
+    const finalMessageResult =
+      selectFinalMessageV1({
+        message_plan:
+          run.plan,
+        generation_result:
+          run.generation_result,
+        hard_gate_result:
+          run.hard_gate_result,
+        critic_result:
+          weakCriticResult,
+      })
+
+    const shadowEvaluation =
+      createShadowEvaluationV1({
+        generation_result:
+          run.generation_result,
+        hard_gate_result:
+          run.hard_gate_result,
+        critic_result:
+          weakCriticResult,
+        final_message_result:
+          finalMessageResult,
+      })
+
+    assert.equal(
+      finalMessageResult.status,
+      'no_acceptable_message',
+    )
+    assert.equal(
+      finalMessageResult.final_message,
+      null,
+    )
+    assert.equal(
+      finalMessageResult.selected_candidate_id,
+      null,
+    )
+    assert.equal(
+      shadowEvaluation.would_surface_message,
+      false,
+    )
+  },
+)
