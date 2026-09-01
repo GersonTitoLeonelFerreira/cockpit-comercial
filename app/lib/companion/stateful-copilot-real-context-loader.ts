@@ -1031,7 +1031,7 @@ function requireScopeRecord(
   )
 }
 
-type NormalizedLedgerMessage = {
+export type NormalizedLedgerMessage = {
   id: string
   company_id: string
   cycle_id: string
@@ -1212,7 +1212,7 @@ function normalizeLedgerMessage(
   }
 }
 
-async function loadLedgerRows({
+export async function loadLedgerRows({
   client,
   companyId,
   cycleId,
@@ -1315,7 +1315,7 @@ async function loadLedgerRows({
   return rows
 }
 
-function buildCanonicalLedger({
+export function buildCanonicalLedger({
   rows,
   companyId,
   cycleId,
@@ -2281,6 +2281,274 @@ export async function loadDurableMemorySeedForMissingState({
   }
 }
 
+export type StatefulCopilotCanonicalScope = {
+  company: {
+    id: string
+    name: string
+    platform_status: string
+    onboarding_status: string
+  }
+
+  lead: {
+    id: string
+    company_id: string
+    name: string
+    phone: string | null
+    email: string | null
+    updated_at: string
+  }
+
+  cycle: {
+    id: string
+    company_id: string
+    lead_id: string
+    owner_user_id: string | null
+    status: string
+    next_action: string | null
+    next_action_date: string | null
+    updated_at: string
+  }
+
+  origin_cycle_id: string | null
+}
+
+export async function loadStatefulCopilotCanonicalScope({
+  client,
+  companyId,
+  cycleId,
+}: {
+  client: StatefulCopilotRealContextSupabaseClient
+  companyId: string
+  cycleId: string
+}): Promise<StatefulCopilotCanonicalScope> {
+  const [
+    companyValue,
+    cycleValue,
+  ] = await Promise.all([
+    readOptionalSingle(
+      client
+        .from('companies')
+        .select(COMPANY_FIELDS)
+        .eq('id', companyId),
+      'companies',
+    ),
+
+    readOptionalSingle(
+      client
+        .from('sales_cycles')
+        .select(CYCLE_FIELDS)
+        .eq('company_id', companyId)
+        .eq('id', cycleId),
+      'sales_cycles',
+    ),
+  ])
+
+  const companyRecord =
+    requireScopeRecord(
+      companyValue,
+      'companies',
+      'STATEFUL_COMPANY_NOT_FOUND',
+    )
+
+  const cycleRecord =
+    requireScopeRecord(
+      cycleValue,
+      'sales_cycles',
+      'STATEFUL_CYCLE_NOT_FOUND',
+    )
+
+  const loadedCompanyId =
+    requireUuid(
+      companyRecord.id,
+      'companies.id',
+    )
+
+  const cycleCompanyId =
+    requireUuid(
+      cycleRecord.company_id,
+      'sales_cycles.company_id',
+    )
+
+  const loadedCycleId =
+    requireUuid(
+      cycleRecord.id,
+      'sales_cycles.id',
+    )
+
+  if (
+    loadedCompanyId !== companyId ||
+    cycleCompanyId !== companyId ||
+    loadedCycleId !== cycleId
+  ) {
+    fail({
+      code: 'REAL_CONTEXT_SCOPE_MISMATCH',
+      message:
+        'Empresa e ciclo não pertencem ao escopo solicitado.',
+      statusCode: 500,
+      retryable: false,
+      path: 'scope',
+    })
+  }
+
+  const leadId =
+    requireUuid(
+      cycleRecord.lead_id,
+      'sales_cycles.lead_id',
+    )
+
+  const leadValue =
+    await readOptionalSingle(
+      client
+        .from('leads')
+        .select(LEAD_FIELDS)
+        .eq('company_id', companyId)
+        .eq('id', leadId),
+      'leads',
+    )
+
+  const leadRecord =
+    requireScopeRecord(
+      leadValue,
+      'leads',
+      'STATEFUL_LEAD_NOT_FOUND',
+    )
+
+  const leadCompanyId =
+    requireUuid(
+      leadRecord.company_id,
+      'leads.company_id',
+    )
+
+  const loadedLeadId =
+    requireUuid(
+      leadRecord.id,
+      'leads.id',
+    )
+
+  if (
+    leadCompanyId !== companyId ||
+    loadedLeadId !== leadId
+  ) {
+    fail({
+      code: 'REAL_CONTEXT_SCOPE_MISMATCH',
+      message:
+        'O lead retornado pertence a outro escopo.',
+      statusCode: 500,
+      retryable: false,
+      path: 'leads',
+    })
+  }
+
+  if (
+    leadRecord.deleted_at !== null &&
+    leadRecord.deleted_at !== undefined
+  ) {
+    fail({
+      code: 'STATEFUL_LEAD_NOT_AVAILABLE',
+      message:
+        'O lead vinculado ao ciclo não está disponível.',
+      statusCode: 409,
+      retryable: false,
+      path: 'leads.deleted_at',
+    })
+  }
+
+  const originCycleId =
+    cycleRecord.origin_cycle_id === null ||
+    cycleRecord.origin_cycle_id === undefined
+      ? null
+      : requireUuid(
+          cycleRecord.origin_cycle_id,
+          'sales_cycles.origin_cycle_id',
+        )
+
+  return {
+    company: {
+      id: loadedCompanyId,
+      name:
+        normalizeRequiredDatabaseText(
+          companyRecord.name,
+          'companies.name',
+        ),
+      platform_status:
+        normalizeRequiredDatabaseText(
+          companyRecord.platform_status,
+          'companies.platform_status',
+          100,
+        ),
+      onboarding_status:
+        normalizeRequiredDatabaseText(
+          companyRecord.onboarding_status,
+          'companies.onboarding_status',
+          100,
+        ),
+    },
+
+    lead: {
+      id: loadedLeadId,
+      company_id: leadCompanyId,
+      name:
+        normalizeRequiredDatabaseText(
+          leadRecord.name,
+          'leads.name',
+        ),
+      phone:
+        normalizeNullableText(
+          leadRecord.phone,
+          'leads.phone',
+        ),
+      email:
+        normalizeNullableText(
+          leadRecord.email,
+          'leads.email',
+        ),
+      updated_at:
+        normalizeDate(
+          leadRecord.updated_at,
+          'leads.updated_at',
+        ),
+    },
+
+    cycle: {
+      id: loadedCycleId,
+      company_id: cycleCompanyId,
+      lead_id: leadId,
+      owner_user_id:
+        cycleRecord.owner_user_id === null ||
+        cycleRecord.owner_user_id === undefined
+          ? null
+          : requireUuid(
+              cycleRecord.owner_user_id,
+              'sales_cycles.owner_user_id',
+            ),
+      status:
+        normalizeRequiredDatabaseText(
+          cycleRecord.status,
+          'sales_cycles.status',
+          100,
+        ),
+      next_action:
+        normalizeNullableText(
+          cycleRecord.next_action,
+          'sales_cycles.next_action',
+        ),
+      next_action_date:
+        normalizeNullableDate(
+          cycleRecord.next_action_date,
+          'sales_cycles.next_action_date',
+        ),
+      updated_at:
+        normalizeDate(
+          cycleRecord.updated_at,
+          'sales_cycles.updated_at',
+        ),
+    },
+
+    origin_cycle_id:
+      originCycleId,
+  }
+}
+
 export function createStatefulCopilotRealContextLoader(
   client:
     StatefulCopilotRealContextSupabaseClient,
@@ -2333,47 +2601,18 @@ export function createStatefulCopilotRealContextLoader(
       )
 
     const [
-      companyValue,
-      cycleValue,
+      canonicalScope,
       ledgerRows,
       cursorValue,
       publishedVersionRows,
       productRows,
     ] =
       await Promise.all([
-        readOptionalSingle(
-          client
-            .from(
-              'companies',
-            )
-            .select(
-              COMPANY_FIELDS,
-            )
-            .eq(
-              'id',
-              companyId,
-            ),
-          'companies',
-        ),
-
-        readOptionalSingle(
-          client
-            .from(
-              'sales_cycles',
-            )
-            .select(
-              CYCLE_FIELDS,
-            )
-            .eq(
-              'company_id',
-              companyId,
-            )
-            .eq(
-              'id',
-              cycleId,
-            ),
-          'sales_cycles',
-        ),
+        loadStatefulCopilotCanonicalScope({
+          client,
+          companyId,
+          cycleId,
+        }),
 
         loadLedgerRows({
           client,
@@ -2465,150 +2704,6 @@ export function createStatefulCopilotRealContextLoader(
         ),
       ])
 
-    const companyRecord =
-      requireScopeRecord(
-        companyValue,
-        'companies',
-        'STATEFUL_COMPANY_NOT_FOUND',
-      )
-
-    const cycleRecord =
-      requireScopeRecord(
-        cycleValue,
-        'sales_cycles',
-        'STATEFUL_CYCLE_NOT_FOUND',
-      )
-
-    const loadedCompanyId =
-      requireUuid(
-        companyRecord.id,
-        'companies.id',
-      )
-
-    const cycleCompanyId =
-      requireUuid(
-        cycleRecord.company_id,
-        'sales_cycles.company_id',
-      )
-
-    const loadedCycleId =
-      requireUuid(
-        cycleRecord.id,
-        'sales_cycles.id',
-      )
-
-    if (
-      loadedCompanyId !== companyId ||
-      cycleCompanyId !== companyId ||
-      loadedCycleId !== cycleId
-    ) {
-      fail({
-        code:
-          'REAL_CONTEXT_SCOPE_MISMATCH',
-
-        message:
-          'Empresa e ciclo não pertencem ao escopo solicitado.',
-
-        statusCode:
-          500,
-
-        retryable:
-          false,
-
-        path:
-          'scope',
-      })
-    }
-
-    const leadId =
-      requireUuid(
-        cycleRecord.lead_id,
-        'sales_cycles.lead_id',
-      )
-
-    const leadValue =
-      await readOptionalSingle(
-        client
-          .from(
-            'leads',
-          )
-          .select(
-            LEAD_FIELDS,
-          )
-          .eq(
-            'company_id',
-            companyId,
-          )
-          .eq(
-            'id',
-            leadId,
-          ),
-        'leads',
-      )
-
-    const leadRecord =
-      requireScopeRecord(
-        leadValue,
-        'leads',
-        'STATEFUL_LEAD_NOT_FOUND',
-      )
-
-    const leadCompanyId =
-      requireUuid(
-        leadRecord.company_id,
-        'leads.company_id',
-      )
-
-    const loadedLeadId =
-      requireUuid(
-        leadRecord.id,
-        'leads.id',
-      )
-
-    if (
-      leadCompanyId !== companyId ||
-      loadedLeadId !== leadId
-    ) {
-      fail({
-        code:
-          'REAL_CONTEXT_SCOPE_MISMATCH',
-
-        message:
-          'O lead retornado pertence a outro escopo.',
-
-        statusCode:
-          500,
-
-        retryable:
-          false,
-
-        path:
-          'leads',
-      })
-    }
-
-    if (
-      leadRecord.deleted_at !== null &&
-      leadRecord.deleted_at !== undefined
-    ) {
-      fail({
-        code:
-          'STATEFUL_LEAD_NOT_AVAILABLE',
-
-        message:
-          'O lead vinculado ao ciclo não está disponível.',
-
-        statusCode:
-          409,
-
-        retryable:
-          false,
-
-        path:
-          'leads.deleted_at',
-      })
-    }
-
     if (
       publishedVersionRows.length >
       1
@@ -2676,7 +2771,7 @@ export function createStatefulCopilotRealContextLoader(
           conversationKey,
 
         current_crm_status:
-          cycleRecord.status,
+          canonicalScope.cycle.status,
 
         reference_time:
           referenceTime,
@@ -2737,13 +2832,7 @@ export function createStatefulCopilotRealContextLoader(
       })
 
     const originCycleId =
-      cycleRecord.origin_cycle_id === null ||
-      cycleRecord.origin_cycle_id === undefined
-        ? null
-        : requireUuid(
-            cycleRecord.origin_cycle_id,
-            'sales_cycles.origin_cycle_id',
-          )
+      canonicalScope.origin_cycle_id
 
     const durableMemorySeed =
       stateRead.mode === 'missing'
@@ -2764,105 +2853,15 @@ export function createStatefulCopilotRealContextLoader(
 
       scope: {
         company: {
-          id:
-            loadedCompanyId,
-
-          name:
-            normalizeRequiredDatabaseText(
-              companyRecord.name,
-              'companies.name',
-            ),
-
-          platform_status:
-            normalizeRequiredDatabaseText(
-              companyRecord.platform_status,
-              'companies.platform_status',
-              100,
-            ),
-
-          onboarding_status:
-            normalizeRequiredDatabaseText(
-              companyRecord.onboarding_status,
-              'companies.onboarding_status',
-              100,
-            ),
+          ...canonicalScope.company,
         },
 
         lead: {
-          id:
-            loadedLeadId,
-
-          company_id:
-            leadCompanyId,
-
-          name:
-            normalizeRequiredDatabaseText(
-              leadRecord.name,
-              'leads.name',
-            ),
-
-          phone:
-            normalizeNullableText(
-              leadRecord.phone,
-              'leads.phone',
-            ),
-
-          email:
-            normalizeNullableText(
-              leadRecord.email,
-              'leads.email',
-            ),
-
-          updated_at:
-            normalizeDate(
-              leadRecord.updated_at,
-              'leads.updated_at',
-            ),
+          ...canonicalScope.lead,
         },
 
         cycle: {
-          id:
-            loadedCycleId,
-
-          company_id:
-            cycleCompanyId,
-
-          lead_id:
-            leadId,
-
-          owner_user_id:
-            cycleRecord.owner_user_id === null ||
-            cycleRecord.owner_user_id === undefined
-              ? null
-              : requireUuid(
-                  cycleRecord.owner_user_id,
-                  'sales_cycles.owner_user_id',
-                ),
-
-          status:
-            normalizeRequiredDatabaseText(
-              cycleRecord.status,
-              'sales_cycles.status',
-              100,
-            ),
-
-          next_action:
-            normalizeNullableText(
-              cycleRecord.next_action,
-              'sales_cycles.next_action',
-            ),
-
-          next_action_date:
-            normalizeNullableDate(
-              cycleRecord.next_action_date,
-              'sales_cycles.next_action_date',
-            ),
-
-          updated_at:
-            normalizeDate(
-              cycleRecord.updated_at,
-              'sales_cycles.updated_at',
-            ),
+          ...canonicalScope.cycle,
         },
 
         conversation_key:
