@@ -144,6 +144,49 @@ function shadowRunRow({ execution_status = 'queued', ...rest } = {}) {
   }
 }
 
+
+function successfulRunFixture() {
+  return {
+    snapshot: {
+      contract_version: 'message-context-snapshot-v1',
+    },
+    strategy: {
+      contract_version: 'commercial-strategy-result-v1',
+    },
+    plan: {
+      contract_version: 'message-plan-v1',
+    },
+    generation_result: {
+      contract_version: 'candidate-generation-result-v1',
+    },
+    hard_gate_result: {
+      contract_version: 'hard-gate-v1',
+      status: 'all_passed',
+    },
+    critic_result: {
+      contract_version: 'commercial-naturalness-critic-v1',
+    },
+    final_message_result: {
+      contract_version: 'final-message-result-v1',
+      final_message: null,
+    },
+    shadow_evaluation: {
+      contract_version: 'message-intelligence-shadow-v1',
+      final_status: 'no_acceptable_message',
+      selected_candidate_id: null,
+      candidate_count: 1,
+      hard_gate_pass_count: 1,
+      critic_evaluated_count: 1,
+      selected_critic_status: null,
+      selected_overall_score: null,
+      would_surface_message: false,
+      automatic_send: false,
+      automatic_crm_write: false,
+      automatic_agenda_write: false,
+    },
+  }
+}
+
 test(
   'execução bem-sucedida persiste a run com safety flags sempre false e nenhuma outra tabela é escrita',
   async () => {
@@ -385,5 +428,372 @@ test(
     assert.equal(persisted.execution_status, 'failed')
     assert.equal(persisted.failure_code, 'SAFETY_VIOLATION')
     assert.equal(persisted.automatic_send, false)
+  },
+)
+
+
+test(
+  'read error faz o worker falhar para retry antes de executar o pipeline',
+  async () => {
+    const {
+      admin,
+    } =
+      createMessageIntelligenceFakeAdmin({
+        ...baseFixtures(),
+        shadowRuns: [
+          shadowRunRow(),
+        ],
+        resolveInterceptor({
+          table,
+          operation,
+        }) {
+          if (
+            table === 'message_intelligence_shadow_runs' &&
+            operation === 'select'
+          ) {
+            return {
+              data: null,
+              error: {
+                message: 'read failed',
+              },
+            }
+          }
+
+          return null
+        },
+      })
+
+    let pipelineCalls = 0
+
+    await assert.rejects(
+      processMessageIntelligenceShadowMessage(
+        buildJob(),
+        {
+          create_admin_client:
+            () => admin,
+          run_message_intelligence:
+            async () => {
+              pipelineCalls += 1
+              return successfulRunFixture()
+            },
+        },
+      ),
+      /MESSAGE_INTELLIGENCE_SHADOW_RUN_READ_FAILED/,
+    )
+
+    assert.equal(
+      pipelineCalls,
+      0,
+    )
+  },
+)
+
+test(
+  'claim update error faz o worker falhar para retry e não executa MIE',
+  async () => {
+    const {
+      admin,
+    } =
+      createMessageIntelligenceFakeAdmin({
+        ...baseFixtures(),
+        shadowRuns: [
+          shadowRunRow(),
+        ],
+        resolveInterceptor({
+          table,
+          operation,
+          patch,
+        }) {
+          if (
+            table === 'message_intelligence_shadow_runs' &&
+            operation === 'update' &&
+            patch?.execution_status === 'running'
+          ) {
+            return {
+              data: null,
+              error: {
+                message: 'claim update failed',
+              },
+            }
+          }
+
+          return null
+        },
+      })
+
+    let pipelineCalls = 0
+
+    await assert.rejects(
+      processMessageIntelligenceShadowMessage(
+        buildJob(),
+        {
+          create_admin_client:
+            () => admin,
+          run_message_intelligence:
+            async () => {
+              pipelineCalls += 1
+              return successfulRunFixture()
+            },
+        },
+      ),
+      /MESSAGE_INTELLIGENCE_SHADOW_CLAIM_UPDATE_FAILED/,
+    )
+
+    assert.equal(
+      pipelineCalls,
+      0,
+    )
+  },
+)
+
+test(
+  'success update error não é tratado como sucesso: worker falha para retry',
+  async () => {
+    const {
+      admin,
+      tables,
+    } =
+      createMessageIntelligenceFakeAdmin({
+        ...baseFixtures(),
+        shadowRuns: [
+          shadowRunRow(),
+        ],
+        resolveInterceptor({
+          table,
+          operation,
+          patch,
+        }) {
+          if (
+            table === 'message_intelligence_shadow_runs' &&
+            operation === 'update' &&
+            patch?.execution_status === 'succeeded'
+          ) {
+            return {
+              data: null,
+              error: {
+                message: 'success persist failed',
+              },
+            }
+          }
+
+          return null
+        },
+      })
+
+    await assert.rejects(
+      processMessageIntelligenceShadowMessage(
+        buildJob(),
+        {
+          create_admin_client:
+            () => admin,
+          run_message_intelligence:
+            async () =>
+              successfulRunFixture(),
+        },
+      ),
+      /MESSAGE_INTELLIGENCE_SHADOW_SUCCESS_UPDATE_FAILED/,
+    )
+
+    assert.equal(
+      tables.message_intelligence_shadow_runs[0]
+        .execution_status,
+      'running',
+    )
+  },
+)
+
+test(
+  'failure update error faz o worker falhar para retry em vez de engolir a falha terminal',
+  async () => {
+    const {
+      admin,
+      tables,
+    } =
+      createMessageIntelligenceFakeAdmin({
+        ...baseFixtures(),
+        shadowRuns: [
+          shadowRunRow(),
+        ],
+        resolveInterceptor({
+          table,
+          operation,
+          patch,
+        }) {
+          if (
+            table === 'message_intelligence_shadow_runs' &&
+            operation === 'update' &&
+            patch?.execution_status === 'failed'
+          ) {
+            return {
+              data: null,
+              error: {
+                message: 'failure persist failed',
+              },
+            }
+          }
+
+          return null
+        },
+      })
+
+    await assert.rejects(
+      processMessageIntelligenceShadowMessage(
+        buildJob(),
+        {
+          create_admin_client:
+            () => admin,
+          run_message_intelligence:
+            async () => {
+              throw new Error(
+                'pipeline failed before terminal persist',
+              )
+            },
+        },
+      ),
+      /MESSAGE_INTELLIGENCE_SHADOW_FAILURE_UPDATE_FAILED/,
+    )
+
+    assert.equal(
+      tables.message_intelligence_shadow_runs[0]
+        .execution_status,
+      'running',
+    )
+  },
+)
+
+test(
+  'claim lost no compare-and-set impede execução sem promover ownership inexistente',
+  async () => {
+    const {
+      admin,
+    } =
+      createMessageIntelligenceFakeAdmin({
+        ...baseFixtures(),
+        shadowRuns: [
+          shadowRunRow(),
+        ],
+        resolveInterceptor({
+          table,
+          operation,
+          patch,
+        }) {
+          if (
+            table === 'message_intelligence_shadow_runs' &&
+            operation === 'update' &&
+            patch?.execution_status === 'running'
+          ) {
+            return {
+              data: [],
+              error: null,
+            }
+          }
+
+          return null
+        },
+      })
+
+    let pipelineCalls = 0
+
+    await processMessageIntelligenceShadowMessage(
+      buildJob(),
+      {
+        create_admin_client:
+          () => admin,
+        run_message_intelligence:
+          async () => {
+            pipelineCalls += 1
+            return successfulRunFixture()
+          },
+      },
+    )
+
+    assert.equal(
+      pipelineCalls,
+      0,
+    )
+  },
+)
+
+test(
+  'concorrência: segundo worker não executa enquanto o primeiro possui claim ativo',
+  async () => {
+    const {
+      admin,
+      tables,
+    } =
+      createMessageIntelligenceFakeAdmin({
+        ...baseFixtures(),
+        shadowRuns: [
+          shadowRunRow(),
+        ],
+      })
+
+    let pipelineCalls = 0
+    let releaseFirst
+    let signalStarted
+
+    const started =
+      new Promise((resolve) => {
+        signalStarted = resolve
+      })
+
+    const waitFirst =
+      new Promise((resolve) => {
+        releaseFirst = resolve
+      })
+
+    const first =
+      processMessageIntelligenceShadowMessage(
+        buildJob(),
+        {
+          create_admin_client:
+            () => admin,
+          create_claim_token:
+            () =>
+              '70000000-0000-4000-8000-000000000001',
+          run_message_intelligence:
+            async () => {
+              pipelineCalls += 1
+              signalStarted()
+              await waitFirst
+              return successfulRunFixture()
+            },
+        },
+      )
+
+    await started
+
+    await assert.rejects(
+      processMessageIntelligenceShadowMessage(
+        buildJob(),
+        {
+          create_admin_client:
+            () => admin,
+          create_claim_token:
+            () =>
+              '70000000-0000-4000-8000-000000000002',
+          run_message_intelligence:
+            async () => {
+              pipelineCalls += 1
+              return successfulRunFixture()
+            },
+        },
+      ),
+      /MESSAGE_INTELLIGENCE_SHADOW_RUN_ALREADY_CLAIMED/,
+    )
+
+    assert.equal(
+      pipelineCalls,
+      1,
+    )
+
+    releaseFirst()
+    await first
+
+    assert.equal(
+      tables.message_intelligence_shadow_runs[0]
+        .execution_status,
+      'succeeded',
+    )
   },
 )
