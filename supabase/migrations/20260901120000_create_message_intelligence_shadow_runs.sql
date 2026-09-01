@@ -47,6 +47,10 @@ create table
       not null
       default 'queued',
 
+    claim_token uuid,
+
+    claimed_at timestamp with time zone,
+
     failure_code text,
 
     failure_detail text,
@@ -110,6 +114,21 @@ create table
           'running',
           'succeeded',
           'failed'
+        )
+      ),
+
+    constraint
+      message_intelligence_shadow_runs_claim_state_check
+      check (
+        (
+          execution_status = 'running'
+          and claim_token is not null
+          and claimed_at is not null
+        )
+        or (
+          execution_status <> 'running'
+          and claim_token is null
+          and claimed_at is null
         )
       ),
 
