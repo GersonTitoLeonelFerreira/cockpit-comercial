@@ -228,6 +228,24 @@ async function loadLegacyCurrentInteractionAtReferenceTime({
           CanonicalConversationMessage =>
           message !== null,
       )
+      .sort((left, right) => {
+        const leftTime =
+          Date.parse(
+            left.occurred_at,
+          )
+        const rightTime =
+          Date.parse(
+            right.occurred_at,
+          )
+
+        if (leftTime !== rightTime) {
+          return leftTime - rightTime
+        }
+
+        return left.message_key.localeCompare(
+          right.message_key,
+        )
+      })
 
   return buildCurrentInteraction(
     legacyMessages,
