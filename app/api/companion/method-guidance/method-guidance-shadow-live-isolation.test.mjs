@@ -396,11 +396,39 @@ function generateMessageRequest({ token }) {
         cycle_id: IDS.cycle,
         conversation_key: CONVERSATION_KEY,
         operation: 'generate_message',
+        // composeSellerMessage exige working_summary não vazio antes
+        // de chamar o provider (precondição própria, nada relacionada
+        // ao cutoff). Sem isso, o provider nunca é chamado e qualquer
+        // asserção sobre providerBox.calls fica vazia por vacuidade.
+        working_summary:
+          'Cliente perguntou sobre condições comerciais em conversas anteriores.',
         seller_intent:
           'Quero confirmar que vou verificar o assunto com calma.',
       }),
     },
   )
+}
+
+async function waitFor(
+  conditionFn,
+  {
+    timeoutMs = 1000,
+    intervalMs = 5,
+  } = {},
+) {
+  const start = Date.now()
+
+  while (!conditionFn()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(
+        'waitFor: condição não satisfeita a tempo.',
+      )
+    }
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, intervalMs),
+    )
+  }
 }
 
 async function flushAfterCallbacks() {
@@ -807,7 +835,13 @@ test(
     const afterPromise =
       flushAfterCallbacks()
 
-    await Promise.resolve()
+    // O enqueue faz um INSERT (assíncrono) antes de chamar send() —
+    // esperar a condição real em vez de assumir quantos hops de
+    // microtask isso leva evita acoplar o teste aos detalhes internos
+    // de enqueueMessageIntelligenceShadowRunV1.
+    await waitFor(
+      () => sendBox.calls.length > 0,
+    )
 
     assert.equal(
       sendBox.calls.length,
