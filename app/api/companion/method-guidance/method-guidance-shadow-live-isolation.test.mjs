@@ -43,8 +43,38 @@ import {
 
 installFakeSupabaseEnv()
 
-const adminBox = { admin: null }
-const sendBox = { calls: [], shouldFail: false }
+const realNextServer =
+  await import('next/server')
+
+const afterBox = {
+  callbacks: [],
+}
+
+mock.module('next/server', {
+  namedExports: {
+    NextResponse:
+      realNextServer.NextResponse,
+    after(callback) {
+      afterBox.callbacks.push(callback)
+    },
+  },
+})
+
+const adminBox = {
+  admin: null,
+  tables: null,
+}
+
+const sendBox = {
+  calls: [],
+  shouldFail: false,
+  pending: null,
+}
+
+const providerBox = {
+  calls: [],
+  onCall: null,
+}
 
 mock.module('@supabase/supabase-js', {
   namedExports: {
@@ -56,6 +86,10 @@ mock.module('@vercel/queue', {
   namedExports: {
     send: async (topic, message, options) => {
       sendBox.calls.push({ topic, message, options })
+
+      if (sendBox.pending) {
+        await sendBox.pending
+      }
 
       if (sendBox.shouldFail) {
         throw new Error('fake queue publish failure')
@@ -72,6 +106,12 @@ mock.module(
     namedExports: {
       createStatefulCopilotOpenAIProvider:
         () => async (request) => {
+          providerBox.calls.push(request)
+
+          if (providerBox.onCall) {
+            await providerBox.onCall(request)
+          }
+
           const isReview =
             'changed' in
             (request.structured_output_format?.schema
@@ -219,6 +259,7 @@ function createFakeAdmin({
       },
     },
     shadowRuns,
+    tables,
   }
 }
 
@@ -312,7 +353,23 @@ function generateMessageRequest({ token }) {
   )
 }
 
-async function callGenerateMessage() {
+async function flushAfterCallbacks() {
+  const callbacks =
+    afterBox.callbacks.splice(
+      0,
+      afterBox.callbacks.length,
+    )
+
+  await Promise.all(
+    callbacks.map((callback) =>
+      callback(),
+    ),
+  )
+}
+
+async function callGenerateMessage({
+  flushAfter = true,
+} = {}) {
   const token = buildToken({
     sub: IDS.user,
     companyId: IDS.company,
@@ -323,6 +380,10 @@ async function callGenerateMessage() {
   )
 
   const body = await response.json()
+
+  if (flushAfter) {
+    await flushAfterCallbacks()
+  }
 
   return { response, body }
 }
@@ -356,6 +417,10 @@ test(
   async () => {
     sendBox.shouldFail = false
     sendBox.calls = []
+    sendBox.pending = null
+    providerBox.calls = []
+    providerBox.onCall = null
+    afterBox.callbacks = []
 
     const { admin } =
       createFakeAdmin(baseFixtures())
@@ -396,6 +461,10 @@ test(
 
     sendBox.shouldFail = false
     sendBox.calls = []
+    sendBox.pending = null
+    providerBox.calls = []
+    providerBox.onCall = null
+    afterBox.callbacks = []
     const { response: okResponse, body: okBody } =
       await callGenerateMessage()
 
@@ -445,6 +514,10 @@ test(
     adminBox.admin = admin
     sendBox.shouldFail = false
     sendBox.calls = []
+    sendBox.pending = null
+    providerBox.calls = []
+    providerBox.onCall = null
+    afterBox.callbacks = []
 
     const { response, body } =
       await callGenerateMessage()
@@ -468,6 +541,10 @@ test(
 
     sendBox.shouldFail = false
     sendBox.calls = []
+    sendBox.pending = null
+    providerBox.calls = []
+    providerBox.onCall = null
+    afterBox.callbacks = []
 
     const { body } =
       await callGenerateMessage()
@@ -498,5 +575,196 @@ test(
       ),
       false,
     )
+  },
+)
+
+
+test(
+  'cutoff é congelado antes da geração: mensagem que chega durante o modelo legacy não entra naquele contexto e fica posterior ao reference_time shadow',
+  async () => {
+    const fixtures =
+      baseFixtures()
+
+    fixtures.messages = [
+      {
+        id: 1,
+        company_id: IDS.company,
+        cycle_id: IDS.cycle,
+        conversation_key: CONVERSATION_KEY,
+        message_key: 'before-cutoff',
+        version: 1,
+        direction: 'incoming',
+        occurred_at:
+          '2026-09-01T00:00:00.000Z',
+        text_content:
+          'Mensagem que já existia antes da geração.',
+        audio_transcription: null,
+        content_type: 'text',
+        is_deleted: false,
+      },
+    ]
+
+    fixtures.reconciliation = [
+      {
+        company_id: IDS.company,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 1,
+        message_key: 'before-cutoff',
+      },
+    ]
+
+    const {
+      admin,
+      tables,
+    } =
+      createFakeAdmin(fixtures)
+
+    adminBox.admin = admin
+    adminBox.tables = tables
+
+    sendBox.shouldFail = false
+    sendBox.calls = []
+    sendBox.pending = null
+    providerBox.calls = []
+    afterBox.callbacks = []
+
+    let insertedObservedAt = null
+    let inserted = false
+
+    providerBox.onCall = async () => {
+      if (inserted) {
+        return
+      }
+
+      inserted = true
+      insertedObservedAt =
+        new Date(
+          Date.now() + 60_000,
+        ).toISOString()
+
+      tables.conversation_messages.push({
+        id: 2,
+        company_id: IDS.company,
+        cycle_id: IDS.cycle,
+        conversation_key: CONVERSATION_KEY,
+        message_key: 'during-generation',
+        version: 1,
+        direction: 'incoming',
+        occurred_at:
+          insertedObservedAt,
+        observed_at:
+          insertedObservedAt,
+        text_content:
+          'Mensagem nova durante a geração.',
+        audio_transcription: null,
+        content_type: 'text',
+        is_deleted: false,
+      })
+
+      tables.conversation_message_reconciliation_state.push({
+        company_id: IDS.company,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 2,
+        message_key: 'during-generation',
+      })
+    }
+
+    const {
+      response,
+    } =
+      await callGenerateMessage()
+
+    assert.equal(
+      response.status,
+      200,
+    )
+
+    assert.equal(
+      sendBox.calls.length,
+      1,
+    )
+
+    const job =
+      sendBox.calls[0].message
+
+    assert.ok(insertedObservedAt)
+    assert.ok(
+      Date.parse(job.reference_time) <
+        Date.parse(insertedObservedAt),
+    )
+
+    assert.equal(
+      JSON.stringify(providerBox.calls)
+        .includes(
+          'Mensagem nova durante a geração.',
+        ),
+      false,
+    )
+  },
+)
+
+test(
+  'enqueue shadow artificialmente lento não atrasa o retorno legacy',
+  async () => {
+    const {
+      admin,
+      tables,
+    } =
+      createFakeAdmin(
+        baseFixtures(),
+      )
+
+    adminBox.admin = admin
+    adminBox.tables = tables
+
+    sendBox.shouldFail = false
+    sendBox.calls = []
+    providerBox.calls = []
+    providerBox.onCall = null
+    afterBox.callbacks = []
+
+    let releaseQueue
+    sendBox.pending =
+      new Promise((resolve) => {
+        releaseQueue = resolve
+      })
+
+    const legacyResult =
+      await Promise.race([
+        callGenerateMessage({
+          flushAfter: false,
+        }),
+        new Promise((resolve) => {
+          setTimeout(
+            () => resolve('timeout'),
+            100,
+          )
+        }),
+      ])
+
+    assert.notEqual(
+      legacyResult,
+      'timeout',
+    )
+
+    assert.equal(
+      afterBox.callbacks.length,
+      1,
+    )
+
+    const afterPromise =
+      flushAfterCallbacks()
+
+    await Promise.resolve()
+
+    assert.equal(
+      sendBox.calls.length,
+      1,
+    )
+
+    releaseQueue()
+    await afterPromise
+
+    sendBox.pending = null
   },
 )
