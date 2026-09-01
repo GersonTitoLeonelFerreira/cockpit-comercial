@@ -24,6 +24,10 @@ import {
   createMessageIntelligenceSourceLoaderV1,
 } from './message-intelligence-source-loader.ts'
 
+import {
+  loadStatefulCopilotCanonicalScope,
+} from '../companion/stateful-copilot-real-context-loader.ts'
+
 const IDS = {
   company: '10000000-0000-4000-8000-000000000001',
   lead: '20000000-0000-4000-8000-000000000001',
@@ -228,7 +232,7 @@ test(
 
     assert.deepEqual(
       [...sources.real_context.known_message_ids].sort(),
-      ['1', '2', '3', '4'],
+      ['1', '10', '2', '3', '4'],
     )
     assert.deepEqual(
       [...sources.real_context.active_message_ids].sort(),
@@ -562,6 +566,341 @@ test(
     assert.equal(
       hasDeviceKey(sources),
       false,
+    )
+  },
+)
+
+
+test(
+  'scope do MIE é idêntico à primitive canônica compartilhada com o stateful',
+  async () => {
+    const scope =
+      baseScopeRows()
+
+    const { admin } =
+      createMessageIntelligenceFakeAdmin({
+        ...scope,
+        reconciliation: [],
+        messages: [],
+        configVersions: [],
+      })
+
+    const canonicalScope =
+      await loadStatefulCopilotCanonicalScope({
+        client: admin,
+        companyId: IDS.company,
+        cycleId: IDS.cycle,
+      })
+
+    const sources =
+      await createMessageIntelligenceSourceLoaderV1({
+        admin,
+      })(
+        buildRequest(),
+      )
+
+    assert.deepEqual(
+      sources.real_context.scope,
+      {
+        company:
+          canonicalScope.company,
+        lead:
+          canonicalScope.lead,
+        cycle:
+          canonicalScope.cycle,
+        conversation_key:
+          CONVERSATION_KEY,
+      },
+    )
+  },
+)
+
+test(
+  'reference_time exclui mensagem nova observada depois do cutoff',
+  async () => {
+    const scope =
+      baseScopeRows()
+
+    const { admin } =
+      createMessageIntelligenceFakeAdmin({
+        ...scope,
+        reconciliation: [],
+        messages: [
+          {
+            id: 1,
+            company_id: IDS.company,
+            cycle_id: IDS.cycle,
+            conversation_key: CONVERSATION_KEY,
+            message_key: 'before',
+            version: 1,
+            direction: 'incoming',
+            occurred_at: '2026-08-29T21:58:00.000Z',
+            observed_at: '2026-08-29T21:58:01.000Z',
+            content_type: 'text',
+            text_content: 'Mensagem presente no corte.',
+            audio_transcription: null,
+            is_deleted: false,
+          },
+          {
+            id: 2,
+            company_id: IDS.company,
+            cycle_id: IDS.cycle,
+            conversation_key: CONVERSATION_KEY,
+            message_key: 'after',
+            version: 1,
+            direction: 'incoming',
+            occurred_at: '2026-08-29T22:01:00.000Z',
+            observed_at: '2026-08-29T22:01:01.000Z',
+            content_type: 'text',
+            text_content: 'Mensagem posterior ao corte.',
+            audio_transcription: null,
+            is_deleted: false,
+          },
+        ],
+        configVersions: [],
+      })
+
+    const sources =
+      await createMessageIntelligenceSourceLoaderV1({
+        admin,
+      })(
+        buildRequest(),
+      )
+
+    assert.deepEqual(
+      sources.real_context.known_message_ids,
+      ['1'],
+    )
+
+    assert.deepEqual(
+      sources.real_context
+        .diagnostic_input
+        .conversation
+        .messages
+        .map((message) => message.message_key),
+      ['before'],
+    )
+  },
+)
+
+test(
+  'edição observada depois do cutoff não substitui a versão existente no reference_time',
+  async () => {
+    const scope =
+      baseScopeRows()
+
+    const { admin } =
+      createMessageIntelligenceFakeAdmin({
+        ...scope,
+        reconciliation: [],
+        messages: [
+          {
+            id: 1,
+            company_id: IDS.company,
+            cycle_id: IDS.cycle,
+            conversation_key: CONVERSATION_KEY,
+            message_key: 'edited',
+            version: 1,
+            direction: 'incoming',
+            occurred_at: '2026-08-29T21:58:00.000Z',
+            observed_at: '2026-08-29T21:58:01.000Z',
+            content_type: 'text',
+            text_content: 'Texto vigente no cutoff.',
+            audio_transcription: null,
+            is_deleted: false,
+          },
+          {
+            id: 2,
+            company_id: IDS.company,
+            cycle_id: IDS.cycle,
+            conversation_key: CONVERSATION_KEY,
+            message_key: 'edited',
+            version: 2,
+            direction: 'incoming',
+            occurred_at: '2026-08-29T21:58:00.000Z',
+            observed_at: '2026-08-29T22:02:00.000Z',
+            content_type: 'text',
+            text_content: 'Texto editado depois.',
+            audio_transcription: null,
+            is_deleted: false,
+          },
+        ],
+        configVersions: [],
+      })
+
+    const sources =
+      await createMessageIntelligenceSourceLoaderV1({
+        admin,
+      })(
+        buildRequest(),
+      )
+
+    const message =
+      sources.real_context
+        .diagnostic_input
+        .conversation
+        .messages[0]
+
+    assert.equal(
+      message.id,
+      '1',
+    )
+    assert.equal(
+      message.version,
+      1,
+    )
+    assert.equal(
+      message.text_content,
+      'Texto vigente no cutoff.',
+    )
+  },
+)
+
+test(
+  'exclusão observada depois do cutoff não apaga retroativamente a mensagem',
+  async () => {
+    const scope =
+      baseScopeRows()
+
+    const { admin } =
+      createMessageIntelligenceFakeAdmin({
+        ...scope,
+        reconciliation: [],
+        messages: [
+          {
+            id: 1,
+            company_id: IDS.company,
+            cycle_id: IDS.cycle,
+            conversation_key: CONVERSATION_KEY,
+            message_key: 'deleted-later',
+            version: 1,
+            direction: 'incoming',
+            occurred_at: '2026-08-29T21:58:00.000Z',
+            observed_at: '2026-08-29T21:58:01.000Z',
+            content_type: 'text',
+            text_content: 'Ainda existia no cutoff.',
+            audio_transcription: null,
+            is_deleted: false,
+          },
+          {
+            id: 2,
+            company_id: IDS.company,
+            cycle_id: IDS.cycle,
+            conversation_key: CONVERSATION_KEY,
+            message_key: 'deleted-later',
+            version: 2,
+            direction: 'incoming',
+            occurred_at: '2026-08-29T21:58:00.000Z',
+            observed_at: '2026-08-29T22:03:00.000Z',
+            content_type: 'text',
+            text_content: null,
+            audio_transcription: null,
+            is_deleted: true,
+            deletion_reason: 'explicit_deletion',
+          },
+        ],
+        configVersions: [],
+      })
+
+    const sources =
+      await createMessageIntelligenceSourceLoaderV1({
+        admin,
+      })(
+        buildRequest(),
+      )
+
+    assert.deepEqual(
+      sources.real_context.active_message_ids,
+      ['1'],
+    )
+    assert.deepEqual(
+      sources.real_context
+        .diagnostic_input
+        .conversation
+        .excluded_message_ids,
+      [],
+    )
+  },
+)
+
+test(
+  'restauração observada depois do cutoff não restaura retroativamente mensagem já excluída',
+  async () => {
+    const scope =
+      baseScopeRows()
+
+    const { admin } =
+      createMessageIntelligenceFakeAdmin({
+        ...scope,
+        reconciliation: [],
+        messages: [
+          {
+            id: 1,
+            company_id: IDS.company,
+            cycle_id: IDS.cycle,
+            conversation_key: CONVERSATION_KEY,
+            message_key: 'restored-later',
+            version: 1,
+            direction: 'incoming',
+            occurred_at: '2026-08-29T21:50:00.000Z',
+            observed_at: '2026-08-29T21:50:01.000Z',
+            content_type: 'text',
+            text_content: 'Texto original.',
+            audio_transcription: null,
+            is_deleted: false,
+          },
+          {
+            id: 2,
+            company_id: IDS.company,
+            cycle_id: IDS.cycle,
+            conversation_key: CONVERSATION_KEY,
+            message_key: 'restored-later',
+            version: 2,
+            direction: 'incoming',
+            occurred_at: '2026-08-29T21:50:00.000Z',
+            observed_at: '2026-08-29T21:59:00.000Z',
+            content_type: 'text',
+            text_content: null,
+            audio_transcription: null,
+            is_deleted: true,
+            deletion_reason: 'explicit_deletion',
+          },
+          {
+            id: 3,
+            company_id: IDS.company,
+            cycle_id: IDS.cycle,
+            conversation_key: CONVERSATION_KEY,
+            message_key: 'restored-later',
+            version: 3,
+            direction: 'incoming',
+            occurred_at: '2026-08-29T21:50:00.000Z',
+            observed_at: '2026-08-29T22:04:00.000Z',
+            content_type: 'text',
+            text_content: 'Texto restaurado depois.',
+            audio_transcription: null,
+            is_deleted: false,
+          },
+        ],
+        configVersions: [],
+      })
+
+    const sources =
+      await createMessageIntelligenceSourceLoaderV1({
+        admin,
+      })(
+        buildRequest(),
+      )
+
+    assert.deepEqual(
+      sources.real_context.active_message_ids,
+      [],
+    )
+    assert.deepEqual(
+      sources.real_context
+        .diagnostic_input
+        .conversation
+        .excluded_message_ids,
+      ['2'],
     )
   },
 )
