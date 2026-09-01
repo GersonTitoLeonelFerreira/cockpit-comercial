@@ -1269,7 +1269,7 @@ export default function DiaSemanaRelatorioPg() {
                   {' '}
                   cycle_events
                 </strong>
-                . Vendas, perdas e faturamento vêm de
+                . Vendas e perdas vêm de
                 <strong style={{ color: DS.textPrimary }}>
                   {' '}
                   sales_cycles
@@ -1285,7 +1285,8 @@ export default function DiaSemanaRelatorioPg() {
                   marginTop: 6,
                 }}
               >
-                A receita considera a data financeira oficial:
+                O faturamento vem da mesma base conciliada da Gestão de Faturamento,
+                agrupado pela data financeira oficial:
                 <strong style={{ color: DS.textPrimary }}>
                   {' '}
                   revenue_seller_ref_date → won_at → closed_at

@@ -22,6 +22,7 @@ import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { adminListSellersStats } from '@/app/lib/services/admin-sellers'
 
 import CreateLeadModal from './CreateLeadModal'
+import CockpitPrioritiesView from './CockpitPrioritiesView'
 import SellerMicroKPIs from './SellerMicroKPIs'
 import StageCheckpointModal, { CheckpointPayload } from './StageCheckpointModal'
 import { ToastContainer, useToast } from './Toast'
@@ -65,6 +66,7 @@ type KanbanScope = 'mine' | 'seller' | 'company'
 type SLALevel = 'ok' | 'warn' | 'danger'
 type AgendaState = 'none' | 'today' | 'overdue' | 'future'
 type PendingMove = { cycleId: string; fromStatus: Status; toStatus: Status } | null
+export type CockpitViewMode = 'funil' | 'prioridades'
 
 type SLARuleDB = {
   id: string
@@ -158,13 +160,13 @@ const STATUS_RGB: Record<Status, string> = {
   perdido: '255, 77, 94',
 }
 
-const STATUS_STAGE_META: Record<Status, { index: string; label: string }> = {
-  novo: { index: '01', label: 'Novo' },
-  contato: { index: '02', label: 'Contato' },
-  respondeu: { index: '03', label: 'Agenda' },
-  negociacao: { index: '04', label: 'Negociação' },
-  ganho: { index: '05', label: 'Ganho' },
-  perdido: { index: '06', label: 'Perdido' },
+const STATUS_STAGE_META: Record<Status, { index: string; label: string; description: string }> = {
+  novo: { index: '01', label: 'Novo', description: 'Entrada e triagem' },
+  contato: { index: '02', label: 'Contato', description: 'Primeira abordagem' },
+  respondeu: { index: '03', label: 'Agenda', description: 'Próximo compromisso' },
+  negociacao: { index: '04', label: 'Negociação', description: 'Construção da proposta' },
+  ganho: { index: '05', label: 'Ganho', description: 'Receita conquistada' },
+  perdido: { index: '06', label: 'Perdido', description: 'Oportunidades encerradas' },
 }
 
 const RETURN_REASONS = [
@@ -1259,14 +1261,14 @@ function TerminalKanbanCard({ item }: { item: PipelineItem }) {
   return (
     <article
       style={{
-        border: `1px solid rgba(${rgb},0.14)`,
+        border: `1px solid rgba(${rgb},0.2)`,
         borderLeft: `2px solid rgba(${rgb},0.65)`,
-        borderRadius: DS.radius,
-        padding: 8,
-        background: 'rgba(16,18,27,0.92)',
-        boxShadow: 'none',
+        borderRadius: 11,
+        padding: 11,
+        background: `linear-gradient(145deg, rgba(${rgb},0.055), rgba(17,21,30,0.97) 45%)`,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.16)',
         display: 'grid',
-        gap: 6,
+        gap: 8,
       }}
     >
       <div
@@ -1286,8 +1288,8 @@ function TerminalKanbanCard({ item }: { item: PipelineItem }) {
             border: `1px solid rgba(${rgb},0.14)`,
             color,
             background: `rgba(${rgb},0.05)`,
-            fontSize: 7.5,
-            fontWeight: 700,
+            fontSize: 8,
+            fontWeight: 850,
             letterSpacing: '0.04em',
             flexShrink: 0,
           }}
@@ -1311,8 +1313,8 @@ function TerminalKanbanCard({ item }: { item: PipelineItem }) {
         title={item.name}
         style={{
           color: DS.textPrimary,
-          fontSize: 12,
-          fontWeight: 700,
+          fontSize: 13.25,
+          fontWeight: 800,
           lineHeight: 1.2,
           display: '-webkit-box',
           WebkitLineClamp: 2,
@@ -1327,8 +1329,8 @@ function TerminalKanbanCard({ item }: { item: PipelineItem }) {
       <div
         style={{
           color: isWon ? DS.textPrimary : DS.textSecondary,
-          fontSize: isWon ? 13 : 10.5,
-          fontWeight: isWon ? 700 : 500,
+          fontSize: isWon ? 14 : 10.5,
+          fontWeight: isWon ? 850 : 550,
           lineHeight: 1.2,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -1358,14 +1360,14 @@ function TerminalKanbanCard({ item }: { item: PipelineItem }) {
         onClick={openLead}
         style={{
           width: '100%',
-          padding: '5px 8px',
-          borderRadius: DS.radius,
-          border: `1px solid rgba(${rgb},0.14)`,
-          background: 'transparent',
-          color: DS.textSecondary,
+          padding: '7px 8px',
+          borderRadius: 8,
+          border: `1px solid rgba(${rgb},0.2)`,
+          background: `rgba(${rgb},0.045)`,
+          color,
           cursor: 'pointer',
           fontSize: 10,
-          fontWeight: 700,
+          fontWeight: 800,
           marginTop: 2,
         }}
         onMouseEnter={(event) => {
@@ -1462,18 +1464,23 @@ function KanbanCard({
   return (
     <div
       style={{
-        background: isSelected ? 'rgba(59,130,246,0.07)' : DS.cardBg,
-        borderTop: `1px solid ${isSelected ? 'rgba(59,130,246,0.35)' : DS.border}`,
-        borderRight: `1px solid ${isSelected ? 'rgba(59,130,246,0.35)' : DS.border}`,
-        borderBottom: `1px solid ${isSelected ? 'rgba(59,130,246,0.35)' : DS.border}`,
-        borderLeft: `3px solid ${STATUS_COLORS[item.status]}`,
-        borderRadius: DS.radius,
-        padding: '8px 10px 8px 8px',
+        background: isSelected
+          ? 'linear-gradient(145deg, rgba(59,130,246,0.13), rgba(18,22,32,0.98))'
+          : 'linear-gradient(145deg, #151a26, #11151e)',
+        borderTop: `1px solid ${isSelected ? 'rgba(59,130,246,0.5)' : '#222a3b'}`,
+        borderRight: `1px solid ${isSelected ? 'rgba(59,130,246,0.5)' : '#222a3b'}`,
+        borderBottom: `1px solid ${isSelected ? 'rgba(59,130,246,0.5)' : '#222a3b'}`,
+        borderLeft: `2px solid ${STATUS_COLORS[item.status]}`,
+        borderRadius: 11,
+        padding: '11px 11px 9px',
         cursor: isSaving ? 'not-allowed' : 'grab',
-        transition: 'box-shadow 150ms ease, background 150ms ease',
+        transition: 'box-shadow 150ms ease, background 150ms ease, transform 150ms ease, border-color 150ms ease',
         position: 'relative',
         overflow: 'hidden',
-        boxShadow: isHovered ? '0 2px 8px rgba(0,0,0,0.45)' : DS.shadowCard,
+        boxShadow: isHovered ? '0 12px 26px rgba(0,0,0,0.34)' : '0 4px 12px rgba(0,0,0,0.16)',
+        transform: isHovered ? 'translateY(-1px)' : 'translateY(0)',
+        contentVisibility: 'auto',
+        containIntrinsicSize: '0 150px',
       }}
       draggable
       onDragStart={(e) => {
@@ -1484,7 +1491,7 @@ function KanbanCard({
       onMouseLeave={() => setIsHovered(false)}
     >
       <div
-        style={{ position: 'absolute', top: 6, right: 6, cursor: 'pointer', opacity: isSelected || isHovered ? 1 : 0.35, transition: 'opacity 120ms ease' }}
+        style={{ position: 'absolute', top: 9, right: 9, cursor: 'pointer', opacity: isSelected || isHovered ? 1 : 0.28, transition: 'opacity 120ms ease' }}
         onClick={(e) => {
           e.stopPropagation()
           onToggleSelect(item.id)
@@ -1499,18 +1506,18 @@ function KanbanCard({
           checked={isSelected}
           onChange={() => {}}
           draggable={false}
-          style={{ width: 13, height: 13, cursor: 'pointer', pointerEvents: 'auto' }}
+          style={{ width: 14, height: 14, cursor: 'pointer', pointerEvents: 'auto', accentColor: '#3b82f6' }}
         />
       </div>
 
       <div
-        style={{ cursor: 'pointer', marginRight: 18, overflow: 'hidden', minWidth: 0 }}
+        style={{ cursor: 'pointer', marginRight: 22, overflow: 'hidden', minWidth: 0 }}
         onClick={() => {
           window.location.href = `/sales-cycles/${item.id}`
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 12.5, color: DS.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 2 }}>
+          <div style={{ fontWeight: 800, fontSize: 13.25, color: DS.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.012em' }}>
             {item.name}
           </div>
           {supportsOperationalSLA(item.status) && (
@@ -1519,9 +1526,9 @@ function KanbanCard({
               style={{
                 fontSize: 9,
                 fontWeight: 700,
-                padding: '1px 5px',
-                borderRadius: 3,
-                background: slaLevel === 'ok' ? 'transparent' : `${getSLAColor(slaLevel)}18`,
+                padding: '2px 6px',
+                borderRadius: 6,
+                background: slaLevel === 'ok' ? 'rgba(148,163,184,0.06)' : `${getSLAColor(slaLevel)}18`,
                 color: slaLevel === 'ok' ? DS.textMuted : getSLAColor(slaLevel),
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
@@ -1533,15 +1540,34 @@ function KanbanCard({
           )}
         </div>
 
-        <div style={{ fontSize: 11, color: DS.textSecondary, fontVariantNumeric: 'tabular-nums' }}>{item.phone || '—'}</div>
+        <div style={{ fontSize: 10.5, color: DS.textMuted, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.015em' }}>{item.phone || 'Telefone não informado'}</div>
 
-        {supportsOperationalAgenda(item.status) && item.next_action && (
-          <div style={{ fontSize: 10.5, color: DS.textMuted, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {item.next_action}
+        {supportsOperationalAgenda(item.status) ? (
+          <div
+            style={{
+              display: 'grid',
+              gap: 3,
+              marginTop: 9,
+              padding: '7px 8px',
+              borderRadius: 8,
+              border: `1px solid ${item.next_action ? '#20283a' : 'rgba(239,68,68,0.2)'}`,
+              background: item.next_action ? 'rgba(7,10,15,0.34)' : 'rgba(239,68,68,0.045)',
+            }}
+          >
+            <span style={{ color: item.next_action ? DS.textLabel : '#fca5a5', fontSize: 8.5, fontWeight: 850, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Próxima ação
+            </span>
+            <span style={{ color: item.next_action ? DS.textSecondary : '#fca5a5', fontSize: 10.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.next_action?.trim() || 'Definir próximo passo comercial'}
+            </span>
           </div>
-        )}
+        ) : null}
 
-{groupName && <div style={{ fontSize: 10, color: DS.textLabel, marginTop: 2 }}>{groupName}</div>}
+        {groupName ? (
+          <div style={{ display: 'inline-flex', maxWidth: '100%', marginTop: 7, padding: '2px 7px', borderRadius: 999, border: '1px solid #242c3d', color: DS.textSecondary, background: 'rgba(148,163,184,0.045)', fontSize: 9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {groupName}
+          </div>
+        ) : null}
 
 {pulse && (
   <div
@@ -1567,15 +1593,15 @@ function KanbanCard({
   </div>
 )}
 
-<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 9, paddingTop: 8, borderTop: '1px solid #1f2635', gap: 6 }}>
           {agendaState !== 'none' ? (
             <div
               style={{
                 fontSize: 10,
                 fontWeight: 700,
                 padding: '1px 6px',
-                borderRadius: 3,
-                background: 'transparent',
+                borderRadius: 6,
+                background: `${agendaBadge.text}0d`,
                 color: agendaBadge.text,
                 display: 'flex',
                 alignItems: 'center',
@@ -1590,14 +1616,16 @@ function KanbanCard({
             <div />
           )}
 
-<div
+          <div
             style={{
               display: 'flex',
-              gap: 1,
+              gap: 2,
               alignItems: 'center',
               justifyContent: 'flex-end',
               flexShrink: 0,
               minWidth: 0,
+              opacity: isHovered ? 1 : 0.72,
+              transition: 'opacity 120ms ease',
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -2035,30 +2063,24 @@ function VirtualizedStatusColumn({
       <div
         style={{
           position: 'relative',
-          minWidth: 272,
-          maxWidth: 272,
-          flex: '0 0 272px',
-          height: 'calc(100vh - 200px)',
+          minWidth: 292,
+          maxWidth: 292,
+          flex: '0 0 292px',
+          height: 'calc(100vh - 250px)',
           minHeight: 460,
           display: 'flex',
           flexDirection: 'column',
           background: isDraggingOver
-            ? `rgba(${statusRgb},0.04)`
-            : DS.panelBg,
-          borderRadius: 8,
-          borderTop: `2px solid ${STATUS_COLORS[status]}`,
-          borderRight: isDraggingOver
-            ? `1px solid rgba(${statusRgb},0.45)`
-            : `1px solid ${DS.border}`,
-          borderBottom: isDraggingOver
-            ? `1px solid rgba(${statusRgb},0.45)`
-            : `1px solid ${DS.border}`,
-          borderLeft: isDraggingOver
-            ? `1px solid rgba(${statusRgb},0.45)`
-            : `1px solid ${DS.border}`,
-          transition: 'background 150ms ease, border-color 150ms ease',
+            ? `linear-gradient(180deg, rgba(${statusRgb},0.13), rgba(${statusRgb},0.035) 120px, #0c1017 100%)`
+            : `linear-gradient(180deg, rgba(${statusRgb},0.065), rgba(${statusRgb},0.018) 120px, #0c1017 100%)`,
+          borderRadius: 14,
+          border: `1px solid rgba(${statusRgb},${isDraggingOver ? '0.48' : '0.19'})`,
+          transition: 'background 150ms ease, border-color 150ms ease, transform 150ms ease',
           overflow: 'hidden',
-          boxShadow: 'none',
+          boxShadow: isDraggingOver
+            ? `0 0 0 2px rgba(${statusRgb},0.10), 0 18px 34px rgba(0,0,0,0.26)`
+            : '0 12px 28px rgba(0,0,0,0.2)',
+          transform: isDraggingOver ? 'translateY(-2px)' : 'translateY(0)',
         }}
         onDragEnter={(e) => {
           e.preventDefault()
@@ -2088,29 +2110,30 @@ function VirtualizedStatusColumn({
           }}
         />
 
-<div
+        <div
           style={{
             position: 'sticky',
             top: 0,
             zIndex: 10,
-            padding: '10px 12px 8px',
-            background: DS.panelBg,
-            borderBottom: `1px solid ${DS.borderSubtle}`,
+            padding: '13px 14px 11px',
+            background: `linear-gradient(180deg, rgba(${statusRgb},0.085), rgba(13,15,20,0.92))`,
+            borderBottom: `1px solid rgba(${statusRgb},0.15)`,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <div
                 style={{
-                  width: 18,
-                  height: 18,
-                  borderRadius: 4,
+                  width: 31,
+                  height: 31,
+                  borderRadius: 9,
                   display: 'grid',
                   placeItems: 'center',
                   color: STATUS_COLORS[status],
-                  fontSize: 10,
-                  fontWeight: 800,
-                  background: `rgba(${statusRgb},0.12)`,
+                  fontSize: 10.5,
+                  fontWeight: 900,
+                  background: `rgba(${statusRgb},0.13)`,
+                  border: `1px solid rgba(${statusRgb},0.2)`,
                   flexShrink: 0,
                   fontVariantNumeric: 'tabular-nums',
                 }}
@@ -2118,33 +2141,37 @@ function VirtualizedStatusColumn({
                 {stageMeta.index}
               </div>
 
-              <div
-                style={{
-                  color: DS.textPrimary,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  letterSpacing: '-0.01em',
-                  textTransform: 'uppercase',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {stageMeta.label}
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    color: DS.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: 850,
+                    letterSpacing: '-0.01em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {stageMeta.label}
+                </div>
+                <div style={{ marginTop: 2, color: DS.textMuted, fontSize: 9.5, whiteSpace: 'nowrap' }}>
+                  {stageMeta.description}
+                </div>
               </div>
             </div>
 
             <div
               style={{
-                color: DS.textSecondary,
-                fontSize: 12,
-                fontWeight: 700,
+                color: STATUS_COLORS[status],
+                fontSize: 12.5,
+                fontWeight: 850,
                 fontVariantNumeric: 'tabular-nums',
-                background: DS.surfaceBg,
-                border: `1px solid ${DS.border}`,
-                borderRadius: 4,
-                padding: '1px 7px',
-                minWidth: 24,
+                background: `rgba(${statusRgb},0.08)`,
+                border: `1px solid rgba(${statusRgb},0.18)`,
+                borderRadius: 8,
+                padding: '4px 8px',
+                minWidth: 30,
                 textAlign: 'center',
               }}
               title={total > shown ? `${shown} visíveis de ${total} totais` : `${shown} leads`}
@@ -2156,9 +2183,9 @@ function VirtualizedStatusColumn({
           {total > 0 && (
             <div
               style={{
-                marginTop: 8,
-                height: 2,
-                background: DS.borderSubtle,
+                marginTop: 11,
+                height: 3,
+                background: 'rgba(255,255,255,0.035)',
                 borderRadius: 999,
                 overflow: 'hidden',
               }}
@@ -2168,7 +2195,7 @@ function VirtualizedStatusColumn({
                   height: '100%',
                   width: `${Math.min(100, (shown / total) * 100)}%`,
                   background: STATUS_COLORS[status],
-                  opacity: 0.7,
+                  opacity: 0.88,
                   transition: 'width 300ms ease',
                 }}
               />
@@ -2178,7 +2205,7 @@ function VirtualizedStatusColumn({
 
         <div
           className="kanban-column-scroll"
-          style={{ position: 'relative', flex: 1, overflowY: 'auto', padding: '8px 8px 14px' }}
+          style={{ position: 'relative', flex: 1, overflowY: 'auto', padding: '10px 9px 16px' }}
         >
           {filteredCycles.length === 0 ? (
             <div
@@ -2199,7 +2226,7 @@ function VirtualizedStatusColumn({
               Nenhum lead nesta etapa
             </div>
           ) : (
-            <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'grid', gap: 9 }}>
               {filteredCycles.map((item) =>
   isTerminalStatus(item.status) ? (
     <TerminalKanbanCard key={item.id} item={item} />
@@ -2251,12 +2278,14 @@ export default function SalesCyclesKanban({
   isAdmin,
   defaultOwnerId,
   onShowCreateLeadModal,
+  viewMode = 'funil',
 }: {
   userId: string
   companyId: string
   isAdmin: boolean
   defaultOwnerId?: string
   onShowCreateLeadModal?: () => void
+  viewMode?: CockpitViewMode
 }) {
   const supabase = useMemo(() => supabaseBrowser(), [])
   const { toasts, addToast, dismissToast } = useToast()
@@ -2356,6 +2385,7 @@ export default function SalesCyclesKanban({
 
   const [insightsExpanded, setInsightsExpanded] = useState(false)
   const [focusMode, setFocusMode] = useState(false)
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
 
   const [searchTerm, setSearchTerm] = useState('')
   const [isSearching, setIsSearching] = useState(false)
@@ -2462,8 +2492,11 @@ export default function SalesCyclesKanban({
       : null
 
 
-  const allItems = Object.values(items).flat()
-  const operationalItems = allItems.filter((item) => supportsOperationalAgenda(item.status))
+  const allItems = useMemo(() => Object.values(items).flat(), [items])
+  const operationalItems = useMemo(
+    () => allItems.filter((item) => supportsOperationalAgenda(item.status)),
+    [allItems],
+  )
 
   const todayCount = operationalItems.filter((item) => getAgendaState(item.next_action_date) === 'today').length
   const overdueCount = operationalItems.filter((item) => getAgendaState(item.next_action_date) === 'overdue').length
@@ -3116,6 +3149,14 @@ export default function SalesCyclesKanban({
     })
   }, [])
 
+  const openPriorityCycle = useCallback((cycleId: string) => {
+    const cycle = allItems.find((item) => item.id === cycleId)
+
+    if (cycle) {
+      openQuickDrawer(cycle)
+    }
+  }, [allItems, openQuickDrawer])
+
   const visibleKanbanItems = useMemo(() => {
     return Object.values(items).flat().filter((item) => {
       if (slaFilter !== 'all') {
@@ -3179,35 +3220,27 @@ export default function SalesCyclesKanban({
   const allKanbanSelected = selectedIds.size === visibleKanbanItems.length && visibleKanbanItems.length > 0
 
   const pillStyle: React.CSSProperties = {
-    borderRadius: DS.radius,
-    padding: '6px 10px',
-    background: 'transparent',
-    border: `1px solid ${DS.border}`,
+    borderRadius: 9,
+    padding: '0 11px',
+    background: '#11151d',
+    border: '1px solid #22293a',
     color: DS.textSecondary,
-    fontSize: 12,
+    fontSize: 11.5,
     cursor: 'pointer',
-    fontWeight: 500,
+    fontWeight: 650,
     outline: 'none',
-    height: 30,
+    height: 34,
     lineHeight: 1,
   }
 
   const iconButtonStyle: React.CSSProperties = {
     ...pillStyle,
     padding: '0 9px',
-    width: 30,
+    width: 34,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: 13,
-  }
-
-  const dividerStyle: React.CSSProperties = {
-    width: 1,
-    height: 18,
-    background: DS.divider,
-    margin: '0 2px',
-    flexShrink: 0,
   }
 
   return (
@@ -3234,214 +3267,242 @@ export default function SalesCyclesKanban({
           position: 'sticky',
           top: 0,
           zIndex: 50,
-          background: 'rgba(13,15,20,0.92)',
+          background: 'linear-gradient(145deg, rgba(17,21,29,0.98), rgba(13,15,20,0.98))',
           backdropFilter: 'blur(10px)',
-          borderBottom: `1px solid ${DS.border}`,
-          padding: '8px 16px',
-          display: 'flex',
-          gap: 6,
-          alignItems: 'center',
-          flexWrap: 'wrap',
+          border: '1px solid #1f2635',
+          borderRadius: 12,
+          padding: '12px 14px',
+          display: 'grid',
+          gap: 10,
+          boxShadow: '0 10px 28px rgba(0,0,0,0.18)',
         }}
       >
-        {/* Zona 1 — Contexto */}
-        {isAdmin && (
-          <select
-            value={
-              selectedScope === 'company'
-                ? 'company'
-                : selectedScope === 'mine'
-                  ? 'mine'
-                  : selectedOwnerId ?? ''
-            }
-            onChange={(e) => {
-              const value = e.target.value
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 170 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 12px rgba(59,130,246,0.8)' }} />
+              <span style={{ color: DS.textPrimary, fontSize: 13, fontWeight: 850 }}>Fluxo de oportunidades</span>
+            </div>
+            <div style={{ marginTop: 3, paddingLeft: 16, color: DS.textMuted, fontSize: 10.5 }}>
+              Arraste os cards para avançar etapas
+            </div>
+          </div>
 
-              if (value === 'company') {
-                setSelectedScope('company')
-                setSelectedOwnerId(null)
-                setSelectedGroupId(null)
-                return
-              }
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: '1 1 260px', maxWidth: 440 }}>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar oportunidade por nome, telefone, CPF ou e-mail"
+              aria-label="Buscar oportunidades"
+              style={{
+                borderRadius: 9,
+                padding: '0 34px 0 34px',
+                background: '#0c0f15',
+                border: '1px solid #22293a',
+                color: DS.textPrimary,
+                fontSize: 11.5,
+                width: '100%',
+                outline: 'none',
+                height: 36,
+              }}
+            />
+            <span style={{ position: 'absolute', left: 12, color: DS.textMuted, fontSize: 14, pointerEvents: 'none' }}>⌕</span>
+            {searchTerm.trim() && !isSearching && searchCount !== null ? (
+              <span style={{ position: 'absolute', right: 11, fontSize: 10, color: DS.textMuted, fontVariantNumeric: 'tabular-nums', pointerEvents: 'none' }}>
+                {searchCount}
+              </span>
+            ) : null}
+            {isSearching ? <span style={{ position: 'absolute', right: 11, fontSize: 10, color: DS.textMuted, pointerEvents: 'none' }}>...</span> : null}
+          </div>
 
-              if (value === 'mine') {
-                setSelectedScope('mine')
-                setSelectedOwnerId(null)
-                setSelectedGroupId(null)
-                return
-              }
-
-              setSelectedScope('seller')
-              setSelectedOwnerId(value)
-              setSelectedGroupId(null)
-            }}
-            style={pillStyle}
-            title="Escopo do Kanban"
-          >
-            <option value="company">Empresa inteira</option>
-            <option value="mine">Meu Cockpit</option>
-            {sellers.map((s) => (
-  <option key={s.id} value={s.id}>
-    {getSellerDisplayName(s)}
-  </option>
-))}
-          </select>
-        )}
-
-        <select value={selectedGroupId || ''} onChange={(e) => setSelectedGroupId(e.target.value || null)} style={pillStyle} title="Grupo">
-          <option value="">Todos os grupos</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name}
-            </option>
-          ))}
-        </select>
-
-        <div style={dividerStyle} />
-
-        {/* Zona 2 — Filtros */}
-        <select value={slaFilter} onChange={(e) => setSLAFilter(e.target.value as 'all' | 'ok' | 'warn' | 'danger')} style={pillStyle} title="Filtrar por SLA">
-          <option value="all">SLA: Todos</option>
-          <option value="ok">SLA: OK</option>
-          <option value="warn">SLA: Atenção</option>
-          <option value="danger">SLA: Estourado</option>
-        </select>
-
-        <select value={agendaFilter} onChange={(e) => setAgendaFilter(e.target.value as 'all' | 'today' | 'overdue' | 'next7')} style={pillStyle} title="Filtrar por agenda">
-          <option value="all">Agenda: Todos</option>
-          <option value="today">Hoje ({todayCount})</option>
-          <option value="overdue">Atrasados ({overdueCount})</option>
-          <option value="next7">Próximos 7d ({next7Count})</option>
-        </select>
-
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar nome, telefone, CPF, email..."
-            style={{
-              borderRadius: DS.radius,
-              padding: '6px 10px 6px 28px',
-              background: DS.selectBg,
-              border: `1px solid ${DS.border}`,
-              color: DS.textPrimary,
-              fontSize: 12,
-              minWidth: 240,
-              outline: 'none',
-              height: 30,
-            }}
-          />
-          <span style={{ position: 'absolute', left: 9, color: DS.textMuted, fontSize: 12, pointerEvents: 'none' }}>⌕</span>
-          {searchTerm.trim() && !isSearching && searchCount !== null && (
-            <span style={{ position: 'absolute', right: 8, fontSize: 10, color: DS.textMuted, fontVariantNumeric: 'tabular-nums', pointerEvents: 'none' }}>
-              {searchCount}
-            </span>
-          )}
-          {isSearching && <span style={{ position: 'absolute', right: 8, fontSize: 10, color: DS.textMuted, pointerEvents: 'none' }}>...</span>}
-        </div>
-
-        {/* Zona 3 — Ações */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
-          {selectedIds.size > 0 && (
-            <>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            {viewMode === 'funil' && selectedIds.size > 0 ? (
               <button
+                type="button"
                 onClick={() => setShowBulkModal(true)}
-                style={{
-                  ...pillStyle,
-                  borderColor: DS.amberBorder,
-                  color: DS.amberText,
-                }}
+                style={{ ...pillStyle, borderColor: DS.amberBorder, color: DS.amberText }}
                 title="Executar ações em massa nos leads selecionados"
               >
                 Ações em massa · {selectedIds.size}
               </button>
-              <div style={dividerStyle} />
+            ) : null}
+
+            {viewMode === 'funil' ? (
+              <button
+                type="button"
+                onClick={toggleSelectAllKanban}
+                style={pillStyle}
+                title={allKanbanSelected ? 'Desmarcar todos' : `Selecionar todos (${allKanbanItems.length})`}
+              >
+                {allKanbanSelected ? 'Desmarcar' : 'Selecionar tudo'}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => { void loadItems(searchTerm) }}
+              style={iconButtonStyle}
+              title="Atualizar oportunidades"
+              aria-label="Atualizar oportunidades"
+            >
+              ↻
+            </button>
+
+            {viewMode === 'funil' ? (
+              <button
+                type="button"
+                onClick={() => setFocusMode((value) => !value)}
+                style={{
+                  ...iconButtonStyle,
+                  color: focusMode ? DS.blueSoft : DS.textSecondary,
+                  borderColor: focusMode ? 'rgba(59,130,246,0.4)' : '#22293a',
+                }}
+                title={focusMode ? 'Sair do modo foco' : 'Expandir o Funil'}
+              >
+                {focusMode ? '⊡' : '⊞'}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => {
+                onShowCreateLeadModal?.()
+                setShowCreateLeadModal(true)
+              }}
+              style={{
+                ...pillStyle,
+                background: 'linear-gradient(135deg, #198754, #22a565)',
+                border: '1px solid rgba(74,222,128,0.32)',
+                color: '#ffffff',
+                fontWeight: 800,
+                padding: '0 14px',
+                boxShadow: '0 7px 18px rgba(25,135,84,0.2)',
+              }}
+            >
+              + Criar lead
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', paddingTop: 10, borderTop: '1px solid #1a2130' }}>
+          <span style={{ marginRight: 3, color: DS.textMuted, fontSize: 9.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Visualização
+          </span>
+
+          {isAdmin ? (
+            <select
+              value={selectedScope === 'company' ? 'company' : selectedScope === 'mine' ? 'mine' : selectedOwnerId ?? ''}
+              onChange={(event) => {
+                const value = event.target.value
+                if (value === 'company') {
+                  setSelectedScope('company')
+                  setSelectedOwnerId(null)
+                  setSelectedGroupId(null)
+                  return
+                }
+                if (value === 'mine') {
+                  setSelectedScope('mine')
+                  setSelectedOwnerId(null)
+                  setSelectedGroupId(null)
+                  return
+                }
+                setSelectedScope('seller')
+                setSelectedOwnerId(value)
+                setSelectedGroupId(null)
+              }}
+              style={pillStyle}
+              title="Escopo do Cockpit"
+              aria-label="Selecionar escopo do Cockpit"
+            >
+              <option value="company">Empresa inteira</option>
+              <option value="mine">Meu Cockpit</option>
+              {sellers.map((seller) => (
+                <option key={seller.id} value={seller.id}>{getSellerDisplayName(seller)}</option>
+              ))}
+            </select>
+          ) : null}
+
+          <select value={selectedGroupId || ''} onChange={(event) => setSelectedGroupId(event.target.value || null)} style={pillStyle} title="Grupo comercial" aria-label="Selecionar grupo comercial">
+            <option value="">Todos os grupos</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>{group.name}</option>
+            ))}
+          </select>
+
+          {viewMode === 'funil' ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setFiltersExpanded((value) => !value)}
+                style={{
+                  ...pillStyle,
+                  color: slaFilter !== 'all' || agendaFilter !== 'all' ? DS.blueSoft : DS.textSecondary,
+                  borderColor: slaFilter !== 'all' || agendaFilter !== 'all' ? 'rgba(59,130,246,0.4)' : '#22293a',
+                }}
+                aria-expanded={filtersExpanded}
+              >
+                Filtros
+                {slaFilter !== 'all' || agendaFilter !== 'all'
+                  ? ` · ${Number(slaFilter !== 'all') + Number(agendaFilter !== 'all')}`
+                  : ''}
+                {filtersExpanded ? '  ▴' : '  ▾'}
+              </button>
+
+              {filtersExpanded ? (
+                <>
+                  <select value={slaFilter} onChange={(event) => setSLAFilter(event.target.value as 'all' | 'ok' | 'warn' | 'danger')} style={pillStyle} aria-label="Filtrar por SLA">
+                    <option value="all">SLA: Todos</option>
+                    <option value="ok">SLA: OK</option>
+                    <option value="warn">SLA: Atenção</option>
+                    <option value="danger">SLA: Estourado</option>
+                  </select>
+                  <select value={agendaFilter} onChange={(event) => setAgendaFilter(event.target.value as 'all' | 'today' | 'overdue' | 'next7')} style={pillStyle} aria-label="Filtrar por agenda">
+                    <option value="all">Agenda: Todos</option>
+                    <option value="today">Hoje ({todayCount})</option>
+                    <option value="overdue">Atrasados ({overdueCount})</option>
+                    <option value="next7">Próximos 7d ({next7Count})</option>
+                  </select>
+                </>
+              ) : null}
             </>
-          )}
-
-          <button
-            onClick={toggleSelectAllKanban}
-            style={pillStyle}
-            title={allKanbanSelected ? 'Desmarcar todos' : `Selecionar todos (${allKanbanItems.length})`}
-          >
-            {allKanbanSelected ? 'Desmarcar' : 'Selecionar tudo'}
-          </button>
-
-          <button
-            onClick={() => {
-              void loadItems(searchTerm)
-            }}
-            style={iconButtonStyle}
-            title="Atualizar kanban"
-            aria-label="Atualizar kanban"
-          >
-            ↻
-          </button>
-
-          <button
-            onClick={() => setFocusMode((v) => !v)}
-            style={{
-              ...iconButtonStyle,
-              color: focusMode ? DS.blueSoft : DS.textSecondary,
-              borderColor: focusMode ? 'rgba(59,130,246,0.4)' : DS.border,
-            }}
-            title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
-          >
-            {focusMode ? '⊡' : '⊞'}
-          </button>
-
-          <div style={dividerStyle} />
-
-          <button
-            onClick={() => {
-              onShowCreateLeadModal?.()
-              setShowCreateLeadModal(true)
-            }}
-            style={{
-              ...pillStyle,
-              background: '#1e7d4a',
-              border: '1px solid #1e7d4a',
-              color: '#ffffff',
-              fontWeight: 600,
-              padding: '6px 12px',
-            }}
-          >
-            + Criar Lead
-          </button>
+          ) : null}
         </div>
       </div>
 
-      <SellerMicroKPIs
-        scope={selectedScope}
-        ownerUserId={
-          selectedScope === 'mine'
-            ? userId
-            : selectedScope === 'seller'
-              ? selectedOwnerId
-              : null
-        }
-        groupId={selectedGroupId}
-        supabase={supabase}
-        refreshKey={kpiRefreshKey}
-        alerts={[
-          { key: 'overdue', label: 'Atrasados', value: overdueCount, active: agendaFilter === 'overdue' },
-          { key: 'danger', label: 'SLA estourado', value: dangerCount, active: slaFilter === 'danger' },
-          { key: 'today', label: 'Agenda hoje', value: todayCount, active: agendaFilter === 'today' },
-          { key: 'next7', label: 'Próximos 7d', value: next7Count, active: agendaFilter === 'next7' },
-        ]}
-        onAlertClick={(key) => {
-          if (key === 'danger') {
-            setSLAFilter((prev) => (prev === 'danger' ? 'all' : 'danger'))
-          } else {
-            setAgendaFilter((prev) => (prev === key ? 'all' : key))
+      {viewMode === 'funil' ? (
+        <SellerMicroKPIs
+          scope={selectedScope}
+          companyId={companyId}
+          ownerUserId={
+            selectedScope === 'mine'
+              ? userId
+              : selectedScope === 'seller'
+                ? selectedOwnerId
+                : null
           }
-        }}
-        onToggleInsights={() => setInsightsExpanded((v) => !v)}
-        insightsExpanded={insightsExpanded}
-      />
+          groupId={selectedGroupId}
+          supabase={supabase}
+          refreshKey={kpiRefreshKey}
+          alerts={[
+            { key: 'overdue', label: 'Atrasados', value: overdueCount, active: agendaFilter === 'overdue' },
+            { key: 'danger', label: 'SLA estourado', value: dangerCount, active: slaFilter === 'danger' },
+            { key: 'today', label: 'Agenda hoje', value: todayCount, active: agendaFilter === 'today' },
+            { key: 'next7', label: 'Próximos 7d', value: next7Count, active: agendaFilter === 'next7' },
+          ]}
+          onAlertClick={(key) => {
+            if (key === 'danger') {
+              setSLAFilter((prev) => (prev === 'danger' ? 'all' : 'danger'))
+            } else {
+              setAgendaFilter((prev) => (prev === key ? 'all' : key))
+            }
+          }}
+          onToggleInsights={() => setInsightsExpanded((v) => !v)}
+          insightsExpanded={insightsExpanded}
+        />
+      ) : null}
 
-      {insightsExpanded && (
+      {viewMode === 'funil' && insightsExpanded ? (
         <div style={{ background: DS.contentBg, borderBottom: `1px solid ${DS.border}`, padding: '10px 16px 14px', maxHeight: 320, overflowY: 'auto' }}>
           {(() => {
             const overdueItems = operationalItems.filter((c) => getAgendaState(c.next_action_date) === 'overdue')
@@ -3503,9 +3564,9 @@ export default function SalesCyclesKanban({
             )
           })()}
         </div>
-      )}
+      ) : null}
 
-<div
+      <div
         style={{
           position: 'relative',
           flex: 1,
@@ -3515,78 +3576,96 @@ export default function SalesCyclesKanban({
           background: DS.contentBg,
         }}
       >
+        {viewMode === 'prioridades' ? (
+          <div style={{ position: 'relative', flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: '3px solid #ef4444', fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
 
-        <div style={{ position: 'relative', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: `3px solid #ef4444`, fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
+            ) : (
+              <CockpitPrioritiesView
+                items={allItems}
+                totals={totals}
+                sellers={sellers}
+                now={nowTick}
+                onOpenCycle={openPriorityCycle}
+              />
+            )}
+          </div>
+        ) : (
+          <div style={{ position: 'relative', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: '3px solid #ef4444', fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
 
-          {loading ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
-          ) : (
-            <div
-              ref={kanbanScrollRef}
-              className="kanban-column-scroll"
-              onDragOver={handleKanbanDragOver}
-              onDragEnd={stopKanbanAutoScroll}
-              onDrop={stopKanbanAutoScroll}
-              onDragLeave={(event) => {
-                const nextTarget = event.relatedTarget
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
+            ) : (
+              <div
+                ref={kanbanScrollRef}
+                className="kanban-column-scroll"
+                onDragOver={handleKanbanDragOver}
+                onDragEnd={stopKanbanAutoScroll}
+                onDrop={stopKanbanAutoScroll}
+                onDragLeave={(event) => {
+                  const nextTarget = event.relatedTarget
 
-                if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
-                  return
-                }
+                  if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+                    return
+                  }
 
-                stopKanbanAutoScroll()
-              }}
-              style={{
-                flex: 1,
-                overflowX: 'auto',
-                overflowY: 'hidden',
-                padding: '12px 16px 16px',
-                display: 'flex',
-                gap: 8,
-                alignItems: 'flex-start',
-              }}
-            >
-              {STATUSES.map((status) => (
-  <VirtualizedStatusColumn
-    key={status}
-    status={status}
-    cycles={items[status]}
-    totalCount={totals[status] ?? 0}
-    savingId={savingId}
-    onDrop={handleDrop}
-    selectedIds={selectedIds}
-    onToggleSelect={toggleSelect}
-    slaRules={slaRules}
-    nowTick={nowTick}
-    slaFilter={slaFilter}
-    agendaFilter={agendaFilter}
-    onReturnToPool={(cycleId, cycleName) => {
-      setReturnCycleId(cycleId)
-      setReturnCycleName(cycleName)
-      setReturnReasonModalOpen(true)
-    }}
-    onOpenQuickDrawer={openQuickDrawer}
-    onReassign={reassignCycle}
-    onSetGroup={setGroupForCycle}
-    onCreateGroup={handleCreateGroupInline}
-    groups={groups}
-    sellers={sellers}
-    isAdmin={isAdmin}
-    onMoveItem={handleDrop}
-    onCopilotSaved={handleCopilotSaved}
-    supabase={supabase}
-    companyId={companyId}
-    currentUserId={userId}
-  />
-))}
-            </div>
-          )}
-        </div>
+                  stopKanbanAutoScroll()
+                }}
+                style={{
+                  flex: 1,
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  padding: '14px 0 18px',
+                  display: 'flex',
+                  gap: 12,
+                  alignItems: 'flex-start',
+                }}
+              >
+                {STATUSES.map((status) => (
+                  <VirtualizedStatusColumn
+                    key={status}
+                    status={status}
+                    cycles={items[status]}
+                    totalCount={totals[status] ?? 0}
+                    savingId={savingId}
+                    onDrop={handleDrop}
+                    selectedIds={selectedIds}
+                    onToggleSelect={toggleSelect}
+                    slaRules={slaRules}
+                    nowTick={nowTick}
+                    slaFilter={slaFilter}
+                    agendaFilter={agendaFilter}
+                    onReturnToPool={(cycleId, cycleName) => {
+                      setReturnCycleId(cycleId)
+                      setReturnCycleName(cycleName)
+                      setReturnReasonModalOpen(true)
+                    }}
+                    onOpenQuickDrawer={openQuickDrawer}
+                    onReassign={reassignCycle}
+                    onSetGroup={setGroupForCycle}
+                    onCreateGroup={handleCreateGroupInline}
+                    groups={groups}
+                    sellers={sellers}
+                    isAdmin={isAdmin}
+                    onMoveItem={handleDrop}
+                    onCopilotSaved={handleCopilotSaved}
+                    supabase={supabase}
+                    companyId={companyId}
+                    currentUserId={userId}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <LeadQuickDrawer
         item={quickDrawerItem}
+        companyId={companyId}
         onClose={() => setQuickDrawerItem(null)}
         supabase={supabase}
         onSaved={() => {

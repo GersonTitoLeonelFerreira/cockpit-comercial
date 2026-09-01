@@ -11,6 +11,7 @@ import {
     getRevenueGoal,
     upsertRevenueGoal,
     getHistoricalTicket,
+    getSalesCycleMetrics,
   } from '@/app/lib/services/simulator'
 import { getCloseRateReal, percentToRate } from '@/app/lib/services/simulatorRateReal'
 import type {
@@ -36,6 +37,16 @@ import {
   getExecutionDayCalendar,
   saveExecutionDayCalendar,
 } from '@/app/lib/services/executionDayCalendar'
+import {
+  countExecutionDaysInRange as countWorkDaysInRange,
+  countRemainingExecutionDays,
+  getBusinessDateKey,
+  getDefaultWorkDays as defaultWorkDays,
+  isExecutionDay,
+  type ExecutionDayOverrides,
+  type WorkDays,
+} from '@/app/lib/services/executionDayMath'
+import { buildRevenuePacing } from '@/app/lib/services/revenuePacing'
 import type { DailyGoalDistribution, DistributionInputSignals } from '@/app/types/distribution'
 import SimulatorDistributionSummary from './components/SimulatorDistributionSummary'
 import SimulatorDailyDistributionTable from './components/SimulatorDailyDistributionTable'
@@ -158,14 +169,14 @@ function getYearFromMonthKey(monthKey: string) {
   const year = Number(yearText)
 
   if (!Number.isFinite(year)) {
-    return new Date().getFullYear()
+    return Number(getBusinessDateKey().slice(0, 4))
   }
 
   return year
 }
 
 function buildMonthKey(year: number, month: string) {
-  const safeYear = Number.isFinite(year) ? year : new Date().getFullYear()
+  const safeYear = Number.isFinite(year) ? year : Number(getBusinessDateKey().slice(0, 4))
   const safeMonth = MONTH_OPTIONS.some((option) => option.value === month) ? month : '01'
 
   return `${safeYear}-${safeMonth}`
@@ -192,116 +203,8 @@ function getErrorMessage(error: unknown, fallback: string) {
 // Calendário operacional
 // ============================
 
-// 0=Dom,1=Seg,...6=Sáb
-type WorkDays = Record<number, boolean>
-
-// Chave: YYYY-MM-DD
-// Valor true = trabalha nessa data
-// Valor false = não trabalha nessa data
-type ExecutionDayOverrides = Record<string, boolean>
-
-function defaultWorkDays(): WorkDays {
-  return {
-    0: false, // Dom
-    1: true, // Seg
-    2: true, // Ter
-    3: true, // Qua
-    4: true, // Qui
-    5: true, // Sex
-    6: false, // Sáb
-  }
-}
-
 function dateKey(date: Date): string {
   return date.toISOString().slice(0, 10)
-}
-
-function isExecutionDay(
-  date: Date,
-  workDays: WorkDays,
-  overrides: ExecutionDayOverrides = {},
-): boolean {
-  const key = dateKey(date)
-
-  if (Object.prototype.hasOwnProperty.call(overrides, key)) {
-    return Boolean(overrides[key])
-  }
-
-  return Boolean(workDays[date.getDay()])
-}
-
-function countRemainingWorkDays(
-  endDate: Date,
-  workDays: WorkDays,
-  overrides: ExecutionDayOverrides = {},
-): number {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  endDate.setHours(0, 0, 0, 0)
-
-  if (endDate < today) return 0
-
-  let count = 0
-  const cur = new Date(today)
-
-  while (cur <= endDate) {
-    if (isExecutionDay(cur, workDays, overrides)) count++
-    cur.setDate(cur.getDate() + 1)
-  }
-
-  return count
-}
-
-function countWorkDaysInRange(
-  start: string,
-  end: string,
-  workDays: WorkDays,
-  overrides: ExecutionDayOverrides = {},
-): number {
-  const s = new Date(toYMD(start) + 'T00:00:00')
-  const e = new Date(toYMD(end) + 'T00:00:00')
-  s.setHours(0, 0, 0, 0)
-  e.setHours(0, 0, 0, 0)
-
-  if (e < s) return 0
-
-  let count = 0
-  const cur = new Date(s)
-
-  while (cur <= e) {
-    if (isExecutionDay(cur, workDays, overrides)) count++
-    cur.setDate(cur.getDate() + 1)
-  }
-
-  return count
-}
-
-function countWorkDaysUntilToday(
-  start: string,
-  end: string,
-  workDays: WorkDays,
-  overrides: ExecutionDayOverrides = {},
-): number {
-  const s = new Date(toYMD(start) + 'T00:00:00')
-  const e = new Date(toYMD(end) + 'T00:00:00')
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  s.setHours(0, 0, 0, 0)
-  e.setHours(0, 0, 0, 0)
-
-  const last = today < e ? today : e
-  if (last < s) return 0
-
-  let count = 0
-  const cur = new Date(s)
-
-  while (cur <= last) {
-    if (isExecutionDay(cur, workDays, overrides)) count++
-    cur.setDate(cur.getDate() + 1)
-  }
-
-  return count
 }
 
 type ExecutionCalendarDay = {
@@ -1682,7 +1585,7 @@ function ExecutionCalendarSummaryStrip({
               lineHeight: 1.2,
             }}
           >
-            Calendário operacional
+            Calendário operacional <span style={{ color: SIMULATOR_UI.textSubtle }}>(opcional)</span>
           </div>
 
           <div
@@ -1693,7 +1596,7 @@ function ExecutionCalendarSummaryStrip({
               lineHeight: 1.45,
             }}
           >
-            Define quais datas realmente contam como dias de execução para metas, ritmo diário e projeções.
+            Use somente quando houver feriados, pausas ou exceções. Sem ajustes, o padrão semanal já é aplicado.
           </div>
         </div>
 
@@ -1772,7 +1675,7 @@ function ExecutionCalendarSummaryStrip({
               whiteSpace: 'nowrap',
             }}
           >
-            Abrir calendário
+            Revisar calendário
           </button>
         </div>
       </div>
@@ -2510,9 +2413,9 @@ function SimulatorTopControls({
   periodEnd,
   setPeriodEnd,
   mode,
-  setMode,
   revenueGoalContextLabel,
   revenueGoalInputText,
+  revenueGoalSavedValue,
   setRevenueGoalInputText,
   goalLoading,
   goalSaving,
@@ -2552,9 +2455,9 @@ function SimulatorTopControls({
   periodEnd: string
   setPeriodEnd: (value: string) => void
   mode: SimulatorMode
-  setMode: (value: SimulatorMode) => void
   revenueGoalContextLabel: string
   revenueGoalInputText: string
+  revenueGoalSavedValue: number
   setRevenueGoalInputText: (value: string) => void
   goalLoading: boolean
   goalSaving: boolean
@@ -2634,87 +2537,428 @@ function SimulatorTopControls({
   const formattedPeriodStart = formatDateBR(periodStart)
   const formattedPeriodEnd = formatDateBR(periodEnd)
 
-  const scenarioSummary = `${selectedScopeLabel} · ${modeLabel} · ${formattedPeriodStart} até ${formattedPeriodEnd} · Meta ${formattedGoalValue}`
+  const selectedMonthKey = getMonthKeyFromDate(periodStart)
+  const currentMonthKey = getMonthKeyFromDate(dateKey(new Date()))
 
-    return (
-      <div
-        style={{
-          marginBottom: 14,
-          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-          background: 'rgba(13, 15, 20, 0.88)',
-          borderRadius: 18,
-          padding: 16,
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
-        }}
-      >
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const selectedPeriodStartDate = periodStart ? new Date(`${toYMD(periodStart)}T00:00:00`) : null
+  const selectedPeriodEndDate = periodEnd ? new Date(`${toYMD(periodEnd)}T00:00:00`) : null
+
+  const isPastPeriod = Boolean(selectedPeriodEndDate && selectedPeriodEndDate < today)
+  const isFuturePeriod = Boolean(selectedPeriodStartDate && selectedPeriodStartDate > today)
+
+  const periodStatus = isPastPeriod
+    ? {
+        label: 'Período encerrado',
+        description: `Competência encerrada em ${formattedPeriodEnd}. Os dados permanecem disponíveis para análise histórica.`,
+        color: '#93c5fd',
+        background: 'rgba(59, 130, 246, 0.075)',
+      }
+    : isFuturePeriod
+      ? {
+          label: 'Período futuro',
+          description: `Planejamento de ${formattedPeriodStart} a ${formattedPeriodEnd}.`,
+          color: '#c4b5fd',
+          background: 'rgba(139, 92, 246, 0.075)',
+        }
+      : {
+          label: 'Período em andamento',
+          description: `${remainingBusinessDays} ${remainingBusinessDays === 1 ? 'dia de execução restante' : 'dias de execução restantes'} até ${formattedPeriodEnd}.`,
+          color: '#86efac',
+          background: 'rgba(34, 197, 94, 0.065)',
+        }
+
+  function applyMonthKey(monthKey: string) {
+    const period = getMonthPeriod(monthKey)
+    setPeriodStart(period.start)
+    setPeriodEnd(period.end)
+  }
+
+  function moveSelectedMonth(offset: number) {
+    const [yearText, monthText] = selectedMonthKey.split('-')
+    const nextDate = new Date(Number(yearText), Number(monthText) - 1 + offset, 1)
+    const nextMonthKey = buildMonthKey(
+      nextDate.getFullYear(),
+      String(nextDate.getMonth() + 1).padStart(2, '0'),
+    )
+
+    applyMonthKey(nextMonthKey)
+  }
+
+  const goalInputValue = Math.max(0, safeNumber(revenueGoalInputText))
+  const hasUnsavedGoal = Math.abs(goalInputValue - revenueGoalSavedValue) > 0.009
+  const hasConfiguredGoal = revenueGoalSavedValue > 0
+
+  const goalStatus = goalLoading
+    ? {
+        label: 'Carregando meta...',
+        description: 'Buscando o valor salvo para este escopo e período.',
+        color: '#93c5fd',
+        border: 'rgba(59, 130, 246, 0.26)',
+        background: 'rgba(59, 130, 246, 0.08)',
+      }
+    : goalSaving
+    ? {
+        label: 'Salvando meta...',
+        description: 'Aguarde enquanto os dados são gravados.',
+        color: '#fbbf24',
+        border: 'rgba(245, 158, 11, 0.26)',
+        background: 'rgba(245, 158, 11, 0.08)',
+      }
+    : goalError
+      ? {
+          label: 'Não foi possível salvar',
+          description: goalError,
+          color: '#fca5a5',
+          border: 'rgba(239, 68, 68, 0.28)',
+          background: 'rgba(239, 68, 68, 0.08)',
+        }
+      : goalSuccess
+        ? {
+            label: 'Meta configurada',
+            description: goalSuccess,
+            color: '#86efac',
+            border: 'rgba(34, 197, 94, 0.26)',
+            background: 'rgba(34, 197, 94, 0.08)',
+          }
+        : hasUnsavedGoal
+          ? {
+              label: 'Alterações pendentes',
+              description: 'Revise o valor e clique em Salvar meta para concluir.',
+              color: '#fbbf24',
+              border: 'rgba(245, 158, 11, 0.26)',
+              background: 'rgba(245, 158, 11, 0.08)',
+            }
+          : hasConfiguredGoal
+            ? {
+                label: 'Meta configurada',
+                description: 'O valor salvo já está sendo usado nos cálculos.',
+                color: '#86efac',
+                border: 'rgba(34, 197, 94, 0.26)',
+                background: 'rgba(34, 197, 94, 0.08)',
+              }
+            : {
+                label: 'Meta ainda não configurada',
+                description: 'Informe o valor e salve para concluir a configuração.',
+                color: '#93c5fd',
+                border: 'rgba(59, 130, 246, 0.26)',
+                background: 'rgba(59, 130, 246, 0.08)',
+              }
+
+  return (
+    <div
+      style={{
+        marginBottom: 14,
+        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background: 'linear-gradient(145deg, rgba(16, 19, 27, 0.98), rgba(9, 11, 15, 0.99))',
+        borderRadius: 18,
+        padding: '17px 18px 0',
+        boxShadow: '0 18px 44px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255,255,255,0.03)',
+      }}
+    >
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          gap: 12,
+          gap: 14,
           flexWrap: 'wrap',
-          marginBottom: 14,
-          paddingBottom: 12,
-          borderBottom: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          paddingBottom: 15,
         }}
       >
-        <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            minWidth: 0,
+            borderLeft: '3px solid #3b82f6',
+            paddingLeft: 11,
+          }}
+        >
           <div
             style={{
-              color: SIMULATOR_UI.textSecondary,
-              fontSize: 13,
-              fontWeight: 850,
-              letterSpacing: -0.1,
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 15,
+              fontWeight: 950,
+              letterSpacing: -0.2,
               lineHeight: 1.2,
             }}
           >
-            Cenário da simulação
+            Configuração da meta
           </div>
 
           <div
             style={{
-              marginTop: 5,
+              marginTop: 4,
               color: SIMULATOR_UI.textMuted,
-              fontSize: 12.5,
-              lineHeight: 1.4,
-              maxWidth: 760,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              fontSize: 12,
+              lineHeight: 1.35,
             }}
-            title={scenarioSummary}
           >
-            {scenarioSummary}
+            {selectedScopeLabel} · {modeLabel}
           </div>
         </div>
 
         <div
           style={{
-            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-            background: 'rgba(59, 130, 246, 0.10)',
+            border: '1px solid rgba(59, 130, 246, 0.32)',
+            background: 'rgba(59, 130, 246, 0.09)',
             borderRadius: 999,
-            padding: '6px 10px',
+            padding: '7px 12px',
             color: '#bfdbfe',
-            fontSize: 12,
-            fontWeight: 850,
+            fontSize: 11.5,
+            fontWeight: 900,
             whiteSpace: 'nowrap',
           }}
         >
-          {remainingBusinessDays} dias de execução restantes
+          Faturamento
         </div>
       </div>
+
+      <section
+        aria-labelledby="meta-period-title"
+        style={{
+          borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          borderBottom: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          padding: '14px 0',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 16,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ minWidth: 190 }}>
+            <div
+              id="meta-period-title"
+              style={{
+                color: SIMULATOR_UI.textSecondary,
+                fontSize: 12.5,
+                fontWeight: 900,
+                lineHeight: 1.2,
+              }}
+            >
+              Período de referência
+            </div>
+            <div
+              style={{
+                marginTop: 4,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 11.5,
+                lineHeight: 1.35,
+              }}
+            >
+              Consulte, configure ou revise qualquer competência mensal.
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 7,
+              flex: '1 1 430px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              type="button"
+              aria-label="Competência anterior"
+              title="Competência anterior"
+              onClick={() => moveSelectedMonth(-1)}
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                display: 'grid',
+                placeItems: 'center',
+                border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+                background: 'rgba(9, 11, 15, 0.72)',
+                color: SIMULATOR_UI.textSecondary,
+                fontSize: 18,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              ‹
+            </button>
+
+            <select
+              aria-label="Mês da competência"
+              value={getMonthNumberFromMonthKey(selectedMonthKey)}
+              onChange={(event) => {
+                applyMonthKey(
+                  buildMonthKey(getYearFromMonthKey(selectedMonthKey), event.target.value),
+                )
+              }}
+              style={{
+                ...controlBaseStyle(),
+                width: 150,
+                height: 38,
+                fontWeight: 800,
+              }}
+            >
+              {MONTH_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            <input
+              aria-label="Ano da competência"
+              type="number"
+              value={getYearFromMonthKey(selectedMonthKey)}
+              onChange={(event) => {
+                applyMonthKey(
+                  buildMonthKey(
+                    Number(event.target.value),
+                    getMonthNumberFromMonthKey(selectedMonthKey),
+                  ),
+                )
+              }}
+              min={1900}
+              max={2200}
+              style={{
+                ...controlBaseStyle(),
+                width: 96,
+                height: 38,
+                fontWeight: 800,
+              }}
+            />
+
+            <button
+              type="button"
+              aria-label="Próxima competência"
+              title="Próxima competência"
+              onClick={() => moveSelectedMonth(1)}
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                display: 'grid',
+                placeItems: 'center',
+                border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+                background: 'rgba(9, 11, 15, 0.72)',
+                color: SIMULATOR_UI.textSecondary,
+                fontSize: 18,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              ›
+            </button>
+
+            {selectedMonthKey !== currentMonthKey ? (
+              <button
+                type="button"
+                onClick={() => applyMonthKey(currentMonthKey)}
+                style={{
+                  height: 38,
+                  borderRadius: 10,
+                  border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+                  background: 'rgba(15, 18, 26, 0.78)',
+                  color: '#93c5fd',
+                  padding: '0 11px',
+                  fontSize: 11.5,
+                  fontWeight: 850,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Mês atual
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          role="status"
+          style={{
+            marginTop: 12,
+            borderLeft: `3px solid ${periodStatus.color}`,
+            background: periodStatus.background,
+            borderRadius: '0 10px 10px 0',
+            padding: '9px 11px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <span
+              style={{
+                color: periodStatus.color,
+                fontSize: 12,
+                fontWeight: 900,
+              }}
+            >
+              {periodStatus.label}
+            </span>
+            <span
+              style={{
+                marginLeft: 8,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 11.5,
+                lineHeight: 1.4,
+              }}
+            >
+              {periodStatus.description}
+            </span>
+          </div>
+
+          <span
+            style={{
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 11,
+              fontWeight: 750,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {formattedPeriodStart} — {formattedPeriodEnd}
+          </span>
+        </div>
+      </section>
 
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 14,
-          alignItems: 'end',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 350px), 1fr))',
+          gap: 28,
+          padding: '17px 0 15px',
         }}
       >
-        <div>
-          <FieldLabel>Escopo da análise</FieldLabel>
+        <section style={{ minWidth: 0 }}>
+          <div
+            style={{
+              color: SIMULATOR_UI.textSecondary,
+              fontSize: 13,
+              fontWeight: 900,
+              lineHeight: 1.2,
+            }}
+          >
+            Escopo da meta
+          </div>
+          <div
+            style={{
+              marginTop: 4,
+              marginBottom: 12,
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 11.5,
+              lineHeight: 1.4,
+            }}
+          >
+            Defina se a meta será aplicada à empresa ou a um vendedor específico.
+          </div>
+
+          <FieldLabel>Responsável pelo resultado</FieldLabel>
 
           {isAdmin ? (
             <select
@@ -2723,7 +2967,7 @@ function SimulatorTopControls({
                 const value = event.target.value
                 setSelectedSellerId(value === 'empresa' ? null : value)
               }}
-              style={controlBaseStyle()}
+              style={{ ...controlBaseStyle(), height: 42 }}
             >
               <option value="empresa">{companyScopeLabel}</option>
               {sellers.map((seller) => (
@@ -2736,184 +2980,195 @@ function SimulatorTopControls({
             <select
               value={sellerGoalScope}
               onChange={(event) => setSellerGoalScope(event.target.value as 'company' | 'mine')}
-              style={controlBaseStyle()}
+              style={{ ...controlBaseStyle(), height: 42 }}
             >
               <option value="company">{companyScopeLabel}</option>
               <option value="mine">Minha meta</option>
             </select>
           )}
-        </div>
-
-        <div>
-          <FieldLabel>Período</FieldLabel>
 
           <div
             style={{
+              marginTop: 8,
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 11.5,
+              lineHeight: 1.35,
+            }}
+          >
+            Seleção atual: <strong style={{ color: SIMULATOR_UI.textSecondary }}>{selectedScopeLabel}</strong>
+          </div>
+        </section>
+
+        <section
+          style={{
+            minWidth: 0,
+            borderLeft: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            paddingLeft: 24,
+          }}
+        >
+          <div
+            style={{
               display: 'flex',
-              gap: 8,
               alignItems: 'center',
+              gap: 10,
               flexWrap: 'wrap',
             }}
           >
-            <select
-              value={getMonthNumberFromMonthKey(getMonthKeyFromDate(periodStart))}
-              onChange={(event) => {
-                const currentMonthKey = getMonthKeyFromDate(periodStart)
-                const currentYear = getYearFromMonthKey(currentMonthKey)
-                const selectedMonthKey = buildMonthKey(currentYear, event.target.value)
-                const period = getMonthPeriod(selectedMonthKey)
+            <div>
+              <div
+                style={{
+                  color: SIMULATOR_UI.textSecondary,
+                  fontSize: 13,
+                  fontWeight: 900,
+                  lineHeight: 1.2,
+                }}
+              >
+                Meta de faturamento
+              </div>
+              <div
+                style={{
+                  marginTop: 4,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 11.5,
+                  lineHeight: 1.4,
+                }}
+              >
+                Valor esperado para {formatMonthLabelBR(selectedMonthKey)}.
+              </div>
+            </div>
 
-                setPeriodStart(period.start)
-                setPeriodEnd(period.end)
-              }}
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <FieldLabel>{revenueGoalContextLabel}</FieldLabel>
+
+            <div style={{ position: 'relative' }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#93c5fd',
+                  fontSize: 13,
+                  fontWeight: 900,
+                  pointerEvents: 'none',
+                }}
+              >
+                R$
+              </span>
+
+              <input
+                aria-label={revenueGoalContextLabel}
+                type="text"
+                inputMode="decimal"
+                value={revenueGoalInputText}
+                onChange={(event) => setRevenueGoalInputText(event.target.value)}
+                disabled={!isAdmin || goalLoading || goalSaving}
+                placeholder="Ex.: 245000"
+                style={{
+                  ...controlBaseStyle(),
+                  height: 44,
+                  paddingLeft: 38,
+                  fontSize: 16,
+                  fontWeight: 900,
+                  opacity: goalLoading || goalSaving ? 0.7 : 1,
+                }}
+              />
+            </div>
+
+            <div
               style={{
-                ...controlBaseStyle(),
-                width: 140,
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 11.5,
+                lineHeight: 1.35,
               }}
             >
-              {MONTH_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              Valor reconhecido pelo sistema: {formattedGoalValue}
+            </div>
+          </div>
 
-            <input
-              type="number"
-              value={getYearFromMonthKey(getMonthKeyFromDate(periodStart))}
-              onChange={(event) => {
-                const currentMonthKey = getMonthKeyFromDate(periodStart)
-                const currentMonth = getMonthNumberFromMonthKey(currentMonthKey)
-                const selectedYear = Number(event.target.value)
-                const selectedMonthKey = buildMonthKey(selectedYear, currentMonth)
-                const period = getMonthPeriod(selectedMonthKey)
-
-                setPeriodStart(period.start)
-                setPeriodEnd(period.end)
-              }}
-              min={1900}
-              max={2200}
+          {isAdmin ? (
+            <div
               style={{
-                ...controlBaseStyle(),
-                width: 96,
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto',
+                gap: 8,
+                marginTop: 12,
               }}
-            />
-          </div>
+            >
+              <button
+                type="button"
+                onClick={onSaveGoal}
+                disabled={goalLoading || goalSaving}
+                style={{
+                  height: 40,
+                  borderRadius: 11,
+                  border: '1px solid rgba(59, 130, 246, 0.48)',
+                  background:
+                    'linear-gradient(135deg, rgba(37, 99, 235, 0.90) 0%, rgba(59, 130, 246, 0.72) 100%)',
+                  color: '#eff6ff',
+                  padding: '0 16px',
+                  fontSize: 12.5,
+                  fontWeight: 900,
+                  cursor: goalLoading || goalSaving ? 'not-allowed' : 'pointer',
+                  opacity: goalLoading || goalSaving ? 0.58 : 1,
+                  whiteSpace: 'nowrap',
+                  boxShadow: hasUnsavedGoal ? '0 10px 24px rgba(37, 99, 235, 0.22)' : 'none',
+                }}
+              >
+                {goalSaving ? 'Salvando...' : 'Salvar meta'}
+              </button>
 
-          <div
-            style={{
-              marginTop: 7,
-              color: SIMULATOR_UI.textSubtle,
-              fontSize: 12,
-              lineHeight: 1.35,
-            }}
-          >
-            {formatMonthLabelBR(getMonthKeyFromDate(periodStart))} · {formatDateBR(periodStart)} até{' '}
-            {formatDateBR(periodEnd)}
-          </div>
-        </div>
-
-        <div>
-          <FieldLabel>Meta ativa</FieldLabel>
-
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              flexWrap: 'wrap',
-            }}
-          >
-            <ModePill active onClick={() => setMode('faturamento')}>
-              Faturamento
-            </ModePill>
-          </div>
-
-          <div
-            style={{
-              marginTop: 7,
-              color: SIMULATOR_UI.textSubtle,
-              fontSize: 12,
-              lineHeight: 1.35,
-            }}
-          >
-            Meta ativa no momento. Novos modelos de meta serão adicionados em breve.
-          </div>
-        </div>
-
-        <div>
-          <FieldLabel>{revenueGoalContextLabel}</FieldLabel>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr auto auto',
-              gap: 8,
-            }}
-          >
-            <input
-              type="text"
-              value={revenueGoalInputText}
-              onChange={(event) => setRevenueGoalInputText(event.target.value)}
-              disabled={!isAdmin || goalLoading || goalSaving}
-              placeholder="Ex.: 200000"
-              style={{
-                ...controlBaseStyle(),
-                opacity: goalLoading || goalSaving ? 0.7 : 1,
-              }}
-            />
-
-            {isAdmin ? (
-              <>
-                <SmallActionButton
-                  tone="primary"
-                  onClick={onSaveGoal}
-                  disabled={goalLoading || goalSaving}
-                >
-                  {goalSaving ? 'Salvando...' : 'Salvar'}
-                </SmallActionButton>
-
-                <SmallActionButton onClick={onUndoGoal} disabled={goalSaving || goalLoading}>
-                  Desfazer
-                </SmallActionButton>
-              </>
-            ) : null}
-          </div>
-
-        </div>
+              <SmallActionButton
+                onClick={onUndoGoal}
+                disabled={goalSaving || goalLoading}
+              >
+                Desfazer
+              </SmallActionButton>
+            </div>
+          ) : null}
+        </section>
       </div>
 
-      {goalError ? (
-        <div
-          style={{
-            marginTop: 12,
-            color: '#fecaca',
-            fontSize: 13,
-            fontWeight: 700,
-          }}
-        >
-          {goalError}
-        </div>
-      ) : null}
-
-      {goalSuccess ? (
-        <div
-          style={{
-            marginTop: 12,
-            color: '#bbf7d0',
-            fontSize: 13,
-            fontWeight: 700,
-          }}
-        >
-          {goalSuccess}
-        </div>
-      ) : null}
-
-<details
+      <div
+        role="status"
         style={{
-          marginTop: 14,
-          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-          background: 'rgba(9, 11, 15, 0.38)',
-          borderRadius: 14,
+          borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          padding: '11px 0',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: goalStatus.color,
+            boxShadow: `0 0 10px ${goalStatus.color}`,
+          }}
+        />
+        <strong style={{ color: goalStatus.color, fontSize: 12, fontWeight: 900 }}>
+          {goalStatus.label}
+        </strong>
+        <span style={{ color: SIMULATOR_UI.textMuted, fontSize: 11.5, lineHeight: 1.4 }}>
+          {goalStatus.description}
+        </span>
+      </div>
+
+      <details
+        style={{
+          margin: '0 -18px',
+          border: 0,
+          borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          background: 'rgba(7, 9, 13, 0.40)',
+          borderRadius: '0 0 18px 18px',
           overflow: 'hidden',
         }}
       >
@@ -2922,7 +3177,7 @@ function SimulatorTopControls({
             cursor: 'pointer',
             userSelect: 'none',
             listStyle: 'none',
-            padding: '12px 14px',
+            padding: '14px 18px',
           }}
         >
           <div
@@ -2943,7 +3198,7 @@ function SimulatorTopControls({
                   lineHeight: 1.2,
                 }}
               >
-                Ajustes avançados
+                Premissas da simulação
               </div>
 
               <div
@@ -2954,7 +3209,7 @@ function SimulatorTopControls({
                   lineHeight: 1.35,
                 }}
               >
-                Ticket médio, taxa de conversão e calendário de execução.
+                Ticket médio, conversão e jornada útil utilizados nas projeções.
               </div>
             </div>
 
@@ -2970,7 +3225,7 @@ function SimulatorTopControls({
                 whiteSpace: 'nowrap',
               }}
             >
-              Ajustar parâmetros
+              Revisar premissas
             </div>
           </div>
         </summary>
@@ -2978,7 +3233,7 @@ function SimulatorTopControls({
         <div
           style={{
             borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
-            padding: 14,
+            padding: '16px 18px 18px',
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
             gap: 14,
@@ -3025,7 +3280,7 @@ function SimulatorTopControls({
                 lineHeight: 1.35,
               }}
             >
-              Origem atual: {ticketSource === 'historico' ? 'histórico' : 'manual'}.
+              Origem atual: {ticketSource === 'historico' ? 'histórico' : 'manual'}. O ticket é salvo junto com a meta.
             </div>
           </div>
 
@@ -3094,7 +3349,8 @@ function SimulatorTopControls({
                 ? 'Carregando taxa real...'
                 : realRatePercent !== null
                   ? `Taxa real ${realRateScopeLabel} encontrada: ${realRatePercent}%.`
-                  : 'Sem taxa real suficiente para este escopo e período. A taxa planejada será usada como fallback.'}
+                  : 'Sem taxa real suficiente para este escopo e período. A taxa planejada será usada como fallback.'}{' '}
+              A alteração recalcula a simulação imediatamente.
             </div>
           </div>
 
@@ -3149,6 +3405,19 @@ function SimulatorTopControls({
               />
               Recalcular dias restantes automaticamente
             </label>
+
+            <div
+              style={{
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                lineHeight: 1.35,
+              }}
+            >
+              {isAdmin
+                ? 'Alterações nos dias padrão são salvas automaticamente no calendário operacional.'
+                : 'Somente administradores podem alterar os dias padrão de execução.'}
+            </div>
           </div>
         </div>
       </details>
@@ -3323,8 +3592,8 @@ function ExecutionPlanPanel({
             title="Calendário operacional"
             value={
               remainingBusinessDays > 0
-                ? `${remainingBusinessDays} ${remainingBusinessDays === 1 ? 'dia útil' : 'dias úteis'}`
-                : 'Sem dias úteis'
+                ? `${remainingBusinessDays} ${remainingBusinessDays === 1 ? 'dia de execução' : 'dias de execução'}`
+                : 'Sem dias de execução'
             }
             subtitle="Base usada para calcular a pressão diária."
             tone={remainingBusinessDays > 0 ? 'neutral' : 'bad'}
@@ -3360,7 +3629,7 @@ function ExecutionPlanPanel({
     plan.meta_atingida
       ? 'A meta financeira já foi atingida. A decisão agora é proteger o resultado, evitar perda de oportunidades abertas e sustentar a cadência até o fim do período.'
       : remainingBusinessDays <= 0
-        ? 'Não há dias úteis restantes no calendário operacional. A decisão executiva é revisar o calendário, reprogramar prazo ou tratar a meta como exceção gerencial.'
+        ? 'Não há dias de execução restantes no calendário operacional. A decisão executiva é revisar o calendário, reprogramar prazo ou tratar a meta como exceção gerencial.'
         : dailyCycles >= 40
           ? 'O plano está sob pressão crítica. A decisão recomendada é aumentar base disponível, redistribuir carteira, reforçar capacidade de abordagem ou revisar a premissa de taxa/ticket.'
           : dailyCycles >= 20
@@ -3634,7 +3903,7 @@ function ExecutionPlanPanel({
                   lineHeight: 1.4,
                 }}
               >
-                oportunidades por dia útil restante
+                oportunidades por dia de execução restante
               </div>
             </div>
 
@@ -3706,7 +3975,7 @@ function ExecutionPlanPanel({
                   lineHeight: 1.4,
                 }}
               >
-                {remainingBusinessDays === 1 ? 'dia útil restante' : 'dias úteis restantes'}
+                {remainingBusinessDays === 1 ? 'dia de execução restante' : 'dias de execução restantes'}
               </div>
             </div>
           </div>
@@ -3745,113 +4014,6 @@ type ActiveCompanyMembership = {
     full_name: string | null
   }
   
-  type SalesCycleMetricRow = {
-    id: string
-    status: 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido' | string
-    owner_user_id: string | null
-    created_at: string
-    updated_at: string
-    won_at: string | null
-    lost_at: string | null
-    first_worked_at: string | null
-  }
-  
-  function getStatusCounter(status: string) {
-    if (status === 'negociação') return 'negociacao'
-    return status
-  }
-  
-  async function getSalesCycleMetricsForCompany({
-    companyId,
-    ownerUserId,
-    month,
-    isAdmin,
-  }: {
-    companyId: string
-    ownerUserId: string | null
-    month: string
-    isAdmin: boolean
-  }): Promise<SimulatorMetrics> {
-    const supabase = supabaseBrowser()
-    const period = getMonthPeriod(getMonthKeyFromDate(month))
-  
-    let query = supabase
-      .from('sales_cycles')
-      .select('id, status, owner_user_id, created_at, updated_at, won_at, lost_at, first_worked_at')
-      .eq('company_id', companyId)
-  
-    if (ownerUserId) {
-      query = query.eq('owner_user_id', ownerUserId)
-    }
-  
-    const { data, error } = await query
-  
-    if (error) throw error
-  
-    const rows = (data ?? []) as SalesCycleMetricRow[]
-  
-    const counts = {
-      novo: 0,
-      contato: 0,
-      respondeu: 0,
-      negociacao: 0,
-      ganho: 0,
-      perdido: 0,
-    }
-  
-    let currentWins = 0
-    let workedCount = 0
-    let totalOpen = 0
-    let totalPool = 0
-  
-    const periodStart = new Date(`${period.start}T00:00:00`)
-    const periodEnd = new Date(`${period.end}T23:59:59`)
-  
-    for (const row of rows) {
-      const normalizedStatus = getStatusCounter(row.status)
-  
-      if (normalizedStatus in counts) {
-        counts[normalizedStatus as keyof typeof counts] += 1
-      }
-  
-      if (!row.owner_user_id) {
-        totalPool += 1
-      }
-  
-      if (!['ganho', 'perdido'].includes(normalizedStatus)) {
-        totalOpen += 1
-      }
-  
-      if (
-        row.first_worked_at ||
-        ['contato', 'respondeu', 'negociacao', 'ganho', 'perdido'].includes(normalizedStatus)
-      ) {
-        workedCount += 1
-      }
-  
-      if (normalizedStatus === 'ganho') {
-        const wonDate = row.won_at ? new Date(row.won_at) : null
-  
-        if (wonDate && wonDate >= periodStart && wonDate <= periodEnd) {
-          currentWins += 1
-        }
-      }
-    }
-  
-    return {
-      company_id: companyId,
-      month_start: period.start,
-      month_end: period.end,
-      owner_user_id: ownerUserId,
-      is_admin: isAdmin,
-      current_wins: currentWins,
-      worked_count: workedCount,
-      total_open: totalOpen,
-      total_pool: totalPool,
-      counts_by_status: counts,
-    }
-  }
-
 export default function SimulatorMetaClient({
     activeCompanyId,
   }: {
@@ -3865,7 +4027,7 @@ export default function SimulatorMetaClient({
   const [metrics, setMetrics] = useState<SimulatorMetrics | null>(null)
   const [result, setResult] = useState<SimulatorResult | null>(null)
 
-  const [mode, setMode] = useState<SimulatorMode>('faturamento')
+  const [mode] = useState<SimulatorMode>('faturamento')
 
   // Dias trabalhados (checkbox)
   const [workDays, setWorkDays] = useState<WorkDays>(defaultWorkDays())
@@ -3997,8 +4159,11 @@ export default function SimulatorMetaClient({
         setPeriodStart(initialPeriodStart)
         setPeriodEnd(initialPeriodEnd)
 
-        const endDate = new Date(initialPeriodEnd + 'T00:00:00')
-        const remainingDays = countRemainingWorkDays(endDate, workDays, executionDayOverrides)
+        const remainingDays = countRemainingExecutionDays(
+          initialPeriodEnd,
+          workDays,
+          executionDayOverrides,
+        )
         setRemainingBusinessDays(remainingDays)
 
         if (isAdminUser) {
@@ -4042,11 +4207,10 @@ export default function SimulatorMetaClient({
             setSelectedSellerId(uid)
           }
 
-          const m = await getSalesCycleMetricsForCompany({
+          const m = await getSalesCycleMetrics({
             companyId: activeCompanyId,
             ownerUserId: isAdminUser ? null : uid,
             month: comp.month_start,
-            isAdmin: isAdminUser,
           })
         setMetrics(m)
 
@@ -4079,8 +4243,11 @@ export default function SimulatorMetaClient({
     if (!periodEnd) return
     if (!autoRemainingDays) return
 
-    const endDate = new Date(periodEnd + 'T00:00:00')
-    const remainingDays = countRemainingWorkDays(endDate, workDays, executionDayOverrides)
+    const remainingDays = countRemainingExecutionDays(
+      periodEnd,
+      workDays,
+      executionDayOverrides,
+    )
     setRemainingBusinessDays(remainingDays)
   }, [periodEnd, workDays, executionDayOverrides, autoRemainingDays])
 
@@ -4156,11 +4323,10 @@ export default function SimulatorMetaClient({
 
     async function refetch() {
       try {
-        const newMetrics = await getSalesCycleMetricsForCompany({
+        const newMetrics = await getSalesCycleMetrics({
           companyId: companyId!,
           ownerUserId: analysisOwnerId,
           month: periodStart,
-          isAdmin,
         })
 
         setMetrics(newMetrics)
@@ -4170,7 +4336,7 @@ export default function SimulatorMetaClient({
     }
 
     void refetch()
-  }, [periodStart, analysisOwnerId, companyId, isAdmin])
+  }, [periodStart, analysisOwnerId, companyId])
 
   // conversão por grupo
   useEffect(() => {
@@ -4619,52 +4785,26 @@ function handleUndoGoalFromTop() {
   )
 
   function buildRevenueKpis(totalReal: number, goal: number) {
-    const safeGoal = Math.max(0, Number(goal) || 0)
-
-    const calendarDays = buildExecutionCalendarDays(
-      revenueDates.start,
-      revenueDates.end,
+    const pacing = buildRevenuePacing({
+      totalReal,
+      goal,
+      periodStart: revenueDates.start,
+      periodEnd: revenueDates.end,
       workDays,
       executionDayOverrides,
-    )
-
-    const calendarSummary = getExecutionCalendarSummary(calendarDays)
-
-    const businessDaysTotal = calendarSummary.totalExecutionDays
-    const businessDaysElapsed = countWorkDaysUntilToday(
-      revenueDates.start,
-      revenueDates.end,
-      workDays,
-      executionDayOverrides,
-    )
-
-    const endDate = new Date(toYMD(revenueDates.end) + 'T00:00:00')
-    const businessDaysRemaining = countRemainingWorkDays(
-      endDate,
-      workDays,
-      executionDayOverrides,
-    )
-
-    const gap = Math.max(0, safeGoal - totalReal)
-    const requiredPerBD = businessDaysRemaining > 0 ? gap / businessDaysRemaining : gap
-
-    const avgDaily = businessDaysElapsed > 0 ? totalReal / businessDaysElapsed : 0
-    const projection = avgDaily * Math.max(1, businessDaysTotal)
-
-    const pacingRatio = safeGoal > 0 ? projection / safeGoal : 0
-    const status = getRevenueStatus(pacingRatio)
+    })
 
     return {
-      goal: safeGoal,
-      businessDaysTotal,
-      businessDaysElapsed,
-      businessDaysRemaining,
-      totalReal,
-      gap,
-      required_per_business_day: requiredPerBD,
-      projection,
-      pacingRatio,
-      status,
+      goal: pacing.goal,
+      businessDaysTotal: pacing.totalExecutionDays,
+      businessDaysElapsed: pacing.elapsedExecutionDays,
+      businessDaysRemaining: pacing.remainingExecutionDays,
+      totalReal: pacing.totalReal,
+      gap: pacing.gap,
+      required_per_business_day: pacing.requiredPerRemainingExecutionDay,
+      projection: pacing.projection,
+      pacingRatio: pacing.pacingRatio,
+      status: getRevenueStatus(pacing.pacingRatio),
     }
   }
 
@@ -4916,15 +5056,9 @@ function handleUndoGoalFromTop() {
         periodEnd={periodEnd}
         setPeriodEnd={setPeriodEnd}
         mode={mode}
-        setMode={(newMode) => {
-          setMode(newMode)
-
-          if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
-            setActiveTab('taxa-resultado')
-          }
-        }}
         revenueGoalContextLabel={revenueGoalContextLabel}
         revenueGoalInputText={revenueGoalInputText}
+        revenueGoalSavedValue={revenueGoalDb}
         setRevenueGoalInputText={setRevenueGoalInputText}
         goalLoading={goalLoading}
         goalSaving={goalSaving}
@@ -5139,6 +5273,8 @@ function handleUndoGoalFromTop() {
                 goal={activeGoalForKpis}
                 startDate={revenueDates.start}
                 endDate={revenueDates.end}
+                workDays={workDays}
+                executionDayOverrides={executionDayOverrides}
               />
             ) : null}
 
@@ -5149,6 +5285,8 @@ function handleUndoGoalFromTop() {
                 goal={activeGoalForKpis}
                 startDate={revenueDates.start}
                 endDate={revenueDates.end}
+                workDays={workDays}
+                executionDayOverrides={executionDayOverrides}
               />
             ) : null}
 

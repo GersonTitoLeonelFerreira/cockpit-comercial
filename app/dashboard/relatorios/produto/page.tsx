@@ -1255,7 +1255,8 @@ export default function ProdutoRelatorioPg() {
               >
                 O relatório considera apenas ciclos fechados como{' '}
                 <strong style={{ color: DS.textPrimary }}>ganho</strong>. A
-                referência de receita respeita a ordem oficial do sistema:{' '}
+                receita é conciliada com a mesma base da Gestão de Faturamento e
+                respeita a data financeira oficial:{' '}
                 <strong style={{ color: DS.textPrimary }}>
                   revenue_seller_ref_date → won_at → closed_at
                 </strong>
@@ -1285,9 +1286,9 @@ export default function ProdutoRelatorioPg() {
                     marginTop: 9,
                   }}
                 >
-                  Atenção: existem vendas ganhas sem produto vinculado. Elas
-                  entram no faturamento geral, mas reduzem a precisão da leitura
-                  de mix.
+                  Atenção: existe faturamento sem produto vinculado, incluindo
+                  possíveis ajustes de conciliação. Esse valor entra no total,
+                  mas não é atribuído artificialmente a um produto.
                 </div>
               ) : null}
             </section>

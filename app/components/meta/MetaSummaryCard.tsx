@@ -208,3 +208,129 @@ export default function MetaSummaryHeader({
     </div>
   )
 }
+
+// ============================================================================
+// CompactMetaSummaryHeader — compact cockpit variant
+// ============================================================================
+
+export function CompactMetaSummaryHeader({
+  title,
+  kpis,
+  detailsHref = '/dashboard/simulador-meta',
+}: {
+  title: string
+  kpis: MetaSummaryKpis
+  detailsHref?: string
+}) {
+  const statusColor =
+    kpis.status === 'no_ritmo' ? '#10b981' : kpis.status === 'atencao' ? '#f59e0b' : '#ef4444'
+  const progress = kpis.goal > 0 ? Math.min(100, Math.max(0, (kpis.totalReal / kpis.goal) * 100)) : 0
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 18,
+        flexWrap: 'wrap',
+        padding: '12px 16px',
+        borderRadius: 11,
+        background: '#0d0f14',
+        border: '1px solid #1a1d2e',
+        boxShadow: '0 6px 20px rgba(0,0,0,0.18)',
+      }}
+    >
+      <div style={{ minWidth: 250, flex: '1 1 320px' }}>
+        <div style={{ color: '#738096', fontSize: 10.5, fontWeight: 700 }}>{title}</div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 5,
+            marginTop: 4,
+            color: '#edf2f7',
+            fontSize: 16,
+            fontWeight: 900,
+            letterSpacing: -0.2,
+          }}
+        >
+          {toBRL(kpis.totalReal)}
+          <span style={{ color: '#8fa3bc', fontSize: 11.5, fontWeight: 600 }}>
+            de {toBRL(kpis.goal)}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 8 }}>
+          <div
+            style={{
+              flex: 1,
+              height: 6,
+              overflow: 'hidden',
+              borderRadius: 999,
+              background: '#202431',
+            }}
+            role="progressbar"
+            aria-label="Progresso da meta do período"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+          >
+            <div
+              style={{
+                width: `${progress}%`,
+                height: '100%',
+                borderRadius: 999,
+                background: statusColor,
+              }}
+            />
+          </div>
+          <span style={{ color: statusColor, fontSize: 12, fontWeight: 850 }}>
+            {Math.round(progress)}%
+          </span>
+        </div>
+      </div>
+
+      <div style={{ width: 1, height: 42, background: '#1f2330' }} />
+
+      <div style={{ minWidth: 112 }}>
+        <div style={{ color: '#738096', fontSize: 10 }}>Gap</div>
+        <div style={{ marginTop: 4, color: '#edf2f7', fontSize: 13, fontWeight: 850 }}>
+          {toBRL(kpis.gap)}
+        </div>
+      </div>
+
+      <div style={{ width: 1, height: 42, background: '#1f2330' }} />
+
+      <div style={{ minWidth: 125 }}>
+        <div style={{ color: '#738096', fontSize: 10 }}>
+          {kpis.businessDaysRemaining} dias restantes
+        </div>
+        <div style={{ marginTop: 4, color: '#edf2f7', fontSize: 13, fontWeight: 850 }}>
+          {toBRL(kpis.requiredPerBD)}/dia
+        </div>
+      </div>
+
+      <div style={{ width: 1, height: 42, background: '#1f2330' }} />
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 95 }}>
+        <StatusIcon status={kpis.status} />
+        <span style={{ color: statusColor, fontSize: 11.5, fontWeight: 800 }}>
+          {statusLabel(kpis.status)}
+        </span>
+      </div>
+
+      <a
+        href={detailsHref}
+        style={{
+          marginLeft: 'auto',
+          color: '#8fa3bc',
+          fontSize: 11,
+          fontWeight: 700,
+          textDecoration: 'none',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Ver detalhes →
+      </a>
+    </div>
+  )
+}

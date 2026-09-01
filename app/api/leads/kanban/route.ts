@@ -368,68 +368,39 @@ export async function GET(req: Request) {
 
     const competencyMonth = getCurrentCompetencyMonthInSaoPaulo()
 
-    let activeCountQuery = admin
-      .from('v_kanban_items')
-      .select('status')
-      .eq('company_id', activeCompanyId)
-      .in('status', ACTIVE_STATUSES)
+    const totals = emptyTotals()
+    const countResults = await Promise.all(
+      STATUSES.map(async (status) => {
+        let query = admin
+          .from('v_kanban_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('company_id', activeCompanyId)
+          .eq('status', status)
 
-    let wonCountQuery = admin
-      .from('v_kanban_items')
-      .select('status')
-      .eq('company_id', activeCompanyId)
-      .eq('status', 'ganho')
-      .gte('terminal_closed_on', competencyMonth.start)
-      .lt('terminal_closed_on', competencyMonth.endExclusive)
+        if (scope === 'company') {
+          query = query
+            .not('owner_id', 'is', null)
+            .in('owner_id', companyScopeOwnerIds ?? [])
+        } else {
+          query = query.eq('owner_id', effectiveOwnerId)
+        }
 
-    let lostCountQuery = admin
-      .from('v_kanban_items')
-      .select('status')
-      .eq('company_id', activeCompanyId)
-      .eq('status', 'perdido')
-      .gte('terminal_closed_on', competencyMonth.start)
-      .lt('terminal_closed_on', competencyMonth.endExclusive)
+        if (groupId) query = query.eq('group_id', groupId)
+        if (orSearch) query = query.or(orSearch)
 
-    if (scope === 'company') {
-      activeCountQuery = activeCountQuery
-        .not('owner_id', 'is', null)
-        .in('owner_id', companyScopeOwnerIds ?? [])
+        if (!ACTIVE_STATUSES.includes(status)) {
+          query = query
+            .gte('terminal_closed_on', competencyMonth.start)
+            .lt('terminal_closed_on', competencyMonth.endExclusive)
+        }
 
-      wonCountQuery = wonCountQuery
-        .not('owner_id', 'is', null)
-        .in('owner_id', companyScopeOwnerIds ?? [])
+        const { count, error } = await query
 
-      lostCountQuery = lostCountQuery
-        .not('owner_id', 'is', null)
-        .in('owner_id', companyScopeOwnerIds ?? [])
-    } else {
-      activeCountQuery = activeCountQuery.eq('owner_id', effectiveOwnerId)
-      wonCountQuery = wonCountQuery.eq('owner_id', effectiveOwnerId)
-      lostCountQuery = lostCountQuery.eq('owner_id', effectiveOwnerId)
-    }
+        return { status, count: count ?? 0, error }
+      }),
+    )
 
-    if (groupId) {
-      activeCountQuery = activeCountQuery.eq('group_id', groupId)
-      wonCountQuery = wonCountQuery.eq('group_id', groupId)
-      lostCountQuery = lostCountQuery.eq('group_id', groupId)
-    }
-
-    if (orSearch) {
-      activeCountQuery = activeCountQuery.or(orSearch)
-      wonCountQuery = wonCountQuery.or(orSearch)
-      lostCountQuery = lostCountQuery.or(orSearch)
-    }
-
-    const [activeCountResult, wonCountResult, lostCountResult] = await Promise.all([
-      activeCountQuery,
-      wonCountQuery,
-      lostCountQuery,
-    ])
-
-    const countError =
-      activeCountResult.error ??
-      wonCountResult.error ??
-      lostCountResult.error
+    const countError = countResults.find((result) => result.error)?.error
 
     if (countError) {
       return NextResponse.json(
@@ -438,19 +409,7 @@ export async function GET(req: Request) {
       )
     }
 
-    const countRows = [
-      ...((activeCountResult.data ?? []) as Array<{ status: Status }>),
-      ...((wonCountResult.data ?? []) as Array<{ status: Status }>),
-      ...((lostCountResult.data ?? []) as Array<{ status: Status }>),
-    ]
-
-    const totals = emptyTotals()
-
-    for (const row of countRows) {
-      if (row.status in totals) {
-        totals[row.status] += 1
-      }
-    }
+    for (const result of countResults) totals[result.status] = result.count
 
     const itemsByStatus = emptyItemsByStatus()
     const groupIds = new Set<string>()

@@ -4,6 +4,11 @@ import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { classifyEvent } from '@/app/config/eventClassification'
 import * as faturamentoService from '@/app/lib/services/faturamento'
+import { getExecutionDayCalendarsForRange } from '@/app/lib/services/executionDayCalendar'
+import {
+  countExecutionDaysAcrossCalendars,
+  getBusinessDateKey,
+} from '@/app/lib/services/executionDayMath'
 
 // ==============================================================================
 // Design system
@@ -63,23 +68,15 @@ const SYSTEM_EVENT_TYPES = new Set([
 // ==============================================================================
 
 function getThirtyDaysAgo(): string {
-  const date = new Date()
+  const date = new Date(`${getBusinessDateKey()}T12:00:00Z`)
 
-  date.setDate(date.getDate() - 30)
+  date.setUTCDate(date.getUTCDate() - 30)
 
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
-    2,
-    '0',
-  )}-${String(date.getDate()).padStart(2, '0')}`
+  return date.toISOString().slice(0, 10)
 }
 
 function getTodayDate(): string {
-  const date = new Date()
-
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
-    2,
-    '0',
-  )}-${String(date.getDate()).padStart(2, '0')}`
+  return getBusinessDateKey()
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -92,26 +89,6 @@ function addDays(dateKey: string, amount: number): string {
   date.setUTCDate(date.getUTCDate() + amount)
 
   return date.toISOString().slice(0, 10)
-}
-
-function countWorkingDays(dateStart: string, dateEnd: string): number {
-  const start = new Date(`${dateStart}T12:00:00Z`)
-  const end = new Date(`${dateEnd}T12:00:00Z`)
-
-  let total = 0
-  const current = new Date(start)
-
-  while (current <= end) {
-    const weekday = current.getUTCDay()
-
-    if (weekday !== 0 && weekday !== 6) {
-      total += 1
-    }
-
-    current.setUTCDate(current.getUTCDate() + 1)
-  }
-
-  return Math.max(total, 1)
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -416,6 +393,7 @@ function buildScores({
   selectedSellerId,
   dateStart,
   dateEnd,
+  executionDays,
 }: {
   events: RawEvent[]
   openCycles: RawCycle[]
@@ -423,8 +401,9 @@ function buildScores({
   selectedSellerId: string | null
   dateStart: string
   dateEnd: string
+  executionDays: number
 }): SellerScore[] {
-  const workingDays = countWorkingDays(dateStart, dateEnd)
+  const workingDays = Math.max(executionDays, 1)
   const today = getTodayDate()
   const staleDate = addDays(today, -STALE_DAYS)
 
@@ -903,6 +882,7 @@ export default function ScoreDeAderenciaPage() {
   const [scores, setScores] = React.useState<SellerScore[]>([])
   const [dataLoading, setDataLoading] = React.useState(false)
   const [dataError, setDataError] = React.useState<string | null>(null)
+  const [executionDaysEvaluated, setExecutionDaysEvaluated] = React.useState(0)
 
   React.useEffect(() => {
     async function initialize() {
@@ -996,12 +976,16 @@ export default function ScoreDeAderenciaPage() {
           params.set('seller_id', selectedSellerId)
         }
 
-        const response = await fetch(
-          `/api/reports/governance/adherence?${params.toString()}`,
-          {
+        const [response, calendars] = await Promise.all([
+          fetch(`/api/reports/governance/adherence?${params.toString()}`, {
             cache: 'no-store',
-          },
-        )
+          }),
+          getExecutionDayCalendarsForRange({
+            companyId,
+            dateStart,
+            dateEnd,
+          }),
+        ])
 
         const payload = (await response.json().catch(() => ({}))) as {
           ok?: boolean
@@ -1020,6 +1004,17 @@ export default function ScoreDeAderenciaPage() {
           return
         }
 
+        const executionDays = countExecutionDaysAcrossCalendars(
+          dateStart,
+          dateEnd,
+          calendars.map((calendar) => ({
+            periodStart: calendar.period_start,
+            periodEnd: calendar.period_end,
+            workDays: calendar.work_days,
+            executionDayOverrides: calendar.execution_day_overrides,
+          })),
+        )
+
         const data = buildScores({
           events: payload.events ?? [],
           openCycles: payload.open_cycles ?? [],
@@ -1027,8 +1022,10 @@ export default function ScoreDeAderenciaPage() {
           selectedSellerId,
           dateStart,
           dateEnd,
+          executionDays,
         })
 
+        setExecutionDaysEvaluated(executionDays)
         setScores(data)
       } catch (cause: unknown) {
         if (!cancelled) {
@@ -1562,8 +1559,8 @@ export default function ScoreDeAderenciaPage() {
 
               <MetricCard
                 label="Janela Avaliada"
-                value={`${countWorkingDays(dateStart, dateEnd)} dias úteis`}
-                description="Dias úteis usados para avaliar frequência de registro."
+                value={`${executionDaysEvaluated} ${executionDaysEvaluated === 1 ? 'dia de execução' : 'dias de execução'}`}
+                description="Calendário operacional usado para avaliar frequência de registro."
               />
 
               <MetricCard
@@ -1618,7 +1615,7 @@ export default function ScoreDeAderenciaPage() {
                       lineHeight: 1.6,
                     }}
                   >
-                    Mede atividades comerciais por dia útil e frequência de dias
+                    Mede atividades comerciais por dia de execução e frequência de dias
                     com execução registrada.
                   </div>
                 </div>

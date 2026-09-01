@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
+import { getBusinessDateKey } from '@/app/lib/services/executionDayMath'
 import type {
   MonthlySeasonalitySummary,
   MonthlySeasonalityRow,
@@ -29,13 +30,11 @@ function toPercent(value: number, decimals = 1): string {
 
 /** Default: 2 anos atrás (para ter amostra multi-ano) */
 function getTwoYearsAgo(): string {
-  const now = new Date()
-  return `${now.getFullYear() - 2}-01-01`
+  return `${Number(getBusinessDateKey().slice(0, 4)) - 2}-01-01`
 }
 
 function getTodayDate(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return getBusinessDateKey()
 }
 
 // ==============================================================================
@@ -497,7 +496,7 @@ function MesRelatorioPg() {
                   Desempenho por Mês do Ano
                 </span>
                 <span style={{ fontSize: 11, opacity: 0.5, marginLeft: 10 }}>
-                  leads_trabalhados via first_worked_at · ganhos via won_at
+                  trabalho via first_worked_at · ganhos na competência financeira oficial
                 </span>
               </div>
               <div style={{ overflowX: 'auto' }}>
@@ -734,9 +733,9 @@ function MesRelatorioPg() {
               <div style={{ fontSize: 11, opacity: 0.35 }}>
                 Fonte leads trabalhados: <code>sales_cycles.first_worked_at</code> (somente
                 eventos de trabalho comercial real). Fonte ganhos:{' '}
-                <code>sales_cycles.won_at</code> + <code>won_total {'>'} 0</code> + status=ganho.
-                Fonte perdidos: <code>sales_cycles.lost_at</code> quando disponível,{' '}
-                <code>updated_at</code> como proxy caso contrário. Mês = mês do calendário (1–12).
+                status=ganho com <code>revenue_seller_ref_date → won_at → closed_at</code>.
+                Fonte perdidos: <code>sales_cycles.lost_at</code>. O faturamento usa a base
+                oficial conciliada da Gestão de Faturamento. Mês = mês do calendário (1–12).
               </div>
             </div>
           </>

@@ -19,6 +19,7 @@
 // ==============================================================================
 
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { getOfficialRevenueDays } from '@/app/lib/services/reportingRevenue'
 import type {
   PeriodRadarFilters,
   PeriodRadarSummary,
@@ -42,6 +43,16 @@ const MONTH_LABELS = [
 ]
 
 const WEEK_LABELS = ['', '1ª semana', '2ª semana', '3ª semana', '4ª semana', '5ª semana']
+const PAGE_SIZE = 1000
+
+type RadarCycleRow = {
+  id: string
+  status: string | null
+  owner_user_id: string | null
+  won_owner_user_id: string | null
+  first_worked_at: string | null
+  won_at: string | null
+}
 
 // ==============================================================================
 // Helpers
@@ -114,14 +125,6 @@ function shiftBusinessDateKey(dateKey: string, days: number): string {
   return new Date(shiftedTime).toISOString().slice(0, 10)
 }
 
-function startOfBusinessDayIso(dateKey: string): string {
-  return new Date(`${dateKey}T00:00:00.000-03:00`).toISOString()
-}
-
-function endOfBusinessDayIso(dateKey: string): string {
-  return new Date(`${dateKey}T23:59:59.999-03:00`).toISOString()
-}
-
 function formatBRL(value: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 }
@@ -151,6 +154,57 @@ function confidenceMultiplier(confidence: PeriodRadarConfidence): number {
   return 0.4
 }
 
+async function fetchAllRadarCycles(companyId: string): Promise<RadarCycleRow[]> {
+  const supabase = supabaseBrowser()
+  const rows: RadarCycleRow[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sales_cycles')
+      .select('id, status, owner_user_id, won_owner_user_id, first_worked_at, won_at')
+      .eq('company_id', companyId)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(`Erro ao carregar a base do Radar: ${error.message}`)
+    }
+
+    const page = (data ?? []) as RadarCycleRow[]
+    rows.push(...page)
+
+    if (page.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+
+  return rows
+}
+
+async function getActivePipelineCount(
+  companyId: string,
+  ownerId?: string | null,
+): Promise<number> {
+  const supabase = supabaseBrowser()
+  let query = supabase
+    .from('v_pipeline_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('company_id', companyId)
+    .neq('status', 'ganho')
+    .neq('status', 'perdido')
+    .neq('status', 'cancelado')
+
+  if (ownerId) query = query.eq('owner_id', ownerId)
+
+  const { count, error } = await query
+
+  if (error) {
+    throw new Error(`Erro ao carregar o pipeline do Radar: ${error.message}`)
+  }
+
+  return count ?? 0
+}
+
 // ==============================================================================
 // Main service
 // ==============================================================================
@@ -158,8 +212,6 @@ function confidenceMultiplier(confidence: PeriodRadarConfidence): number {
 export async function getPeriodRadar(
   filters: PeriodRadarFilters
 ): Promise<PeriodRadarSummary> {
-  const supabase = supabaseBrowser()
-
   const dateStartIso = filters.dateStart + 'T00:00:00.000Z'
   const dateEndIso = filters.dateEnd + 'T23:59:59.999Z'
 
@@ -171,6 +223,37 @@ export async function getPeriodRadar(
   const currentDayOfMonth = dayOfMonthInBusinessTZ(today)
   const currentMonthWeek = getMonthWeek(currentDayOfMonth)
 
+  const [radarCycles, officialRevenueDays, activePipelineCount] = await Promise.all([
+    fetchAllRadarCycles(filters.companyId),
+    getOfficialRevenueDays({
+      companyId: filters.companyId,
+      ownerId: filters.ownerId,
+      dateStart: filters.dateStart,
+      dateEnd: filters.dateEnd,
+      includeExtras: !filters.ownerId,
+    }),
+    getActivePipelineCount(filters.companyId, filters.ownerId),
+  ])
+
+  const isWorkedOwner = (cycle: RadarCycleRow) =>
+    !filters.ownerId || cycle.owner_user_id === filters.ownerId
+  const isWonOwner = (cycle: RadarCycleRow) =>
+    !filters.ownerId || (cycle.won_owner_user_id ?? cycle.owner_user_id) === filters.ownerId
+  const isInHistoricalRange = (timestamp: string | null) => {
+    if (!timestamp) return false
+    const date = dateKeyInBusinessTZ(timestamp)
+    return date >= filters.dateStart && date <= filters.dateEnd
+  }
+  const historicalWorkedCycles = radarCycles.filter(
+    (cycle) => isWorkedOwner(cycle) && isInHistoricalRange(cycle.first_worked_at),
+  )
+  const historicalWonCycles = radarCycles.filter(
+    (cycle) =>
+      cycle.status === 'ganho' &&
+      isWonOwner(cycle) &&
+      isInHistoricalRange(cycle.won_at),
+  )
+
   const signals: PeriodRadarSignal[] = []
 
   // ============================================================================
@@ -178,46 +261,17 @@ export async function getPeriodRadar(
   // Fonte: sales_cycles.first_worked_at (prospecção) + won_at (fechamento)
   // ============================================================================
   {
-    let prospecQuery = supabase
-      .from('sales_cycles')
-      .select('first_worked_at')
-      .eq('company_id', filters.companyId)
-      .not('first_worked_at', 'is', null)
-      .gte('first_worked_at', dateStartIso)
-      .lte('first_worked_at', dateEndIso)
-
-    if (filters.ownerId) prospecQuery = prospecQuery.eq('owner_user_id', filters.ownerId)
-
-    let wonWdQuery = supabase
-      .from('sales_cycles')
-      .select('won_at')
-      .eq('company_id', filters.companyId)
-      .eq('status', 'ganho')
-      .not('won_at', 'is', null)
-      .gt('won_total', 0)
-      .gte('won_at', dateStartIso)
-      .lte('won_at', dateEndIso)
-
-    if (filters.ownerId) wonWdQuery = wonWdQuery.eq('won_owner_user_id', filters.ownerId)
-
-    const [{ data: prospecData }, { data: wonWdData }] = await Promise.all([
-      prospecQuery,
-      wonWdQuery,
-    ])
-
     // Count per weekday
     const countPerDay: number[] = Array(7).fill(0)
     const wonPerDay: number[] = Array(7).fill(0)
 
-    for (const row of prospecData ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.first_worked_at as string | null
+    for (const row of historicalWorkedCycles) {
+      const ts = row.first_worked_at
       if (!ts) continue
       countPerDay[weekdayInBusinessTZ(ts)] += 1
     }
-    for (const row of wonWdData ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.won_at as string | null
+    for (const row of historicalWonCycles) {
+      const ts = row.won_at
       if (!ts) continue
       wonPerDay[weekdayInBusinessTZ(ts)] += 1
     }
@@ -273,7 +327,7 @@ export async function getPeriodRadar(
         weight: 0.25,
         confidence,
         description: desc,
-        source: 'sales_cycles.first_worked_at, sales_cycles.won_at',
+        source: 'sales_cycles.first_worked_at, sales_cycles.won_at, faturamento oficial',
         available: true,
       })
     }
@@ -284,53 +338,26 @@ export async function getPeriodRadar(
   // Fonte: sales_cycles.first_worked_at + won_at
   // ============================================================================
   {
-    let workedWkQuery = supabase
-      .from('sales_cycles')
-      .select('first_worked_at')
-      .eq('company_id', filters.companyId)
-      .not('first_worked_at', 'is', null)
-      .gte('first_worked_at', dateStartIso)
-      .lte('first_worked_at', dateEndIso)
-
-    if (filters.ownerId) workedWkQuery = workedWkQuery.eq('owner_user_id', filters.ownerId)
-
-    let wonWkQuery = supabase
-      .from('sales_cycles')
-      .select('won_at, won_total')
-      .eq('company_id', filters.companyId)
-      .eq('status', 'ganho')
-      .not('won_at', 'is', null)
-      .gt('won_total', 0)
-      .gte('won_at', dateStartIso)
-      .lte('won_at', dateEndIso)
-
-    if (filters.ownerId) wonWkQuery = wonWkQuery.eq('won_owner_user_id', filters.ownerId)
-
-    const [{ data: workedWkData }, { data: wonWkData }] = await Promise.all([
-      workedWkQuery,
-      wonWkQuery,
-    ])
-
     // Aggregate by week-of-month (1–5)
     const workedPerWk: number[] = [0, 0, 0, 0, 0, 0] // index 0 unused
     const wonPerWk: number[] = [0, 0, 0, 0, 0, 0]
     const fatPerWk: number[] = [0, 0, 0, 0, 0, 0]
 
-    for (const row of workedWkData ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.first_worked_at as string | null
+    for (const row of historicalWorkedCycles) {
+      const ts = row.first_worked_at
       if (!ts) continue
       const wk = getMonthWeek(dayOfMonthInBusinessTZ(ts))
       workedPerWk[wk] += 1
     }
-    for (const row of wonWkData ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.won_at as string | null
-      const total = r.won_total != null ? Number(r.won_total) : 0
+    for (const row of historicalWonCycles) {
+      const ts = row.won_at
       if (!ts) continue
       const wk = getMonthWeek(dayOfMonthInBusinessTZ(ts))
       wonPerWk[wk] += 1
-      fatPerWk[wk] += total
+    }
+    for (const revenueDay of officialRevenueDays) {
+      const wk = getMonthWeek(dayOfMonthInBusinessTZ(`${revenueDay.date}T12:00:00-03:00`))
+      fatPerWk[wk] += revenueDay.value
     }
 
     const totalWorkedWk = workedPerWk.slice(1).reduce((s, c) => s + c, 0)
@@ -347,7 +374,7 @@ export async function getPeriodRadar(
         weight: 0.20,
         confidence: 'baixa',
         description: `Dados insuficientes para classificar a ${WEEK_LABELS[currentMonthWeek]}.`,
-        source: 'sales_cycles.first_worked_at, sales_cycles.won_at',
+        source: 'sales_cycles.first_worked_at, sales_cycles.won_at, faturamento oficial',
         available: false,
         fallback_reason: `Menos de ${MIN_WK} eventos no período selecionado.`,
       })
@@ -401,53 +428,26 @@ export async function getPeriodRadar(
   // Fonte: sales_cycles.won_at + first_worked_at
   // ============================================================================
   {
-    let workedMonthQuery = supabase
-      .from('sales_cycles')
-      .select('first_worked_at')
-      .eq('company_id', filters.companyId)
-      .not('first_worked_at', 'is', null)
-      .gte('first_worked_at', dateStartIso)
-      .lte('first_worked_at', dateEndIso)
-
-    if (filters.ownerId) workedMonthQuery = workedMonthQuery.eq('owner_user_id', filters.ownerId)
-
-    let wonMonthQuery = supabase
-      .from('sales_cycles')
-      .select('won_at, won_total')
-      .eq('company_id', filters.companyId)
-      .eq('status', 'ganho')
-      .not('won_at', 'is', null)
-      .gt('won_total', 0)
-      .gte('won_at', dateStartIso)
-      .lte('won_at', dateEndIso)
-
-    if (filters.ownerId) wonMonthQuery = wonMonthQuery.eq('won_owner_user_id', filters.ownerId)
-
-    const [{ data: workedMonthData }, { data: wonMonthData }] = await Promise.all([
-      workedMonthQuery,
-      wonMonthQuery,
-    ])
-
     // Aggregate by month (1–12)
     const workedPerMonth: number[] = Array(13).fill(0) // index 0 unused
     const wonPerMonth: number[] = Array(13).fill(0)
     const fatPerMonth: number[] = Array(13).fill(0)
 
-    for (const row of workedMonthData ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.first_worked_at as string | null
+    for (const row of historicalWorkedCycles) {
+      const ts = row.first_worked_at
       if (!ts) continue
       const mo = monthInBusinessTZ(ts)
       workedPerMonth[mo] += 1
     }
-    for (const row of wonMonthData ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.won_at as string | null
-      const total = r.won_total != null ? Number(r.won_total) : 0
+    for (const row of historicalWonCycles) {
+      const ts = row.won_at
       if (!ts) continue
       const mo = monthInBusinessTZ(ts)
       wonPerMonth[mo] += 1
-      fatPerMonth[mo] += total
+    }
+    for (const revenueDay of officialRevenueDays) {
+      const mo = monthInBusinessTZ(`${revenueDay.date}T12:00:00-03:00`)
+      fatPerMonth[mo] += revenueDay.value
     }
 
     const totalWorkedMo = workedPerMonth.slice(1).reduce((s, c) => s + c, 0)
@@ -465,7 +465,7 @@ export async function getPeriodRadar(
         weight: 0.20,
         confidence: 'baixa',
         description: `Dados insuficientes para classificar ${MONTH_LABELS[currentMonthNum]}.`,
-        source: 'sales_cycles.won_at, sales_cycles.first_worked_at',
+        source: 'sales_cycles.won_at, sales_cycles.first_worked_at, faturamento oficial',
         available: false,
         fallback_reason: `Menos de 3 meses distintos com dados no período (encontrados: ${monthsWithData}).`,
       })
@@ -503,7 +503,7 @@ export async function getPeriodRadar(
         weight: 0.20,
         confidence,
         description: desc,
-        source: 'sales_cycles.won_at, sales_cycles.first_worked_at',
+        source: 'sales_cycles.won_at, sales_cycles.first_worked_at, faturamento oficial',
         available: true,
       })
     }
@@ -514,37 +514,13 @@ export async function getPeriodRadar(
   // Fonte: sales_cycles.first_worked_at
   // ============================================================================
   {
-    const sevenDaysAgoDateKey = shiftBusinessDateKey(referenceDate, -7)
-    const sevenDaysAgoIso = startOfBusinessDayIso(sevenDaysAgoDateKey)
-    const todayIso = endOfBusinessDayIso(referenceDate)
-
-    let recentWorkedQuery = supabase
-      .from('sales_cycles')
-      .select('first_worked_at')
-      .eq('company_id', filters.companyId)
-      .not('first_worked_at', 'is', null)
-      .gte('first_worked_at', sevenDaysAgoIso)
-      .lte('first_worked_at', todayIso)
-
-    if (filters.ownerId) recentWorkedQuery = recentWorkedQuery.eq('owner_user_id', filters.ownerId)
-
-    let historicalWorkedQuery = supabase
-      .from('sales_cycles')
-      .select('first_worked_at')
-      .eq('company_id', filters.companyId)
-      .not('first_worked_at', 'is', null)
-      .gte('first_worked_at', dateStartIso)
-      .lte('first_worked_at', dateEndIso)
-
-    if (filters.ownerId) historicalWorkedQuery = historicalWorkedQuery.eq('owner_user_id', filters.ownerId)
-
-    const [{ data: recentWorkedData }, { data: historicalWorkedData }] = await Promise.all([
-      recentWorkedQuery,
-      historicalWorkedQuery,
-    ])
-
-    const recentCount = (recentWorkedData ?? []).length
-    const historicalTotal = (historicalWorkedData ?? []).length
+    const sevenDaysAgoDateKey = shiftBusinessDateKey(referenceDate, -6)
+    const recentCount = radarCycles.filter((cycle) => {
+      if (!cycle.first_worked_at || !isWorkedOwner(cycle)) return false
+      const date = dateKeyInBusinessTZ(cycle.first_worked_at)
+      return date >= sevenDaysAgoDateKey && date <= referenceDate
+    }).length
+    const historicalTotal = historicalWorkedCycles.length
 
     // Dias históricos no período
     const startMs = new Date(dateStartIso).getTime()
@@ -603,45 +579,24 @@ export async function getPeriodRadar(
   // Fonte: sales_cycles.won_at
   // ============================================================================
   {
-    const fourteenDaysAgoDateKey = shiftBusinessDateKey(referenceDate, -14)
-    const fourteenDaysAgoIso = startOfBusinessDayIso(fourteenDaysAgoDateKey)
-    const todayIso = endOfBusinessDayIso(referenceDate)
+    const fourteenDaysAgoDateKey = shiftBusinessDateKey(referenceDate, -13)
+    const recentWonCount = radarCycles.filter((cycle) => {
+      if (
+        cycle.status !== 'ganho' ||
+        !cycle.won_at ||
+        !isWonOwner(cycle)
+      ) {
+        return false
+      }
 
-    let recentWonQuery = supabase
-      .from('sales_cycles')
-      .select('won_at, won_total')
-      .eq('company_id', filters.companyId)
-      .eq('status', 'ganho')
-      .not('won_at', 'is', null)
-      .gt('won_total', 0)
-      .gte('won_at', fourteenDaysAgoIso)
-      .lte('won_at', todayIso)
-
-    if (filters.ownerId) recentWonQuery = recentWonQuery.eq('won_owner_user_id', filters.ownerId)
-
-    let historicalWonQuery = supabase
-      .from('sales_cycles')
-      .select('won_at')
-      .eq('company_id', filters.companyId)
-      .eq('status', 'ganho')
-      .not('won_at', 'is', null)
-      .gt('won_total', 0)
-      .gte('won_at', dateStartIso)
-      .lte('won_at', dateEndIso)
-
-    if (filters.ownerId) historicalWonQuery = historicalWonQuery.eq('won_owner_user_id', filters.ownerId)
-
-    const [{ data: recentWonData }, { data: historicalWonData }] = await Promise.all([
-      recentWonQuery,
-      historicalWonQuery,
-    ])
-
-    const recentWonCount = (recentWonData ?? []).length
-    const recentWonFat = (recentWonData ?? []).reduce(
-      (s: number, r: Record<string, unknown>) => s + (r.won_total != null ? Number(r.won_total) : 0),
-      0
+      const date = dateKeyInBusinessTZ(cycle.won_at)
+      return date >= fourteenDaysAgoDateKey && date <= referenceDate
+    }).length
+    const recentWonFat = officialRevenueDays.reduce(
+      (total, day) => total + (day.date >= fourteenDaysAgoDateKey && day.date <= referenceDate ? day.value : 0),
+      0,
     )
-    const historicalWonTotal = (historicalWonData ?? []).length
+    const historicalWonTotal = historicalWonCycles.length
 
     const startMs = new Date(dateStartIso).getTime()
     const endMs = new Date(dateEndIso).getTime()
@@ -661,7 +616,7 @@ export async function getPeriodRadar(
         weight: 0.15,
         confidence: 'baixa',
         description: 'Base histórica insuficiente para comparar ritmo de ganhos.',
-        source: 'sales_cycles.won_at',
+        source: 'sales_cycles.won_at, faturamento oficial',
         available: false,
         fallback_reason: `Menos de 5 ganhos no período histórico (encontrados: ${historicalWonTotal}).`,
       })
@@ -689,7 +644,7 @@ export async function getPeriodRadar(
         weight: 0.15,
         confidence,
         description: desc,
-        source: 'sales_cycles.won_at',
+        source: 'sales_cycles.won_at, faturamento oficial',
         available: true,
       })
     }
@@ -700,91 +655,52 @@ export async function getPeriodRadar(
   // Fonte: sales_cycles.status (em andamento = não ganho e não perdido)
   // ============================================================================
   {
-    let pipelineQuery = supabase
-      .from('sales_cycles')
-      .select('status')
-      .eq('company_id', filters.companyId)
-      .neq('status', 'ganho')
-      .neq('status', 'perdido')
+    const pipelineCount = activePipelineCount
+    const historicalTotal = historicalWorkedCycles.length
+    const hasSufficientBase = historicalTotal >= 10
 
-    if (filters.ownerId) pipelineQuery = pipelineQuery.eq('owner_user_id', filters.ownerId)
-
-    // Historical average: total cycles in period / months
-    let historicalAllQuery = supabase
-      .from('sales_cycles')
-      .select('first_worked_at')
-      .eq('company_id', filters.companyId)
-      .not('first_worked_at', 'is', null)
-      .gte('first_worked_at', dateStartIso)
-      .lte('first_worked_at', dateEndIso)
-
-    if (filters.ownerId) historicalAllQuery = historicalAllQuery.eq('owner_user_id', filters.ownerId)
-
-    const [{ data: pipelineData, error: pipelineError }, { data: historicalAllData }] =
-      await Promise.all([pipelineQuery, historicalAllQuery])
-
-    if (pipelineError) {
+    if (!hasSufficientBase) {
       signals.push({
         id: 'active_pipeline',
         label: 'Pipeline ativo',
         direction: 'neutro',
         weight: 0.05,
         confidence: 'baixa',
-        description: 'Não foi possível consultar o pipeline ativo.',
+        description: `Pipeline ativo: ${pipelineCount} lead(s) em andamento.`,
         source: 'sales_cycles.status',
         available: false,
-        fallback_reason: `Erro ao consultar: ${pipelineError.message}`,
+        fallback_reason: 'Base histórica insuficiente para comparar volume do pipeline.',
       })
     } else {
-      const pipelineCount = (pipelineData ?? []).length
-      const historicalTotal = (historicalAllData ?? []).length
+      const startMs = new Date(dateStartIso).getTime()
+      const endMs = new Date(dateEndIso).getTime()
+      const monthsInPeriod = Math.max(1, (endMs - startMs) / (1000 * 60 * 60 * 24 * 30))
+      const avgMonthlyPipeline = historicalTotal / monthsInPeriod
 
-      // Precisamos de pelo menos 10 histórico para ter uma referência
-      const hasSufficientBase = historicalTotal >= 10
+      const ratio = avgMonthlyPipeline > 0 ? pipelineCount / avgMonthlyPipeline : 1
+      const direction = directionFromRatio(ratio, 0.20)
+      const confidence: PeriodRadarConfidence =
+        historicalTotal >= 50 ? 'moderada' : 'baixa'
 
-      if (!hasSufficientBase) {
-        signals.push({
-          id: 'active_pipeline',
-          label: 'Pipeline ativo',
-          direction: 'neutro',
-          weight: 0.05,
-          confidence: 'baixa',
-          description: `Pipeline ativo: ${pipelineCount} lead(s) em andamento.`,
-          source: 'sales_cycles.status',
-          available: false,
-          fallback_reason: 'Base histórica insuficiente para comparar volume do pipeline.',
-        })
+      let desc = `Pipeline ativo: ${pipelineCount} lead(s) em andamento. `
+      if (direction === 'positivo') {
+        desc += `Acima da média histórica mensal de ${avgMonthlyPipeline.toFixed(0)} — pipeline saudável.`
+      } else if (direction === 'negativo') {
+        desc += `Abaixo da média histórica mensal de ${avgMonthlyPipeline.toFixed(0)} — pipeline reduzido.`
       } else {
-        const startMs = new Date(dateStartIso).getTime()
-        const endMs = new Date(dateEndIso).getTime()
-        const monthsInPeriod = Math.max(1, (endMs - startMs) / (1000 * 60 * 60 * 24 * 30))
-        const avgMonthlyPipeline = historicalTotal / monthsInPeriod
-
-        const ratio = avgMonthlyPipeline > 0 ? pipelineCount / avgMonthlyPipeline : 1
-        const direction = directionFromRatio(ratio, 0.20)
-        const confidence: PeriodRadarConfidence =
-          historicalTotal >= 50 ? 'moderada' : 'baixa'
-
-        let desc = `Pipeline ativo: ${pipelineCount} lead(s) em andamento. `
-        if (direction === 'positivo') {
-          desc += `Acima da média histórica mensal de ${avgMonthlyPipeline.toFixed(0)} — pipeline saudável.`
-        } else if (direction === 'negativo') {
-          desc += `Abaixo da média histórica mensal de ${avgMonthlyPipeline.toFixed(0)} — pipeline reduzido.`
-        } else {
-          desc += `Volume dentro da faixa normal (referência: ${avgMonthlyPipeline.toFixed(0)}/mês histórico).`
-        }
-
-        signals.push({
-          id: 'active_pipeline',
-          label: 'Pipeline ativo',
-          direction,
-          weight: 0.05,
-          confidence,
-          description: desc,
-          source: 'sales_cycles.status',
-          available: true,
-        })
+        desc += `Volume dentro da faixa normal (referência: ${avgMonthlyPipeline.toFixed(0)}/mês histórico).`
       }
+
+      signals.push({
+        id: 'active_pipeline',
+        label: 'Pipeline ativo',
+        direction,
+        weight: 0.05,
+        confidence,
+        description: desc,
+        source: 'sales_cycles.status',
+        available: true,
+      })
     }
   }
 
