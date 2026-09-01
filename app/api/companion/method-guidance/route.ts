@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { after, NextResponse } from 'next/server'
 
 import {
@@ -29,6 +29,12 @@ import {
   toCanonicalMessagePromptText,
   type CanonicalConversationMessage,
 } from '../../../lib/server/companion-conversation-registration-loader'
+
+import {
+  loadCanonicalLedgerAtReferenceTime,
+  type NormalizedLedgerMessage,
+  type StatefulCopilotRealContextSupabaseClient,
+} from '../../../lib/companion/stateful-copilot-real-context-loader'
 
 import {
   CompanionLeadSummaryError,
@@ -141,6 +147,90 @@ function buildCurrentInteraction(
       startIndex,
       usable.length - CURRENT_INTERACTION_LIMIT,
     ),
+  )
+}
+
+function toLegacyCanonicalConversationMessage(
+  message: NormalizedLedgerMessage,
+): CanonicalConversationMessage | null {
+  if (
+    (
+      message.direction !== 'incoming' &&
+      message.direction !== 'outgoing'
+    ) ||
+    (
+      message.content_type !== 'text' &&
+      message.content_type !== 'audio'
+    )
+  ) {
+    return null
+  }
+
+  const text =
+    message.is_deleted
+      ? null
+      : message.content_type === 'audio'
+        ? message.audio_transcription
+        : message.text_content
+
+  return {
+    message_key:
+      message.message_key,
+    version:
+      message.version,
+    direction:
+      message.direction,
+    occurred_at:
+      message.occurred_at,
+    content_type:
+      message.content_type,
+    text,
+    is_deleted:
+      message.is_deleted,
+  }
+}
+
+async function loadLegacyCurrentInteractionAtReferenceTime({
+  admin,
+  companyId,
+  cycleId,
+  conversationKey,
+  referenceTime,
+}: {
+  admin: SupabaseClient
+  companyId: string
+  cycleId: string
+  conversationKey: string
+  referenceTime: string
+}): Promise<LeadMethodCurrentInteractionMessage[]> {
+  const {
+    canonicalMessages,
+  } =
+    await loadCanonicalLedgerAtReferenceTime({
+      client:
+        admin as unknown as
+          StatefulCopilotRealContextSupabaseClient,
+      companyId,
+      cycleId,
+      conversationKey,
+      referenceTime,
+    })
+
+  const legacyMessages =
+    canonicalMessages
+      .map(
+        toLegacyCanonicalConversationMessage,
+      )
+      .filter(
+        (
+          message,
+        ): message is
+          CanonicalConversationMessage =>
+          message !== null,
+      )
+
+  return buildCurrentInteraction(
+    legacyMessages,
   )
 }
 
@@ -402,21 +492,22 @@ export async function POST(request: Request) {
       const shadowReferenceTime =
         new Date().toISOString()
 
-      const canonicalMessages =
-        await loadCanonicalMessages({
+      const currentInteraction =
+        await loadLegacyCurrentInteractionAtReferenceTime({
           admin,
-          companyId: identity.company_id,
-          cycleId: identity.cycle_id,
+          companyId:
+            identity.company_id,
+          cycleId:
+            identity.cycle_id,
           conversationKey:
             identity.conversation_key,
+          referenceTime:
+            shadowReferenceTime,
         })
 
       const generation = await composeSellerMessage({
         workingSummary: workingSummary || null,
-        currentInteraction:
-          buildCurrentInteraction(
-            canonicalMessages,
-          ),
+        currentInteraction,
         sellerIntent,
         method,
         guidance: buildClientGuidance(
