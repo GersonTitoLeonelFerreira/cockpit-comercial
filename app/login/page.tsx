@@ -2,10 +2,11 @@
 
 import type { FormEvent } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
+import { PublicHeader } from '../components/marketing/MarketingChrome'
+import { IntelligenceHeroVisual } from '../components/marketing/ProductStoryVisuals'
 
 function useIsMobile(breakpoint = 980) {
   const [isMobile, setIsMobile] = useState(false)
@@ -279,11 +280,13 @@ export default function LoginPage() {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
     >
+      <PublicHeader compact />
+
       <div
         style={{
           maxWidth: 1320,
           margin: '0 auto',
-          minHeight: '100%',
+          minHeight: 'calc(100% - 72px)',
           padding: isMobile ? 20 : 28,
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr' : '1.2fr 0.8fr',
@@ -301,20 +304,6 @@ export default function LoginPage() {
               alignSelf: 'start',
             }}
           >
-            <Image
-              src="/branding/yolen-logo-principal.png"
-              alt="Yolen"
-              width={340}
-              height={82}
-              priority
-              style={{
-                width: isMobile ? 200 : 340,
-                height: 'auto',
-                display: 'block',
-                objectFit: 'contain',
-              }}
-            />
-
             <div
               style={{
                 width: 56,
@@ -334,7 +323,7 @@ export default function LoginPage() {
                 marginLeft: 2,
               }}
             >
-              Cockpit comercial para equipes de vendas
+              Inteligência comercial aplicada à operação
             </div>
           </div>
 
@@ -349,7 +338,7 @@ export default function LoginPage() {
                 maxWidth: 760,
               }}
             >
-              Pare de perder lead na operação.
+              Inteligência para quem vende. Clareza para quem lidera.
             </h1>
 
             <p
@@ -362,7 +351,8 @@ export default function LoginPage() {
                 color: DS.textSecondary,
               }}
             >
-              O Yolen organiza sua operação, orienta a próxima ação e conecta a rotina da equipe com a meta.
+              A Yolen trabalha ao lado do vendedor para interpretar oportunidades, orientar abordagens e manter a
+              venda em movimento. Para a gestão, conecta execução, meta e faturamento em uma leitura única.
             </p>
           </div>
 
@@ -373,35 +363,64 @@ export default function LoginPage() {
               gap: 10,
             }}
           >
-            <Chip>IA que orienta a próxima ação</Chip>
-            <Chip>SLA e follow-up sob controle</Chip>
-            <Chip>Meta conectada à execução</Chip>
+            <Chip>Copiloto em cada oportunidade</Chip>
+            <Chip>Meta traduzida em ação</Chip>
+            <Chip>Resultado visível para a gestão</Chip>
           </div>
 
           <div
-  style={{
-    borderRadius: 24,
-    overflow: 'hidden',
-    border: 'none',
-    boxShadow: '0 24px 80px rgba(0,0,0,0.22)',
-  }}
->
-  <Image
-    src="/branding/login-kanban.png"
-    alt="Visão do cockpit comercial"
-    width={1600}
-    height={900}
-    priority
-    style={{
-      width: '100%',
-      height: 'auto',
-      display: 'block',
-      objectFit: 'cover',
-      border: 'none',
-      boxShadow: 'none',
-    }}
-  />
-</div>
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <Link
+              href="/como-funciona"
+              style={{
+                minHeight: 40,
+                padding: '0 14px',
+                borderRadius: 12,
+                border: `1px solid ${DS.border}`,
+                display: 'inline-flex',
+                alignItems: 'center',
+                color: DS.textPrimary,
+                background: 'rgba(17,19,24,0.72)',
+                fontSize: 12,
+                fontWeight: 800,
+                textDecoration: 'none',
+              }}
+            >
+              Conhecer a plataforma
+            </Link>
+            <Link
+              href="/destaques"
+              style={{
+                minHeight: 40,
+                padding: '0 14px',
+                borderRadius: 12,
+                display: 'inline-flex',
+                alignItems: 'center',
+                color: DS.textSecondary,
+                fontSize: 12,
+                fontWeight: 800,
+                textDecoration: 'none',
+              }}
+            >
+              Conteúdos e novidades →
+            </Link>
+          </div>
+
+          <div
+            style={{
+              borderRadius: 24,
+              overflow: 'hidden',
+              boxShadow: '0 24px 80px rgba(0,0,0,0.22)',
+            }}
+          >
+            <IntelligenceHeroVisual compact />
+          </div>
 
           <div
             style={{
@@ -411,16 +430,16 @@ export default function LoginPage() {
             }}
           >
             <VisualPill
-              title="Menos lead parado"
-              subtitle="A equipe trabalha com prioridade, cadência e próximo passo claro."
+              title="Mais capacidade para vender"
+              subtitle="A IA ajuda a interpretar o momento da oportunidade e preparar a próxima abordagem."
             />
             <VisualPill
-              title="Mais controle gerencial"
-              subtitle="O gestor enxerga atraso, ritmo e execução antes do problema estourar."
+              title="Mais direção para executar"
+              subtitle="A meta se transforma em ritmo, esforço necessário e decisões para o período."
             />
             <VisualPill
-              title="Mais previsibilidade"
-              subtitle="A meta deixa de ser cobrança solta e passa a ser operação diária."
+              title="Mais inteligência para gerir"
+              subtitle="Faturamento e relatórios mostram o que impulsiona ou limita o resultado."
             />
           </div>
         </section>
@@ -501,7 +520,7 @@ export default function LoginPage() {
                 letterSpacing: '-0.04em',
               }}
             >
-              {authMode === 'login' ? 'Acesse sua operação' : 'Conheça o Yolen'}
+              {authMode === 'login' ? 'Acesse sua operação' : 'Veja a Yolen trabalhando'}
             </div>
 
             <div
@@ -513,8 +532,8 @@ export default function LoginPage() {
               }}
             >
               {authMode === 'login'
-  ? 'Entre para acompanhar equipe, prioridades e execução comercial.'
-  : 'Veja como o Yolen ajuda sua equipe a executar melhor, com mais controle e previsibilidade.'}
+  ? 'Entre para acompanhar oportunidades, equipe, metas e resultado comercial.'
+  : 'Conheça como a inteligência da Yolen acompanha a venda e conecta cada ação à gestão do resultado.'}
             </div>
 
             {authMode === 'login' ? (
@@ -663,7 +682,7 @@ export default function LoginPage() {
           color: DS.textPrimary,
         }}
       >
-        O que o Yolen entrega
+        O que você verá
       </div>
 
       <div
@@ -676,9 +695,9 @@ export default function LoginPage() {
           lineHeight: 1.65,
         }}
       >
-        <div>• Direciona a próxima ação comercial com mais clareza.</div>
-        <div>• Dá visão diária da operação para o gerente agir antes.</div>
-        <div>• Conecta execução, follow-up e meta no mesmo cockpit.</div>
+        <div>• O Copiloto interpreta sinais da conversa e sugere a melhor próxima abordagem.</div>
+        <div>• O Simulador de Meta traduz o objetivo em esforço e ritmo de execução.</div>
+        <div>• Faturamento e relatórios mostram ao gestor onde agir para melhorar o resultado.</div>
       </div>
     </div>
 
