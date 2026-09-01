@@ -144,9 +144,12 @@ mock.module(
   },
 )
 
-import {
+const {
   loadCanonicalLedgerAtReferenceTime,
-} from '../../../lib/companion/stateful-copilot-real-context-loader.ts'
+} =
+  await import(
+    '../../../lib/companion/stateful-copilot-real-context-loader.ts'
+  )
 
 const { POST } = await import('./route.ts')
 
