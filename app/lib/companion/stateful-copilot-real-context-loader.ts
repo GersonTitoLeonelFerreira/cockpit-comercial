@@ -1458,6 +1458,41 @@ export function buildCanonicalLedger({
   }
 }
 
+export async function loadCanonicalLedgerAtReferenceTime({
+  client,
+  companyId,
+  cycleId,
+  conversationKey,
+  referenceTime,
+}: {
+  client:
+    StatefulCopilotRealContextSupabaseClient
+  companyId: string
+  cycleId: string
+  conversationKey: string
+  referenceTime: string
+}): Promise<{
+  knownMessageIds: string[]
+  canonicalMessages:
+    NormalizedLedgerMessage[]
+}> {
+  const rows =
+    await loadLedgerRows({
+      client,
+      companyId,
+      cycleId,
+      conversationKey,
+      referenceTime,
+    })
+
+  return buildCanonicalLedger({
+    rows,
+    companyId,
+    cycleId,
+    conversationKey,
+  })
+}
+
 export function selectStatefulDiagnosticMessages(
   canonicalMessages:
     NormalizedLedgerMessage[],
