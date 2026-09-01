@@ -13,13 +13,16 @@ function matchesFilters(row, filters) {
   return filters.every((filter) => row[filter.column] === filter.value)
 }
 
-function buildQueryClass(tables, writeLog) {
+function buildQueryClass(tables, writeLog, resolveInterceptor) {
   return class Query {
     constructor(table) {
       this.table = table
       this.filters = []
       this.inFilters = []
       this.maximum = null
+      this.upperBounds = []
+      this.rangeFrom = null
+      this.rangeTo = null
       this.pendingPatch = null
       this.isInsert = false
     }
@@ -35,6 +38,17 @@ function buildQueryClass(tables, writeLog) {
 
     in(column, values) {
       this.inFilters.push({ column, values })
+      return this
+    }
+
+    lte(column, value) {
+      this.upperBounds.push({ column, value })
+      return this
+    }
+
+    range(from, to) {
+      this.rangeFrom = from
+      this.rangeTo = to
       return this
     }
 
@@ -69,7 +83,23 @@ function buildQueryClass(tables, writeLog) {
     }
 
     resolveRows() {
-      const rows = (tables[this.table] ?? []).filter(
+      const operation =
+        this.pendingPatch ? 'update' : 'select'
+
+      const intercepted =
+        resolveInterceptor?.({
+          table: this.table,
+          operation,
+          patch: this.pendingPatch,
+          filters: this.filters.map((item) => ({ ...item })),
+          upper_bounds: this.upperBounds.map((item) => ({ ...item })),
+        })
+
+      if (intercepted) {
+        return intercepted
+      }
+
+      let rows = (tables[this.table] ?? []).filter(
         (row) =>
           matchesFilters(row, this.filters) &&
           this.inFilters.every((filter) =>
@@ -81,6 +111,9 @@ function buildQueryClass(tables, writeLog) {
             filter.values
               .map(String)
               .includes(String(row[filter.column])),
+          ) &&
+          this.upperBounds.every((filter) =>
+            row[filter.column] <= filter.value,
           ),
       )
 
@@ -97,6 +130,16 @@ function buildQueryClass(tables, writeLog) {
         })
 
         return { data: rows, error: null }
+      }
+
+      if (
+        this.rangeFrom !== null &&
+        this.rangeTo !== null
+      ) {
+        rows = rows.slice(
+          this.rangeFrom,
+          this.rangeTo + 1,
+        )
       }
 
       const limited =
@@ -130,6 +173,7 @@ export function createMessageIntelligenceFakeAdmin({
   products = [],
   commercialStates = [],
   shadowRuns = [],
+  resolveInterceptor = null,
 } = {}) {
   const writeLog = []
 
@@ -149,7 +193,11 @@ export function createMessageIntelligenceFakeAdmin({
     message_intelligence_shadow_runs: shadowRuns,
   }
 
-  const Query = buildQueryClass(tables, writeLog)
+  const Query = buildQueryClass(
+    tables,
+    writeLog,
+    resolveInterceptor,
+  )
 
   return {
     admin: {
