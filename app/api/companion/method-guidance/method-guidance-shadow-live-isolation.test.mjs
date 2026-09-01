@@ -76,6 +76,14 @@ const providerBox = {
   onCall: null,
 }
 
+const queryBox = {
+  beforeResolve: null,
+}
+
+test.afterEach(() => {
+  queryBox.beforeResolve = null
+})
+
 mock.module('@supabase/supabase-js', {
   namedExports: {
     createClient: () => adminBox.admin,
@@ -136,6 +144,10 @@ mock.module(
   },
 )
 
+import {
+  loadCanonicalLedgerAtReferenceTime,
+} from '../../../lib/companion/stateful-copilot-real-context-loader.ts'
+
 const { POST } = await import('./route.ts')
 
 const IDS = {
@@ -158,6 +170,9 @@ function buildQueryClass(tables) {
       this.table = table
       this.filters = []
       this.inFilters = []
+      this.upperBounds = []
+      this.rangeFrom = null
+      this.rangeTo = null
       this.maximum = null
     }
 
@@ -172,6 +187,17 @@ function buildQueryClass(tables) {
 
     in(column, values) {
       this.inFilters.push({ column, values })
+      return this
+    }
+
+    lte(column, value) {
+      this.upperBounds.push({ column, value })
+      return this
+    }
+
+    range(from, to) {
+      this.rangeFrom = from
+      this.rangeTo = to
       return this
     }
 
@@ -203,10 +229,21 @@ function buildQueryClass(tables) {
     }
 
     resolveRows() {
-      const rows = (tables[this.table] ?? []).filter(
+      queryBox.beforeResolve?.({
+        table: this.table,
+        filters: this.filters.map((item) => ({ ...item })),
+        upperBounds: this.upperBounds.map((item) => ({ ...item })),
+      })
+
+      let rows = (tables[this.table] ?? []).filter(
         (row) =>
           matchesFilters(row, this.filters) &&
-          this.inFilters.every((filter) => filter.values.includes(row[filter.column])),
+          this.inFilters.every((filter) =>
+            filter.values.includes(row[filter.column]),
+          ) &&
+          this.upperBounds.every((filter) =>
+            row[filter.column] <= filter.value,
+          ),
       )
 
       if (this.pendingPatch) {
@@ -215,6 +252,16 @@ function buildQueryClass(tables) {
         }
 
         return { data: rows, error: null }
+      }
+
+      if (
+        this.rangeFrom !== null &&
+        this.rangeTo !== null
+      ) {
+        rows = rows.slice(
+          this.rangeFrom,
+          this.rangeTo + 1,
+        )
       }
 
       const limited = this.maximum === null ? rows : rows.slice(0, this.maximum)
@@ -596,6 +643,8 @@ test(
         direction: 'incoming',
         occurred_at:
           '2026-09-01T00:00:00.000Z',
+        observed_at:
+          '2026-09-01T00:00:01.000Z',
         text_content:
           'Mensagem que já existia antes da geração.',
         audio_transcription: null,
@@ -766,5 +815,173 @@ test(
     await afterPromise
 
     sendBox.pending = null
+  },
+)
+
+
+test(
+  'adversarial T0/T1: mensagem observada após cutoff e injetada antes da resolução do contexto não entra nem no Legacy nem no MIE da run',
+  async () => {
+    const fixtures =
+      baseFixtures()
+
+    fixtures.messages = [
+      {
+        id: 1,
+        company_id: IDS.company,
+        cycle_id: IDS.cycle,
+        conversation_key: CONVERSATION_KEY,
+        message_key: 'before-cutoff-race',
+        version: 1,
+        direction: 'incoming',
+        occurred_at:
+          '2026-08-29T21:58:00.000Z',
+        observed_at:
+          '2026-08-29T21:58:01.000Z',
+        text_content:
+          'Mensagem legítima anterior ao cutoff.',
+        audio_transcription: null,
+        content_type: 'text',
+        is_deleted: false,
+      },
+    ]
+
+    fixtures.reconciliation = [
+      {
+        company_id: IDS.company,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 1,
+        message_key: 'before-cutoff-race',
+      },
+    ]
+
+    const {
+      admin,
+      tables,
+    } =
+      createFakeAdmin(fixtures)
+
+    adminBox.admin = admin
+    adminBox.tables = tables
+
+    sendBox.shouldFail = false
+    sendBox.calls = []
+    sendBox.pending = null
+    providerBox.calls = []
+    providerBox.onCall = null
+    afterBox.callbacks = []
+
+    const postCutoffObservedAt =
+      '2099-01-01T00:00:00.000Z'
+
+    const postCutoffText =
+      'MENSAGEM_RACE_POST_CUTOFF'
+
+    let injected = false
+
+    queryBox.beforeResolve = ({
+      table,
+    }) => {
+      if (
+        table !== 'conversation_messages' ||
+        injected
+      ) {
+        return
+      }
+
+      injected = true
+
+      tables.conversation_messages.push({
+        id: 2,
+        company_id: IDS.company,
+        cycle_id: IDS.cycle,
+        conversation_key: CONVERSATION_KEY,
+        message_key: 'post-cutoff-race',
+        version: 1,
+        direction: 'incoming',
+        occurred_at:
+          postCutoffObservedAt,
+        observed_at:
+          postCutoffObservedAt,
+        text_content:
+          postCutoffText,
+        audio_transcription: null,
+        content_type: 'text',
+        is_deleted: false,
+      })
+
+      // Se o caminho ainda dependesse de current reconciliation,
+      // esta versão nova já estaria visível no instante da resolução.
+      tables.conversation_message_reconciliation_state.push({
+        company_id: IDS.company,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 2,
+        message_key: 'post-cutoff-race',
+      })
+    }
+
+    const {
+      response,
+    } =
+      await callGenerateMessage()
+
+    assert.equal(
+      response.status,
+      200,
+    )
+    assert.equal(
+      injected,
+      true,
+    )
+    assert.equal(
+      sendBox.calls.length,
+      1,
+    )
+
+    const job =
+      sendBox.calls[0].message
+
+    assert.ok(
+      Date.parse(job.reference_time) <
+        Date.parse(postCutoffObservedAt),
+    )
+
+    // Legacy: a mensagem injetada antes da resolução da query não
+    // pode atravessar o cutoff e chegar ao provider.
+    assert.equal(
+      JSON.stringify(providerBox.calls)
+        .includes(postCutoffText),
+      false,
+    )
+
+    // MIE: a mesma primitive histórica, com o mesmo reference_time
+    // persistido no job, também precisa excluí-la.
+    const mieSnapshot =
+      await loadCanonicalLedgerAtReferenceTime({
+        client: admin,
+        companyId: IDS.company,
+        cycleId: IDS.cycle,
+        conversationKey:
+          CONVERSATION_KEY,
+        referenceTime:
+          job.reference_time,
+      })
+
+    assert.equal(
+      mieSnapshot.canonicalMessages.some(
+        (message) =>
+          message.text_content ===
+          postCutoffText,
+      ),
+      false,
+    )
+
+    assert.deepEqual(
+      mieSnapshot.canonicalMessages.map(
+        (message) =>
+          message.message_key,
+      ),
+      ['before-cutoff-race'],
+    )
   },
 )
