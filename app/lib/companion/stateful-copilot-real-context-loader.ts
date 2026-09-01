@@ -2129,7 +2129,11 @@ async function loadCommercialConfig({
 // rodada (o Companion continua funcionando sem CLIENTE herdado) — isto
 // não é um dado crítico como o ledger ou a configuração comercial
 // publicada, é um enriquecimento sobre um recorte que já nasce vazio.
-async function loadDurableMemorySeedForMissingState({
+// Exportada (Message Intelligence Shadow Validation) para reutilização
+// device-free por app/lib/server/message-intelligence-source-loader.ts.
+// Nenhuma mudança de comportamento: mesma implementação, mesma
+// assinatura, apenas visível fora deste módulo.
+export async function loadDurableMemorySeedForMissingState({
   client,
   companyId,
   cycleId,

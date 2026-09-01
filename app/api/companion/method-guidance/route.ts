@@ -43,6 +43,10 @@ import {
   saveCompanionMethodStage,
 } from '../../../lib/server/companion-method-stage-store'
 
+import {
+  enqueueMessageIntelligenceShadowRunV1,
+} from '../../../lib/server/message-intelligence-shadow-enqueue'
+
 type MethodGuidanceBody = {
   cycle_id?: unknown
   conversation_key?: unknown
@@ -415,6 +419,37 @@ export async function POST(request: Request) {
         ),
         provider,
       })
+
+      // Message Intelligence Engine V1 — Shadow Validation.
+      // Só enfileira o job; o pipeline do MIE nunca roda de forma
+      // síncrona aqui. Best-effort: qualquer falha de enqueue é
+      // interna a esta função (log only) e NUNCA altera a resposta
+      // legacy abaixo, que continua sendo a única resposta
+      // seller-facing.
+      try {
+        await enqueueMessageIntelligenceShadowRunV1({
+          admin,
+          company_id: identity.company_id,
+          seller_user_id: token.sub,
+          cycle_id: identity.cycle_id,
+          conversation_key:
+            identity.conversation_key,
+          seller_intent: sellerIntent,
+          reference_time:
+            new Date().toISOString(),
+          legacy_generation_status:
+            generation.status,
+          legacy_message:
+            generation.message,
+        })
+      } catch (shadowError) {
+        console.warn(
+          '[METHOD_GUIDANCE_API] message intelligence shadow enqueue failed',
+          shadowError instanceof Error
+            ? shadowError.name
+            : 'unknown',
+        )
+      }
 
       return NextResponse.json(
         {

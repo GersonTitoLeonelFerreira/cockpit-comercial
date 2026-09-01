@@ -743,7 +743,11 @@ function validateCanonicalMessages({
   )
 }
 
-async function loadCommercialConfig({
+// Exportada (Message Intelligence Shadow Validation) para reutilização
+// por app/lib/server/message-intelligence-source-loader.ts. Nenhuma
+// mudança de comportamento: mesma implementação, mesma assinatura,
+// apenas visível fora deste módulo.
+export async function loadCommercialConfig({
   admin,
   companyId,
 }: {
