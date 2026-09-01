@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   StatefulCopilotRealContextLoaderError,
   createStatefulCopilotRealContextLoader,
+  loadStatefulCopilotCanonicalScope,
 } from './stateful-copilot-real-context-loader.ts'
 
 import {
@@ -2582,5 +2583,62 @@ test(
 
     assert.equal(result.state_read.mode, 'missing')
     assert.equal(result.durable_memory_seed, null)
+  },
+)
+
+
+test(
+  'scope canônico compartilhado é equivalente ao scope consumido pelo loader stateful',
+  async () => {
+    const fixtures =
+      buildFixtures()
+
+    const {
+      client: scopeClient,
+    } =
+      createMockClient(fixtures)
+
+    const canonicalScope =
+      await loadStatefulCopilotCanonicalScope({
+        client: scopeClient,
+        companyId,
+        cycleId,
+      })
+
+    const {
+      client: loaderClient,
+    } =
+      createMockClient(fixtures)
+
+    const fullContext =
+      await createStatefulCopilotRealContextLoader(
+        loaderClient,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.deepEqual(
+      {
+        company:
+          fullContext.scope.company,
+        lead:
+          fullContext.scope.lead,
+        cycle:
+          fullContext.scope.cycle,
+      },
+      {
+        company:
+          canonicalScope.company,
+        lead:
+          canonicalScope.lead,
+        cycle:
+          canonicalScope.cycle,
+      },
+    )
+
+    assert.equal(
+      canonicalScope.origin_cycle_id,
+      null,
+    )
   },
 )
