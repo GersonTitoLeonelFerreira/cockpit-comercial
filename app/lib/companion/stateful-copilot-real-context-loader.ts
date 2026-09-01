@@ -2841,7 +2841,8 @@ export function createStatefulCopilotRealContextLoader(
 
             companyId,
             cycleId,
-            leadId,
+            leadId:
+              canonicalScope.lead.id,
 
             originCycleId,
           })
