@@ -10,9 +10,6 @@ import {
   createShadowEvaluationV1,
 } from './shadow-evaluation.ts'
 
-import * as SelectorModule from './final-message-selector.ts'
-import * as ShadowModule from './shadow-evaluation.ts'
-
 const TRACE = {
   source_type: 'commercial_fact',
   source_id: 'fact-1',
