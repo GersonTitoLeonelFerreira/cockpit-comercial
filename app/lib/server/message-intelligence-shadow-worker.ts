@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { randomUUID } from 'crypto'
+
 import {
   createClient,
   type SupabaseClient,
@@ -23,27 +25,37 @@ import {
   MESSAGE_INTELLIGENCE_REQUEST_CONTRACT_VERSION,
 } from '@/app/lib/companion/message-intelligence/contracts'
 
-// ============================================================================
-// Message Intelligence Engine V1 — Shadow Validation
-// Worker
-//
-// Roda o pipeline completo do MIE V1 inteiramente fora do request
-// seller-facing e persiste o resultado em message_intelligence_shadow_runs
-// para comparação futura. NUNCA envia WhatsApp, NUNCA escreve CRM,
-// NUNCA escreve Agenda, e NUNCA retorna nada a nenhum caller seller-facing
-// — este worker só é acionado pela fila.
-// ============================================================================
-
 const SHADOW_RUNS_TABLE =
   'message_intelligence_shadow_runs'
 
+const SHADOW_CLAIM_STALE_MS =
+  180 * 1000
+
+type ShadowExecutionStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+
+type ShadowRunRead = {
+  shadow_run_id: string
+  execution_status: ShadowExecutionStatus
+  claim_token: string | null
+  claimed_at: string | null
+}
+
 class MessageIntelligenceShadowWorkerRetryError
   extends Error {
+  readonly code: string
+
   constructor(code: string) {
     super(code)
 
     this.name =
       'MessageIntelligenceShadowWorkerRetryError'
+
+    this.code =
+      code
   }
 }
 
@@ -97,11 +109,6 @@ function safeFailureDetail(
   return null
 }
 
-/**
- * Garante, em runtime, que nenhuma run de shadow carrega intenção de
- * ação automática. O tipo ShadowEvaluationV1 já fixa os três campos em
- * `false` — esta é uma segunda barreira defensiva antes de persistir.
- */
 function assertShadowSafety(
   run: MessageIntelligenceRunResultV1,
 ): void {
@@ -119,12 +126,347 @@ function assertShadowSafety(
   }
 }
 
+function asShadowRunRead(
+  value: unknown,
+): ShadowRunRead | null {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value)
+  ) {
+    return null
+  }
+
+  const row =
+    value as Record<string, unknown>
+
+  if (
+    typeof row.shadow_run_id !== 'string' ||
+    ![
+      'queued',
+      'running',
+      'succeeded',
+      'failed',
+    ].includes(
+      String(row.execution_status),
+    )
+  ) {
+    return null
+  }
+
+  return {
+    shadow_run_id:
+      row.shadow_run_id,
+    execution_status:
+      row.execution_status as
+        ShadowExecutionStatus,
+    claim_token:
+      typeof row.claim_token === 'string'
+        ? row.claim_token
+        : null,
+    claimed_at:
+      typeof row.claimed_at === 'string'
+        ? row.claimed_at
+        : null,
+  }
+}
+
+async function readShadowRun(
+  admin: SupabaseClient,
+  shadowRunId: string,
+): Promise<ShadowRunRead | null> {
+  let result:
+    {
+      data: unknown
+      error: unknown
+    }
+
+  try {
+    result =
+      await admin
+        .from(SHADOW_RUNS_TABLE)
+        .select(
+          'shadow_run_id, execution_status, claim_token, claimed_at',
+        )
+        .eq(
+          'shadow_run_id',
+          shadowRunId,
+        )
+        .maybeSingle()
+  } catch {
+    throw new MessageIntelligenceShadowWorkerRetryError(
+      'MESSAGE_INTELLIGENCE_SHADOW_RUN_READ_FAILED',
+    )
+  }
+
+  if (result.error) {
+    throw new MessageIntelligenceShadowWorkerRetryError(
+      'MESSAGE_INTELLIGENCE_SHADOW_RUN_READ_FAILED',
+    )
+  }
+
+  if (!result.data) {
+    return null
+  }
+
+  const normalized =
+    asShadowRunRead(
+      result.data,
+    )
+
+  if (!normalized) {
+    throw new MessageIntelligenceShadowWorkerRetryError(
+      'MESSAGE_INTELLIGENCE_SHADOW_RUN_READ_INVALID',
+    )
+  }
+
+  return normalized
+}
+
+async function claimShadowRun({
+  admin,
+  existingRun,
+  claimToken,
+  now,
+}: {
+  admin: SupabaseClient
+  existingRun: ShadowRunRead
+  claimToken: string
+  now: Date
+}): Promise<boolean> {
+  if (
+    existingRun.execution_status ===
+      'succeeded' ||
+    existingRun.execution_status ===
+      'failed'
+  ) {
+    return false
+  }
+
+  let query =
+    admin
+      .from(SHADOW_RUNS_TABLE)
+      .update({
+        execution_status:
+          'running',
+        claim_token:
+          claimToken,
+        claimed_at:
+          now.toISOString(),
+        completed_at:
+          null,
+      })
+      .eq(
+        'shadow_run_id',
+        existingRun.shadow_run_id,
+      )
+
+  if (
+    existingRun.execution_status ===
+      'queued'
+  ) {
+    query =
+      query.eq(
+        'execution_status',
+        'queued',
+      )
+  } else {
+    if (
+      !existingRun.claim_token ||
+      !existingRun.claimed_at
+    ) {
+      throw new MessageIntelligenceShadowWorkerRetryError(
+        'MESSAGE_INTELLIGENCE_SHADOW_RUNNING_CLAIM_INVALID',
+      )
+    }
+
+    const claimedAt =
+      Date.parse(
+        existingRun.claimed_at,
+      )
+
+    if (
+      !Number.isFinite(claimedAt)
+    ) {
+      throw new MessageIntelligenceShadowWorkerRetryError(
+        'MESSAGE_INTELLIGENCE_SHADOW_RUNNING_CLAIM_INVALID',
+      )
+    }
+
+    if (
+      now.getTime() -
+        claimedAt <
+      SHADOW_CLAIM_STALE_MS
+    ) {
+      throw new MessageIntelligenceShadowWorkerRetryError(
+        'MESSAGE_INTELLIGENCE_SHADOW_RUN_ALREADY_CLAIMED',
+      )
+    }
+
+    query =
+      query
+        .eq(
+          'execution_status',
+          'running',
+        )
+        .eq(
+          'claim_token',
+          existingRun.claim_token,
+        )
+        .lte(
+          'claimed_at',
+          new Date(
+            now.getTime() -
+              SHADOW_CLAIM_STALE_MS,
+          ).toISOString(),
+        )
+  }
+
+  let result:
+    {
+      data: unknown
+      error: unknown
+    }
+
+  try {
+    result =
+      await query
+        .select(
+          'shadow_run_id, execution_status, claim_token, claimed_at',
+        )
+        .maybeSingle()
+  } catch {
+    throw new MessageIntelligenceShadowWorkerRetryError(
+      'MESSAGE_INTELLIGENCE_SHADOW_CLAIM_UPDATE_FAILED',
+    )
+  }
+
+  if (result.error) {
+    throw new MessageIntelligenceShadowWorkerRetryError(
+      'MESSAGE_INTELLIGENCE_SHADOW_CLAIM_UPDATE_FAILED',
+    )
+  }
+
+  if (!result.data) {
+    // Outro worker venceu o compare-and-set. Este callback não executa
+    // o pipeline e deixa a execução para o dono real do claim.
+    return false
+  }
+
+  const claimed =
+    asShadowRunRead(
+      result.data,
+    )
+
+  if (
+    !claimed ||
+    claimed.execution_status !==
+      'running' ||
+    claimed.claim_token !==
+      claimToken
+  ) {
+    throw new MessageIntelligenceShadowWorkerRetryError(
+      'MESSAGE_INTELLIGENCE_SHADOW_CLAIM_CONFIRMATION_FAILED',
+    )
+  }
+
+  return true
+}
+
+async function persistOwnedTerminalState({
+  admin,
+  shadowRunId,
+  claimToken,
+  patch,
+  targetStatus,
+  errorCode,
+}: {
+  admin: SupabaseClient
+  shadowRunId: string
+  claimToken: string
+  patch: Record<string, unknown>
+  targetStatus:
+    | 'succeeded'
+    | 'failed'
+  errorCode: string
+}): Promise<void> {
+  let result:
+    {
+      data: unknown
+      error: unknown
+    }
+
+  try {
+    result =
+      await admin
+        .from(SHADOW_RUNS_TABLE)
+        .update({
+          ...patch,
+          execution_status:
+            targetStatus,
+          claim_token:
+            null,
+          claimed_at:
+            null,
+        })
+        .eq(
+          'shadow_run_id',
+          shadowRunId,
+        )
+        .eq(
+          'execution_status',
+          'running',
+        )
+        .eq(
+          'claim_token',
+          claimToken,
+        )
+        .select(
+          'shadow_run_id, execution_status, claim_token, claimed_at',
+        )
+        .maybeSingle()
+  } catch {
+    throw new MessageIntelligenceShadowWorkerRetryError(
+      errorCode,
+    )
+  }
+
+  if (result.error) {
+    throw new MessageIntelligenceShadowWorkerRetryError(
+      errorCode,
+    )
+  }
+
+  const persisted =
+    asShadowRunRead(
+      result.data,
+    )
+
+  if (
+    !persisted ||
+    persisted.execution_status !==
+      targetStatus ||
+    persisted.claim_token !== null ||
+    persisted.claimed_at !== null
+  ) {
+    throw new MessageIntelligenceShadowWorkerRetryError(
+      `${errorCode}_CLAIM_LOST`,
+    )
+  }
+}
+
 export type MessageIntelligenceShadowWorkerDependencies = {
   create_admin_client?:
     typeof createAdminClient
 
   run_message_intelligence?:
     typeof runMessageIntelligenceV1
+
+  now?:
+    () => Date
+
+  create_claim_token?:
+    () => string
 }
 
 export async function processMessageIntelligenceShadowMessage(
@@ -135,6 +477,14 @@ export async function processMessageIntelligenceShadowMessage(
     dependencies.create_admin_client ??
     createAdminClient
 
+  const now =
+    dependencies.now ??
+    (() => new Date())
+
+  const createClaimToken =
+    dependencies.create_claim_token ??
+    randomUUID
+
   const job: MessageIntelligenceShadowJobV1 =
     parseMessageIntelligenceShadowJobV1(
       rawMessage,
@@ -143,52 +493,49 @@ export async function processMessageIntelligenceShadowMessage(
   const admin =
     createAdmin()
 
-  const {
-    data: existingRun,
-    error: existingRunError,
-  } =
-    await admin
-      .from(SHADOW_RUNS_TABLE)
-      .select('shadow_run_id, execution_status')
-      .eq('shadow_run_id', job.shadow_run_id)
-      .maybeSingle()
-
-  if (existingRunError) {
-    throw new MessageIntelligenceShadowWorkerRetryError(
-      'MESSAGE_INTELLIGENCE_SHADOW_RUN_READ_FAILED',
+  const existingRun =
+    await readShadowRun(
+      admin,
+      job.shadow_run_id,
     )
-  }
 
-  // A fila sozinha não autoriza execução: a linha precisa ter sido
-  // persistida pelo enqueue no request seller-facing.
   if (!existingRun) {
     console.warn(
       'YOLEN_MESSAGE_INTELLIGENCE_SHADOW',
       JSON.stringify({
-        event: 'shadow_run_not_found',
-        shadow_run_id: job.shadow_run_id,
+        event:
+          'shadow_run_not_found',
+        shadow_run_id:
+          job.shadow_run_id,
       }),
     )
 
     return
   }
 
-  // Idempotência: retry da mesma mensagem nunca re-executa uma run já
-  // concluída (sucesso ou falha), e nunca cria uma segunda run.
   if (
-    existingRun.execution_status === 'succeeded' ||
-    existingRun.execution_status === 'failed'
+    existingRun.execution_status ===
+      'succeeded' ||
+    existingRun.execution_status ===
+      'failed'
   ) {
     return
   }
 
-  await admin
-    .from(SHADOW_RUNS_TABLE)
-    .update({
-      execution_status: 'running',
+  const claimToken =
+    createClaimToken()
+
+  const claimed =
+    await claimShadowRun({
+      admin,
+      existingRun,
+      claimToken,
+      now: now(),
     })
-    .eq('shadow_run_id', job.shadow_run_id)
-    .eq('execution_status', existingRun.execution_status)
+
+  if (!claimed) {
+    return
+  }
 
   const runMessageIntelligence =
     dependencies.run_message_intelligence ??
@@ -205,15 +552,23 @@ export async function processMessageIntelligenceShadowMessage(
         request: {
           contract_version:
             MESSAGE_INTELLIGENCE_REQUEST_CONTRACT_VERSION,
-          request_id: job.shadow_run_id,
-          company_id: job.company_id,
-          seller_user_id: job.seller_user_id,
-          cycle_id: job.cycle_id,
-          conversation_key: job.conversation_key,
-          seller_intent: job.seller_intent,
-          reference_time: job.reference_time,
+          request_id:
+            job.shadow_run_id,
+          company_id:
+            job.company_id,
+          seller_user_id:
+            job.seller_user_id,
+          cycle_id:
+            job.cycle_id,
+          conversation_key:
+            job.conversation_key,
+          seller_intent:
+            job.seller_intent,
+          reference_time:
+            job.reference_time,
         },
-        load_sources: sourceLoader,
+        load_sources:
+          sourceLoader,
       })
 
     assertShadowSafety(run)
@@ -221,11 +576,16 @@ export async function processMessageIntelligenceShadowMessage(
     const evaluation =
       run.shadow_evaluation
 
-    await admin
-      .from(SHADOW_RUNS_TABLE)
-      .update({
-        execution_status: 'succeeded',
-
+    await persistOwnedTerminalState({
+      admin,
+      shadowRunId:
+        job.shadow_run_id,
+      claimToken,
+      targetStatus:
+        'succeeded',
+      errorCode:
+        'MESSAGE_INTELLIGENCE_SHADOW_SUCCESS_UPDATE_FAILED',
+      patch: {
         mie_final_status:
           evaluation.final_status,
         mie_selected_candidate_id:
@@ -251,11 +611,15 @@ export async function processMessageIntelligenceShadowMessage(
         would_surface_message:
           evaluation.would_surface_message,
 
-        automatic_send: false,
-        automatic_crm_write: false,
-        automatic_agenda_write: false,
+        automatic_send:
+          false,
+        automatic_crm_write:
+          false,
+        automatic_agenda_write:
+          false,
 
-        shadow_evaluation: evaluation,
+        shadow_evaluation:
+          evaluation,
         contract_versions: {
           request:
             MESSAGE_INTELLIGENCE_REQUEST_CONTRACT_VERSION,
@@ -282,15 +646,17 @@ export async function processMessageIntelligenceShadowMessage(
         },
 
         completed_at:
-          new Date().toISOString(),
-      })
-      .eq('shadow_run_id', job.shadow_run_id)
+          now().toISOString(),
+      },
+    })
 
     console.info(
       'YOLEN_MESSAGE_INTELLIGENCE_SHADOW',
       JSON.stringify({
-        event: 'shadow_run_succeeded',
-        shadow_run_id: job.shadow_run_id,
+        event:
+          'shadow_run_succeeded',
+        shadow_run_id:
+          job.shadow_run_id,
         mie_final_status:
           evaluation.final_status,
         would_surface_message:
@@ -298,37 +664,62 @@ export async function processMessageIntelligenceShadowMessage(
       }),
     )
   } catch (error) {
+    if (
+      error instanceof
+        MessageIntelligenceShadowWorkerRetryError
+    ) {
+      throw error
+    }
+
     const failureCode =
       error instanceof Error &&
-      error.message.startsWith('SAFETY_VIOLATION')
+      error.message.startsWith(
+        'SAFETY_VIOLATION',
+      )
         ? 'SAFETY_VIOLATION'
         : safeFailureCode(
-            (error as { code?: unknown } | null)
-              ?.code,
+            (
+              error as
+                | { code?: unknown }
+                | null
+            )?.code,
             'MESSAGE_INTELLIGENCE_SHADOW_RUN_FAILED',
           )
 
-    await admin
-      .from(SHADOW_RUNS_TABLE)
-      .update({
-        execution_status: 'failed',
-        failure_code: failureCode,
+    await persistOwnedTerminalState({
+      admin,
+      shadowRunId:
+        job.shadow_run_id,
+      claimToken,
+      targetStatus:
+        'failed',
+      errorCode:
+        'MESSAGE_INTELLIGENCE_SHADOW_FAILURE_UPDATE_FAILED',
+      patch: {
+        failure_code:
+          failureCode,
         failure_detail:
           safeFailureDetail(error),
-        automatic_send: false,
-        automatic_crm_write: false,
-        automatic_agenda_write: false,
+        automatic_send:
+          false,
+        automatic_crm_write:
+          false,
+        automatic_agenda_write:
+          false,
         completed_at:
-          new Date().toISOString(),
-      })
-      .eq('shadow_run_id', job.shadow_run_id)
+          now().toISOString(),
+      },
+    })
 
     console.error(
       'YOLEN_MESSAGE_INTELLIGENCE_SHADOW',
       JSON.stringify({
-        event: 'shadow_run_failed',
-        shadow_run_id: job.shadow_run_id,
-        failure_code: failureCode,
+        event:
+          'shadow_run_failed',
+        shadow_run_id:
+          job.shadow_run_id,
+        failure_code:
+          failureCode,
       }),
     )
   }
