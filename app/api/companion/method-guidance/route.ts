@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 
 import {
   classifyLeadMethodApplicability,
@@ -396,6 +396,12 @@ export async function POST(request: Request) {
     })
 
     if (operation === 'generate_message') {
+      // Congela o mesmo corte temporal que identifica o contexto
+      // usado para a geração legacy. Qualquer mensagem observada
+      // depois deste instante pertence à próxima comparação shadow.
+      const shadowReferenceTime =
+        new Date().toISOString()
+
       const canonicalMessages =
         await loadCanonicalMessages({
           admin,
@@ -421,35 +427,35 @@ export async function POST(request: Request) {
       })
 
       // Message Intelligence Engine V1 — Shadow Validation.
-      // Só enfileira o job; o pipeline do MIE nunca roda de forma
-      // síncrona aqui. Best-effort: qualquer falha de enqueue é
-      // interna a esta função (log only) e NUNCA altera a resposta
-      // legacy abaixo, que continua sendo a única resposta
-      // seller-facing.
-      try {
-        await enqueueMessageIntelligenceShadowRunV1({
-          admin,
-          company_id: identity.company_id,
-          seller_user_id: token.sub,
-          cycle_id: identity.cycle_id,
-          conversation_key:
-            identity.conversation_key,
-          seller_intent: sellerIntent,
-          reference_time:
-            new Date().toISOString(),
-          legacy_generation_status:
-            generation.status,
-          legacy_message:
-            generation.message,
-        })
-      } catch (shadowError) {
-        console.warn(
-          '[METHOD_GUIDANCE_API] message intelligence shadow enqueue failed',
-          shadowError instanceof Error
-            ? shadowError.name
-            : 'unknown',
-        )
-      }
+      // INSERT + queue publish são pós-resposta: nada do enqueue pode
+      // acrescentar latência ao retorno legacy. Todos os valores
+      // necessários já estão congelados/capturados neste ponto.
+      after(async () => {
+        try {
+          await enqueueMessageIntelligenceShadowRunV1({
+            admin,
+            company_id: identity.company_id,
+            seller_user_id: token.sub,
+            cycle_id: identity.cycle_id,
+            conversation_key:
+              identity.conversation_key,
+            seller_intent: sellerIntent,
+            reference_time:
+              shadowReferenceTime,
+            legacy_generation_status:
+              generation.status,
+            legacy_message:
+              generation.message,
+          })
+        } catch (shadowError) {
+          console.warn(
+            '[METHOD_GUIDANCE_API] message intelligence shadow enqueue failed',
+            shadowError instanceof Error
+              ? shadowError.name
+              : 'unknown',
+          )
+        }
+      })
 
       return NextResponse.json(
         {
