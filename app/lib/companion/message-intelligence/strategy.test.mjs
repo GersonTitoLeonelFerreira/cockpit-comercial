@@ -273,3 +273,18 @@ test('28. confirmação explícita de agendamento vira closing/confirm_commitmen
   assert.equal(result.commercial_move.move, 'confirm_commitment')
   assert.equal(result.commercial_move.default_move, 'confirm_commitment')
 })
+
+
+test('29. sinal comercial explícito prevalece sobre intenção casual incompatível', () => {
+  const result = decide({
+    incomingText: 'Qual o valor do plano?',
+    sellerIntent: 'Continuar conversa descontraída para fortalecer vínculo',
+    commercialRelevance: null,
+  })
+
+  assert.equal(result.situation.situation, 'information_request')
+  assert.equal(result.commercial_move.move, 'answer_directly')
+  assert.equal(result.commercial_move.default_move, 'answer_directly')
+  assert.equal(result.commercial_move.requested_move, 'no_commercial_move')
+  assert.equal(result.commercial_move.source, 'strategy_default')
+})
