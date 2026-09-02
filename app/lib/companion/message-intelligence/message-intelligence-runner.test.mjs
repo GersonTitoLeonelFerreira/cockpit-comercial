@@ -576,15 +576,19 @@ test(
         .commercial_move.move,
       'confirm_commitment',
     )
-    assert.notEqual(
+    assert.equal(
       run.final_message_result.status,
-      'no_acceptable_message',
+      'selected',
     )
 
     const text =
       run.final_message_result
         .final_message?.text ?? ''
 
+    assert.equal(
+      text,
+      'Combinado.',
+    )
     assert.doesNotMatch(
       text,
       /O que você precisa confirmar agora/iu,
@@ -701,6 +705,46 @@ test(
     assert.notDeepEqual(
       factual.strategy,
       relationship.strategy,
+    )
+  },
+)
+
+
+test(
+  'shadow quality: pergunta comercial explícita prevalece sobre seller intent casual incompatível',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Continuar conversa descontraída para fortalecer vínculo',
+          incomingText:
+            'Qual o valor do plano?',
+        }),
+      )
+
+    assert.equal(
+      run.strategy.situation.situation,
+      'information_request',
+    )
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'answer_directly',
+    )
+    assert.equal(
+      run.strategy
+        .commercial_move.source,
+      'strategy_default',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'selected',
+    )
+    assert.equal(
+      run.critic_result
+        .weak_candidate_ids.length,
+      0,
     )
   },
 )
