@@ -283,24 +283,6 @@ export function classifyCommercialSituationV1(
       snapshot.seller_intent?.value ?? '',
     )
 
-  if (
-    includesAny(
-      sellerIntent,
-      RELATIONSHIP_INTENT_PATTERNS,
-    )
-  ) {
-    return result(
-      'non_commercial',
-      'high',
-      [{
-        source: 'seller_intent',
-        ids: [],
-        signal:
-          'O vendedor pediu continuidade relacional/casual sem movimento comercial.',
-      }],
-    )
-  }
-
   const latest =
     latestIncoming(snapshot)
   const text =
@@ -495,6 +477,24 @@ export function classifyCommercialSituationV1(
             : 'Incerteza explícita.',
         ),
       ],
+    )
+  }
+
+  if (
+    includesAny(
+      sellerIntent,
+      RELATIONSHIP_INTENT_PATTERNS,
+    )
+  ) {
+    return result(
+      'non_commercial',
+      'high',
+      [{
+        source: 'seller_intent',
+        ids: [],
+        signal:
+          'O vendedor pediu continuidade relacional/casual e a interação atual não contém sinal comercial forte que deva prevalecer.',
+      }],
     )
   }
 
