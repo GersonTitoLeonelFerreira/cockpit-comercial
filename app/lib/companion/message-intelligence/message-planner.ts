@@ -2347,6 +2347,14 @@ export function planMessageV1({
     contract_version:
       MESSAGE_PLAN_CONTRACT_VERSION,
     status,
+    seller_intent: {
+      value:
+        snapshot.seller_intent.value,
+      provenance: [
+        ...snapshot.seller_intent
+          .provenance,
+      ],
+    },
     situation:
       strategy.situation,
     commercial_objective:
