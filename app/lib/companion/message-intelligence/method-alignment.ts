@@ -263,7 +263,8 @@ export function evaluateMethodAlignmentV1({
 
   const requestedDiffers =
     requestedMove !== null &&
-    requestedMove !== commercial_move.move
+    requestedMove !==
+      commercial_move.default_move
 
   const moveSupported =
     moveSupportedByMethod(
@@ -273,7 +274,7 @@ export function evaluateMethodAlignmentV1({
 
   const strategyMoveSupported =
     moveSupportedByMethod(
-      commercial_move.move,
+      commercial_move.default_move,
       method.text,
     )
 
