@@ -191,6 +191,54 @@ function safeStringArray(value: unknown): string[] {
     .map(item => item.trim())
 }
 
+function sellerIntentText(
+  plan: MessagePlanV1,
+): string {
+  return normalizeText(
+    plan.seller_intent.value,
+  )
+}
+
+function relationshipContinuationIntent(
+  plan: MessagePlanV1,
+): boolean {
+  const intent =
+    sellerIntentText(plan)
+
+  return [
+    'conversa descontraida',
+    'conversa casual',
+    'fortalecer vinculo',
+    'fortalecer relacionamento',
+    'sem objetivo comercial',
+    'responder de forma casual',
+  ].some(term =>
+    intent.includes(term),
+  )
+}
+
+function sellerIntentRequestsClarification(
+  plan: MessagePlanV1,
+): boolean {
+  const intent =
+    sellerIntentText(plan)
+
+  return [
+    'perguntar',
+    'clarificar',
+    'esclarecer',
+    'entender melhor',
+    'descobrir',
+    'pedir contexto',
+    'pedir informacao',
+    'pedir informação',
+  ].some(term =>
+    intent.includes(
+      normalizeText(term),
+    ),
+  )
+}
+
 function styleFactPrefix(
   style: CommunicationStylePlanV1,
   variant: CandidateVariant,
@@ -326,7 +374,19 @@ function contentSegment(
       )
 
     case 'acknowledge_non_commercial':
-      return segment(formal ? 'Certo, compreendido.' : 'Certo.')
+      if (
+        relationshipContinuationIntent(
+          plan,
+        )
+      ) {
+        return null
+      }
+
+      return segment(
+        formal
+          ? 'Certo, compreendido.'
+          : 'Certo.',
+      )
 
     case 'answer_requested_information':
     case 'explain_quote_requirement':
@@ -470,6 +530,20 @@ function renderQuestion(
   plan: MessagePlanV1,
   variant: CandidateVariant,
 ): RealizedSegmentV1 | null {
+  if (
+    (
+      plan.question_plan.purpose ===
+        'clarify_request' ||
+      plan.question_plan.purpose ===
+        'obtain_context'
+    ) &&
+    !sellerIntentRequestsClarification(
+      plan,
+    )
+  ) {
+    return null
+  }
+
   const text = questionText(
     plan.question_plan,
     variant,
