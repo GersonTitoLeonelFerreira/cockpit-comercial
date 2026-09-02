@@ -128,8 +128,10 @@ test('13. advisory deviation fora do método', () => {
     sellerIntent: 'Quero apresentar a solução agora.',
     missingDiscovery: [mem('Necessidade não compreendida.')],
   })
-  assert.equal(result.commercial_move.move, 'advance_discovery')
+  assert.equal(result.commercial_move.move, 'propose_next_step')
+  assert.equal(result.commercial_move.default_move, 'advance_discovery')
   assert.equal(result.commercial_move.requested_move, 'propose_next_step')
+  assert.equal(result.commercial_move.source, 'seller_request')
   assert.equal(result.method_alignment.status, 'advisory_deviation')
   assert.notEqual(result.governance.status, 'blocked')
 })
@@ -234,4 +236,40 @@ test('25. biblioteca reconhece os frameworks de referência', () => {
     [...new Set(TECHNIQUE_LIBRARY_V1.map(item => item.framework_reference))].sort(),
     ['Challenger', 'Cialdini', 'GAP', 'JOLT', 'MEDDPICC', 'SPIN', 'Sandler', 'Yolen-native'].sort(),
   )
+})
+
+
+test('26. seller intent específico governa move sem apagar default da situação', () => {
+  const result = decide({
+    incomingText: 'Aqui está o identificador dela.',
+    sellerIntent: 'Confirmar identificação da aluna com dado fornecido',
+  })
+
+  assert.equal(result.situation.situation, 'insufficient_context')
+  assert.equal(result.commercial_move.move, 'answer_directly')
+  assert.equal(result.commercial_move.default_move, 'request_more_context')
+  assert.equal(result.commercial_move.source, 'seller_request')
+})
+
+test('27. intenção relacional explícita não recebe movimento comercial', () => {
+  const result = decide({
+    incomingText: 'Certo, estou aqui em frente.',
+    sellerIntent: 'Continuar conversa descontraída para fortalecer vínculo',
+    commercialRelevance: null,
+  })
+
+  assert.equal(result.situation.situation, 'non_commercial')
+  assert.equal(result.commercial_move.move, 'no_commercial_move')
+  assert.equal(result.commercial_move.default_move, 'no_commercial_move')
+})
+
+test('28. confirmação explícita de agendamento vira closing/confirm_commitment', () => {
+  const result = decide({
+    incomingText: 'Agendado',
+    sellerIntent: 'Quero responder ao ponto principal desta conversa.',
+  })
+
+  assert.equal(result.situation.situation, 'closing')
+  assert.equal(result.commercial_move.move, 'confirm_commitment')
+  assert.equal(result.commercial_move.default_move, 'confirm_commitment')
 })
