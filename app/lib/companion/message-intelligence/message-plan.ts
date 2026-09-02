@@ -258,6 +258,11 @@ export type MessagePlanV1 = {
 
   status: MessagePlanStatusV1
 
+  seller_intent: {
+    value: string
+    provenance: SourceTraceV1[]
+  }
+
   situation: SituationClassificationV1
   commercial_objective: CommercialObjectiveV1
   response_mode: ResponseModeV1
