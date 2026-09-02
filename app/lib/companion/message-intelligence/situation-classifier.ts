@@ -227,6 +227,23 @@ const INFORMATION_PATTERNS = [
   'quais condicoes',
 ] as const
 
+const RELATIONSHIP_INTENT_PATTERNS = [
+  'conversa descontraida',
+  'conversa casual',
+  'fortalecer vinculo',
+  'fortalecer relacionamento',
+  'sem objetivo comercial',
+  'responder de forma casual',
+] as const
+
+function explicitCommitmentConfirmation(
+  text: string,
+): boolean {
+  return /^(?:agendado|confirmado|combinado|fechado)\b/u.test(
+    text,
+  )
+}
+
 export function classifyCommercialSituationV1(
   snapshot: MessageContextSnapshotV1,
   hints: StrategyKnowledgeHintsV1 | null = null,
@@ -261,10 +278,49 @@ export function classifyCommercialSituationV1(
     )
   }
 
+  const sellerIntent =
+    normalizeText(
+      snapshot.seller_intent?.value ?? '',
+    )
+
+  if (
+    includesAny(
+      sellerIntent,
+      RELATIONSHIP_INTENT_PATTERNS,
+    )
+  ) {
+    return result(
+      'non_commercial',
+      'high',
+      [{
+        source: 'seller_intent',
+        ids: [],
+        signal:
+          'O vendedor pediu continuidade relacional/casual sem movimento comercial.',
+      }],
+    )
+  }
+
   const latest =
     latestIncoming(snapshot)
   const text =
     messageText(latest)
+
+  if (
+    text &&
+    explicitCommitmentConfirmation(
+      text,
+    )
+  ) {
+    return result(
+      'closing',
+      'high',
+      messageEvidence(
+        latest,
+        'Confirmação explícita de compromisso ou agendamento.',
+      ),
+    )
+  }
 
   if (
     text &&
@@ -507,11 +563,6 @@ export function classifyCommercialSituationV1(
       missingDiscoveryEvidence,
     )
   }
-
-  const sellerIntent =
-    normalizeText(
-      snapshot.seller_intent?.value ?? '',
-    )
 
   if (
     includesAny(
