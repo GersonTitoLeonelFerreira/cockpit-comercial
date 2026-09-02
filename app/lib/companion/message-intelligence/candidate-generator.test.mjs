@@ -60,6 +60,11 @@ const basePlan = (
   contract_version:
     'message-plan-v1',
   status: 'ready',
+  seller_intent: {
+    value:
+      'Responder a pergunta do cliente.',
+    provenance: [TRACE],
+  },
   situation: {
     situation:
       'information_request',
@@ -71,6 +76,8 @@ const basePlan = (
   response_mode: 'answer',
   commercial_move: {
     move: 'answer_directly',
+    default_move:
+      'answer_directly',
     reason:
       'Plano já decidiu o movimento.',
     source:
@@ -1760,6 +1767,206 @@ test(
             'Resultado garantido.',
           provenance: [TRACE],
         }],
+      })
+
+    const result =
+      generate(plan)
+
+    assert.equal(
+      result.candidates.length,
+      0,
+    )
+  },
+)
+
+
+test(
+  '42. fallback genérico de contexto é retido quando seller intent não pediu clarificação',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Quero responder ao ponto principal desta conversa.',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'insufficient_context',
+          confidence: 'low',
+          evidence: [],
+        },
+        commercial_objective:
+          'obtain_context',
+        response_mode: 'clarify',
+        commercial_move: {
+          move:
+            'request_more_context',
+          default_move:
+            'request_more_context',
+          reason:
+            'Contexto insuficiente.',
+          source:
+            'strategy_default',
+          requested_move: null,
+        },
+        content_requirements: [
+          'clarify_missing_information',
+        ],
+        fact_requirements: [],
+        question_plan: {
+          should_ask: true,
+          purpose:
+            'obtain_context',
+          max_questions: 1,
+          question_type:
+            'context_clarification',
+          required_information: [
+            'current_request_context',
+          ],
+          avoid_reasking_known_fact:
+            true,
+          known_information_skipped: [],
+        },
+        next_step_plan: {
+          kind: 'ask',
+          commercial_move:
+            'request_more_context',
+          requires_customer_action:
+            true,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.equal(
+      result.candidates.length,
+      0,
+    )
+    assert.equal(
+      result.status,
+      'not_generated',
+    )
+  },
+)
+
+test(
+  '43. clarificação explícita do vendedor ainda pode gerar pergunta de contexto',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Quero perguntar para entender melhor o contexto.',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'insufficient_context',
+          confidence: 'low',
+          evidence: [],
+        },
+        commercial_objective:
+          'obtain_context',
+        response_mode: 'clarify',
+        commercial_move: {
+          move:
+            'request_more_context',
+          default_move:
+            'request_more_context',
+          reason:
+            'Contexto insuficiente.',
+          source:
+            'seller_request',
+          requested_move:
+            'request_more_context',
+        },
+        content_requirements: [
+          'clarify_missing_information',
+        ],
+        fact_requirements: [],
+        question_plan: {
+          should_ask: true,
+          purpose:
+            'obtain_context',
+          max_questions: 1,
+          question_type:
+            'context_clarification',
+          required_information: [
+            'current_request_context',
+          ],
+          avoid_reasking_known_fact:
+            true,
+          known_information_skipped: [],
+        },
+        next_step_plan: {
+          kind: 'ask',
+          commercial_move:
+            'request_more_context',
+          requires_customer_action:
+            true,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.ok(
+      result.candidates.length > 0,
+    )
+  },
+)
+
+test(
+  '44. intenção relacional não cai em resposta non-commercial genérica',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Continuar conversa descontraída para fortalecer vínculo',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'non_commercial',
+          confidence: 'high',
+          evidence: [],
+        },
+        commercial_objective:
+          'no_commercial_action',
+        response_mode:
+          'acknowledge',
+        commercial_move: {
+          move:
+            'no_commercial_move',
+          default_move:
+            'no_commercial_move',
+          reason:
+            'Interação relacional.',
+          source:
+            'seller_request',
+          requested_move:
+            'no_commercial_move',
+        },
+        content_requirements: [
+          'acknowledge_non_commercial',
+        ],
+        fact_requirements: [],
+        next_step_plan: {
+          kind: 'none',
+          commercial_move:
+            'no_commercial_move',
+          requires_customer_action:
+            false,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
       })
 
     const result =
