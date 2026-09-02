@@ -23,6 +23,10 @@ import type {
   MessagePlanV1,
 } from './message-plan'
 
+import {
+  inferSellerRequestedMoveV1,
+} from './commercial-strategy'
+
 const ARTIFICIAL_PATTERNS = [
   /\bentendo perfeitamente (?:sua|a sua) colocacao\b/u,
   /\bcompreendo (?:seu|o seu) ponto e gostaria de esclarecer\b/u,
@@ -51,6 +55,8 @@ const GENERIC_PATTERNS = [
   /\bo que voce acha\b/u,
   /\bcomo posso ajudar\b/u,
   /\bse fizer sentido podemos conversar\b/u,
+  /\bo que voce precisa confirmar agora\b/u,
+  /\bo que voce precisa confirmar neste momento\b/u,
 ] as const
 
 const CORPORATE_PATTERNS = [
@@ -92,6 +98,8 @@ const QUESTION_GENERIC_PATTERNS = [
   /\bpodemos conversar\b/u,
   /\bpodemos falar melhor\b/u,
   /\bquer conversar melhor\b/u,
+  /\bo que voce precisa confirmar agora\b/u,
+  /\bo que voce precisa confirmar neste momento\b/u,
 ] as const
 
 const STOPWORDS = new Set([
@@ -439,6 +447,90 @@ function genericQuestion(
   )
 }
 
+function sellerIntentRequestsClarification(
+  plan: MessagePlanV1,
+): boolean {
+  const intent =
+    plainNormalize(
+      plan.seller_intent.value,
+    )
+
+  return [
+    'perguntar',
+    'clarificar',
+    'esclarecer',
+    'entender melhor',
+    'descobrir',
+    'pedir contexto',
+    'pedir informacao',
+  ].some(term =>
+    intent.includes(term),
+  )
+}
+
+function sellerIntentIssues(
+  plan: MessagePlanV1,
+  candidate: MessageCandidateV1,
+): CriticIssueV1[] {
+  const issues: CriticIssueV1[] = []
+  const requestedMove =
+    inferSellerRequestedMoveV1(
+      plan.seller_intent.value,
+    )
+
+  if (
+    requestedMove &&
+    candidate.commercial_move !==
+      requestedMove
+  ) {
+    issues.push(issue(
+      'SELLER_INTENT_MISMATCH',
+      'commercial_coherence',
+      'A candidate executa um movimento diferente do pedido explícito do vendedor.',
+      'major',
+    ))
+  }
+
+  if (
+    (
+      plan.question_plan.purpose ===
+        'clarify_request' ||
+      plan.question_plan.purpose ===
+        'obtain_context'
+    ) &&
+    candidate.question_count > 0 &&
+    !sellerIntentRequestsClarification(
+      plan,
+    )
+  ) {
+    issues.push(issue(
+      'SELLER_INTENT_MISMATCH',
+      'commercial_coherence',
+      'A candidate devolve uma pergunta de contexto embora o vendedor não tenha pedido clarificação.',
+      'major',
+    ))
+  }
+
+  if (
+    requestedMove ===
+      'no_commercial_move' &&
+    /\b(?:decisao|duvida|avancar|solucao|proxima etapa|contrat|preco)\b/u.test(
+      plainNormalize(
+        candidate.text,
+      ),
+    )
+  ) {
+    issues.push(issue(
+      'SELLER_INTENT_MISMATCH',
+      'commercial_coherence',
+      'A candidate introduz condução comercial em uma intenção explicitamente relacional ou casual.',
+      'major',
+    ))
+  }
+
+  return issues
+}
+
 function questionPurposeAligned(
   plan: MessagePlanV1,
   candidate: MessageCandidateV1,
@@ -635,6 +727,19 @@ function scoreCommercialCoherence(
     !candidate.text.includes('?')
   ) {
     score -= 15
+  }
+
+  const intentIssues =
+    sellerIntentIssues(
+      plan,
+      candidate,
+    )
+
+  if (intentIssues.length > 0) {
+    score -= 45
+    issues.push(
+      ...intentIssues,
+    )
   }
 
   return {
@@ -1353,13 +1458,8 @@ function critiqueCandidate(
     dimensions,
   )
 
-  return {
-    candidate_id: candidate.candidate_id,
-    status: statusForScore(overall),
-    overall_score: overall,
-    dimensions,
-    strengths: strengthsFor(dimensions),
-    issues: uniqueIssues([
+  const issues =
+    uniqueIssues([
       ...commercial.issues,
       ...naturalness.issues,
       ...specificity.issues,
@@ -1368,7 +1468,29 @@ function critiqueCandidate(
       ...question.issues,
       ...nextStep.issues,
       ...communication.issues,
-    ]),
+    ])
+
+  const sellerIntentMismatch =
+    issues.some(
+      item =>
+        item.code ===
+          'SELLER_INTENT_MISMATCH' &&
+        item.severity === 'major',
+    )
+
+  return {
+    candidate_id: candidate.candidate_id,
+    status:
+      sellerIntentMismatch
+        ? 'weak'
+        : statusForScore(overall),
+    overall_score: overall,
+    dimensions,
+    strengths:
+      sellerIntentMismatch
+        ? []
+        : strengthsFor(dimensions),
+    issues,
   }
 }
 
