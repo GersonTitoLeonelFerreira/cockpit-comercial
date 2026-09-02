@@ -145,6 +145,91 @@ function buildInformationRequestSnapshot() {
   })
 }
 
+
+function buildSanitizedShadowQualitySnapshot({
+  sellerIntent,
+  incomingText,
+}) {
+  const request =
+    buildMessageIntelligenceRequestFixture()
+
+  request.seller_intent =
+    sellerIntent
+
+  const snapshot =
+    assembleMessageContextSnapshotV1({
+      request,
+      sources:
+        buildMessageIntelligenceSourcesFixture(),
+    })
+
+  for (
+    const key of [
+      'objectives',
+      'problems',
+      'impacts',
+      'needs',
+      'interests',
+      'decision_criteria',
+      'preferences',
+      'open_questions',
+      'objections',
+      'uncertainties',
+      'products',
+      'competitors',
+      'commitments',
+      'missing_discovery',
+      'communication_observations',
+      'signals',
+      'resolved_information',
+      'superseded_information',
+    ]
+  ) {
+    snapshot.customer[key] = []
+  }
+
+  snapshot.commercial
+    .commercial_relevance =
+    null
+  snapshot.commercial
+    .recovery_guidance =
+    null
+
+  const incoming =
+    snapshot.conversation.messages
+      .filter(
+        message =>
+          message.direction ===
+            'incoming',
+      )
+      .at(-1)
+
+  assert.ok(incoming)
+  incoming.text_content =
+    incomingText
+  incoming.audio_transcription =
+    null
+
+  const currentIncoming =
+    snapshot.conversation
+      .current_interaction
+      ?.messages
+      .filter(
+        message =>
+          message.direction ===
+            'incoming',
+      )
+      .at(-1)
+
+  assert.ok(currentIncoming)
+  currentIncoming.text_content =
+    incomingText
+  currentIncoming.audio_transcription =
+    null
+
+  return snapshot
+}
+
 test(
   'pipeline completo: contexto que resolve a intenção chega a selected, com shadow evaluation consistente',
   () => {
@@ -464,6 +549,158 @@ test(
     assert.equal(
       shadowEvaluation.would_surface_message,
       false,
+    )
+  },
+)
+
+
+test(
+  'shadow quality: confirmação de agendamento não cai em pergunta genérica',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Quero responder ao ponto principal desta conversa.',
+          incomingText:
+            'Agendado',
+        }),
+      )
+
+    assert.equal(
+      run.strategy.situation.situation,
+      'closing',
+    )
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'confirm_commitment',
+    )
+    assert.notEqual(
+      run.final_message_result.status,
+      'no_acceptable_message',
+    )
+
+    const text =
+      run.final_message_result
+        .final_message?.text ?? ''
+
+    assert.doesNotMatch(
+      text,
+      /O que você precisa confirmar agora/iu,
+    )
+  },
+)
+
+test(
+  'shadow quality: confirmação factual sem fonte canônica se abstém em vez de perguntar genericamente',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Confirmar identificação da aluna com dado fornecido',
+          incomingText:
+            'Aqui está o identificador dela.',
+        }),
+      )
+
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'answer_directly',
+    )
+    assert.equal(
+      run.strategy
+        .commercial_move.source,
+      'seller_request',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'no_eligible_candidates',
+    )
+    assert.equal(
+      run.shadow_evaluation
+        .would_surface_message,
+      false,
+    )
+  },
+)
+
+test(
+  'shadow quality: conversa relacional explícita não recebe linguagem de decisão comercial',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Continuar conversa descontraída para fortalecer vínculo',
+          incomingText:
+            'Certo, estou aqui em frente ao supermercado.',
+        }),
+      )
+
+    assert.equal(
+      run.strategy.situation.situation,
+      'non_commercial',
+    )
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'no_commercial_move',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'no_eligible_candidates',
+    )
+    assert.equal(
+      run.shadow_evaluation
+        .would_surface_message,
+      false,
+    )
+  },
+)
+
+test(
+  'shadow quality Scenario 20: intenções materialmente diferentes nunca convergem no mesmo fallback genérico',
+  () => {
+    const factual =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Confirmar identificação da aluna com dado fornecido',
+          incomingText:
+            'Aqui está o identificador dela.',
+        }),
+      )
+
+    const relationship =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Continuar conversa descontraída para fortalecer vínculo',
+          incomingText:
+            'Certo, estou aqui em frente ao supermercado.',
+        }),
+      )
+
+    const texts =
+      [
+        factual.final_message_result
+          .final_message?.text ?? null,
+        relationship.final_message_result
+          .final_message?.text ?? null,
+      ]
+
+    assert.equal(
+      texts.includes(
+        'O que você precisa confirmar agora?',
+      ),
+      false,
+    )
+    assert.notDeepEqual(
+      factual.strategy,
+      relationship.strategy,
     )
   },
 )
