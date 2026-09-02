@@ -774,6 +774,8 @@ function draftCandidate(
 function semanticPlanFingerprint(plan: MessagePlanV1): string {
   const value = {
     status: plan.status,
+    seller_intent:
+      plan.seller_intent.value,
     commercial_objective: plan.commercial_objective,
     response_mode: plan.response_mode,
     commercial_move: plan.commercial_move.move,
