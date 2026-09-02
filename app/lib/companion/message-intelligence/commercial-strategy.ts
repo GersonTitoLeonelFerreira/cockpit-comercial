@@ -31,8 +31,10 @@ import {
   COMMERCIAL_STRATEGY_CONTRACT_VERSION,
   type CommercialMoveDecisionV1,
   type CommercialMoveV1,
+  type CommercialObjectiveV1,
   type CommercialStrategyDecisionV1,
   type CommercialStrategyDependenciesV1,
+  type ResponseModeV1,
   type StrategyKnowledgeHintsV1,
 } from './strategy-contracts'
 
@@ -172,6 +174,99 @@ export function inferSellerRequestedMoveV1(
   return null
 }
 
+const MOVE_SEMANTICS:
+  Record<
+    CommercialMoveV1,
+    {
+      objective:
+        CommercialObjectiveV1
+      response_mode:
+        ResponseModeV1
+    }
+  > = {
+  answer_directly: {
+    objective: 'answer_factually',
+    response_mode: 'answer',
+  },
+  clarify_request: {
+    objective: 'obtain_context',
+    response_mode: 'clarify',
+  },
+  advance_discovery: {
+    objective: 'advance_discovery',
+    response_mode: 'ask',
+  },
+  surface_impact: {
+    objective: 'clarify_need',
+    response_mode: 'reframe',
+  },
+  confirm_decision_criteria: {
+    objective:
+      'confirm_decision_criteria',
+    response_mode: 'clarify',
+  },
+  isolate_objection: {
+    objective: 'address_objection',
+    response_mode: 'clarify',
+  },
+  resolve_objection: {
+    objective: 'address_objection',
+    response_mode: 'answer',
+  },
+  reduce_decision_risk: {
+    objective: 'reduce_decision_risk',
+    response_mode: 'clarify',
+  },
+  compare_on_criteria: {
+    objective:
+      'confirm_decision_criteria',
+    response_mode: 'clarify',
+  },
+  propose_next_step: {
+    objective: 'secure_next_step',
+    response_mode: 'advance',
+  },
+  confirm_commitment: {
+    objective: 'confirm_commitment',
+    response_mode: 'confirm',
+  },
+  recover_stalled_process: {
+    objective: 'recover_process',
+    response_mode: 'advance',
+  },
+  respect_customer_timing: {
+    objective: 'respect_timing',
+    response_mode: 'wait',
+  },
+  give_customer_space: {
+    objective: 'reduce_decision_risk',
+    response_mode: 'give_space',
+  },
+  close_conversation: {
+    objective: 'stop_pursuit',
+    response_mode: 'stop',
+  },
+  request_more_context: {
+    objective: 'obtain_context',
+    response_mode: 'clarify',
+  },
+  no_commercial_move: {
+    objective: 'no_commercial_action',
+    response_mode: 'acknowledge',
+  },
+}
+
+function semanticsForMove(
+  move: CommercialMoveV1,
+): {
+  objective:
+    CommercialObjectiveV1
+  response_mode:
+    ResponseModeV1
+} {
+  return MOVE_SEMANTICS[move]
+}
+
 function buildCommercialMoveDecisionV1({
   default_move,
   requested_move,
@@ -304,6 +399,19 @@ export function evaluateCommercialStrategyV1({
         playbookRule?.allowed_moves ?? [],
     })
 
+  const moveSemantics =
+    commercialMove.move ===
+      taxonomy.default_move
+      ? {
+          objective:
+            taxonomy.default_objective,
+          response_mode:
+            taxonomy.default_response_mode,
+        }
+      : semanticsForMove(
+          commercialMove.move,
+        )
+
   const methodAlignment =
     evaluateMethodAlignmentV1({
       snapshot,
@@ -328,7 +436,7 @@ export function evaluateCommercialStrategyV1({
       situation:
         situation.situation,
       objective:
-        taxonomy.default_objective,
+        moveSemantics.objective,
       commercial_move:
         commercialMove.move,
       governance,
@@ -360,9 +468,9 @@ export function evaluateCommercialStrategyV1({
       COMMERCIAL_STRATEGY_CONTRACT_VERSION,
     situation,
     commercial_objective:
-      taxonomy.default_objective,
+      moveSemantics.objective,
     response_mode:
-      taxonomy.default_response_mode,
+      moveSemantics.response_mode,
     commercial_move:
       commercialMove,
     method_alignment:
