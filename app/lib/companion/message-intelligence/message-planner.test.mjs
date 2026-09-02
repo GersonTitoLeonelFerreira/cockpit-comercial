@@ -423,7 +423,7 @@ test('9. advisory deviation preserva recomendado versus solicitado', () => {
   }
   const result = planMessageV1({ snapshot, strategy })
   assert.equal(result.method_alignment.status, 'advisory_deviation')
-  assert.equal(result.method_alignment.recommended_move, strategy.commercial_move.move)
+  assert.equal(result.method_alignment.recommended_move, strategy.commercial_move.default_move)
   assert.equal(result.method_alignment.seller_requested_move, strategy.commercial_move.requested_move)
 })
 
