@@ -106,6 +106,7 @@ export type SituationClassificationV1 = {
 
 export type CommercialMoveDecisionV1 = {
   move: CommercialMoveV1
+  default_move: CommercialMoveV1
   reason: string
   source: 'strategy_default' | 'seller_request' | 'playbook'
   requested_move: CommercialMoveV1 | null
