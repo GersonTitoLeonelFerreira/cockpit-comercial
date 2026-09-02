@@ -11,6 +11,17 @@
           "initialDelaySeconds": 0
         }
       ]
+    },
+    "app/api/queues/message-intelligence-shadow-v1/route.ts": {
+      "maxDuration": 180,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "message-intelligence-shadow-v1",
+          "retryAfterSeconds": 15,
+          "initialDelaySeconds": 0
+        }
+      ]
     }
   }
 }
