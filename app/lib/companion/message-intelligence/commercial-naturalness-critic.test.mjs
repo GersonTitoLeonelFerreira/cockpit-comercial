@@ -33,6 +33,11 @@ function plan(overrides = {}) {
   const base = {
     contract_version: 'message-plan-v1',
     status: 'ready',
+    seller_intent: {
+      value:
+        'Responder a pergunta do cliente.',
+      provenance: [],
+    },
     situation: {
       situation: 'information_request',
       confidence: 'high',
@@ -42,6 +47,8 @@ function plan(overrides = {}) {
     response_mode: 'answer',
     commercial_move: {
       move: 'answer_directly',
+      default_move:
+        'answer_directly',
       reason: 'Responder o que foi pedido.',
       source: 'strategy_default',
       requested_move: null,
@@ -829,5 +836,178 @@ test('57. mera menção temática não conta como resposta factual', () => {
 
   assert.ok(
     evaluated.dimensions.specificity < 80,
+  )
+})
+
+
+test('37. pergunta genérica que ignora seller intent é weak mesmo com score estrutural alto', () => {
+  const p = plan({
+    seller_intent: {
+      value:
+        'Confirmar identificação da aluna com dado fornecido',
+      provenance: [],
+    },
+    situation: {
+      situation:
+        'insufficient_context',
+      confidence: 'low',
+      evidence: [],
+    },
+    commercial_objective:
+      'obtain_context',
+    response_mode: 'clarify',
+    commercial_move: {
+      move:
+        'request_more_context',
+      default_move:
+        'request_more_context',
+      reason:
+        'Fixture de regressão.',
+      source:
+        'strategy_default',
+      requested_move: null,
+    },
+    content_requirements: [
+      'clarify_missing_information',
+    ],
+    fact_requirements: [],
+    question_plan: {
+      should_ask: true,
+      purpose:
+        'obtain_context',
+      max_questions: 1,
+      question_type:
+        'context_clarification',
+      required_information: [
+        'current_request_context',
+      ],
+      avoid_reasking_known_fact:
+        true,
+      known_information_skipped: [],
+    },
+    next_step_plan: {
+      kind: 'ask',
+      commercial_move:
+        'request_more_context',
+      requires_customer_action:
+        true,
+      mutates_crm: false,
+      mutates_agenda: false,
+    },
+  })
+
+  const c =
+    candidateFor(
+      p,
+      'O que você precisa confirmar agora?',
+      {
+        fact_requirements_used: [],
+      },
+    )
+
+  const result =
+    evaluate(
+      p,
+      [c],
+    )
+
+  assert.equal(
+    critique(result).status,
+    'weak',
+  )
+  assert.ok(
+    issueCodes(result)
+      .includes(
+        'SELLER_INTENT_MISMATCH',
+      ),
+  )
+  assert.ok(
+    issueCodes(result)
+      .includes(
+        'VAGUE_QUESTION',
+      ),
+  )
+})
+
+test('38. intenção relacional rejeita candidate que introduz decisão comercial', () => {
+  const p = plan({
+    seller_intent: {
+      value:
+        'Continuar conversa descontraída para fortalecer vínculo',
+      provenance: [],
+    },
+    situation: {
+      situation:
+        'non_commercial',
+      confidence: 'high',
+      evidence: [],
+    },
+    commercial_objective:
+      'no_commercial_action',
+    response_mode:
+      'acknowledge',
+    commercial_move: {
+      move:
+        'no_commercial_move',
+      default_move:
+        'no_commercial_move',
+      reason:
+        'Interação relacional.',
+      source:
+        'seller_request',
+      requested_move:
+        'no_commercial_move',
+    },
+    content_requirements: [
+      'acknowledge_non_commercial',
+    ],
+    fact_requirements: [],
+    question_plan: {
+      should_ask: false,
+      purpose: 'none',
+      max_questions: 0,
+      question_type: 'none',
+      required_information: [],
+      avoid_reasking_known_fact:
+        true,
+      known_information_skipped: [],
+    },
+    next_step_plan: {
+      kind: 'none',
+      commercial_move:
+        'no_commercial_move',
+      requires_customer_action:
+        false,
+      mutates_crm: false,
+      mutates_agenda: false,
+    },
+  })
+
+  const c =
+    candidateFor(
+      p,
+      'Para facilitar a decisão, o que ainda está deixando você em dúvida?',
+      {
+        commercial_move:
+          'no_commercial_move',
+        fact_requirements_used: [],
+      },
+    )
+
+  const result =
+    evaluate(
+      p,
+      [c],
+    )
+
+  assert.equal(
+    critique(result).status,
+    'weak',
+  )
+  assert.ok(
+    issueCodes(result)
+      .includes(
+        'SELLER_INTENT_MISMATCH',
+      ),
   )
 })
