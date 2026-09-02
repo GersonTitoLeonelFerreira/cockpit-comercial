@@ -132,6 +132,8 @@ test('13. advisory deviation fora do método', () => {
   assert.equal(result.commercial_move.default_move, 'advance_discovery')
   assert.equal(result.commercial_move.requested_move, 'propose_next_step')
   assert.equal(result.commercial_move.source, 'seller_request')
+  assert.equal(result.commercial_objective, 'secure_next_step')
+  assert.equal(result.response_mode, 'advance')
   assert.equal(result.method_alignment.status, 'advisory_deviation')
   assert.notEqual(result.governance.status, 'blocked')
 })
@@ -249,6 +251,8 @@ test('26. seller intent específico governa move sem apagar default da situaçã
   assert.equal(result.commercial_move.move, 'answer_directly')
   assert.equal(result.commercial_move.default_move, 'request_more_context')
   assert.equal(result.commercial_move.source, 'seller_request')
+  assert.equal(result.commercial_objective, 'answer_factually')
+  assert.equal(result.response_mode, 'answer')
 })
 
 test('27. intenção relacional explícita não recebe movimento comercial', () => {
