@@ -453,7 +453,7 @@ export function evaluateCommercialStrategyV1({
   }
 
   if (
-    taxonomy.default_objective ===
+    moveSemantics.objective ===
       'answer_factually' &&
     hints?.fact_support ===
       'insufficient'
