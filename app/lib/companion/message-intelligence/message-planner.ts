@@ -2376,7 +2376,8 @@ export function planMessageV1({
           .stage_key,
       recommended_move:
         strategy
-          .commercial_move.move,
+          .commercial_move
+          .default_move,
       seller_requested_move:
         strategy
           .commercial_move
