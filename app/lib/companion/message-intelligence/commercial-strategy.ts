@@ -181,7 +181,17 @@ function buildCommercialMoveDecisionV1({
   requested_move: CommercialMoveV1 | null
   playbook_allowed_moves: CommercialMoveV1[]
 }): CommercialMoveDecisionV1 {
+  const sellerRequestCanOverride =
+    requested_move !== null &&
+    !(
+      requested_move ===
+        'no_commercial_move' &&
+      default_move !==
+        'no_commercial_move'
+    )
+
   if (
+    sellerRequestCanOverride &&
     requested_move &&
     (
       playbook_allowed_moves.length === 0 ||
