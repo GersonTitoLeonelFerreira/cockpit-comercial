@@ -595,13 +595,37 @@ function nextStepSegment(
         'propose_next_step',
       )
 
-    case 'confirm_commitment':
+    case 'confirm_commitment': {
+      const alreadyConfirmed =
+        plan.situation.evidence
+          .some(
+            evidence =>
+              evidence.signal
+                .toLocaleLowerCase(
+                  'pt-BR',
+                )
+                .includes(
+                  'confirmação explícita',
+                ),
+          )
+
+      if (alreadyConfirmed) {
+        return segment(
+          plan.communication_style
+            .formality === 'formal'
+            ? 'Confirmado.'
+            : 'Combinado.',
+          'confirm_commitment',
+        )
+      }
+
       return segment(
         variant === 'contextual'
           ? 'Podemos seguir com o que já ficou combinado.'
           : 'Podemos seguir com o que combinamos.',
         'confirm_commitment',
       )
+    }
 
     case 'give_space':
       return segment('Fique à vontade para avaliar com calma.', null)
