@@ -56,6 +56,17 @@ export function inferSellerRequestedMoveV1(
     terms: string[]
   }> = [
     {
+      move: 'no_commercial_move',
+      terms: [
+        'conversa descontraida',
+        'conversa casual',
+        'fortalecer vinculo',
+        'fortalecer relacionamento',
+        'sem objetivo comercial',
+        'responder de forma casual',
+      ],
+    },
+    {
       move: 'close_conversation',
       terms: [
         'encerrar',
@@ -112,6 +123,13 @@ export function inferSellerRequestedMoveV1(
       terms: [
         'responder direto',
         'responder a pergunta',
+        'confirmar identificacao',
+        'confirmar dado',
+        'confirmar dados',
+        'confirmar recebimento',
+        'responder apos verificar',
+        'responder depois de verificar',
+        'informar apos verificar',
       ],
     },
     {
@@ -164,6 +182,27 @@ function buildCommercialMoveDecisionV1({
   playbook_allowed_moves: CommercialMoveV1[]
 }): CommercialMoveDecisionV1 {
   if (
+    requested_move &&
+    (
+      playbook_allowed_moves.length === 0 ||
+      playbook_allowed_moves.includes(
+        requested_move,
+      )
+    )
+  ) {
+    return {
+      move: requested_move,
+      default_move,
+      reason:
+        requested_move === default_move
+          ? 'O pedido explícito do vendedor coincide com o movimento recomendado pela situação.'
+          : 'O pedido explícito do vendedor governa o movimento, preservando o default da situação para Method Alignment e governance.',
+      source: 'seller_request',
+      requested_move,
+    }
+  }
+
+  if (
     playbook_allowed_moves.length > 0 &&
     !playbook_allowed_moves.includes(
       default_move,
@@ -172,6 +211,7 @@ function buildCommercialMoveDecisionV1({
     return {
       move:
         playbook_allowed_moves[0],
+      default_move,
       reason:
         'O playbook da empresa especializa o movimento permitido para esta situação.',
       source: 'playbook',
@@ -181,12 +221,10 @@ function buildCommercialMoveDecisionV1({
 
   return {
     move: default_move,
+    default_move,
     reason:
       'Movimento derivado da situação comercial e do objetivo imediato; técnica ainda não participa desta decisão.',
-    source:
-      requested_move === default_move
-        ? 'seller_request'
-        : 'strategy_default',
+    source: 'strategy_default',
     requested_move,
   }
 }
