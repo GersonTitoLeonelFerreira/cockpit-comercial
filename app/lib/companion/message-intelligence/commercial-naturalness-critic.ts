@@ -480,6 +480,8 @@ function sellerIntentIssues(
 
   if (
     requestedMove &&
+    plan.commercial_move.source ===
+      'seller_request' &&
     candidate.commercial_move !==
       requestedMove
   ) {
@@ -514,6 +516,8 @@ function sellerIntentIssues(
   if (
     requestedMove ===
       'no_commercial_move' &&
+    plan.situation.situation ===
+      'non_commercial' &&
     /\b(?:decisao|duvida|avancar|solucao|proxima etapa|contrat|preco)\b/u.test(
       plainNormalize(
         candidate.text,
