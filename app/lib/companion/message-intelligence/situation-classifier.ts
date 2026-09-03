@@ -244,6 +244,19 @@ function explicitCommitmentConfirmation(
   )
 }
 
+function explicitActionCommitment(
+  text: string,
+): boolean {
+  return (
+    /\b(?:vou|vamos)\s+(?:mandar|enviar|fazer|verificar|resolver|providenciar|confirmar|retornar|responder)\b/u.test(
+      text,
+    ) ||
+    /\b(?:pode deixar|deixa comigo)\b/u.test(
+      text,
+    )
+  )
+}
+
 export function classifyCommercialSituationV1(
   snapshot: MessageContextSnapshotV1,
   hints: StrategyKnowledgeHintsV1 | null = null,
@@ -351,6 +364,22 @@ export function classifyCommercialSituationV1(
       messageEvidence(
         latest,
         'Intenção explícita de avançar ou contratar.',
+      ),
+    )
+  }
+
+  if (
+    text &&
+    explicitActionCommitment(
+      text,
+    )
+  ) {
+    return result(
+      'commitment_pending',
+      'high',
+      messageEvidence(
+        latest,
+        'Compromisso explícito do cliente de executar a próxima ação.',
       ),
     )
   }
