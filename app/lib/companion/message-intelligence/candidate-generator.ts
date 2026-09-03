@@ -217,6 +217,39 @@ function relationshipContinuationIntent(
   )
 }
 
+function operationalSupportIntent(
+  plan: MessagePlanV1,
+): boolean {
+  const intent =
+    sellerIntentText(plan)
+
+  return [
+    'oferecer apoio para pendencias operacionais',
+    'oferecer apoio para pendencias atuais',
+    'oferecer apoio operacional',
+    'apoio para pendencias operacionais',
+  ].some(term =>
+    intent.includes(term),
+  )
+}
+
+function commercialRedirectIntent(
+  plan: MessagePlanV1,
+): boolean {
+  const intent =
+    sellerIntentText(plan)
+
+  return [
+    'desviar delicadamente o assunto para o foco principal da negociacao',
+    'voltar ao foco principal da negociacao',
+    'retomar o foco principal da negociacao',
+    'redirecionar para a negociacao',
+    'retomar o assunto principal da negociacao',
+  ].some(term =>
+    intent.includes(term),
+  )
+}
+
 function sellerIntentRequestsClarification(
   plan: MessagePlanV1,
 ): boolean {
@@ -350,6 +383,57 @@ function sellerIntentSupportSegment(
 ): RealizedSegmentV1 | null {
   const intent =
     sellerIntentText(plan)
+
+  if (
+    commercialRedirectIntent(
+      plan,
+    )
+  ) {
+    return {
+      text:
+        plan.communication_style
+          .formality === 'formal'
+          ? 'Recebi, obrigado. Podemos retomar o ponto principal da negociação.'
+          : 'Recebi, obrigado. Podemos retomar o ponto principal da negociação.',
+      content_requirements:
+        plan.content_requirements.includes(
+          'propose_next_step',
+        )
+          ? ['propose_next_step']
+          : [],
+      fact_requirement_keys: [],
+    }
+  }
+
+  if (
+    operationalSupportIntent(
+      plan,
+    )
+  ) {
+    const confirmsCommitment =
+      plan.content_requirements.includes(
+        'confirm_commitment',
+      )
+
+    const acknowledgesNonCommercial =
+      plan.content_requirements.includes(
+        'acknowledge_non_commercial',
+      )
+
+    return {
+      text:
+        confirmsCommitment
+          ? 'Combinado. Se precisar de ajuda com as pendências, pode me chamar.'
+          : 'Se precisar de ajuda com as pendências, pode me chamar.',
+      content_requirements:
+        confirmsCommitment
+          ? ['confirm_commitment']
+          : acknowledgesNonCommercial
+            ? ['acknowledge_non_commercial']
+            : [],
+      fact_requirement_keys: [],
+    }
+  }
 
   if (
     intent.includes(
@@ -590,6 +674,9 @@ function contentSegment(
     case 'acknowledge_non_commercial':
       if (
         relationshipContinuationIntent(
+          plan,
+        ) ||
+        operationalSupportIntent(
           plan,
         )
       ) {
@@ -896,7 +983,20 @@ function mergeSegments(
       plan,
     )
   const question = renderQuestion(plan, variant)
-  const next = nextStepSegment(plan, variant)
+  const sellerIntentOwnsNextStep =
+    commercialRedirectIntent(
+      plan,
+    ) ||
+    operationalSupportIntent(
+      plan,
+    )
+  const next =
+    sellerIntentOwnsNextStep
+      ? null
+      : nextStepSegment(
+          plan,
+          variant,
+        )
 
   const ordered =
     variant === 'contextual'
