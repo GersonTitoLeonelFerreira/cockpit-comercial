@@ -359,7 +359,7 @@ function requirementIsAnchored(
       return /\b(?:retomar|pendente|continuar|retomamos|ponto que ficou)\b/u.test(text)
 
     case 'propose_next_step':
-      return /\b(?:proxima etapa|seguir|avancar|agendar|marcar|proximo passo)\b/u.test(text)
+      return /\b(?:proxima etapa|seguir|avancar|agendar|marcar|proximo passo|retomar|voltar)\b/u.test(text)
 
     case 'confirm_commitment':
       return /\b(?:combinad|confirm|seguimos|seguir com|fechado|recebi|recebimento)\b/u.test(text)
@@ -371,7 +371,7 @@ function requirementIsAnchored(
       return /\b(?:obrigad|agradeco|combinado|sem pressa|tudo certo)\b/u.test(text)
 
     case 'acknowledge_non_commercial':
-      return /\b(?:certo|entendi|compreendi|claro|beleza|tranquilo)\b/u.test(text)
+      return /\b(?:certo|entendi|compreendi|claro|beleza|tranquilo|ajuda|chamar|apoio)\b/u.test(text)
   }
 }
 
