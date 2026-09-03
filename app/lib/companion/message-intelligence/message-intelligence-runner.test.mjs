@@ -892,3 +892,69 @@ test(
     )
   },
 )
+
+
+test(
+  'shadow round3: intent composto gera disponibilidade + preferência de formato',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Reafirmar disponibilidade para demonstração e perguntar preferência de formato (online ou presencial)',
+          incomingText:
+            'Também te amo muito',
+        }),
+      )
+
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'clarify_request',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'selected',
+    )
+    assert.equal(
+      run.final_message_result
+        .final_message?.text,
+      'Estou à disposição para a demonstração. Você prefere online ou presencial?',
+    )
+  },
+)
+
+test(
+  'shadow round3: amanhã estou lá é commitment_pending e recebe Combinado',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Quero responder ao ponto principal desta conversa.',
+          incomingText:
+            'Amanhã estou lá',
+        }),
+      )
+
+    assert.equal(
+      run.strategy
+        .situation.situation,
+      'commitment_pending',
+    )
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'confirm_commitment',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'selected',
+    )
+    assert.equal(
+      run.final_message_result
+        .final_message?.text,
+      'Combinado.',
+    )
+  },
+)
