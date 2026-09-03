@@ -1269,3 +1269,148 @@ test('41. seller intent composto com opções é considerado alinhado', () => {
     false,
   )
 })
+
+
+test('42. redirecionamento comercial explícito é coerente e não weak', () => {
+  const p = plan({
+    seller_intent: {
+      value:
+        'Reconhecer recebimento e desviar delicadamente o assunto para o foco principal da negociação',
+      provenance: [],
+    },
+    situation: {
+      situation:
+        'information_request',
+      confidence: 'high',
+      evidence: [],
+    },
+    commercial_objective:
+      'secure_next_step',
+    response_mode: 'advance',
+    commercial_move: {
+      move:
+        'propose_next_step',
+      default_move:
+        'answer_directly',
+      reason:
+        'Seller pediu redirecionamento.',
+      source:
+        'seller_request',
+      requested_move:
+        'propose_next_step',
+    },
+    content_requirements: [
+      'propose_next_step',
+    ],
+    fact_requirements: [],
+    next_step_plan: {
+      kind:
+        'propose_next_step',
+      commercial_move:
+        'propose_next_step',
+      requires_customer_action:
+        true,
+      mutates_crm: false,
+      mutates_agenda: false,
+    },
+  })
+
+  const c =
+    candidateFor(
+      p,
+      'Recebi, obrigado. Podemos retomar o ponto principal da negociação.',
+      {
+        fact_requirements_used: [],
+      },
+    )
+
+  const result =
+    evaluate(
+      p,
+      [c],
+    )
+
+  assert.notEqual(
+    critique(result).status,
+    'weak',
+  )
+  assert.equal(
+    issueCodes(result)
+      .includes(
+        'SELLER_INTENT_MISMATCH',
+      ),
+    false,
+  )
+})
+
+test('43. apoio operacional não comercial é reconhecido sem pressão de venda', () => {
+  const p = plan({
+    seller_intent: {
+      value:
+        'Oferecer apoio para pendências operacionais atuais',
+      provenance: [],
+    },
+    situation: {
+      situation:
+        'non_commercial',
+      confidence: 'high',
+      evidence: [],
+    },
+    commercial_objective:
+      'no_commercial_action',
+    response_mode:
+      'acknowledge',
+    commercial_move: {
+      move:
+        'no_commercial_move',
+      default_move:
+        'no_commercial_move',
+      reason:
+        'Apoio operacional.',
+      source:
+        'seller_request',
+      requested_move:
+        'no_commercial_move',
+    },
+    content_requirements: [
+      'acknowledge_non_commercial',
+    ],
+    fact_requirements: [],
+    next_step_plan: {
+      kind: 'none',
+      commercial_move:
+        'no_commercial_move',
+      requires_customer_action:
+        false,
+      mutates_crm: false,
+      mutates_agenda: false,
+    },
+  })
+
+  const c =
+    candidateFor(
+      p,
+      'Se precisar de ajuda com as pendências, pode me chamar.',
+      {
+        fact_requirements_used: [],
+      },
+    )
+
+  const result =
+    evaluate(
+      p,
+      [c],
+    )
+
+  assert.notEqual(
+    critique(result).status,
+    'weak',
+  )
+  assert.equal(
+    issueCodes(result)
+      .includes(
+        'SELLER_INTENT_MISMATCH',
+      ),
+    false,
+  )
+})
