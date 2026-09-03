@@ -118,6 +118,11 @@ export function inferSellerRequestedMoveV1(
         'confirmar com a cliente se',
         'perguntar ao cliente se',
         'perguntar para o cliente se',
+        'perguntar preferencia',
+        'perguntar a preferencia',
+        'perguntar qual formato',
+        'perguntar se prefere',
+        'preferencia de formato',
       ],
     },
     {
