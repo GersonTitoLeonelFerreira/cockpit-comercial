@@ -211,7 +211,7 @@ function coverageTextViolations(plan: MessagePlanV1, c: MessageCandidateV1, ques
   const out: HardGateViolationV1[] = [], covered = new Set(c.content_requirements_covered), n = normalize(c.text)
   if (covered.has('explain_quote_requirement') && !/(?:cotacao|confirmar|confirmacao|calculad|depende)/u.test(n)) out.push(v('CONTENT_COVERAGE_TEXT_INCONSISTENT', 'Coverage de quote sem limitação verificável no texto.', c.candidate_id))
   if (covered.has('clarify_missing_information') && plan.question_plan.should_ask && questions === 0) out.push(v('CONTENT_COVERAGE_TEXT_INCONSISTENT', 'Coverage de clarificação sem pergunta.', c.candidate_id))
-  if (covered.has('propose_next_step') && !matchesNormalized(c.text, CTA) && !/\b(?:proxima etapa|seguir|avancar)\b/u.test(n)) out.push(v('CONTENT_COVERAGE_TEXT_INCONSISTENT', 'Coverage de próximo passo sem CTA verificável.', c.candidate_id))
+  if (covered.has('propose_next_step') && !matchesNormalized(c.text, CTA) && !/\b(?:proxima etapa|seguir|avancar|retomar|voltar)\b/u.test(n)) out.push(v('CONTENT_COVERAGE_TEXT_INCONSISTENT', 'Coverage de próximo passo sem CTA verificável.', c.candidate_id))
   return out
 }
 
