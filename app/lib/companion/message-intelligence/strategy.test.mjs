@@ -358,3 +358,44 @@ test('32. compromisso explícito atual prevalece sobre uncertainty antiga', () =
     'confirm_commitment',
   )
 })
+
+
+test('33. seller intent composto com preferência de formato vira clarify_request', () => {
+  const result = decide({
+    incomingText:
+      'Também te amo muito',
+    sellerIntent:
+      'Reafirmar disponibilidade para demonstração e perguntar preferência de formato (online ou presencial)',
+  })
+
+  assert.equal(
+    result.commercial_move.move,
+    'clarify_request',
+  )
+  assert.equal(
+    result.commercial_objective,
+    'obtain_context',
+  )
+  assert.equal(
+    result.response_mode,
+    'clarify',
+  )
+})
+
+test('34. compromisso temporal explícito vira commitment_pending', () => {
+  const result = decide({
+    incomingText:
+      'Amanhã estou lá',
+    sellerIntent:
+      'Quero responder ao ponto principal desta conversa.',
+  })
+
+  assert.equal(
+    result.situation.situation,
+    'commitment_pending',
+  )
+  assert.equal(
+    result.commercial_move.move,
+    'confirm_commitment',
+  )
+})
