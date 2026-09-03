@@ -2239,3 +2239,143 @@ test(
     )
   },
 )
+
+
+test(
+  '49. seller intent composto gera disponibilidade + pergunta de preferência',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Reafirmar disponibilidade para demonstração e perguntar preferência de formato (online ou presencial)',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'insufficient_context',
+          confidence: 'low',
+          evidence: [],
+        },
+        commercial_objective:
+          'obtain_context',
+        response_mode: 'clarify',
+        commercial_move: {
+          move:
+            'clarify_request',
+          default_move:
+            'request_more_context',
+          reason:
+            'Seller pediu disponibilidade e preferência.',
+          source:
+            'seller_request',
+          requested_move:
+            'clarify_request',
+        },
+        content_requirements: [
+          'clarify_missing_information',
+        ],
+        fact_requirements: [],
+        question_plan: {
+          should_ask: true,
+          purpose:
+            'clarify_request',
+          max_questions: 1,
+          question_type:
+            'context_clarification',
+          required_information: [
+            'current_request_context',
+          ],
+          avoid_reasking_known_fact:
+            true,
+          known_information_skipped: [],
+        },
+        next_step_plan: {
+          kind: 'ask',
+          commercial_move:
+            'clarify_request',
+          requires_customer_action:
+            true,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.ok(
+      result.candidates.length > 0,
+    )
+    assert.equal(
+      result.candidates[0].text,
+      'Estou à disposição para a demonstração. Você prefere online ou presencial?',
+    )
+    assert.equal(
+      result.candidates[0]
+        .question_count,
+      1,
+    )
+  },
+)
+
+test(
+  '50. compromisso temporal explícito recebe acknowledgement curto',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Quero responder ao ponto principal desta conversa.',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'commitment_pending',
+          confidence: 'high',
+          evidence: [{
+            source: 'message',
+            ids: ['m1'],
+            signal:
+              'Compromisso explícito do cliente de executar a próxima ação.',
+          }],
+        },
+        commercial_objective:
+          'confirm_commitment',
+        response_mode: 'confirm',
+        commercial_move: {
+          move:
+            'confirm_commitment',
+          default_move:
+            'confirm_commitment',
+          reason:
+            'Compromisso temporal atual.',
+          source:
+            'strategy_default',
+          requested_move: null,
+        },
+        content_requirements: [
+          'confirm_commitment',
+        ],
+        fact_requirements: [],
+        next_step_plan: {
+          kind:
+            'confirm_commitment',
+          commercial_move:
+            'confirm_commitment',
+          requires_customer_action:
+            true,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.equal(
+      result.candidates[0].text,
+      'Combinado.',
+    )
+  },
+)
