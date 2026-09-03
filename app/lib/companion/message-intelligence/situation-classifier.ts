@@ -189,18 +189,6 @@ function sellerIntentReopensUncertainty(text: string): boolean {
   return /\b(?:duvida|incerteza|indecis|decisao|pensar|analisar|risco)\w*/u.test(text)
 }
 
-function sellerIntentReopensCommitment(text: string): boolean {
-  return /\b(?:confirmar|reafirmar|agendamento|agendar|horario combinado|demonstracao|encontro|reuniao|compromisso|fechamento)\b/u.test(text)
-}
-
-function sellerIntentReopensComparison(text: string): boolean {
-  return /\b(?:comparar|comparacao|concorrente|alternativa|versus)\b/u.test(text)
-}
-
-function sellerIntentReopensDiscovery(text: string): boolean {
-  return /\b(?:descobrir|diagnosticar|discovery|perguntar|entender necessidade|aprofundar)\b/u.test(text)
-}
-
 function explicitCommitmentConfirmation(text: string): boolean {
   return /^(?:agendado|confirmado|combinado|fechado|fechou entao)\b/u.test(text)
 }
@@ -409,10 +397,7 @@ export function classifyCommercialSituationV1(
     snapshot.customer.commitments,
     'Existe compromisso comercial pendente.',
   )
-  if (
-    commitmentEvidence.length > 0 &&
-    (!hasCurrentIncoming || sellerIntentReopensCommitment(sellerIntent))
-  ) {
+  if (commitmentEvidence.length > 0) {
     return result('commitment_pending', 'high', commitmentEvidence)
   }
 
@@ -420,10 +405,7 @@ export function classifyCommercialSituationV1(
     snapshot.customer.competitors,
     'Existe alternativa ou concorrente ativo no contexto.',
   )
-  if (
-    competitorEvidence.length > 0 &&
-    (!hasCurrentIncoming || sellerIntentReopensComparison(sellerIntent))
-  ) {
+  if (competitorEvidence.length > 0) {
     return result('comparison', 'medium', competitorEvidence)
   }
 
@@ -431,10 +413,7 @@ export function classifyCommercialSituationV1(
     snapshot.customer.missing_discovery,
     'Há descoberta comercial relevante ainda faltante.',
   )
-  if (
-    missingDiscoveryEvidence.length > 0 &&
-    (!hasCurrentIncoming || sellerIntentReopensDiscovery(sellerIntent))
-  ) {
+  if (missingDiscoveryEvidence.length > 0) {
     return result('discovery', 'medium', missingDiscoveryEvidence)
   }
 

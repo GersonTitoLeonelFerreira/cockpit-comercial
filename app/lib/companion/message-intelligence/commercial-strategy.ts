@@ -69,6 +69,24 @@ function supportAvailabilityIntent(
   )
 }
 
+function explicitClarificationIntent(
+  text: string,
+): boolean {
+  return [
+    'confirmar com o cliente se',
+    'confirmar com a cliente se',
+    'perguntar ao cliente se',
+    'perguntar para o cliente se',
+    'perguntar preferencia',
+    'perguntar a preferencia',
+    'perguntar qual formato',
+    'perguntar se prefere',
+    'preferencia de formato',
+  ].some(term =>
+    text.includes(term),
+  )
+}
+
 function commitmentConfirmationIntent(
   text: string,
 ): boolean {
@@ -94,6 +112,14 @@ export function inferSellerRequestedMoveV1(
     )
   ) {
     return 'no_commercial_move'
+  }
+
+  if (
+    explicitClarificationIntent(
+      text,
+    )
+  ) {
+    return 'clarify_request'
   }
 
   if (

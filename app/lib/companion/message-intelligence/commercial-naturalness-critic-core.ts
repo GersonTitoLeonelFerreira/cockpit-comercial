@@ -617,7 +617,7 @@ function sellerIntentIssues(
       'no_commercial_move' &&
     plan.situation.situation ===
       'non_commercial' &&
-    /\b(?:decisao|duvida|avancar|solucao|proxima etapa|contrat|preco)\b/u.test(
+    /\b(?:decisao|avancar|solucao|proxima etapa|contrat|preco)\b/u.test(
       plainNormalize(
         candidate.text,
       ),
