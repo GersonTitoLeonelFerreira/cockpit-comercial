@@ -958,3 +958,215 @@ test(
     )
   },
 )
+
+
+function setRound4IncomingBurst(
+  snapshot,
+  texts,
+) {
+  const fullTemplate =
+    snapshot.conversation.messages
+      .filter(
+        message =>
+          message.direction ===
+            'incoming',
+      )
+      .at(-1)
+
+  const currentTemplate =
+    snapshot.conversation
+      .current_interaction
+      ?.messages
+      .filter(
+        message =>
+          message.direction ===
+            'incoming',
+      )
+      .at(-1)
+
+  assert.ok(fullTemplate)
+  assert.ok(currentTemplate)
+
+  const occurredAt =
+    '2026-09-03T14:27:00.000Z'
+
+  const fullBurst =
+    texts.map(
+      (text, index) => ({
+        ...fullTemplate,
+        message_id:
+          'round4-burst-' +
+          String(index + 1),
+        message_key:
+          'round4-burst-key-' +
+          String(index + 1),
+        sequence:
+          fullTemplate.sequence +
+          index,
+        occurred_at:
+          occurredAt,
+        text_content: text,
+        audio_transcription: null,
+      }),
+    )
+
+  const currentBurst =
+    texts.map(
+      (text, index) => ({
+        ...currentTemplate,
+        message_id:
+          'round4-burst-' +
+          String(index + 1),
+        occurred_at:
+          occurredAt,
+        text_content: text,
+        audio_transcription: null,
+      }),
+    )
+
+  snapshot.conversation.messages = [
+    ...snapshot.conversation.messages
+      .filter(
+        message =>
+          message.direction !==
+            'incoming',
+      ),
+    ...fullBurst,
+  ]
+
+  assert.ok(
+    snapshot.conversation
+      .current_interaction,
+  )
+
+  snapshot.conversation
+    .current_interaction
+    .messages = [
+      ...snapshot.conversation
+        .current_interaction
+        .messages
+        .filter(
+          message =>
+            message.direction !==
+              'incoming',
+        ),
+      ...currentBurst,
+    ]
+}
+
+test(
+  'shadow round4: burst no mesmo timestamp preserva Amanhã estou lá e oferece apoio sem vender',
+  () => {
+    const snapshot =
+      buildSanitizedShadowQualitySnapshot({
+        sellerIntent:
+          'Oferecer apoio para pendências operacionais atuais',
+        incomingText:
+          'O que precisar só a Isa me chamar',
+      })
+
+    setRound4IncomingBurst(
+      snapshot,
+      [
+        'Amanhã estou lá',
+        'O que puder ajudar',
+        'O que precisar só a Isa me chamar',
+      ],
+    )
+
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        snapshot,
+      )
+
+    assert.equal(
+      run.strategy
+        .situation.situation,
+      'commitment_pending',
+    )
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'confirm_commitment',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'selected',
+    )
+    assert.equal(
+      run.final_message_result
+        .final_message?.text,
+      'Combinado. Se precisar de ajuda com as pendências, pode me chamar.',
+    )
+    assert.doesNotMatch(
+      run.final_message_result
+        .final_message?.text ?? '',
+      /venda|preço|contrat|negocia/iu,
+    )
+  },
+)
+
+test(
+  'shadow round4: redirecionar para negociação gera resposta específica em vez de abstention',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Reconhecer recebimento e desviar delicadamente o assunto para o foco principal da negociação',
+          incomingText:
+            'Será que esse serve?',
+        }),
+      )
+
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'propose_next_step',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'selected',
+    )
+    assert.equal(
+      run.final_message_result
+        .final_message?.text,
+      'Recebi, obrigado. Podemos retomar o ponto principal da negociação.',
+    )
+  },
+)
+
+test(
+  'shadow round4: apoio operacional sem sinal forte continua não comercial',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Oferecer apoio para pendências operacionais atuais',
+          incomingText:
+            'Se precisar eu aviso',
+        }),
+      )
+
+    assert.equal(
+      run.strategy
+        .situation.situation,
+      'non_commercial',
+    )
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'no_commercial_move',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'selected',
+    )
+    assert.equal(
+      run.final_message_result
+        .final_message?.text,
+      'Se precisar de ajuda com as pendências, pode me chamar.',
+    )
+  },
+)
