@@ -292,3 +292,69 @@ test('29. sinal comercial explícito prevalece sobre intenção casual incompat�
   assert.equal(result.commercial_move.requested_move, 'no_commercial_move')
   assert.equal(result.commercial_move.source, 'strategy_default')
 })
+
+
+test('30. confirmar com o cliente se algo ocorreu vira pergunta específica, não resposta factual', () => {
+  const result = decide({
+    incomingText: 'beleza',
+    sellerIntent:
+      'Confirmar com o cliente se a aluna enviou o print do e-mail de cancelamento',
+  })
+
+  assert.equal(
+    result.commercial_move.move,
+    'clarify_request',
+  )
+  assert.equal(
+    result.commercial_objective,
+    'obtain_context',
+  )
+  assert.equal(
+    result.response_mode,
+    'clarify',
+  )
+})
+
+test('31. confirmar recebimento é acknowledgement do seller, não hard factual answer', () => {
+  const result = decide({
+    incomingText: 'Amanhã estou lá',
+    sellerIntent:
+      'Confirmar recebimento do atestado',
+  })
+
+  assert.equal(
+    result.commercial_move.move,
+    'confirm_commitment',
+  )
+  assert.equal(
+    result.commercial_objective,
+    'confirm_commitment',
+  )
+  assert.equal(
+    result.response_mode,
+    'confirm',
+  )
+})
+
+test('32. compromisso explícito atual prevalece sobre uncertainty antiga', () => {
+  const result = decide({
+    incomingText: 'Legal! Vou mandar',
+    sellerIntent:
+      'Quero responder ao ponto principal desta conversa.',
+    uncertainties: [
+      mem(
+        'Cliente tinha dúvida anterior.',
+        'uncertainty-old',
+      ),
+    ],
+  })
+
+  assert.equal(
+    result.situation.situation,
+    'commitment_pending',
+  )
+  assert.equal(
+    result.commercial_move.move,
+    'confirm_commitment',
+  )
+})
