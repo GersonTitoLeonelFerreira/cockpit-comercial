@@ -766,3 +766,75 @@ test('59. frameworks são bloqueados independentemente de capitalização', () =
     )
   }
 })
+
+
+test('hard gate round4: retomar negociação materializa propose_next_step sem pergunta', () => {
+  const plan = noFactPlan({
+    commercial_objective:
+      'secure_next_step',
+    response_mode: 'advance',
+    commercial_move: {
+      move:
+        'propose_next_step',
+      default_move:
+        'answer_directly',
+      reason:
+        'Seller pediu redirecionamento.',
+      source:
+        'seller_request',
+      requested_move:
+        'propose_next_step',
+    },
+    content_requirements: [
+      'propose_next_step',
+    ],
+    question_plan: {
+      should_ask: false,
+      purpose: 'none',
+      max_questions: 0,
+      question_type: 'none',
+      required_information: [],
+      avoid_reasking_known_fact:
+        true,
+      known_information_skipped:
+        [],
+    },
+    next_step_plan: {
+      kind:
+        'propose_next_step',
+      commercial_move:
+        'propose_next_step',
+      requires_customer_action:
+        true,
+      mutates_crm: false,
+      mutates_agenda: false,
+    },
+  })
+
+  const candidate =
+    noFactCandidate({
+      text:
+        'Recebi, obrigado. Podemos retomar o ponto principal da negociação.',
+      commercial_move:
+        'propose_next_step',
+      commercial_objective:
+        'secure_next_step',
+      content_requirements_covered: [
+        'propose_next_step',
+      ],
+    })
+
+  const result =
+    evaluate(
+      plan,
+      generation(
+        plan,
+        [candidate],
+      ),
+    )
+
+  assert.equal(
+    result.status,
+    'all_passed',
+  )
+})
