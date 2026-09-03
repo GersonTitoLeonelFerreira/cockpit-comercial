@@ -112,6 +112,15 @@ export function inferSellerRequestedMoveV1(
       ],
     },
     {
+      move: 'clarify_request',
+      terms: [
+        'confirmar com o cliente se',
+        'confirmar com a cliente se',
+        'perguntar ao cliente se',
+        'perguntar para o cliente se',
+      ],
+    },
+    {
       move: 'advance_discovery',
       terms: [
         'fazer pergunta',
@@ -128,7 +137,6 @@ export function inferSellerRequestedMoveV1(
         'confirmar identificacao',
         'confirmar dado',
         'confirmar dados',
-        'confirmar recebimento',
         'responder apos verificar',
         'responder depois de verificar',
         'informar apos verificar',
@@ -147,6 +155,7 @@ export function inferSellerRequestedMoveV1(
         'fechar agora',
         'pedir fechamento',
         'confirmar fechamento',
+        'confirmar recebimento',
       ],
     },
     {
