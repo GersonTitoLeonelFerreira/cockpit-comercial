@@ -202,8 +202,7 @@ function sellerIntentText(
 function relationshipContinuationIntent(
   plan: MessagePlanV1,
 ): boolean {
-  const intent =
-    sellerIntentText(plan)
+  const intent = sellerIntentText(plan)
 
   return [
     'conversa descontraida',
@@ -212,32 +211,44 @@ function relationshipContinuationIntent(
     'fortalecer relacionamento',
     'sem objetivo comercial',
     'responder de forma casual',
-  ].some(term =>
-    intent.includes(term),
-  )
+  ].some(term => intent.includes(term))
 }
 
 function operationalSupportIntent(
   plan: MessagePlanV1,
 ): boolean {
-  const intent =
-    sellerIntentText(plan)
+  const intent = sellerIntentText(plan)
+  const hasOffer = /\b(?:oferecer|ofereco|manter|ficar|deixar)\b/u.test(intent)
+  const hasSupport = /\b(?:apoio|ajuda|auxilio|auxiliar|disponibilidade|disponivel)\b/u.test(intent)
+  const hasSupportContext = /\b(?:pendenc|administrativ|operacion|duvid|necessidad|ajudar)\w*/u.test(intent)
 
-  return [
-    'oferecer apoio para pendencias operacionais',
-    'oferecer apoio para pendencias atuais',
-    'oferecer apoio operacional',
-    'apoio para pendencias operacionais',
-  ].some(term =>
-    intent.includes(term),
+  return (
+    (hasOffer && hasSupport) ||
+    (hasSupport && hasSupportContext)
+  )
+}
+
+function supportForFutureQuestionsIntent(
+  plan: MessagePlanV1,
+): boolean {
+  const intent = sellerIntentText(plan)
+  return /\b(?:duvid|necessidad|futur)\w*/u.test(intent)
+}
+
+function commitmentConfirmationIntent(
+  plan: MessagePlanV1,
+): boolean {
+  const intent = sellerIntentText(plan)
+  return (
+    /\b(?:confirmar|reafirmar)\b.*\b(?:agendamento|horario combinado|demonstracao|encontro|reuniao|compromisso|fechamento)\b/u.test(intent) ||
+    /\b(?:agendamento|horario combinado|demonstracao|encontro|reuniao|compromisso)\b.*\bconfirmar\b/u.test(intent)
   )
 }
 
 function commercialRedirectIntent(
   plan: MessagePlanV1,
 ): boolean {
-  const intent =
-    sellerIntentText(plan)
+  const intent = sellerIntentText(plan)
 
   return [
     'desviar delicadamente o assunto para o foco principal da negociacao',
@@ -245,16 +256,13 @@ function commercialRedirectIntent(
     'retomar o foco principal da negociacao',
     'redirecionar para a negociacao',
     'retomar o assunto principal da negociacao',
-  ].some(term =>
-    intent.includes(term),
-  )
+  ].some(term => intent.includes(term))
 }
 
 function sellerIntentRequestsClarification(
   plan: MessagePlanV1,
 ): boolean {
-  const intent =
-    sellerIntentText(plan)
+  const intent = sellerIntentText(plan)
 
   return [
     'perguntar',
@@ -269,162 +277,84 @@ function sellerIntentRequestsClarification(
     'confirmar com a cliente se',
     'perguntar ao cliente se',
     'perguntar para o cliente se',
-  ].some(term =>
-    intent.includes(
-      normalizeText(term),
-    ),
-  )
+  ].some(term => intent.includes(normalizeText(term)))
 }
 
 function sellerIntentConfirmationQuestion(
   plan: MessagePlanV1,
 ): string | null {
-  const raw =
-    plan.seller_intent.value
-      .trim()
+  const raw = plan.seller_intent.value.trim()
 
   const match =
-    raw.match(
-      /^confirmar com (?:o|a) cliente se\s+(.+)$/iu,
-    ) ??
-    raw.match(
-      /^perguntar (?:ao|para o|à|a) cliente se\s+(.+)$/iu,
-    )
+    raw.match(/^confirmar com (?:o|a) cliente se\s+(.+)$/iu) ??
+    raw.match(/^perguntar (?:ao|para o|à|a) cliente se\s+(.+)$/iu)
 
-  const body =
-    match?.[1]
-      ?.trim()
-      .replace(/[.!?]+$/u, '') ??
-    ''
+  const body = match?.[1]?.trim().replace(/[.!?]+$/u, '') ?? ''
+  if (!body) return null
 
-  if (!body) {
-    return null
-  }
-
-  return (
-    body.charAt(0)
-      .toLocaleUpperCase(
-        'pt-BR',
-      ) +
-    body.slice(1) +
-    '?'
-  )
+  return body.charAt(0).toLocaleUpperCase('pt-BR') + body.slice(1) + '?'
 }
 
 function sellerIntentPreferenceQuestion(
   plan: MessagePlanV1,
 ): string | null {
-  const raw =
-    plan.seller_intent.value
-      .trim()
+  const raw = plan.seller_intent.value.trim()
 
   const optionsMatch =
-    raw.match(
-      /prefer[eê]ncia\s+de\s+formato\s*\(([^)]+)\)/iu,
-    ) ??
-    raw.match(
-      /perguntar\s+(?:a\s+)?prefer[eê]ncia[^()]*\(([^)]+)\)/iu,
-    )
+    raw.match(/prefer[eê]ncia\s+de\s+formato\s*\(([^)]+)\)/iu) ??
+    raw.match(/perguntar\s+(?:a\s+)?prefer[eê]ncia[^()]*\(([^)]+)\)/iu)
 
-  const options =
-    optionsMatch?.[1]
-      ?.trim()
-      .replace(/\s+/gu, ' ') ??
-    ''
+  const options = optionsMatch?.[1]?.trim().replace(/\s+/gu, ' ') ?? ''
 
-  if (
-    options &&
-    /\bou\b/iu.test(
-      options,
-    )
-  ) {
-    return (
-      'Você prefere ' +
-      options +
-      '?'
-    )
+  if (options && /\bou\b/iu.test(options)) {
+    return 'Você prefere ' + options + '?'
   }
 
   if (
-    /prefer[eê]ncia\s+de\s+formato/iu.test(
-      raw,
-    ) ||
-    /perguntar\s+qual\s+formato/iu.test(
-      raw,
-    )
+    /prefer[eê]ncia\s+de\s+formato/iu.test(raw) ||
+    /perguntar\s+qual\s+formato/iu.test(raw)
   ) {
     return 'Qual formato você prefere?'
   }
 
   const preferenceMatch =
-    raw.match(
-      /perguntar\s+(?:a\s+)?prefer[eê]ncia\s+de\s+([\p{L}\s]+?)(?:[.,;]|$)/iu,
-    )
+    raw.match(/perguntar\s+(?:a\s+)?prefer[eê]ncia\s+de\s+([\p{L}\s]+?)(?:[.,;]|$)/iu)
 
-  const subject =
-    preferenceMatch?.[1]
-      ?.trim()
-      .replace(/\s+/gu, ' ') ??
-    ''
+  const subject = preferenceMatch?.[1]?.trim().replace(/\s+/gu, ' ') ?? ''
+  if (!subject) return null
 
-  if (!subject) {
-    return null
-  }
-
-  return (
-    'Qual ' +
-    subject +
-    ' você prefere?'
-  )
+  return 'Qual ' + subject + ' você prefere?'
 }
 
 function sellerIntentSupportSegment(
   plan: MessagePlanV1,
 ): RealizedSegmentV1 | null {
-  const intent =
-    sellerIntentText(plan)
-
-  if (
-    commercialRedirectIntent(
-      plan,
-    )
-  ) {
+  if (commercialRedirectIntent(plan)) {
     return {
-      text:
-        plan.communication_style
-          .formality === 'formal'
-          ? 'Recebi, obrigado. Podemos retomar o ponto principal da negociação.'
-          : 'Recebi, obrigado. Podemos retomar o ponto principal da negociação.',
+      text: 'Recebi, obrigado. Podemos retomar o ponto principal da negociação.',
       content_requirements:
-        plan.content_requirements.includes(
-          'propose_next_step',
-        )
+        plan.content_requirements.includes('propose_next_step')
           ? ['propose_next_step']
           : [],
       fact_requirement_keys: [],
     }
   }
 
-  if (
-    operationalSupportIntent(
-      plan,
-    )
-  ) {
+  if (operationalSupportIntent(plan)) {
     const confirmsCommitment =
-      plan.content_requirements.includes(
-        'confirm_commitment',
-      )
-
+      plan.content_requirements.includes('confirm_commitment')
     const acknowledgesNonCommercial =
-      plan.content_requirements.includes(
-        'acknowledge_non_commercial',
-      )
+      plan.content_requirements.includes('acknowledge_non_commercial')
+
+    const supportText =
+      supportForFutureQuestionsIntent(plan)
+        ? 'Se precisar de alguma coisa ou tiver alguma dúvida, pode me chamar.'
+        : 'Se precisar de ajuda com as pendências, pode me chamar.'
 
     return {
-      text:
-        confirmsCommitment
-          ? 'Combinado. Se precisar de ajuda com as pendências, pode me chamar.'
-          : 'Se precisar de ajuda com as pendências, pode me chamar.',
+      text: confirmsCommitment
+        ? 'Combinado. ' + supportText
+        : supportText,
       content_requirements:
         confirmsCommitment
           ? ['confirm_commitment']
@@ -435,18 +365,14 @@ function sellerIntentSupportSegment(
     }
   }
 
+  const intent = sellerIntentText(plan)
   if (
-    intent.includes(
-      'reafirmar disponibilidade',
-    ) &&
-    intent.includes(
-      'demonstracao',
-    )
+    intent.includes('reafirmar disponibilidade') &&
+    intent.includes('demonstracao')
   ) {
     return {
       text:
-        plan.communication_style
-          .formality === 'formal'
+        plan.communication_style.formality === 'formal'
           ? 'Permaneço à disposição para a demonstração.'
           : 'Estou à disposição para a demonstração.',
       content_requirements: [],
@@ -460,69 +386,32 @@ function sellerIntentSupportSegment(
 function sellerIntentReceiptAcknowledgement(
   plan: MessagePlanV1,
 ): string | null {
-  const raw =
-    plan.seller_intent.value
-      .trim()
+  const raw = plan.seller_intent.value.trim()
+  const match = raw.match(
+    /^confirmar recebimento\s+(do|da|dos|das)\s+(.+)$/iu,
+  )
+  if (!match) return null
 
-  const match =
-    raw.match(
-      /^confirmar recebimento\s+(do|da|dos|das)\s+(.+)$/iu,
-    )
-
-  if (!match) {
-    return null
+  const articleMap: Record<string, string> = {
+    do: 'o', da: 'a', dos: 'os', das: 'as',
   }
+  const article = articleMap[match[1].toLocaleLowerCase('pt-BR')]
+  const subject = match[2].trim().replace(/[.!?]+$/u, '')
+  if (!article || !subject) return null
 
-  const articleMap:
-    Record<string, string> = {
-      do: 'o',
-      da: 'a',
-      dos: 'os',
-      das: 'as',
-    }
-
-  const article =
-    articleMap[
-      match[1]
-        .toLocaleLowerCase(
-          'pt-BR',
-        )
-    ]
-
-  const subject =
-    match[2]
-      .trim()
-      .replace(/[.!?]+$/u, '')
-
-  if (!article || !subject) {
-    return null
-  }
-
-  return plan.communication_style
-    .formality === 'formal'
+  return plan.communication_style.formality === 'formal'
     ? sentence(
         'Confirmo o recebimento ' +
-          match[1]
-            .toLocaleLowerCase(
-              'pt-BR',
-            ) +
-          ' ' +
-          subject,
+          match[1].toLocaleLowerCase('pt-BR') +
+          ' ' + subject,
       )
-    : sentence(
-        'Recebi ' +
-          article +
-          ' ' +
-          subject,
-      )
+    : sentence('Recebi ' + article + ' ' + subject)
 }
 
 function sellerIntentRequiresSilentWait(
   plan: MessagePlanV1,
 ): boolean {
-  const intent =
-    sellerIntentText(plan)
-
+  const intent = sellerIntentText(plan)
   return [
     'aguardar o cliente',
     'aguardar a cliente',
@@ -532,9 +421,7 @@ function sellerIntentRequiresSilentWait(
     'aguardar retorno da cliente',
     'aguardar o retorno do cliente',
     'aguardar o retorno da cliente',
-  ].some(term =>
-    intent.includes(term),
-  )
+  ].some(term => intent.includes(term))
 }
 
 function styleFactPrefix(
@@ -584,15 +471,11 @@ function factText(
   }
 
   if (requirement.requirement_key === 'product.payment_conditions') {
-    return sentence(
-      'As condições de pagamento confirmadas são: ' + values.join(' '),
-    )
+    return sentence('As condições de pagamento confirmadas são: ' + values.join(' '))
   }
 
   if (requirement.requirement_key === 'product.contract_conditions') {
-    return sentence(
-      'As condições contratuais confirmadas são: ' + values.join(' '),
-    )
+    return sentence('As condições contratuais confirmadas são: ' + values.join(' '))
   }
 
   return null
@@ -636,12 +519,8 @@ function contentSegment(
       if (
         plan.question_plan.should_ask &&
         plan.question_plan.purpose === 'confirm_decision_criterion'
-      ) {
-        return null
-      }
-      return segment(
-        'Vou considerar o ponto que você já indicou como mais importante.',
-      )
+      ) return null
+      return segment('Vou considerar o ponto que você já indicou como mais importante.')
 
     case 'reduce_decision_risk':
       return segment(
@@ -673,21 +552,11 @@ function contentSegment(
 
     case 'acknowledge_non_commercial':
       if (
-        relationshipContinuationIntent(
-          plan,
-        ) ||
-        operationalSupportIntent(
-          plan,
-        )
-      ) {
-        return null
-      }
+        relationshipContinuationIntent(plan) ||
+        operationalSupportIntent(plan)
+      ) return null
 
-      return segment(
-        formal
-          ? 'Certo, compreendido.'
-          : 'Certo.',
-      )
+      return segment(formal ? 'Certo, compreendido.' : 'Certo.')
 
     case 'answer_requested_information':
     case 'explain_quote_requirement':
@@ -713,9 +582,7 @@ function renderFacts(
     if (
       requirement.status === 'forbidden' ||
       requirement.requirement_key === 'product.forbidden_claims'
-    ) {
-      continue
-    }
+    ) continue
 
     const shouldUse =
       requirement.necessity === 'required' ||
@@ -723,7 +590,6 @@ function renderFacts(
         requirement.requirement_key === 'product.allowed_claims' &&
         plan.content_requirements.includes('surface_verified_difference')
       )
-
     if (!shouldUse) continue
 
     const text = factText(requirement, plan.communication_style, variant)
@@ -751,9 +617,7 @@ function renderFacts(
     if (
       requirement.requirement_key === 'product.allowed_claims' &&
       plan.content_requirements.includes('surface_verified_difference')
-    ) {
-      covered.push('surface_verified_difference')
-    }
+    ) covered.push('surface_verified_difference')
 
     result.push({
       text,
@@ -780,9 +644,7 @@ function questionText(
   if (!requested || requested === 'missing_factual_information') return null
 
   const byInformation: Record<string, string> = {
-    objective: formal
-      ? 'O que você pretende alcançar com isso?'
-      : 'O que você quer alcançar com isso?',
+    objective: formal ? 'O que você pretende alcançar com isso?' : 'O que você quer alcançar com isso?',
     problem: 'Qual situação você precisa resolver hoje?',
     impact: 'Que impacto isso tem hoje?',
     need: 'O que você precisa que a solução resolva?',
@@ -804,21 +666,13 @@ function questionText(
       : 'O que você precisa confirmar agora?',
   }
 
-  if (question.purpose === 'isolate_objection') {
-    return byInformation.objection_driver
-  }
-  if (question.purpose === 'confirm_decision_criterion') {
-    return byInformation.decision_criteria
-  }
-  if (question.purpose === 'reduce_uncertainty') {
-    return byInformation.decision_uncertainty
-  }
+  if (question.purpose === 'isolate_objection') return byInformation.objection_driver
+  if (question.purpose === 'confirm_decision_criterion') return byInformation.decision_criteria
+  if (question.purpose === 'reduce_uncertainty') return byInformation.decision_uncertainty
   if (
     question.purpose === 'clarify_request' ||
     question.purpose === 'obtain_context'
-  ) {
-    return byInformation.current_request_context
-  }
+  ) return byInformation.current_request_context
 
   return byInformation[requested] ?? (
     variant === 'contextual'
@@ -833,25 +687,15 @@ function renderQuestion(
 ): RealizedSegmentV1 | null {
   if (
     (
-      plan.question_plan.purpose ===
-        'clarify_request' ||
-      plan.question_plan.purpose ===
-        'obtain_context'
+      plan.question_plan.purpose === 'clarify_request' ||
+      plan.question_plan.purpose === 'obtain_context'
     ) &&
-    !sellerIntentRequestsClarification(
-      plan,
-    )
-  ) {
-    return null
-  }
+    !sellerIntentRequestsClarification(plan)
+  ) return null
 
   const text =
-    sellerIntentConfirmationQuestion(
-      plan,
-    ) ??
-    sellerIntentPreferenceQuestion(
-      plan,
-    ) ??
+    sellerIntentConfirmationQuestion(plan) ??
+    sellerIntentPreferenceQuestion(plan) ??
     questionText(
       plan.question_plan,
       variant,
@@ -860,16 +704,13 @@ function renderQuestion(
   if (!text) return null
 
   const covered: MessagePlanContentRequirementV1[] = []
-
   if (plan.content_requirements.includes('clarify_missing_information')) {
     covered.push('clarify_missing_information')
   }
   if (
     plan.content_requirements.includes('confirm_decision_criterion') &&
     plan.question_plan.purpose === 'confirm_decision_criterion'
-  ) {
-    covered.push('confirm_decision_criterion')
-  }
+  ) covered.push('confirm_decision_criterion')
 
   return {
     text,
@@ -904,43 +745,32 @@ function nextStepSegment(
       )
 
     case 'confirm_commitment': {
-      const receiptAcknowledgement =
-        sellerIntentReceiptAcknowledgement(
-          plan,
-        )
-
+      const receiptAcknowledgement = sellerIntentReceiptAcknowledgement(plan)
       if (receiptAcknowledgement) {
+        return segment(receiptAcknowledgement, 'confirm_commitment')
+      }
+
+      if (commitmentConfirmationIntent(plan)) {
         return segment(
-          receiptAcknowledgement,
+          plan.communication_style.formality === 'formal'
+            ? 'Confirmado.'
+            : 'Combinado.',
           'confirm_commitment',
         )
       }
 
       const alreadyConfirmed =
-        plan.situation.evidence
-          .some(
-            evidence => {
-              const signal =
-                evidence.signal
-                  .toLocaleLowerCase(
-                    'pt-BR',
-                  )
-
-              return (
-                signal.includes(
-                  'confirmação explícita',
-                ) ||
-                signal.includes(
-                  'compromisso explícito',
-                )
-              )
-            },
+        plan.situation.evidence.some(evidence => {
+          const signal = evidence.signal.toLocaleLowerCase('pt-BR')
+          return (
+            signal.includes('confirmação explícita') ||
+            signal.includes('compromisso explícito')
           )
+        })
 
       if (alreadyConfirmed) {
         return segment(
-          plan.communication_style
-            .formality === 'formal'
+          plan.communication_style.formality === 'formal'
             ? 'Confirmado.'
             : 'Combinado.',
           'confirm_commitment',
@@ -978,25 +808,11 @@ function mergeSegments(
     .filter((item): item is RealizedSegmentV1 => item !== null)
 
   const facts = renderFacts(plan, variant)
-  const sellerIntentSupport =
-    sellerIntentSupportSegment(
-      plan,
-    )
+  const sellerIntentSupport = sellerIntentSupportSegment(plan)
   const question = renderQuestion(plan, variant)
   const sellerIntentOwnsNextStep =
-    commercialRedirectIntent(
-      plan,
-    ) ||
-    operationalSupportIntent(
-      plan,
-    )
-  const next =
-    sellerIntentOwnsNextStep
-      ? null
-      : nextStepSegment(
-          plan,
-          variant,
-        )
+    commercialRedirectIntent(plan) || operationalSupportIntent(plan)
+  const next = sellerIntentOwnsNextStep ? null : nextStepSegment(plan, variant)
 
   const ordered =
     variant === 'contextual'
@@ -1011,11 +827,7 @@ function mergeSegments(
         ]
       : [...explicit, ...facts]
 
-  if (sellerIntentSupport) {
-    ordered.push(
-      sellerIntentSupport,
-    )
-  }
+  if (sellerIntentSupport) ordered.push(sellerIntentSupport)
   if (question) ordered.push(question)
   if (next) ordered.push(next)
 
@@ -1148,8 +960,7 @@ function draftCandidate(
 function semanticPlanFingerprint(plan: MessagePlanV1): string {
   const value = {
     status: plan.status,
-    seller_intent:
-      plan.seller_intent.value,
+    seller_intent: plan.seller_intent.value,
     commercial_objective: plan.commercial_objective,
     response_mode: plan.response_mode,
     commercial_move: plan.commercial_move.move,
@@ -1272,11 +1083,7 @@ export function generateMessageCandidatesV1(
     )
   }
 
-  if (
-    sellerIntentRequiresSilentWait(
-      plan,
-    )
-  ) {
+  if (sellerIntentRequiresSilentWait(plan)) {
     return blockedResult(
       plan,
       'not_generated',
