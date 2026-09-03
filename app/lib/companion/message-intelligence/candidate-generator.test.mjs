@@ -1983,3 +1983,259 @@ test(
     )
   },
 )
+
+
+test(
+  '45. confirmação com cliente gera a pergunta específica pedida pelo seller',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Confirmar com o cliente se a aluna enviou o print do e-mail de cancelamento',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'insufficient_context',
+          confidence: 'low',
+          evidence: [],
+        },
+        commercial_objective:
+          'obtain_context',
+        response_mode: 'clarify',
+        commercial_move: {
+          move:
+            'clarify_request',
+          default_move:
+            'request_more_context',
+          reason:
+            'Seller pediu confirmação específica.',
+          source:
+            'seller_request',
+          requested_move:
+            'clarify_request',
+        },
+        content_requirements: [
+          'clarify_missing_information',
+        ],
+        fact_requirements: [],
+        question_plan: {
+          should_ask: true,
+          purpose:
+            'clarify_request',
+          max_questions: 1,
+          question_type:
+            'context_clarification',
+          required_information: [
+            'current_request_context',
+          ],
+          avoid_reasking_known_fact:
+            true,
+          known_information_skipped: [],
+        },
+        next_step_plan: {
+          kind: 'ask',
+          commercial_move:
+            'clarify_request',
+          requires_customer_action:
+            true,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.ok(
+      result.candidates.length > 0,
+    )
+    assert.equal(
+      result.candidates[0].text,
+      'A aluna enviou o print do e-mail de cancelamento?',
+    )
+  },
+)
+
+test(
+  '46. seller intent de aguardar cliente produz silêncio',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Aguardar o cliente manifestar interesse para confirmar agenda da demonstração do Yolen',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'postponement',
+          confidence: 'medium',
+          evidence: [],
+        },
+        commercial_objective:
+          'respect_timing',
+        response_mode: 'wait',
+        commercial_move: {
+          move:
+            'respect_customer_timing',
+          default_move:
+            'respect_customer_timing',
+          reason:
+            'Aguardar manifestação.',
+          source:
+            'seller_request',
+          requested_move:
+            'respect_customer_timing',
+        },
+        content_requirements: [
+          'respect_customer_timing',
+        ],
+        fact_requirements: [],
+        next_step_plan: {
+          kind:
+            'respect_timing',
+          commercial_move:
+            'respect_customer_timing',
+          requires_customer_action:
+            false,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.equal(
+      result.status,
+      'not_generated',
+    )
+    assert.equal(
+      result.candidates.length,
+      0,
+    )
+  },
+)
+
+test(
+  '47. confirmar recebimento gera acknowledgement específico do seller',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Confirmar recebimento do atestado',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'commitment_pending',
+          confidence: 'high',
+          evidence: [],
+        },
+        commercial_objective:
+          'confirm_commitment',
+        response_mode: 'confirm',
+        commercial_move: {
+          move:
+            'confirm_commitment',
+          default_move:
+            'confirm_commitment',
+          reason:
+            'Seller confirmou recebimento.',
+          source:
+            'seller_request',
+          requested_move:
+            'confirm_commitment',
+        },
+        content_requirements: [
+          'confirm_commitment',
+        ],
+        fact_requirements: [],
+        next_step_plan: {
+          kind:
+            'confirm_commitment',
+          commercial_move:
+            'confirm_commitment',
+          requires_customer_action:
+            true,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.ok(
+      result.candidates.length > 0,
+    )
+    assert.equal(
+      result.candidates[0].text,
+      'Recebi o atestado.',
+    )
+  },
+)
+
+test(
+  '48. compromisso explícito do cliente recebe acknowledgement curto',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Quero responder ao ponto principal desta conversa.',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'commitment_pending',
+          confidence: 'high',
+          evidence: [{
+            source: 'message',
+            ids: ['m1'],
+            signal:
+              'Compromisso explícito do cliente de executar a próxima ação.',
+          }],
+        },
+        commercial_objective:
+          'confirm_commitment',
+        response_mode: 'confirm',
+        commercial_move: {
+          move:
+            'confirm_commitment',
+          default_move:
+            'confirm_commitment',
+          reason:
+            'Compromisso atual.',
+          source:
+            'strategy_default',
+          requested_move: null,
+        },
+        content_requirements: [
+          'confirm_commitment',
+        ],
+        fact_requirements: [],
+        next_step_plan: {
+          kind:
+            'confirm_commitment',
+          commercial_move:
+            'confirm_commitment',
+          requires_customer_action:
+            true,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.equal(
+      result.candidates[0].text,
+      'Combinado.',
+    )
+  },
+)
