@@ -2379,3 +2379,193 @@ test(
     )
   },
 )
+
+
+test(
+  '51. redirecionamento comercial reconhece recebimento e retoma foco sem detalhe inventado',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Reconhecer recebimento e desviar delicadamente o assunto para o foco principal da negociação',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'information_request',
+          confidence: 'high',
+          evidence: [],
+        },
+        commercial_objective:
+          'secure_next_step',
+        response_mode: 'advance',
+        commercial_move: {
+          move:
+            'propose_next_step',
+          default_move:
+            'answer_directly',
+          reason:
+            'Seller pediu redirecionamento.',
+          source:
+            'seller_request',
+          requested_move:
+            'propose_next_step',
+        },
+        content_requirements: [
+          'propose_next_step',
+        ],
+        fact_requirements: [],
+        question_plan:
+          noneQuestion(),
+        next_step_plan: {
+          kind:
+            'propose_next_step',
+          commercial_move:
+            'propose_next_step',
+          requires_customer_action:
+            true,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.ok(
+      result.candidates.length > 0,
+    )
+    assert.equal(
+      result.candidates[0].text,
+      'Recebi, obrigado. Podemos retomar o ponto principal da negociação.',
+    )
+  },
+)
+
+test(
+  '52. apoio operacional sem venda gera apoio seguro em no_commercial_move',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Oferecer apoio para pendências operacionais atuais',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'non_commercial',
+          confidence: 'high',
+          evidence: [],
+        },
+        commercial_objective:
+          'no_commercial_action',
+        response_mode:
+          'acknowledge',
+        commercial_move: {
+          move:
+            'no_commercial_move',
+          default_move:
+            'no_commercial_move',
+          reason:
+            'Apoio operacional.',
+          source:
+            'seller_request',
+          requested_move:
+            'no_commercial_move',
+        },
+        content_requirements: [
+          'acknowledge_non_commercial',
+        ],
+        fact_requirements: [],
+        question_plan:
+          noneQuestion(),
+        next_step_plan: {
+          kind: 'none',
+          commercial_move:
+            'no_commercial_move',
+          requires_customer_action:
+            false,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.equal(
+      result.candidates[0].text,
+      'Se precisar de ajuda com as pendências, pode me chamar.',
+    )
+    assert.doesNotMatch(
+      result.candidates[0].text,
+      /venda|negocia|contrat|preço/iu,
+    )
+  },
+)
+
+test(
+  '53. apoio operacional acompanha compromisso atual sem perder acknowledgement',
+  () => {
+    const plan =
+      basePlan({
+        seller_intent: {
+          value:
+            'Oferecer apoio para pendências operacionais atuais',
+          provenance: [TRACE],
+        },
+        situation: {
+          situation:
+            'commitment_pending',
+          confidence: 'high',
+          evidence: [{
+            source: 'message',
+            ids: ['m1'],
+            signal:
+              'Compromisso explícito no último burst.',
+          }],
+        },
+        commercial_objective:
+          'confirm_commitment',
+        response_mode: 'confirm',
+        commercial_move: {
+          move:
+            'confirm_commitment',
+          default_move:
+            'confirm_commitment',
+          reason:
+            'Sinal forte prevalece.',
+          source:
+            'strategy_default',
+          requested_move:
+            'no_commercial_move',
+        },
+        content_requirements: [
+          'confirm_commitment',
+        ],
+        fact_requirements: [],
+        question_plan:
+          noneQuestion(),
+        next_step_plan: {
+          kind:
+            'confirm_commitment',
+          commercial_move:
+            'confirm_commitment',
+          requires_customer_action:
+            true,
+          mutates_crm: false,
+          mutates_agenda: false,
+        },
+      })
+
+    const result =
+      generate(plan)
+
+    assert.equal(
+      result.candidates[0].text,
+      'Combinado. Se precisar de ajuda com as pendências, pode me chamar.',
+    )
+  },
+)
