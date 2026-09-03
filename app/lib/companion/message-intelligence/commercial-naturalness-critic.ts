@@ -493,6 +493,35 @@ function sellerIntentConfirmationTarget(
     null
 }
 
+function sellerIntentPreferenceOptions(
+  plan: MessagePlanV1,
+): string[] {
+  const raw =
+    plan.seller_intent.value
+      .trim()
+
+  const match =
+    raw.match(
+      /prefer[eê]ncia\s+de\s+formato\s*\(([^)]+)\)/iu,
+    ) ??
+    raw.match(
+      /perguntar\s+(?:a\s+)?prefer[eê]ncia[^()]*\(([^)]+)\)/iu,
+    )
+
+  const options =
+    match?.[1]
+      ?.split(/\bou\b/iu)
+      .map(item =>
+        plainNormalize(
+          item,
+        ),
+      )
+      .filter(Boolean) ??
+    []
+
+  return options
+}
+
 function sellerIntentQuestionAligned(
   plan: MessagePlanV1,
   candidate: MessageCandidateV1,
@@ -502,14 +531,40 @@ function sellerIntentQuestionAligned(
       plan,
     )
 
-  return (
+  if (
     target !== null &&
     candidate.question_count === 1 &&
     semanticOverlap(
       candidate.text,
       target,
     ) >= 0.65
-  )
+  ) {
+    return true
+  }
+
+  const preferenceOptions =
+    sellerIntentPreferenceOptions(
+      plan,
+    )
+
+  if (
+    preferenceOptions.length >= 2 &&
+    candidate.question_count === 1
+  ) {
+    const candidateText =
+      plainNormalize(
+        candidate.text,
+      )
+
+    return preferenceOptions.every(
+      option =>
+        candidateText.includes(
+          option,
+        ),
+    )
+  }
+
+  return false
 }
 
 function sellerIntentIssues(
