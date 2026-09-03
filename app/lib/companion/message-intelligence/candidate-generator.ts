@@ -232,10 +232,129 @@ function sellerIntentRequestsClarification(
     'pedir contexto',
     'pedir informacao',
     'pedir informação',
+    'confirmar com o cliente se',
+    'confirmar com a cliente se',
+    'perguntar ao cliente se',
+    'perguntar para o cliente se',
   ].some(term =>
     intent.includes(
       normalizeText(term),
     ),
+  )
+}
+
+function sellerIntentConfirmationQuestion(
+  plan: MessagePlanV1,
+): string | null {
+  const raw =
+    plan.seller_intent.value
+      .trim()
+
+  const match =
+    raw.match(
+      /^confirmar com (?:o|a) cliente se\s+(.+)$/iu,
+    ) ??
+    raw.match(
+      /^perguntar (?:ao|para o|à|a) cliente se\s+(.+)$/iu,
+    )
+
+  const body =
+    match?.[1]
+      ?.trim()
+      .replace(/[.!?]+$/u, '') ??
+    ''
+
+  if (!body) {
+    return null
+  }
+
+  return (
+    body.charAt(0)
+      .toLocaleUpperCase(
+        'pt-BR',
+      ) +
+    body.slice(1) +
+    '?'
+  )
+}
+
+function sellerIntentReceiptAcknowledgement(
+  plan: MessagePlanV1,
+): string | null {
+  const raw =
+    plan.seller_intent.value
+      .trim()
+
+  const match =
+    raw.match(
+      /^confirmar recebimento\s+(do|da|dos|das)\s+(.+)$/iu,
+    )
+
+  if (!match) {
+    return null
+  }
+
+  const articleMap:
+    Record<string, string> = {
+      do: 'o',
+      da: 'a',
+      dos: 'os',
+      das: 'as',
+    }
+
+  const article =
+    articleMap[
+      match[1]
+        .toLocaleLowerCase(
+          'pt-BR',
+        )
+    ]
+
+  const subject =
+    match[2]
+      .trim()
+      .replace(/[.!?]+$/u, '')
+
+  if (!article || !subject) {
+    return null
+  }
+
+  return plan.communication_style
+    .formality === 'formal'
+    ? sentence(
+        'Confirmo o recebimento ' +
+          match[1]
+            .toLocaleLowerCase(
+              'pt-BR',
+            ) +
+          ' ' +
+          subject,
+      )
+    : sentence(
+        'Recebi ' +
+          article +
+          ' ' +
+          subject,
+      )
+}
+
+function sellerIntentRequiresSilentWait(
+  plan: MessagePlanV1,
+): boolean {
+  const intent =
+    sellerIntentText(plan)
+
+  return [
+    'aguardar o cliente',
+    'aguardar a cliente',
+    'esperar o cliente',
+    'esperar a cliente',
+    'aguardar retorno do cliente',
+    'aguardar retorno da cliente',
+    'aguardar o retorno do cliente',
+    'aguardar o retorno da cliente',
+  ].some(term =>
+    intent.includes(term),
   )
 }
 
@@ -544,11 +663,15 @@ function renderQuestion(
     return null
   }
 
-  const text = questionText(
-    plan.question_plan,
-    variant,
-    plan.communication_style.formality === 'formal',
-  )
+  const text =
+    sellerIntentConfirmationQuestion(
+      plan,
+    ) ??
+    questionText(
+      plan.question_plan,
+      variant,
+      plan.communication_style.formality === 'formal',
+    )
   if (!text) return null
 
   const covered: MessagePlanContentRequirementV1[] = []
@@ -596,17 +719,37 @@ function nextStepSegment(
       )
 
     case 'confirm_commitment': {
+      const receiptAcknowledgement =
+        sellerIntentReceiptAcknowledgement(
+          plan,
+        )
+
+      if (receiptAcknowledgement) {
+        return segment(
+          receiptAcknowledgement,
+          'confirm_commitment',
+        )
+      }
+
       const alreadyConfirmed =
         plan.situation.evidence
           .some(
-            evidence =>
-              evidence.signal
-                .toLocaleLowerCase(
-                  'pt-BR',
-                )
-                .includes(
+            evidence => {
+              const signal =
+                evidence.signal
+                  .toLocaleLowerCase(
+                    'pt-BR',
+                  )
+
+              return (
+                signal.includes(
                   'confirmação explícita',
-                ),
+                ) ||
+                signal.includes(
+                  'compromisso explícito',
+                )
+              )
+            },
           )
 
       if (alreadyConfirmed) {
@@ -919,6 +1062,18 @@ export function generateMessageCandidatesV1(
       plan,
       'not_generated',
       'MessagePlanV1 não autoriza geração.',
+    )
+  }
+
+  if (
+    sellerIntentRequiresSilentWait(
+      plan,
+    )
+  ) {
+    return blockedResult(
+      plan,
+      'not_generated',
+      'Seller Intent determina espera silenciosa; nenhuma mensagem deve ser produzida neste momento.',
     )
   }
 
