@@ -77,7 +77,7 @@ function customerMemoryEvidence(
   }]
 }
 
-function latestIncoming(
+function incomingMessages(
   snapshot: MessageContextSnapshotV1,
 ) {
   const current =
@@ -89,15 +89,103 @@ function latestIncoming(
           item.direction === 'incoming',
       ) ?? []
 
-  const source =
-    current.length > 0
-      ? current
-      : snapshot.conversation.messages.filter(
-          (item: { direction: string }) =>
-            item.direction === 'incoming',
+  return current.length > 0
+    ? current
+    : snapshot.conversation.messages.filter(
+        (item: { direction: string }) =>
+          item.direction === 'incoming',
+      )
+}
+
+function latestIncoming(
+  snapshot: MessageContextSnapshotV1,
+) {
+  return (
+    incomingMessages(
+      snapshot,
+    ).at(-1) ??
+    null
+  )
+}
+
+function latestIncomingBurst(
+  snapshot: MessageContextSnapshotV1,
+) {
+  const incoming =
+    incomingMessages(
+      snapshot,
+    )
+
+  const latest =
+    incoming.at(-1)
+
+  if (!latest) {
+    return []
+  }
+
+  const latestAt =
+    Date.parse(
+      latest.occurred_at,
+    )
+
+  return incoming.filter(
+    message => {
+      const messageAt =
+        Date.parse(
+          message.occurred_at,
         )
 
-  return source.at(-1) ?? null
+      if (
+        Number.isFinite(
+          latestAt,
+        ) &&
+        Number.isFinite(
+          messageAt,
+        )
+      ) {
+        return (
+          messageAt ===
+          latestAt
+        )
+      }
+
+      return (
+        message.occurred_at ===
+        latest.occurred_at
+      )
+    },
+  )
+}
+
+function burstMessageMatching(
+  burst: ReturnType<
+    typeof latestIncomingBurst
+  >,
+  predicate: (
+    text: string,
+  ) => boolean,
+) {
+  for (
+    let index =
+      burst.length - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    const message =
+      burst[index]
+
+    if (
+      predicate(
+        messageText(
+          message,
+        ),
+      )
+    ) {
+      return message
+    }
+  }
+
+  return null
 }
 
 function messageText(
@@ -317,86 +405,106 @@ export function classifyCommercialSituationV1(
     latestIncoming(snapshot)
   const text =
     messageText(latest)
+  const burst =
+    latestIncomingBurst(
+      snapshot,
+    )
+
+  const commitmentConfirmationMessage =
+    burstMessageMatching(
+      burst,
+      explicitCommitmentConfirmation,
+    )
 
   if (
-    text &&
-    explicitCommitmentConfirmation(
-      text,
-    )
+    commitmentConfirmationMessage
   ) {
     return result(
       'closing',
       'high',
       messageEvidence(
-        latest,
-        'Confirmação explícita de compromisso ou agendamento.',
+        commitmentConfirmationMessage,
+        'Confirmação explícita de compromisso ou agendamento no último burst recebido.',
       ),
     )
   }
 
-  if (
-    text &&
-    includesAny(
-      text,
-      REJECTION_PATTERNS,
+  const rejectionMessage =
+    burstMessageMatching(
+      burst,
+      value =>
+        includesAny(
+          value,
+          REJECTION_PATTERNS,
+        ),
     )
-  ) {
+
+  if (rejectionMessage) {
     return result(
       'rejection',
       'high',
       messageEvidence(
-        latest,
-        'Recusa explícita de continuidade.',
+        rejectionMessage,
+        'Recusa explícita de continuidade no último burst recebido.',
       ),
     )
   }
 
-  if (
-    text &&
-    includesAny(
-      text,
-      POSTPONEMENT_PATTERNS,
+  const postponementMessage =
+    burstMessageMatching(
+      burst,
+      value =>
+        includesAny(
+          value,
+          POSTPONEMENT_PATTERNS,
+        ),
     )
-  ) {
+
+  if (postponementMessage) {
     return result(
       'postponement',
       'high',
       messageEvidence(
-        latest,
-        'Adiamento explícito sem recusa definitiva.',
+        postponementMessage,
+        'Adiamento explícito sem recusa definitiva no último burst recebido.',
       ),
     )
   }
 
-  if (
-    text &&
-    includesAny(
-      text,
-      CLOSING_PATTERNS,
+  const closingMessage =
+    burstMessageMatching(
+      burst,
+      value =>
+        includesAny(
+          value,
+          CLOSING_PATTERNS,
+        ),
     )
-  ) {
+
+  if (closingMessage) {
     return result(
       'closing',
       'high',
       messageEvidence(
-        latest,
-        'Intenção explícita de avançar ou contratar.',
+        closingMessage,
+        'Intenção explícita de avançar ou contratar no último burst recebido.',
       ),
     )
   }
 
-  if (
-    text &&
-    explicitActionCommitment(
-      text,
+  const actionCommitmentMessage =
+    burstMessageMatching(
+      burst,
+      explicitActionCommitment,
     )
-  ) {
+
+  if (actionCommitmentMessage) {
     return result(
       'commitment_pending',
       'high',
       messageEvidence(
-        latest,
-        'Compromisso explícito do cliente de executar a próxima ação.',
+        actionCommitmentMessage,
+        'Compromisso explícito do cliente de executar a próxima ação no último burst recebido.',
       ),
     )
   }
@@ -407,59 +515,68 @@ export function classifyCommercialSituationV1(
       'Existe objeção comercial ativa no snapshot.',
     )
 
-  const looksLikeQuestion =
-    Boolean(text) &&
-    (
-      text.includes('?') ||
-      includesAny(
-        text,
-        INFORMATION_PATTERNS,
-      )
+  const comparisonMessage =
+    burstMessageMatching(
+      burst,
+      value =>
+        includesAny(
+          value,
+          COMPARISON_PATTERNS,
+        ),
     )
 
-  if (
-    text &&
-    includesAny(
-      text,
-      COMPARISON_PATTERNS,
-    )
-  ) {
+  if (comparisonMessage) {
     return result(
       'comparison',
       'high',
       messageEvidence(
-        latest,
-        'Comparação comercial explícita.',
+        comparisonMessage,
+        'Comparação comercial explícita no último burst recebido.',
       ),
     )
   }
 
-  if (
-    looksLikeQuestion &&
-    !includesAny(
-      text,
-      OBJECTION_PATTERNS,
+  const objectionMessage =
+    burstMessageMatching(
+      burst,
+      value =>
+        includesAny(
+          value,
+          OBJECTION_PATTERNS,
+        ),
     )
-  ) {
+
+  const questionMessage =
+    burstMessageMatching(
+      burst,
+      value =>
+        (
+          value.includes('?') ||
+          includesAny(
+            value,
+            INFORMATION_PATTERNS,
+          )
+        ) &&
+        !includesAny(
+          value,
+          OBJECTION_PATTERNS,
+        ),
+    )
+
+  if (questionMessage) {
     return result(
       'information_request',
       'high',
       messageEvidence(
-        latest,
-        'Pedido de informação sem resistência comercial explícita.',
+        questionMessage,
+        'Pedido de informação no último burst recebido sem resistência comercial explícita.',
       ),
     )
   }
 
   if (
     objectionEvidence.length > 0 ||
-    (
-      text &&
-      includesAny(
-        text,
-        OBJECTION_PATTERNS,
-      )
-    )
+    objectionMessage
   ) {
     return result(
       'objection',
@@ -468,13 +585,9 @@ export function classifyCommercialSituationV1(
         : 'medium',
       [
         ...objectionEvidence,
-        ...(
-          text
-            ? messageEvidence(
-                latest,
-                'Barreira comercial observável.',
-              )
-            : []
+        ...messageEvidence(
+          objectionMessage,
+          'Barreira comercial observável no último burst recebido.',
         ),
       ],
     )
@@ -486,20 +599,31 @@ export function classifyCommercialSituationV1(
       'Existe incerteza ativa no snapshot.',
     )
 
+  const uncertaintyMessage =
+    burstMessageMatching(
+      burst,
+      value =>
+        includesAny(
+          value,
+          UNCERTAINTY_PATTERNS,
+        ),
+    )
+
   if (
     uncertaintyEvidence.length > 0 ||
-    (
-      text &&
-      includesAny(
-        text,
-        UNCERTAINTY_PATTERNS,
-      )
-    )
+    uncertaintyMessage
   ) {
+    const uncertaintyText =
+      messageText(
+        uncertaintyMessage,
+      )
+
     const decisionPending =
-      text &&
+      Boolean(
+        uncertaintyMessage,
+      ) &&
       includesAny(
-        text,
+        uncertaintyText,
         [
           'preciso pensar',
           'vou pensar',
@@ -517,10 +641,10 @@ export function classifyCommercialSituationV1(
       [
         ...uncertaintyEvidence,
         ...messageEvidence(
-          latest,
+          uncertaintyMessage,
           decisionPending
-            ? 'Decisão ainda pendente.'
-            : 'Incerteza explícita.',
+            ? 'Decisão ainda pendente no último burst recebido.'
+            : 'Incerteza explícita no último burst recebido.',
         ),
       ],
     )
