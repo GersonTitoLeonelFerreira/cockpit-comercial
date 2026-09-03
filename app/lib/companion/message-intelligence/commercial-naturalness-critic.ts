@@ -362,7 +362,7 @@ function requirementIsAnchored(
       return /\b(?:proxima etapa|seguir|avancar|agendar|marcar|proximo passo)\b/u.test(text)
 
     case 'confirm_commitment':
-      return /\b(?:combinad|confirm|seguimos|seguir com|fechado)\b/u.test(text)
+      return /\b(?:combinad|confirm|seguimos|seguir com|fechado|recebi|recebimento)\b/u.test(text)
 
     case 'respect_customer_timing':
       return /\b(?:sem problema|seu tempo|com calma|quando fizer sentido|quando voce puder|respeito)\b/u.test(text)
@@ -463,8 +463,52 @@ function sellerIntentRequestsClarification(
     'descobrir',
     'pedir contexto',
     'pedir informacao',
+    'confirmar com o cliente se',
+    'confirmar com a cliente se',
+    'perguntar ao cliente se',
+    'perguntar para o cliente se',
   ].some(term =>
     intent.includes(term),
+  )
+}
+
+function sellerIntentConfirmationTarget(
+  plan: MessagePlanV1,
+): string | null {
+  const raw =
+    plan.seller_intent.value
+      .trim()
+
+  const match =
+    raw.match(
+      /^confirmar com (?:o|a) cliente se\s+(.+)$/iu,
+    ) ??
+    raw.match(
+      /^perguntar (?:ao|para o|à|a) cliente se\s+(.+)$/iu,
+    )
+
+  return match?.[1]
+    ?.trim()
+    .replace(/[.!?]+$/u, '') ??
+    null
+}
+
+function sellerIntentQuestionAligned(
+  plan: MessagePlanV1,
+  candidate: MessageCandidateV1,
+): boolean {
+  const target =
+    sellerIntentConfirmationTarget(
+      plan,
+    )
+
+  return (
+    target !== null &&
+    candidate.question_count === 1 &&
+    semanticOverlap(
+      candidate.text,
+      target,
+    ) >= 0.65
   )
 }
 
@@ -553,7 +597,13 @@ function questionPurposeAligned(
 
     case 'clarify_request':
     case 'obtain_context':
-      return /\b(?:precisa|confirmar|agora|ponto|contexto|entender)\b/u.test(text)
+      return (
+        sellerIntentQuestionAligned(
+          plan,
+          candidate,
+        ) ||
+        /\b(?:precisa|confirmar|agora|ponto|contexto|entender)\b/u.test(text)
+      )
 
     case 'clarify_missing_information': {
       const required =
