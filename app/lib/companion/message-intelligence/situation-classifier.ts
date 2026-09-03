@@ -247,13 +247,30 @@ function explicitCommitmentConfirmation(
 function explicitActionCommitment(
   text: string,
 ): boolean {
-  return (
+  const actionCommitment =
     /\b(?:vou|vamos)\s+(?:mandar|enviar|fazer|verificar|resolver|providenciar|confirmar|retornar|responder)\b/u.test(
       text,
     ) ||
     /\b(?:pode deixar|deixa comigo)\b/u.test(
       text,
     )
+
+  const temporalPresenceCommitment =
+    (
+      /\b(?:amanha|hoje|depois de amanha)\s+(?:eu\s+)?(?:estou|vou|estarei)\s+(?:ai|la)\b/u.test(
+        text,
+      ) ||
+      /\b(?:eu\s+)?(?:vou|estarei)\s+(?:ai|la)\s+(?:amanha|hoje|depois de amanha)\b/u.test(
+        text,
+      ) ||
+      /\b(?:eu\s+)?(?:vou|estarei)\s+(?:amanha|hoje|depois de amanha)\b/u.test(
+        text,
+      )
+    )
+
+  return (
+    actionCommitment ||
+    temporalPresenceCommitment
   )
 }
 
