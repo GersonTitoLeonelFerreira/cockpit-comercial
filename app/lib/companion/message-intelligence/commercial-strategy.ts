@@ -66,6 +66,10 @@ export function inferSellerRequestedMoveV1(
         'fortalecer relacionamento',
         'sem objetivo comercial',
         'responder de forma casual',
+        'oferecer apoio para pendencias operacionais',
+        'oferecer apoio para pendencias atuais',
+        'oferecer apoio operacional',
+        'apoio para pendencias operacionais',
       ],
     },
     {
@@ -171,6 +175,11 @@ export function inferSellerRequestedMoveV1(
         'avancar agora',
         'propor proximo passo',
         'insistir',
+        'desviar delicadamente o assunto para o foco principal da negociacao',
+        'voltar ao foco principal da negociacao',
+        'retomar o foco principal da negociacao',
+        'redirecionar para a negociacao',
+        'retomar o assunto principal da negociacao',
       ],
     },
   ]
