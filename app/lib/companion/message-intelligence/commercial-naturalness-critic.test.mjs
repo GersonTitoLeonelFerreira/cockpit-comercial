@@ -1011,3 +1011,173 @@ test('38. intenção relacional rejeita candidate que introduz decisão comercia
       ),
   )
 })
+
+
+test('39. pergunta específica derivada do seller intent é considerada alinhada', () => {
+  const p = plan({
+    seller_intent: {
+      value:
+        'Confirmar com o cliente se a aluna enviou o print do e-mail de cancelamento',
+      provenance: [],
+    },
+    situation: {
+      situation:
+        'insufficient_context',
+      confidence: 'low',
+      evidence: [],
+    },
+    commercial_objective:
+      'obtain_context',
+    response_mode: 'clarify',
+    commercial_move: {
+      move:
+        'clarify_request',
+      default_move:
+        'request_more_context',
+      reason:
+        'Seller pediu confirmação específica.',
+      source:
+        'seller_request',
+      requested_move:
+        'clarify_request',
+    },
+    content_requirements: [
+      'clarify_missing_information',
+    ],
+    fact_requirements: [],
+    question_plan: {
+      should_ask: true,
+      purpose:
+        'clarify_request',
+      max_questions: 1,
+      question_type:
+        'context_clarification',
+      required_information: [
+        'current_request_context',
+      ],
+      avoid_reasking_known_fact:
+        true,
+      known_information_skipped: [],
+    },
+    next_step_plan: {
+      kind: 'ask',
+      commercial_move:
+        'clarify_request',
+      requires_customer_action:
+        true,
+      mutates_crm: false,
+      mutates_agenda: false,
+    },
+  })
+
+  const c =
+    candidateFor(
+      p,
+      'A aluna enviou o print do e-mail de cancelamento?',
+      {
+        fact_requirements_used: [],
+        commercial_move:
+          'clarify_request',
+      },
+    )
+
+  const result =
+    evaluate(
+      p,
+      [c],
+    )
+
+  assert.notEqual(
+    critique(result).status,
+    'weak',
+  )
+  assert.equal(
+    issueCodes(result)
+      .includes(
+        'SELLER_INTENT_MISMATCH',
+      ),
+    false,
+  )
+})
+
+test('40. receipt acknowledgement conta como confirm_commitment ancorado', () => {
+  const p = plan({
+    seller_intent: {
+      value:
+        'Confirmar recebimento do atestado',
+      provenance: [],
+    },
+    situation: {
+      situation:
+        'commitment_pending',
+      confidence: 'high',
+      evidence: [],
+    },
+    commercial_objective:
+      'confirm_commitment',
+    response_mode: 'confirm',
+    commercial_move: {
+      move:
+        'confirm_commitment',
+      default_move:
+        'confirm_commitment',
+      reason:
+        'Seller confirmou recebimento.',
+      source:
+        'seller_request',
+      requested_move:
+        'confirm_commitment',
+    },
+    content_requirements: [
+      'confirm_commitment',
+    ],
+    fact_requirements: [],
+    question_plan: {
+      should_ask: false,
+      purpose: 'none',
+      max_questions: 0,
+      question_type: 'none',
+      required_information: [],
+      avoid_reasking_known_fact:
+        true,
+      known_information_skipped: [],
+    },
+    next_step_plan: {
+      kind:
+        'confirm_commitment',
+      commercial_move:
+        'confirm_commitment',
+      requires_customer_action:
+        false,
+      mutates_crm: false,
+      mutates_agenda: false,
+    },
+  })
+
+  const c =
+    candidateFor(
+      p,
+      'Recebi o atestado.',
+      {
+        fact_requirements_used: [],
+        commercial_move:
+          'confirm_commitment',
+      },
+    )
+
+  const result =
+    evaluate(
+      p,
+      [c],
+    )
+
+  assert.ok(
+    critique(result)
+      .dimensions
+      .commercial_coherence >= 85,
+  )
+  assert.notEqual(
+    critique(result).status,
+    'weak',
+  )
+})
