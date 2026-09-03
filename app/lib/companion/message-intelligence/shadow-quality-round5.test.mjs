@@ -18,6 +18,18 @@ import {
   runMessageIntelligenceFromSnapshotV1,
 } from './message-intelligence-runner.ts'
 
+import {
+  generateMessageCandidatesV1,
+} from './candidate-generator.ts'
+
+import {
+  runHardGatesV1,
+} from './hard-gates.ts'
+
+import {
+  critiqueMessageCandidatesV1,
+} from './commercial-naturalness-critic.ts'
+
 const CUSTOMER_KEYS = [
   'objectives',
   'problems',
@@ -212,6 +224,104 @@ test(
     assert.equal(
       strategy.situation.situation,
       'uncertainty',
+    )
+  },
+)
+
+test(
+  'round5: critic força weak quando uncertainty vem só de memória sem reabertura explícita',
+  () => {
+    const snapshot =
+      buildSnapshot({
+        sellerIntent:
+          'Quero retomar a dúvida e entender o que ainda está deixando o cliente inseguro.',
+        incomingText:
+          'Sobre o outro assunto, já resolvi.',
+      })
+
+    snapshot.customer.uncertainties = [
+      memory({
+        collection:
+          'uncertainties',
+        kind:
+          'decision_uncertainty',
+        summary:
+          'Cliente ainda tinha uma dúvida comercial registrada.',
+        id:
+          'active-uncertainty',
+      }),
+    ]
+
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        snapshot,
+      )
+
+    const guardedPlan = {
+      ...run.plan,
+      seller_intent: {
+        ...run.plan.seller_intent,
+        value:
+          'Quero responder ao ponto principal desta conversa.',
+      },
+    }
+
+    const generation =
+      generateMessageCandidatesV1({
+        message_plan:
+          guardedPlan,
+      })
+
+    const hardGate =
+      runHardGatesV1({
+        message_plan:
+          guardedPlan,
+        generation_result:
+          generation,
+      })
+
+    const critic =
+      critiqueMessageCandidatesV1({
+        message_plan:
+          guardedPlan,
+        generation_result:
+          generation,
+        hard_gate_result:
+          hardGate,
+      })
+
+    assert.equal(
+      critic.status,
+      'evaluated',
+    )
+    assert.ok(
+      critic.critiques.length > 0,
+    )
+    assert.ok(
+      critic.critiques.every(
+        critique =>
+          critique.status ===
+            'weak',
+      ),
+    )
+    assert.ok(
+      critic.critiques.every(
+        critique =>
+          critique.overall_score <=
+            55,
+      ),
+    )
+    assert.ok(
+      critic.critiques.every(
+        critique =>
+          critique.issues.some(
+            issue =>
+              issue.code ===
+                'SELLER_INTENT_MISMATCH' &&
+              issue.severity ===
+                'major',
+          ),
+      ),
     )
   },
 )
