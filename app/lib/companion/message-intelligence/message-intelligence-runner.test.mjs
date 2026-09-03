@@ -748,3 +748,147 @@ test(
     )
   },
 )
+
+
+test(
+  'shadow round2: confirmar com cliente gera pergunta específica em vez de abstention',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Confirmar com o cliente se a aluna enviou o print do e-mail de cancelamento',
+          incomingText:
+            'beleza',
+        }),
+      )
+
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'clarify_request',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'selected',
+    )
+    assert.equal(
+      run.final_message_result
+        .final_message?.text,
+      'A aluna enviou o print do e-mail de cancelamento?',
+    )
+  },
+)
+
+test(
+  'shadow round2: aguardar manifestação do cliente produz silêncio',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Aguardar o cliente manifestar interesse para confirmar agenda da demonstração do Yolen',
+          incomingText:
+            'Também te amo muito',
+        }),
+      )
+
+    assert.equal(
+      run.generation_result
+        .candidates.length,
+      0,
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'no_eligible_candidates',
+    )
+    assert.equal(
+      run.shadow_evaluation
+        .would_surface_message,
+      false,
+    )
+  },
+)
+
+test(
+  'shadow round2: compromisso atual do cliente prevalece sobre memória de incerteza',
+  () => {
+    const snapshot =
+      buildSanitizedShadowQualitySnapshot({
+        sellerIntent:
+          'Quero responder ao ponto principal desta conversa.',
+        incomingText:
+          'Legal! Vou mandar',
+      })
+
+    snapshot.customer
+      .uncertainties = [{
+        memory_id:
+          'uncertainty-old',
+        collection:
+          'uncertainties',
+        kind:
+          'decision_uncertainty',
+        summary:
+          'Dúvida anterior já superada pela mensagem atual.',
+        value: null,
+        confidence: 'high',
+        memory_status: 'active',
+        created_in_state_version: 1,
+        updated_in_state_version: 1,
+        closed_in_state_version: null,
+        evidence_message_ids: [],
+        attributes: {},
+        provenance: [],
+      }]
+
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        snapshot,
+      )
+
+    assert.equal(
+      run.strategy.situation.situation,
+      'commitment_pending',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'selected',
+    )
+    assert.equal(
+      run.final_message_result
+        .final_message?.text,
+      'Combinado.',
+    )
+  },
+)
+
+test(
+  'shadow round2: confirmar recebimento do atestado gera acknowledgement direto',
+  () => {
+    const run =
+      runMessageIntelligenceFromSnapshotV1(
+        buildSanitizedShadowQualitySnapshot({
+          sellerIntent:
+            'Confirmar recebimento do atestado',
+          incomingText:
+            'Amanhã estou lá',
+        }),
+      )
+
+    assert.equal(
+      run.strategy
+        .commercial_move.move,
+      'confirm_commitment',
+    )
+    assert.equal(
+      run.final_message_result.status,
+      'selected',
+    )
+    assert.equal(
+      run.final_message_result
+        .final_message?.text,
+      'Recebi o atestado.',
+    )
+  },
+)
