@@ -322,6 +322,10 @@ const RELATIONSHIP_INTENT_PATTERNS = [
   'fortalecer relacionamento',
   'sem objetivo comercial',
   'responder de forma casual',
+  'oferecer apoio para pendencias operacionais',
+  'oferecer apoio para pendencias atuais',
+  'oferecer apoio operacional',
+  'apoio para pendencias operacionais',
 ] as const
 
 function explicitCommitmentConfirmation(
