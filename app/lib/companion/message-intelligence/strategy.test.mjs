@@ -399,3 +399,110 @@ test('34. compromisso temporal explícito vira commitment_pending', () => {
     'confirm_commitment',
   )
 })
+
+
+test('35. burst com mesmo timestamp preserva compromisso forte mesmo se outra mensagem desempata depois', () => {
+  const s = snapshot({
+    incomingText: null,
+    sellerIntent:
+      'Oferecer apoio para pendências operacionais atuais',
+  })
+
+  const occurredAt =
+    '2026-09-03T14:27:00.000Z'
+
+  const messages = [
+    {
+      message_id: 'burst-1',
+      direction: 'incoming',
+      occurred_at: occurredAt,
+      text_content:
+        'Amanhã estou lá',
+      audio_transcription: null,
+    },
+    {
+      message_id: 'burst-2',
+      direction: 'incoming',
+      occurred_at: occurredAt,
+      text_content:
+        'O que puder ajudar',
+      audio_transcription: null,
+    },
+    {
+      message_id: 'burst-3',
+      direction: 'incoming',
+      occurred_at: occurredAt,
+      text_content:
+        'O que precisar só a Isa me chamar',
+      audio_transcription: null,
+    },
+  ]
+
+  s.conversation.messages =
+    messages
+  s.conversation.current_interaction = {
+    messages,
+  }
+
+  const result =
+    evaluateCommercialStrategyV1({
+      snapshot: s,
+    })
+
+  assert.equal(
+    result.situation.situation,
+    'commitment_pending',
+  )
+  assert.equal(
+    result.commercial_move.move,
+    'confirm_commitment',
+  )
+  assert.equal(
+    result.commercial_move.requested_move,
+    'no_commercial_move',
+  )
+  assert.equal(
+    result.commercial_move.source,
+    'strategy_default',
+  )
+})
+
+test('36. redirecionar delicadamente para o foco da negociação vira propose_next_step', () => {
+  const result = decide({
+    incomingText:
+      'Será que esse serve?',
+    sellerIntent:
+      'Reconhecer recebimento e desviar delicadamente o assunto para o foco principal da negociação',
+  })
+
+  assert.equal(
+    result.commercial_move.move,
+    'propose_next_step',
+  )
+  assert.equal(
+    result.commercial_move.source,
+    'seller_request',
+  )
+  assert.equal(
+    result.commercial_objective,
+    'secure_next_step',
+  )
+})
+
+test('37. apoio operacional sem sinal comercial forte permanece não comercial', () => {
+  const result = decide({
+    incomingText:
+      'Se precisar eu aviso',
+    sellerIntent:
+      'Oferecer apoio para pendências operacionais atuais',
+  })
+
+  assert.equal(
+    result.commercial_move.move,
+    'no_commercial_move',
+  )
+  assert.equal(
+    result.commercial_objective,
+    'no_commercial_action',
+  )
+})
