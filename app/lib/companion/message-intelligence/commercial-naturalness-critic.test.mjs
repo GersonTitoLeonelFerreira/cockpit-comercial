@@ -1181,3 +1181,91 @@ test('40. receipt acknowledgement conta como confirm_commitment ancorado', () =>
     'weak',
   )
 })
+
+
+test('41. seller intent composto com opções é considerado alinhado', () => {
+  const p = plan({
+    seller_intent: {
+      value:
+        'Reafirmar disponibilidade para demonstração e perguntar preferência de formato (online ou presencial)',
+      provenance: [],
+    },
+    situation: {
+      situation:
+        'insufficient_context',
+      confidence: 'low',
+      evidence: [],
+    },
+    commercial_objective:
+      'obtain_context',
+    response_mode: 'clarify',
+    commercial_move: {
+      move:
+        'clarify_request',
+      default_move:
+        'request_more_context',
+      reason:
+        'Seller pediu disponibilidade e preferência.',
+      source:
+        'seller_request',
+      requested_move:
+        'clarify_request',
+    },
+    content_requirements: [
+      'clarify_missing_information',
+    ],
+    fact_requirements: [],
+    question_plan: {
+      should_ask: true,
+      purpose:
+        'clarify_request',
+      max_questions: 1,
+      question_type:
+        'context_clarification',
+      required_information: [
+        'current_request_context',
+      ],
+      avoid_reasking_known_fact:
+        true,
+      known_information_skipped: [],
+    },
+    next_step_plan: {
+      kind: 'ask',
+      commercial_move:
+        'clarify_request',
+      requires_customer_action:
+        true,
+      mutates_crm: false,
+      mutates_agenda: false,
+    },
+  })
+
+  const c =
+    candidateFor(
+      p,
+      'Estou à disposição para a demonstração. Você prefere online ou presencial?',
+      {
+        fact_requirements_used: [],
+        commercial_move:
+          'clarify_request',
+      },
+    )
+
+  const result =
+    evaluate(
+      p,
+      [c],
+    )
+
+  assert.notEqual(
+    critique(result).status,
+    'weak',
+  )
+  assert.equal(
+    issueCodes(result)
+      .includes(
+        'SELLER_INTENT_MISMATCH',
+      ),
+    false,
+  )
+})
