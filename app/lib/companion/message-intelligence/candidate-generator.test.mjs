@@ -1645,6 +1645,11 @@ test(
   () => {
     const plan =
       basePlan({
+        seller_intent: {
+          value:
+            'Quero perguntar para entender melhor o contexto.',
+          provenance: [TRACE],
+        },
         status:
           'needs_information',
         situation: {
