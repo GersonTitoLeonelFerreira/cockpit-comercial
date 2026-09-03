@@ -278,6 +278,101 @@ function sellerIntentConfirmationQuestion(
   )
 }
 
+function sellerIntentPreferenceQuestion(
+  plan: MessagePlanV1,
+): string | null {
+  const raw =
+    plan.seller_intent.value
+      .trim()
+
+  const optionsMatch =
+    raw.match(
+      /prefer[eê]ncia\s+de\s+formato\s*\(([^)]+)\)/iu,
+    ) ??
+    raw.match(
+      /perguntar\s+(?:a\s+)?prefer[eê]ncia[^()]*\(([^)]+)\)/iu,
+    )
+
+  const options =
+    optionsMatch?.[1]
+      ?.trim()
+      .replace(/\s+/gu, ' ') ??
+    ''
+
+  if (
+    options &&
+    /\bou\b/iu.test(
+      options,
+    )
+  ) {
+    return (
+      'Você prefere ' +
+      options +
+      '?'
+    )
+  }
+
+  if (
+    /prefer[eê]ncia\s+de\s+formato/iu.test(
+      raw,
+    ) ||
+    /perguntar\s+qual\s+formato/iu.test(
+      raw,
+    )
+  ) {
+    return 'Qual formato você prefere?'
+  }
+
+  const preferenceMatch =
+    raw.match(
+      /perguntar\s+(?:a\s+)?prefer[eê]ncia\s+de\s+([\p{L}\s]+?)(?:[.,;]|$)/iu,
+    )
+
+  const subject =
+    preferenceMatch?.[1]
+      ?.trim()
+      .replace(/\s+/gu, ' ') ??
+    ''
+
+  if (!subject) {
+    return null
+  }
+
+  return (
+    'Qual ' +
+    subject +
+    ' você prefere?'
+  )
+}
+
+function sellerIntentSupportSegment(
+  plan: MessagePlanV1,
+): RealizedSegmentV1 | null {
+  const intent =
+    sellerIntentText(plan)
+
+  if (
+    intent.includes(
+      'reafirmar disponibilidade',
+    ) &&
+    intent.includes(
+      'demonstracao',
+    )
+  ) {
+    return {
+      text:
+        plan.communication_style
+          .formality === 'formal'
+          ? 'Permaneço à disposição para a demonstração.'
+          : 'Estou à disposição para a demonstração.',
+      content_requirements: [],
+      fact_requirement_keys: [],
+    }
+  }
+
+  return null
+}
+
 function sellerIntentReceiptAcknowledgement(
   plan: MessagePlanV1,
 ): string | null {
@@ -667,6 +762,9 @@ function renderQuestion(
     sellerIntentConfirmationQuestion(
       plan,
     ) ??
+    sellerIntentPreferenceQuestion(
+      plan,
+    ) ??
     questionText(
       plan.question_plan,
       variant,
@@ -793,6 +891,10 @@ function mergeSegments(
     .filter((item): item is RealizedSegmentV1 => item !== null)
 
   const facts = renderFacts(plan, variant)
+  const sellerIntentSupport =
+    sellerIntentSupportSegment(
+      plan,
+    )
   const question = renderQuestion(plan, variant)
   const next = nextStepSegment(plan, variant)
 
@@ -809,6 +911,11 @@ function mergeSegments(
         ]
       : [...explicit, ...facts]
 
+  if (sellerIntentSupport) {
+    ordered.push(
+      sellerIntentSupport,
+    )
+  }
   if (question) ordered.push(question)
   if (next) ordered.push(next)
 
