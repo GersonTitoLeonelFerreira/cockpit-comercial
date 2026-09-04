@@ -211,6 +211,79 @@ test('buildSimulatorSources converte o histórico sintético no formato esperado
   assert.equal(sources.commercial_reading, null)
 })
 
+test('cada um dos 5 cenários carrega no source bundle a evidência comercial correspondente ao que está escrito na conversa', () => {
+  // Prova, via o context-assembler REAL (não modificado), que o estado
+  // sintético de cada cenário chega no snapshot do MIE na coleção correta
+  // e com evidence_message_ids apontando para a mensagem sintética real.
+
+  const expectations = {
+    price: (snapshot, firstMessageId) => {
+      assert.equal(snapshot.customer.objections.length, 1)
+      assert.deepEqual(
+        snapshot.customer.objections[0].evidence_message_ids,
+        [firstMessageId],
+      )
+    },
+    think_it_over: (snapshot, firstMessageId) => {
+      // Incerteza/decisão pendente — nunca objeção específica.
+      assert.equal(snapshot.customer.objections.length, 0)
+      assert.equal(snapshot.customer.uncertainties.length, 1)
+      assert.deepEqual(
+        snapshot.customer.uncertainties[0].evidence_message_ids,
+        [firstMessageId],
+      )
+    },
+    need_partner: (snapshot, firstMessageId) => {
+      assert.equal(snapshot.customer.missing_discovery.length, 1)
+      assert.deepEqual(
+        snapshot.customer.missing_discovery[0].evidence_message_ids,
+        [firstMessageId],
+      )
+    },
+    competitor: (snapshot, firstMessageId) => {
+      assert.equal(snapshot.customer.competitors.length, 1)
+      assert.deepEqual(
+        snapshot.customer.competitors[0].evidence_message_ids,
+        [firstMessageId],
+      )
+    },
+    cold_follow_up: (snapshot, firstMessageId) => {
+      assert.equal(snapshot.customer.commitments.length, 1)
+      assert.deepEqual(
+        snapshot.customer.commitments[0].evidence_message_ids,
+        [firstMessageId],
+      )
+    },
+  }
+
+  for (const [scenarioKey, assertForScenario] of Object.entries(expectations)) {
+    const scenario = getSimulatorScenario(scenarioKey)
+    assert.ok(scenario, `cenário ${scenarioKey} deveria existir`)
+
+    const conversation = startSimulatorConversation({
+      initial_message: scenario.initial_message,
+      reference_time: referenceTime,
+    })
+
+    const request = buildSimulatorRequest({
+      scenario,
+      seller_intent: scenario.default_seller_intent,
+      reference_time: referenceTime,
+      request_id: `test-${scenarioKey}`,
+    })
+
+    const sources = buildSimulatorSources({
+      scenario,
+      conversation,
+      reference_time: referenceTime,
+    })
+
+    const snapshot = assembleMessageContextSnapshotV1({ request, sources })
+
+    assertForScenario(snapshot, conversation[0].id)
+  }
+})
+
 test('MIE é chamado via o runner REAL (runMessageIntelligenceV1 / runMessageIntelligenceFromSnapshotV1) e retorna um status válido', async () => {
   const scenario = getSimulatorScenario('price')
 

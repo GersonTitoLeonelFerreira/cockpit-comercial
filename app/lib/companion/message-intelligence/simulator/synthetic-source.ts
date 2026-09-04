@@ -376,6 +376,199 @@ function buildCommercialConfig(): CommercialConfigBundle {
   }
 }
 
+type ScenarioMemoryConfidence = 'high' | 'medium' | 'low'
+
+type ScenarioMemoryItem = {
+  id: string
+  kind: string
+  summary: string
+  evidence_message_ids: string[]
+  memory_status: 'active'
+  created_in_state_version: number
+  updated_in_state_version: number
+  closed_in_state_version: null
+}
+
+type ScenarioMemoryCollections = {
+  facts: Array<
+    ScenarioMemoryItem & { value: string | null; confidence: ScenarioMemoryConfidence }
+  >
+  needs: Array<ScenarioMemoryItem & { confidence: ScenarioMemoryConfidence }>
+  open_loops: ScenarioMemoryItem[]
+  objections: Array<ScenarioMemoryItem & { confidence: ScenarioMemoryConfidence }>
+  commitments: Array<
+    ScenarioMemoryItem & {
+      commitment_status: string
+      scheduled_at: string | null
+      proposed_at: string | null
+    }
+  >
+  signals: Array<ScenarioMemoryItem & { confidence: ScenarioMemoryConfidence }>
+  uncertainties: Array<ScenarioMemoryItem & { confidence: ScenarioMemoryConfidence }>
+}
+
+function baseMemoryItem({
+  id,
+  kind,
+  summary,
+  evidence_message_ids,
+}: {
+  id: string
+  kind: string
+  summary: string
+  evidence_message_ids: string[]
+}): ScenarioMemoryItem {
+  return {
+    id,
+    kind,
+    summary,
+    evidence_message_ids,
+    memory_status: 'active',
+    created_in_state_version: 1,
+    updated_in_state_version: 1,
+    closed_in_state_version: null,
+  }
+}
+
+function emptyScenarioMemory(): ScenarioMemoryCollections {
+  return {
+    facts: [],
+    needs: [],
+    open_loops: [],
+    objections: [],
+    commitments: [],
+    signals: [],
+    uncertainties: [],
+  }
+}
+
+// Estado comercial sintético mínimo por cenário, ancorado na mensagem que
+// literalmente contém o sinal descrito (nunca inventa nome, cargo,
+// aprovação, aceite ou urgência além do texto do cenário). Usa a mesma
+// taxonomia de "kind" e as mesmas coleções (facts/needs/open_loops/
+// objections/commitments/signals/uncertainties) que o pipeline real usa
+// para StatefulCommercialState — ver client-commercial-intelligence-contract.ts
+// e stateful-commercial-state.ts. O situation-classifier e os módulos
+// seguintes do MIE decidem, sem alteração, o que fazer com essa evidência.
+function buildScenarioMemory({
+  scenario,
+  anchor_message_id,
+}: {
+  scenario: SimulatorScenarioDefinition
+  anchor_message_id: string
+}): ScenarioMemoryCollections {
+  const memory = emptyScenarioMemory()
+  const evidence = [anchor_message_id]
+
+  if (scenario.key === 'price') {
+    memory.objections.push({
+      ...baseMemoryItem({
+        id: 'sim-mem-price-objection',
+        kind: 'client.objection.price_perception',
+        summary:
+          'Cliente considera o valor cobrado alto e pede justificativa antes de avançar.',
+        evidence_message_ids: evidence,
+      }),
+      confidence: 'high',
+    })
+
+    memory.facts.push({
+      ...baseMemoryItem({
+        id: 'sim-mem-price-interest',
+        kind: 'client.interest',
+        summary: 'Cliente demonstrou gostar do que foi apresentado.',
+        evidence_message_ids: evidence,
+      }),
+      value: null,
+      confidence: 'medium',
+    })
+  }
+
+  if (scenario.key === 'think_it_over') {
+    memory.uncertainties.push({
+      ...baseMemoryItem({
+        id: 'sim-mem-decision-timing',
+        kind: 'client.uncertainty.decision_timing',
+        summary:
+          'Cliente demonstrou interesse na proposta, mas pediu tempo para decidir com calma.',
+        evidence_message_ids: evidence,
+      }),
+      confidence: 'medium',
+    })
+
+    memory.facts.push({
+      ...baseMemoryItem({
+        id: 'sim-mem-think-interest',
+        kind: 'client.interest',
+        summary: 'Cliente demonstrou gostar da proposta apresentada.',
+        evidence_message_ids: evidence,
+      }),
+      value: null,
+      confidence: 'medium',
+    })
+  }
+
+  if (scenario.key === 'need_partner') {
+    // 'decision_maker' é um tópico canônico de missing discovery
+    // (COMMERCIAL_READING_MISSING_DISCOVERY_TOPICS); o contrato real
+    // representa esse tipo de item na coleção "uncertainties".
+    memory.uncertainties.push({
+      ...baseMemoryItem({
+        id: 'sim-mem-decision-maker',
+        kind: 'client.missing_discovery.decision_maker',
+        summary:
+          'Cliente indicou que não decide sozinho e precisa envolver o sócio antes de avançar.',
+        evidence_message_ids: evidence,
+      }),
+      confidence: 'high',
+    })
+
+    memory.facts.push({
+      ...baseMemoryItem({
+        id: 'sim-mem-partner-interest',
+        kind: 'client.interest',
+        summary: 'Cliente demonstrou gostar da proposta.',
+        evidence_message_ids: evidence,
+      }),
+      value: null,
+      confidence: 'medium',
+    })
+  }
+
+  if (scenario.key === 'competitor') {
+    memory.facts.push({
+      ...baseMemoryItem({
+        id: 'sim-mem-competitor',
+        kind: 'client.competitor.unnamed',
+        summary:
+          'Cliente está avaliando outra solução concorrente, sem nome específico, ' +
+          'que segundo ele custa menos.',
+        evidence_message_ids: evidence,
+      }),
+      value: null,
+      confidence: 'high',
+    })
+  }
+
+  if (scenario.key === 'cold_follow_up') {
+    memory.commitments.push({
+      ...baseMemoryItem({
+        id: 'sim-mem-proposal-review-pending',
+        kind: 'client.commitment.proposal_review_pending',
+        summary:
+          'Uma proposta já havia sido enviada anteriormente; o cliente confirma ter ' +
+          'recebido as mensagens, mas ainda não teve tempo de analisar.',
+        evidence_message_ids: evidence,
+      }),
+      commitment_status: 'proposed',
+      scheduled_at: null,
+      proposed_at: null,
+    })
+  }
+
+  return memory
+}
+
 export function buildSimulatorRequest({
   scenario,
   seller_intent,
@@ -433,6 +626,11 @@ export function buildSimulatorSources({
     audio_transcription: null,
   }))
 
+  const scenarioMemory = buildScenarioMemory({
+    scenario,
+    anchor_message_id: conversation[0]?.id ?? '1',
+  })
+
   const state = {
     contract_version: 'phase-5.1-commercial-state-v1',
     cycle_id: ids.cycle_id,
@@ -448,13 +646,13 @@ export function buildSimulatorSources({
     },
     last_analyzed_message_ids: messageIds,
     last_evidence_message_ids: messageIds.slice(-1),
-    facts: [],
-    needs: [],
-    open_loops: [],
-    objections: [],
-    commitments: [],
-    signals: [],
-    uncertainties: [],
+    facts: scenarioMemory.facts,
+    needs: scenarioMemory.needs,
+    open_loops: scenarioMemory.open_loops,
+    objections: scenarioMemory.objections,
+    commitments: scenarioMemory.commitments,
+    signals: scenarioMemory.signals,
+    uncertainties: scenarioMemory.uncertainties,
     created_at: reference_time,
     updated_at: reference_time,
   }
