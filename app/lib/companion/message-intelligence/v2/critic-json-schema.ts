@@ -89,6 +89,9 @@ const criticModelProperties = {
   seller_intent_not_executed: {
     type: 'boolean',
   },
+  unnatural_seller_message: {
+    type: 'boolean',
+  },
   method_violation: {
     type: 'boolean',
   },

@@ -97,6 +97,7 @@ function validCriticOutput(overrides = {}) {
     commitment_assumption: false,
     seller_intent_became_fact: false,
     seller_intent_not_executed: false,
+    unnatural_seller_message: false,
     method_violation: false,
     concise_feedback: null,
     ...overrides,
@@ -708,6 +709,146 @@ test(
     )
     assert.deepEqual(result.output.reason_codes, [
       'seller_intent_not_executed',
+    ])
+  },
+)
+
+// -- unnatural_seller_message: cross-field consistency ----------------------
+// Uma candidate pode ser grounded, segura e executar seller_intent
+// corretamente e ainda ter uma forma customer-facing artificial/
+// institucional (ex.: "o valor contempla", "componentes da entrega"). Este
+// sinal precisa das mesmas garantias de consistência que os demais
+// booleans do critic.
+
+test(
+  'V2 critic executor: verdict=pass com unnatural_seller_message=true é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'pass',
+                unnatural_seller_message: true,
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: unnatural_seller_message=true sem reason_code correspondente é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'repair',
+                unnatural_seller_message: true,
+                // reason_codes não contém 'unnatural_seller_message'
+                reason_codes: [
+                  'semantic_mismatch',
+                ],
+                semantic_mismatch: true,
+                concise_feedback:
+                  'Redação institucional, mas o reason_code não bate.',
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: reason_code unnatural_seller_message com boolean=false é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'repair',
+                reason_codes: [
+                  'unnatural_seller_message',
+                ],
+                unnatural_seller_message: false,
+                concise_feedback:
+                  'reason_code presente, mas o boolean correspondente está false.',
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: verdict=repair com unnatural_seller_message=true, reason_code e concise_feedback é aceito',
+  async () => {
+    const plan = buildPlan()
+
+    const result =
+      await executeMessageIntelligenceV2CriticAttempt(
+        {
+          plan,
+          provider: fakeProvider(
+            validCriticOutput({
+              verdict: 'repair',
+              reason_codes: [
+                'unnatural_seller_message',
+              ],
+              unnatural_seller_message: true,
+              concise_feedback:
+                'O conteúdo está correto, mas a redação está institucional e distante de uma conversa de WhatsApp. Preserve os fatos e a intenção, apenas reformule.',
+            }),
+          ),
+        },
+      )
+
+    assert.equal(result.output.verdict, 'repair')
+    assert.equal(
+      result.output.unnatural_seller_message,
+      true,
+    )
+    assert.deepEqual(result.output.reason_codes, [
+      'unnatural_seller_message',
     ])
   },
 )

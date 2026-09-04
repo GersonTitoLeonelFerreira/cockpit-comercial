@@ -518,6 +518,12 @@ function normalizeCriticOutput({
         'seller_intent_not_executed',
       ),
 
+    unnatural_seller_message:
+      requireBoolean(
+        value.unnatural_seller_message,
+        'unnatural_seller_message',
+      ),
+
     method_violation: requireBoolean(
       value.method_violation,
       'method_violation',
@@ -566,6 +572,10 @@ const CRITIC_BOOLEAN_TO_REASON_CODE = [
     'seller_intent_not_executed',
     'seller_intent_not_executed',
   ],
+  [
+    'unnatural_seller_message',
+    'unnatural_seller_message',
+  ],
   ['method_violation', 'method_violation'],
 ] as const
 
@@ -580,6 +590,7 @@ function requireCriticCrossFieldConsistency(
     output.commitment_assumption,
     output.seller_intent_became_fact,
     output.seller_intent_not_executed,
+    output.unnatural_seller_message,
     output.method_violation,
   ]
 

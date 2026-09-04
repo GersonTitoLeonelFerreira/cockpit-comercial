@@ -17,8 +17,11 @@ import {
   type MessageIntelligenceV2Output,
 } from './generation-contract'
 
+// v2: reforça a instrução de naturalidade seller-facing (evitar
+// corporativês/institucionalidade desnecessária, economia, registro
+// contextual) — ver diagnóstico de naturalidade em critic-execution-plan.ts.
 export const MESSAGE_INTELLIGENCE_V2_PROMPT_VERSION =
-  'message-intelligence-v2-prompt-v1' as const
+  'message-intelligence-v2-prompt-v2' as const
 
 export const MESSAGE_INTELLIGENCE_V2_REPAIR_INSTRUCTION =
   'Repare somente o caminho indicado e retorne novamente o objeto completo conforme o schema. Use apenas IDs presentes em allowed_evidence que sustentem diretamente cada afirmação verificável; se nenhum ID sustentar uma afirmação, remova-a ou reescreva suggested_message sem ela em vez de inventar ou reutilizar evidência indevida.' as const
@@ -162,6 +165,8 @@ function buildSystemPrompt(): string {
     'Silêncio (intervention_needed=false, suggested_message=null) é uma decisão correta e esperada sempre que nenhuma mensagem acrescentaria valor real ou seguro ao que já está claro — não é uma falha do sistema.',
 
     'suggested_message, quando não-null, deve soar como um vendedor real escrevendo no WhatsApp: natural, específica para esta conversa, em português do Brasil correto e fluente, sem parecer relatório, formulário ou texto de consultoria. Nunca inclua JSON, IDs de evidência, nomes de framework comercial, jargão interno, referências ao método por nome, score ou qualquer rastro de raciocínio interno — apenas o texto pronto para o cliente. Entre 1 e 900 caracteres.',
+
+    'Prefira a formulação mais simples e direta que uma pessoa realmente enviaria nesta conversa: responda ao ponto antes de elaborar, e só elabore o necessário. Evite redação institucional quando uma frase de conversa simples já resolve (ex.: meta-linguagem comercial como "nossa proposta", "o investimento", "a solução", "os componentes da entrega" usada de forma genérica, ou construções como "diante do cenário apresentado", "esta solução proporciona"), evite perguntas que soem roteiro de vendas em vez de surgirem da própria conversa, e evite explicar em várias frases o que cabe em menos. Preserve o registro (formal ou informal) que a própria conversa já estabeleceu — não force informalidade num contexto formal nem formalidade artificial num contexto direto, e não elimine um termo técnico real que o cliente já usa ou reconhece. Use o que já se sabe do cliente para responder melhor, sem repetir mecanicamente memória ou intenção do vendedor só para parecer contextual. Nenhuma dessas preferências de forma pode custar precisão factual, a resposta ao ponto do cliente ou a execução do objetivo do vendedor.',
 
     'Quando intervention_needed=false, suggested_message deve ser null.',
 

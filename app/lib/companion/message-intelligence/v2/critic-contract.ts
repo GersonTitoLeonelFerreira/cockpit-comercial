@@ -10,12 +10,14 @@
 // canônicos, que continuam intactos em executor.ts.
 // ============================================================================
 
-// v2: adiciona seller_intent_not_executed (boolean + reason code) — uma
-// candidate pode não contradizer seller_intent e ainda assim não a
-// executar materialmente. Mudança incompatível do Structured Output
-// (novo campo obrigatório em modo strict), daí o incremento de versão.
+// v3: adiciona unnatural_seller_message (boolean + reason code) — uma
+// candidate pode ser grounded, segura e executar seller_intent
+// corretamente e ainda assim ter uma forma customer-facing artificial,
+// institucional ou genérica demais para o contexto. Mudança incompatível
+// do Structured Output (novo campo obrigatório em modo strict), daí o
+// incremento de versão.
 export const MESSAGE_INTELLIGENCE_V2_CRITIC_CONTRACT_VERSION =
-  'message-intelligence-v2-critic-v2' as const
+  'message-intelligence-v2-critic-v3' as const
 
 export const MESSAGE_INTELLIGENCE_V2_CRITIC_VERDICTS = [
   'pass',
@@ -34,6 +36,7 @@ export const MESSAGE_INTELLIGENCE_V2_CRITIC_REASON_CODES = [
   'commitment_assumption',
   'seller_intent_became_fact',
   'seller_intent_not_executed',
+  'unnatural_seller_message',
   'method_violation',
   'unsupported_claim',
   'other',
@@ -53,6 +56,7 @@ export const MESSAGE_INTELLIGENCE_V2_CRITIC_MODEL_OUTPUT_FIELDS = [
   'commitment_assumption',
   'seller_intent_became_fact',
   'seller_intent_not_executed',
+  'unnatural_seller_message',
   'method_violation',
   'concise_feedback',
 ] as const
@@ -76,6 +80,7 @@ export type MessageIntelligenceV2CriticModelOutput = {
   commitment_assumption: boolean
   seller_intent_became_fact: boolean
   seller_intent_not_executed: boolean
+  unnatural_seller_message: boolean
   method_violation: boolean
 
   concise_feedback: string | null
