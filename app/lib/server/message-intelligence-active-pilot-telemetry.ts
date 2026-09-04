@@ -175,6 +175,36 @@ export function buildMessageIntelligenceActivePilotTelemetryV1({
   }
 }
 
+// A migration 20260904014500_create_message_intelligence_active_pilot_events.sql
+// foi escrita para o vocabulário do V1 (message_intelligence_active_pilot_final_status_check
+// só aceita 'selected' | 'no_acceptable_message' | 'no_eligible_candidates' |
+// 'blocked' | 'approval_required' | 'inconsistent_input') e para o
+// cross-field message_intelligence_active_pilot_event_payload_check:
+//   active_selected            -> final_status='selected' AND would_surface_message=true
+//   active_fallback_no_message -> final_status IS NOT NULL
+//   active_execution_failed    -> final_status IS NULL AND would_surface_message IS NULL
+// V2 tem seu próprio vocabulário de status (generated/no_message/
+// config_not_ready/provider_error/invalid_output) — nenhum desses é aceito
+// literalmente pela constraint. Este mapeamento traduz explicitamente para
+// o domínio já existente em vez de alterar a migration:
+//   generated                            -> event_type=active_selected,            final_status='selected'
+//   no_message (silêncio válido)         -> event_type=active_fallback_no_message, final_status='no_acceptable_message'
+//   config_not_ready/provider_error/
+//   invalid_output (falha técnica)       -> event_type=active_execution_failed,    final_status=null
+// O event_type continua sendo decidido pelo chamador (seller-activation-v2.ts,
+// que já sabe qual desses três casos está tratando); aqui só garantimos que
+// final_status/would_surface_message fiquem sempre coerentes com o
+// event_type escolhido, mesmo que o chamador passe um `run` inesperado.
+const V2_STATUS_TO_LEGACY_FINAL_STATUS: Partial<
+  Record<
+    MessageIntelligenceRunResultV2['status'],
+    string
+  >
+> = {
+  generated: 'selected',
+  no_message: 'no_acceptable_message',
+}
+
 /**
  * Mesma tabela/contrato de telemetria do V1 — engine_version=v2 não exige
  * migration. A persistência (persistMessageIntelligenceActivePilotTelemetryV1)
@@ -209,6 +239,37 @@ export function buildMessageIntelligenceActivePilotTelemetryV2({
   run:
     MessageIntelligenceRunResultV2 | null
 }): MessageIntelligenceActivePilotTelemetryV1 {
+  // active_execution_failed exige final_status/would_surface_message NULL
+  // pela constraint — isso vale tanto para uma exceção real (run=null)
+  // quanto para um run V2 concluído com status de falha técnica
+  // (config_not_ready/provider_error/invalid_output); nunca deixamos o
+  // status bruto do V2 vazar para essas colunas nesse caso.
+  const finalStatus =
+    event_type === 'active_execution_failed'
+      ? null
+      : run
+        ? (
+            V2_STATUS_TO_LEGACY_FINAL_STATUS[
+              run.status
+            ] ?? 'no_acceptable_message'
+          )
+        : null
+
+  const wouldSurfaceMessage =
+    event_type === 'active_execution_failed'
+      ? null
+      : event_type === 'active_selected'
+        // active_selected exige literalmente true pela constraint —
+        // este event_type só é usado pelo chamador quando o run já
+        // provou would_surface_message=true, mas fixamos aqui também
+        // como segunda barreira determinística.
+        ? true
+        : (
+            run?.safety
+              .would_surface_message ??
+            false
+          )
+
   return {
     event_type,
 
@@ -224,13 +285,10 @@ export function buildMessageIntelligenceActivePilotTelemetryV2({
       ),
 
     final_status:
-      run?.status ??
-      null,
+      finalStatus,
 
     would_surface_message:
-      run?.safety
-        .would_surface_message ??
-      null,
+      wouldSurfaceMessage,
 
     selected_overall_score:
       null,
