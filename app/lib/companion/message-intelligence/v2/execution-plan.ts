@@ -54,6 +54,11 @@ export type MessageIntelligenceV2NormalizationContext = {
   // stateful-communication-executor.ts.
   grounding_text: string
 
+  // Índice "<source>:<id>" -> texto serializado daquela fonte específica.
+  // Usado para exigir que cada grounded_claim seja sustentada pelo
+  // conteúdo real da fonte citada, não apenas por um ID que existe.
+  evidence_source_text: Map<string, string>
+
   canonical_commercial_role:
     string | null
 
@@ -132,7 +137,9 @@ function buildSystemPrompt(): string {
 
     'Nunca invente produto, preço, desconto, prazo, promessa, condição, funcionalidade, ROI, garantia, percentual de resultado, integração ou comparação factual com concorrente. Use somente o que estiver sustentado por commercial_context.products, commercial_context.facts, commercial_context.sales_method ou por itens ativos (memory_status=active) de commercial_state.',
 
-    'Para toda afirmação verificável feita em suggested_message (preço, condição, prazo, benefício, diferencial, funcionalidade, o que já foi dito ou combinado, papel de terceiros na decisão etc.), adicione uma entrada em grounded_claims citando o ID correspondente em allowed_evidence (message, memory, product, fact ou method). Cumprimentos, empatia e transições neutras não precisam de grounded_claims. Nunca cite seller.seller_intent como fonte — ele nunca aparece em allowed_evidence porque não é evidência.',
+    'Para toda afirmação verificável feita em suggested_message (preço, condição, prazo, benefício, diferencial, funcionalidade, integração, desconto, garantia, ROI, disponibilidade, comparação com concorrente, o que já foi dito ou combinado, papel de terceiros na decisão etc.), adicione uma entrada em grounded_claims citando o ID correspondente em allowed_evidence (message, memory, product, fact ou method). Cumprimentos, empatia e transições neutras não precisam de grounded_claims. Nunca cite seller.seller_intent como fonte — ele nunca aparece em allowed_evidence porque não é evidência.',
+
+    'A validação verifica se o texto de cada grounded_claim e o conteúdo real da fonte citada mencionam a mesma categoria da afirmação (produto, funcionalidade, benefício, preço, desconto, prazo, garantia, disponibilidade ou comparação). Cite a fonte que REALMENTE contém aquele fato específico — citar um product_id, fact_id ou memory_id que existe mas não fala sobre a afirmação feita será rejeitado; não cite a fonte mais genérica disponível só para preencher o campo.',
 
     'Distinga com precisão status de compromisso: commitment_status=proposed significa que algo foi proposto, NUNCA que foi combinado ou confirmado; só escreva linguagem de confirmação ("ficou combinado", "está confirmado", "seguimos com o combinado") quando existir um item de commercial_state com commitment_status=confirmed e memory_status=active entre as evidências. cancelled não é compromisso ativo — nunca sugira seguir com algo cancelado. reschedule_requested não confirma o horário original — trate como pendente de reconciliação.',
 
@@ -209,6 +216,90 @@ function buildAllowedEvidence(
     ],
     method_id: methodId,
   }
+}
+
+// Índice fonte -> texto serializado, usado pelo validator para exigir que
+// uma grounded_claim não aponte apenas para um ID existente, mas para um ID
+// cujo próprio conteúdo sustente a categoria da afirmação (produto,
+// benefício, preço, prazo etc.) — não só "o ID existe", mas "o ID prova
+// isto". Chave: "<source>:<id>" (mesmo formato de supported_by).
+function buildEvidenceSourceTextIndex(
+  snapshot: MessageContextSnapshotV1,
+): Map<string, string> {
+  const index = new Map<string, string>()
+
+  for (
+    const message of
+    snapshot.conversation.messages
+  ) {
+    index.set(
+      `message:${message.message_id}`,
+      [
+        message.text_content ?? '',
+        message.audio_transcription ?? '',
+      ].join(' '),
+    )
+  }
+
+  for (
+    const item of
+    collectMemoryItems(snapshot.customer)
+  ) {
+    if (typeof item.memory_id !== 'string') {
+      continue
+    }
+
+    index.set(
+      `memory:${item.memory_id}`,
+      JSON.stringify(
+        stripProvenance(item),
+      ),
+    )
+  }
+
+  for (
+    const product of
+    snapshot.company.products
+  ) {
+    const text = JSON.stringify({
+      definition: product.definition,
+      catalog: product.catalog,
+    })
+
+    index.set(
+      `product:${product.profile_id}`,
+      text,
+    )
+    index.set(
+      `product:${product.product_id}`,
+      text,
+    )
+  }
+
+  for (
+    const fact of snapshot.company.facts
+  ) {
+    index.set(
+      `fact:${fact.fact_id}`,
+      JSON.stringify({
+        fact_key: fact.fact_key,
+        fact_value: fact.fact_value,
+        definition: fact.definition,
+      }),
+    )
+  }
+
+  if (snapshot.company.published_method) {
+    index.set(
+      `method:${snapshot.company.published_method.config_version_id}`,
+      JSON.stringify(
+        snapshot.company.published_method
+          .definition,
+      ),
+    )
+  }
+
+  return index
 }
 
 function buildCommitmentSummaries(
@@ -504,6 +595,11 @@ export function buildMessageIntelligenceV2ExecutionPlan({
 
       grounding_text:
         buildGroundingText(snapshot),
+
+      evidence_source_text:
+        buildEvidenceSourceTextIndex(
+          snapshot,
+        ),
 
       canonical_commercial_role:
         snapshot.commercial.commercial_role

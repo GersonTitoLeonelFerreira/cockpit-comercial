@@ -75,7 +75,20 @@ function generatedOutput(plan, overrides = {}) {
     method_alignment_summary: null,
     evidence_message_ids: evidence.message_ids,
     evidence_memory_ids: [],
-    grounded_claims: [],
+    // A mensagem padrão faz uma afirmação de valor/benefício, então
+    // precisa de uma grounded_claim realmente sustentada pelo produto do
+    // fixture (cujo texto contém "Plano Exemplo" / "Acompanhamento
+    // estruturado").
+    grounded_claims: [
+      {
+        claim:
+          'O plano inclui acompanhamento estruturado durante todo o processo.',
+        supported_by: {
+          source: 'product',
+          id: evidence.product_ids[0],
+        },
+      },
+    ],
     safety_self_check: safetySelfCheck(),
     suggested_message:
       'Faz sentido perguntar! O valor cobre o acompanhamento estruturado durante todo o processo. Consigo detalhar melhor algum ponto específico?',
@@ -806,5 +819,227 @@ test(
     )
 
     assert.equal(provider.callCount(), 1)
+  },
+)
+
+test(
+  'V2 executor: afirmação factual sem nenhuma grounded_claim declarada é rejeitada',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    const good = generatedOutput(plan, {
+      grounded_claims: [],
+      suggested_message:
+        'O sistema integra automaticamente com qualquer ERP, então não tem com o que se preocupar.',
+    })
+
+    const provider = queueProvider([
+      { output: good },
+      { output: good },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_UNGROUNDED_FACTUAL_CLAIM',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 executor: grounded_claim citando produto real que não sustenta a funcionalidade afirmada é rejeitada',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    const good = generatedOutput(plan, {
+      grounded_claims: [
+        {
+          claim:
+            'O sistema integra automaticamente com qualquer ERP do mercado.',
+          supported_by: {
+            source: 'product',
+            id: plan.normalization_context
+              .allowed_evidence
+              .product_ids[0],
+          },
+        },
+      ],
+      suggested_message:
+        'O sistema integra automaticamente com qualquer ERP do mercado, então não tem com o que se preocupar.',
+    })
+
+    const provider = queueProvider([
+      { output: good },
+      { output: good },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_UNGROUNDED_FACTUAL_CLAIM',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 executor: desconto genérico sem grounded_claim é rejeitado mesmo sem número explícito',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    const good = generatedOutput(plan, {
+      grounded_claims: [],
+      suggested_message:
+        'Consigo liberar um desconto especial pra você fechar hoje.',
+    })
+
+    const provider = queueProvider([
+      { output: good },
+      { output: good },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_UNGROUNDED_FACTUAL_CLAIM',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 executor: garantia/ROI genérico sem grounded_claim é rejeitado',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    const good = generatedOutput(plan, {
+      grounded_claims: [],
+      suggested_message:
+        'Garanto que o retorno sobre o investimento vem em poucos meses.',
+    })
+
+    const provider = queueProvider([
+      { output: good },
+      { output: good },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_UNGROUNDED_FACTUAL_CLAIM',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 executor: safety_self_check com qualquer campo false é rejeitado',
+  async () => {
+    const plan = buildPlan(priceScenario)
+
+    for (
+      const field of [
+        'no_unsupported_commercial_claim',
+        'no_commitment_assumed_beyond_evidence',
+        'no_resolved_question_repeated',
+      ]
+    ) {
+      const good = generatedOutput(plan, {
+        safety_self_check: {
+          ...safetySelfCheck(),
+          [field]: false,
+        },
+      })
+
+      const provider = queueProvider([
+        { output: good },
+        { output: good },
+      ])
+
+      await assert.rejects(
+        () =>
+          executeMessageIntelligenceV2Plan({
+            plan,
+            provider,
+          }),
+        error => {
+          assert.equal(
+            error.code,
+            'V2_SAFETY_SELF_CHECK_NEGATIVE',
+          )
+          return true
+        },
+        `esperava rejeição para ${field}=false`,
+      )
+    }
+  },
+)
+
+test(
+  'V2 executor: claim declarada e sustentada pela fonte real passa (caso positivo de precisão)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    const productId =
+      plan.normalization_context
+        .allowed_evidence.product_ids[0]
+
+    const good = generatedOutput(plan, {
+      grounded_claims: [
+        {
+          claim:
+            'O plano oferece acompanhamento estruturado ao longo do processo comercial.',
+          supported_by: {
+            source: 'product',
+            id: productId,
+          },
+        },
+      ],
+      suggested_message:
+        'Esse valor cobre um acompanhamento estruturado ao longo de todo o processo — faz sentido pra você?',
+    })
+
+    const provider = queueProvider([
+      { output: good },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(
+      result.output.suggested_message,
+      good.suggested_message,
+    )
   },
 )

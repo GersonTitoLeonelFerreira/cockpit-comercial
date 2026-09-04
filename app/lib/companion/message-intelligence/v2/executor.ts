@@ -59,6 +59,8 @@ const RETRYABLE_V2_OUTPUT_CODES = new Set([
   'V2_UNSUPPORTED_COMMITMENT_CONFIRMATION',
   'V2_NO_INTERVENTION_REQUIRES_SILENCE',
   'V2_MESSAGE_LEAKS_INTERNALS',
+  'V2_UNGROUNDED_FACTUAL_CLAIM',
+  'V2_SAFETY_SELF_CHECK_NEGATIVE',
 ])
 
 const V2_OUTPUT_FIELDS = new Set<string>(
@@ -470,6 +472,176 @@ function requireGroundedClaimRefs({
         path: `grounded_claims[${index}].supported_by`,
         invariant:
           'GROUNDED_CLAIM_REF_INVALID',
+      })
+    }
+  })
+}
+
+// Categorias de afirmação factual/comercial que exigem prova (mesma lista
+// de categorias pedida na auditoria: produto, benefício, diferencial,
+// funcionalidade, preço, desconto, prazo, garantia/ROI, disponibilidade/
+// condição, comparação). Não é regex por frase — é uma lista pequena e
+// estável de conceitos, no mesmo espírito do GROUNDED_CONCEPTS já provado
+// em lead-seller-message.ts. Linguagem de confirmação de compromisso já
+// tem seu próprio gate (requireCommitmentConfirmationSupport) e fica de
+// fora daqui para não duplicar/colidir motivo de falha.
+const CLAIM_CONCEPTS = [
+  {
+    code: 'product_feature',
+    pattern:
+      /\b(funcionalidad\w*|recursos?|integra[cç][aã]o|integr\w*|automatiz\w*|compat[íi]vel\w*|m[óo]dulos?)\b/u,
+  },
+  {
+    code: 'benefit_differentiator',
+    pattern:
+      /\b(benef[íi]cios?|diferenciais?|diferencial|vantagens?)\b/u,
+  },
+  {
+    code: 'pricing',
+    pattern:
+      /\b(pre[çc]os?|valor(?:es)?|investimento|mensalidade|custos?)\b/u,
+  },
+  {
+    code: 'discount',
+    pattern:
+      /\b(descontos?|promo[çc][aã]o|gr[áa]tis|isent\w*)\b/u,
+  },
+  {
+    code: 'deadline_guarantee',
+    pattern:
+      /\b(prazos?|garantias?|promet\w*)\b/u,
+  },
+  {
+    code: 'roi_result',
+    pattern:
+      /\broi\b|\bretorno sobre\b|\bpercentual de resultado\b/u,
+  },
+  {
+    code: 'availability_condition',
+    pattern:
+      /\bdispon[íi]ve\w*|\bdisponibilidade\b|\bpol[íi]tica\b|\bcondi[çc][aã]o\b|\bcondi[çc][oõ]es\b/u,
+  },
+  {
+    code: 'comparison',
+    pattern:
+      /\bconcorrentes?\b|\bcompar\w*/u,
+  },
+] as const
+
+function findTriggeredConcepts(
+  text: string,
+): Set<string> {
+  const normalized = normalizeAscii(text)
+  const result = new Set<string>()
+
+  for (const concept of CLAIM_CONCEPTS) {
+    if (concept.pattern.test(normalized)) {
+      result.add(concept.code)
+    }
+  }
+
+  return result
+}
+
+function salientTokens(
+  value: string,
+): string[] {
+  return normalizeAscii(value)
+    .replace(/[^a-z0-9\s]/gu, ' ')
+    .split(/\s+/u)
+    .filter(token => token.length >= 5)
+}
+
+// Não basta o ID citado existir (já verificado em requireGroundedClaimRefs)
+// — a fonte citada precisa realmente conter o que a claim afirma. Overlap
+// de tokens salientes (>=5 caracteres) é o mesmo tipo de heurística já
+// comprovada em hard-gates.ts (semanticMatch) e lead-seller-message.ts
+// (GROUNDED_CONCEPTS), adaptada para comparar claim vs. conteúdo real da
+// fonte específica em vez de um blob genérico de contexto.
+function claimSupportedBySourceText({
+  claimText,
+  sourceText,
+}: {
+  claimText: string
+  sourceText: string
+}): boolean {
+  const claimTokens = new Set(
+    salientTokens(claimText),
+  )
+
+  if (claimTokens.size === 0) {
+    return true
+  }
+
+  const sourceTokens = new Set(
+    salientTokens(sourceText),
+  )
+
+  let hits = 0
+
+  for (const token of claimTokens) {
+    if (sourceTokens.has(token)) {
+      hits += 1
+    }
+  }
+
+  return (
+    hits >=
+    Math.min(2, claimTokens.size)
+  )
+}
+
+function requireFactualClaimCoverage({
+  message,
+  claims,
+  context,
+}: {
+  message: string
+  claims: MessageIntelligenceV2GroundedClaimV1[]
+  context: MessageIntelligenceV2NormalizationContext
+}) {
+  // Cobertura: uma mensagem que faz uma afirmação de categoria
+  // factual/comercial (produto, benefício, preço, prazo etc.) precisa
+  // declarar pelo menos uma grounded_claim. Sem isso, uma afirmação
+  // qualitativa sem prova nenhuma passaria despercebida.
+  if (
+    findTriggeredConcepts(message).size >
+      0 &&
+    claims.length === 0
+  ) {
+    failInvalid({
+      code: 'V2_UNGROUNDED_FACTUAL_CLAIM',
+      message:
+        'A mensagem faz uma afirmação comercial verificável sem nenhuma grounded_claim declarada.',
+      path: 'grounded_claims',
+      invariant:
+        'FACTUAL_CLAIM_COVERAGE_MISSING',
+    })
+  }
+
+  // Precisão: toda grounded_claim declarada precisa ser realmente
+  // sustentada pelo conteúdo da fonte específica que ela cita — citar um
+  // ID real que existe, mas que não fala sobre a afirmação feita, é
+  // rejeitado aqui mesmo que o ID em si seja válido.
+  claims.forEach((claim, index) => {
+    const sourceText =
+      context.evidence_source_text.get(
+        `${claim.supported_by.source}:${claim.supported_by.id}`,
+      )
+
+    if (
+      !sourceText ||
+      !claimSupportedBySourceText({
+        claimText: claim.claim,
+        sourceText,
+      })
+    ) {
+      failInvalid({
+        code: 'V2_UNGROUNDED_FACTUAL_CLAIM',
+        message: `grounded_claims[${index}] cita uma fonte que não sustenta a afirmação feita.`,
+        path: `grounded_claims[${index}]`,
+        invariant:
+          'CLAIM_NOT_SUPPORTED_BY_SOURCE',
       })
     }
   })
@@ -894,6 +1066,24 @@ function normalizeMessageIntelligenceV2Output({
       value.safety_self_check,
     )
 
+  // Um self-check positivo não é prova (o executor sempre reexecuta as
+  // checagens reais acima e abaixo), mas um self-check NEGATIVO é uma
+  // admissão do próprio modelo de possível falha — nunca ignorada.
+  for (
+    const [field, passed] of
+    Object.entries(safetySelfCheck)
+  ) {
+    if (!passed) {
+      failInvalid({
+        code: 'V2_SAFETY_SELF_CHECK_NEGATIVE',
+        message: `O modelo sinalizou safety_self_check.${field}=false.`,
+        path: `safety_self_check.${field}`,
+        invariant:
+          'SAFETY_SELF_CHECK_NEGATIVE',
+      })
+    }
+  }
+
   const suggestedMessage =
     requireNullableString(
       value.suggested_message,
@@ -933,6 +1123,12 @@ function normalizeMessageIntelligenceV2Output({
     requireCommitmentConfirmationSupport({
       message: suggestedMessage,
       evidenceMemoryIds,
+      context,
+    })
+
+    requireFactualClaimCoverage({
+      message: suggestedMessage,
+      claims: groundedClaims,
       context,
     })
 

@@ -261,7 +261,21 @@ test(
               method_alignment_summary: null,
               evidence_message_ids: [],
               evidence_memory_ids: [],
-              grounded_claims: [],
+              // ID do produto do fixture base
+              // (MESSAGE_INTELLIGENCE_FIXTURE_IDS.product_profile_id em
+              // ../fixtures.ts) — a mensagem faz uma afirmação de
+              // valor/benefício, então precisa de uma grounded_claim
+              // realmente sustentada por essa fonte.
+              grounded_claims: [
+                {
+                  claim:
+                    'O plano inclui acompanhamento estruturado durante todo o processo.',
+                  supported_by: {
+                    source: 'product',
+                    id: '70000000-0000-4000-8000-000000000001',
+                  },
+                },
+              ],
               safety_self_check:
                 safetySelfCheck(),
               suggested_message:
