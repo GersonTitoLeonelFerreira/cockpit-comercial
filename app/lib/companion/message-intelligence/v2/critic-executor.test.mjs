@@ -146,7 +146,9 @@ test(
               verdict: 'repair',
               reason_codes: [
                 'semantic_mismatch',
+                'unsupported_claim',
               ],
+              semantic_mismatch: true,
               unsupported_claim_indexes: [0],
               concise_feedback:
                 'A claim usa um adjetivo não sustentado.',
@@ -316,5 +318,256 @@ test(
     )
 
     assert.equal(calls, 1)
+  },
+)
+
+test(
+  'V2 critic executor: verdict=pass com missing_grounded_claim=true é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'pass',
+                missing_grounded_claim: true,
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: verdict=pass com reason_codes não vazio é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'pass',
+                reason_codes: ['other'],
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: verdict=pass com unsupported_claim_indexes não vazio é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'pass',
+                unsupported_claim_indexes: [
+                  0,
+                ],
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: verdict=pass com concise_feedback não nulo é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'pass',
+                concise_feedback:
+                  'Isso não deveria existir num pass.',
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: verdict=repair sem nenhum sinal de falha é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'repair',
+                concise_feedback:
+                  'Feedback presente, mas nenhum sinal concreto.',
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: verdict=block sem nenhum sinal de falha é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'block',
+                concise_feedback:
+                  'Feedback presente, mas nenhum sinal concreto.',
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: boolean true sem reason_code correspondente é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'repair',
+                method_violation: true,
+                // reason_codes não contém 'method_violation'
+                reason_codes: [
+                  'semantic_mismatch',
+                ],
+                concise_feedback:
+                  'Viola comportamento, mas o reason_code não bate.',
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: unsupported_claim_indexes não vazio sem reason_code correspondente é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'repair',
+                unsupported_claim_indexes: [
+                  0,
+                ],
+                reason_codes: [
+                  'method_violation',
+                ],
+                method_violation: true,
+                concise_feedback:
+                  'Índice de claim não sustentado sem reason_code compatível.',
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
   },
 )

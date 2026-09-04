@@ -461,7 +461,7 @@ function normalizeCriticOutput({
     value.verdict,
   )
 
-  return {
+  const output: MessageIntelligenceV2CriticOutput = {
     contract_version:
       MESSAGE_INTELLIGENCE_V2_CRITIC_CONTRACT_VERSION,
 
@@ -522,6 +522,135 @@ function normalizeCriticOutput({
         value.concise_feedback,
         verdict,
       ),
+  }
+
+  requireCriticCrossFieldConsistency(output)
+
+  return output
+}
+
+// O schema/tipos por si só permitem verdict="pass" junto de
+// missing_grounded_claim=true, ou verdict="block" sem nenhum reason_code
+// nem boolean marcado — combinações estruturalmente válidas, mas
+// semanticamente contraditórias que o runner nunca deveria aceitar como
+// "pass" ou "repair/block" legítimo. Esta checagem fecha essa lacuna.
+const CRITIC_BOOLEAN_TO_REASON_CODE = [
+  [
+    'missing_grounded_claim',
+    'missing_grounded_claim',
+  ],
+  [
+    'claim_source_mismatch',
+    'claim_source_mismatch',
+  ],
+  ['semantic_mismatch', 'semantic_mismatch'],
+  [
+    'repeated_resolved_question',
+    'repeated_resolved_question',
+  ],
+  [
+    'commitment_assumption',
+    'commitment_assumption',
+  ],
+  [
+    'seller_intent_became_fact',
+    'seller_intent_became_fact',
+  ],
+  ['method_violation', 'method_violation'],
+] as const
+
+function requireCriticCrossFieldConsistency(
+  output: MessageIntelligenceV2CriticOutput,
+) {
+  const booleanFields = [
+    output.missing_grounded_claim,
+    output.claim_source_mismatch,
+    output.semantic_mismatch,
+    output.repeated_resolved_question,
+    output.commitment_assumption,
+    output.seller_intent_became_fact,
+    output.method_violation,
+  ]
+
+  const anyBooleanTrue = booleanFields.some(
+    Boolean,
+  )
+
+  if (output.verdict === 'pass') {
+    if (
+      output.reason_codes.length > 0 ||
+      output.unsupported_claim_indexes
+        .length > 0 ||
+      anyBooleanTrue ||
+      output.concise_feedback !== null
+    ) {
+      fail({
+        code:
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        message:
+          'verdict="pass" não pode vir acompanhado de reason_codes, unsupported_claim_indexes, um boolean de falha true ou concise_feedback não nulo.',
+        status_code: 502,
+        retryable: false,
+      })
+    }
+
+    return
+  }
+
+  // verdict é "repair" ou "block" a partir daqui.
+  if (
+    output.reason_codes.length === 0 &&
+    output.unsupported_claim_indexes
+      .length === 0 &&
+    !anyBooleanTrue
+  ) {
+    fail({
+      code:
+        'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+      message: `verdict="${output.verdict}" precisa de pelo menos um sinal concreto de falha (reason_codes, unsupported_claim_indexes ou um boolean true).`,
+      status_code: 502,
+      retryable: false,
+    })
+  }
+
+  for (
+    const [field, reasonCode] of
+    CRITIC_BOOLEAN_TO_REASON_CODE
+  ) {
+    if (
+      output[field] &&
+      !output.reason_codes.includes(
+        reasonCode,
+      )
+    ) {
+      fail({
+        code:
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        message: `${field}=true precisa que reason_codes contenha "${reasonCode}".`,
+        status_code: 502,
+        retryable: false,
+      })
+    }
+  }
+
+  if (
+    output.unsupported_claim_indexes.length >
+      0 &&
+    !output.reason_codes.includes(
+      'unsupported_claim',
+    ) &&
+    !output.reason_codes.includes(
+      'claim_source_mismatch',
+    )
+  ) {
+    fail({
+      code:
+        'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+      message:
+        'unsupported_claim_indexes não vazio precisa que reason_codes contenha "unsupported_claim" ou "claim_source_mismatch".',
+      status_code: 502,
+      retryable: false,
+    })
   }
 }
 
