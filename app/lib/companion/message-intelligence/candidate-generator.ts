@@ -214,6 +214,31 @@ function relationshipContinuationIntent(
   ].some(term => intent.includes(term))
 }
 
+function casualReplyIntent(
+  plan: MessagePlanV1,
+): boolean {
+  const intent = sellerIntentText(plan)
+
+  return intent.includes(
+    'responder de forma casual',
+  )
+}
+
+function followUpIntent(
+  plan: MessagePlanV1,
+): boolean {
+  const intent = sellerIntentText(plan)
+
+  return [
+    'follow up',
+    'follow-up',
+    'retomar contato',
+    'cobrar retorno',
+  ].some(term =>
+    intent.includes(term),
+  )
+}
+
 function operationalSupportIntent(
   plan: MessagePlanV1,
 ): boolean {
@@ -329,6 +354,34 @@ function sellerIntentPreferenceQuestion(
 function sellerIntentSupportSegment(
   plan: MessagePlanV1,
 ): RealizedSegmentV1 | null {
+  if (casualReplyIntent(plan)) {
+    return {
+      text:
+        'Imagina! Se precisar, pode me chamar.',
+      content_requirements:
+        plan.content_requirements.includes(
+          'acknowledge_non_commercial',
+        )
+          ? ['acknowledge_non_commercial']
+          : [],
+      fact_requirement_keys: [],
+    }
+  }
+
+  if (followUpIntent(plan)) {
+    return {
+      text:
+        'Passando para retomar nossa conversa e saber se você conseguiu avaliar o que falamos.',
+      content_requirements:
+        plan.content_requirements.includes(
+          'propose_next_step',
+        )
+          ? ['propose_next_step']
+          : [],
+      fact_requirement_keys: [],
+    }
+  }
+
   if (commercialRedirectIntent(plan)) {
     return {
       text: 'Recebi, obrigado. Podemos retomar o ponto principal da negociação.',
@@ -811,7 +864,10 @@ function mergeSegments(
   const sellerIntentSupport = sellerIntentSupportSegment(plan)
   const question = renderQuestion(plan, variant)
   const sellerIntentOwnsNextStep =
-    commercialRedirectIntent(plan) || operationalSupportIntent(plan)
+    commercialRedirectIntent(plan) ||
+    operationalSupportIntent(plan) ||
+    relationshipContinuationIntent(plan) ||
+    followUpIntent(plan)
   const next = sellerIntentOwnsNextStep ? null : nextStepSegment(plan, variant)
 
   const ordered =

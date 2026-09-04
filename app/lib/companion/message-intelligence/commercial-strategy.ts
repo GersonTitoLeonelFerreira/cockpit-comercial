@@ -213,6 +213,8 @@ export function inferSellerRequestedMoveV1(
         'perguntar',
         'descobrir',
         'diagnosticar',
+        'entender melhor a necessidade',
+        'entender a necessidade',
       ],
     },
     {
