@@ -53,6 +53,10 @@ import {
   enqueueMessageIntelligenceShadowRunV1,
 } from '../../../lib/server/message-intelligence-shadow-enqueue'
 
+import {
+  tryGenerateActivatedMessageIntelligenceSellerMessageV1,
+} from '../../../lib/server/message-intelligence-seller-activation'
+
 type MethodGuidanceBody = {
   cycle_id?: unknown
   conversation_key?: unknown
@@ -509,6 +513,37 @@ export async function POST(request: Request) {
       // depois deste instante pertence à próxima comparação shadow.
       const shadowReferenceTime =
         new Date().toISOString()
+
+      const activatedGeneration =
+        await tryGenerateActivatedMessageIntelligenceSellerMessageV1({
+          admin,
+          company_id:
+            identity.company_id,
+          seller_user_id:
+            token.sub,
+          cycle_id:
+            identity.cycle_id,
+          conversation_key:
+            identity.conversation_key,
+          seller_intent:
+            sellerIntent,
+          reference_time:
+            shadowReferenceTime,
+        })
+
+      if (activatedGeneration) {
+        return NextResponse.json(
+          {
+            ok: true,
+            data:
+              activatedGeneration,
+          },
+          {
+            status: 200,
+            headers: corsHeaders,
+          },
+        )
+      }
 
       const currentInteraction =
         await loadLegacyCurrentInteractionAtReferenceTime({
