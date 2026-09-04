@@ -76,12 +76,19 @@ const providerBox = {
   onCall: null,
 }
 
+const activationBox = {
+  calls: [],
+  result: null,
+}
+
 const queryBox = {
   beforeResolve: null,
 }
 
 test.afterEach(() => {
   queryBox.beforeResolve = null
+  activationBox.calls = []
+  activationBox.result = null
 })
 
 mock.module('@supabase/supabase-js', {
@@ -139,6 +146,19 @@ mock.module(
                     'Olá! Vou verificar isso com calma e te retorno em breve.',
                 }),
           }
+        },
+    },
+  },
+)
+
+mock.module(
+  '../../../lib/server/message-intelligence-seller-activation',
+  {
+    namedExports: {
+      tryGenerateActivatedMessageIntelligenceSellerMessageV1:
+        async (args) => {
+          activationBox.calls.push(args)
+          return activationBox.result
         },
     },
   },
@@ -1019,6 +1039,148 @@ test(
           message.message_key,
       ),
       ['before-cutoff-race'],
+    )
+  },
+)
+
+
+test(
+  'active seller gate: resultado MIE ready substitui legacy sem gerar shadow paralelo',
+  async () => {
+    const { admin } =
+      createFakeAdmin(
+        baseFixtures(),
+      )
+
+    adminBox.admin = admin
+
+    sendBox.shouldFail = false
+    sendBox.calls = []
+    sendBox.pending = null
+
+    providerBox.calls = []
+    providerBox.onCall = null
+
+    afterBox.callbacks = []
+
+    activationBox.calls = []
+    activationBox.result = {
+      status: 'ready',
+      message:
+        'Mensagem final produzida pelo MIE.',
+      error: null,
+    }
+
+    const {
+      response,
+      body,
+    } =
+      await callGenerateMessage()
+
+    assert.equal(
+      response.status,
+      200,
+    )
+
+    assert.deepEqual(
+      body,
+      {
+        ok: true,
+        data: {
+          status: 'ready',
+          message:
+            'Mensagem final produzida pelo MIE.',
+          error: null,
+        },
+      },
+    )
+
+    assert.equal(
+      activationBox.calls.length,
+      1,
+    )
+
+    assert.equal(
+      providerBox.calls.length,
+      0,
+    )
+
+    assert.equal(
+      sendBox.calls.length,
+      0,
+    )
+
+    assert.equal(
+      afterBox.callbacks.length,
+      0,
+    )
+  },
+)
+
+test(
+  'active seller gate: ausência de mensagem MIE preserva legacy e shadow',
+  async () => {
+    const { admin } =
+      createFakeAdmin(
+        baseFixtures(),
+      )
+
+    adminBox.admin = admin
+
+    sendBox.shouldFail = false
+    sendBox.calls = []
+    sendBox.pending = null
+
+    providerBox.calls = []
+    providerBox.onCall = null
+
+    afterBox.callbacks = []
+
+    activationBox.calls = []
+    activationBox.result = null
+
+    const {
+      response,
+      body,
+    } =
+      await callGenerateMessage()
+
+    assert.equal(
+      response.status,
+      200,
+    )
+
+    assert.equal(
+      body.ok,
+      true,
+    )
+
+    assert.equal(
+      body.data.status,
+      'ready',
+    )
+
+    assert.equal(
+      typeof body.data.message,
+      'string',
+    )
+
+    assert.ok(
+      body.data.message.length > 0,
+    )
+
+    assert.equal(
+      activationBox.calls.length,
+      1,
+    )
+
+    assert.ok(
+      providerBox.calls.length > 0,
+    )
+
+    assert.equal(
+      sendBox.calls.length,
+      1,
     )
   },
 )
