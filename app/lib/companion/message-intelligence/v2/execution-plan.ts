@@ -14,6 +14,7 @@ import type {
 
 import {
   MESSAGE_INTELLIGENCE_V2_GENERATION_CONTRACT_VERSION,
+  type MessageIntelligenceV2Output,
 } from './generation-contract'
 
 export const MESSAGE_INTELLIGENCE_V2_PROMPT_VERSION =
@@ -23,7 +24,7 @@ export const MESSAGE_INTELLIGENCE_V2_REPAIR_INSTRUCTION =
   'Repare somente o caminho indicado e retorne novamente o objeto completo conforme o schema. Use apenas IDs presentes em allowed_evidence que sustentem diretamente cada afirmação verificável; se nenhum ID sustentar uma afirmação, remova-a ou reescreva suggested_message sem ela em vez de inventar ou reutilizar evidência indevida.' as const
 
 export const MESSAGE_INTELLIGENCE_V2_SEMANTIC_REPAIR_INSTRUCTION =
-  'Um revisor semântico separado avaliou a candidate anterior e apontou o problema em semantic_repair_context abaixo. Corrija exclusivamente o que foi apontado, preservando tudo que já estava correto na candidate anterior. Não invente fato novo para compensar a correção — se não houver evidência real em allowed_evidence para sustentar algo, remova a afirmação ou reformule suggested_message sem ela. Retorne novamente o objeto completo conforme o schema.' as const
+  'Um revisor semântico separado avaliou previous_candidate (sua própria resposta anterior, incluída neste payload) e apontou o problema em semantic_repair_context abaixo. Corrija exclusivamente o que foi apontado, preservando tudo que já estava correto em previous_candidate — não reescreva a mensagem inteira do zero. Não invente fato novo para compensar a correção — se não houver evidência real em allowed_evidence para sustentar algo, remova a afirmação ou reformule suggested_message sem ela. Retorne novamente o objeto completo conforme o schema.' as const
 
 const V2_CONTEXT_BRIDGE_MAX_MESSAGES = 6
 
@@ -661,12 +662,43 @@ export type MessageIntelligenceV2SemanticRepairContext = {
 // buildMessageIntelligenceV2RepairExecutionPlan acima). Mesma mecânica de 1
 // repair no máximo: o orçamento de regeneração é compartilhado entre
 // reparo determinístico e reparo por critic — nunca os dois no mesmo run.
+// Somente as conclusões auditáveis da candidate anterior — nunca chain-of-
+// thought (que o contrato de saída nunca produziu em primeiro lugar) — o
+// suficiente para o modelo preservar o que já estava correto em vez de
+// reescrever a mensagem inteira a partir do zero.
+function buildPreviousCandidatePayload(
+  previous_output:
+    MessageIntelligenceV2Output,
+) {
+  return {
+    customer_meaning:
+      previous_output.customer_meaning,
+    seller_intent_interpretation:
+      previous_output
+        .seller_intent_interpretation,
+    recommended_commercial_objective:
+      previous_output
+        .recommended_commercial_objective,
+    method_alignment_summary:
+      previous_output
+        .method_alignment_summary,
+    grounded_claims:
+      previous_output.grounded_claims,
+    suggested_message:
+      previous_output.suggested_message,
+  }
+}
+
 export function buildMessageIntelligenceV2CriticDrivenRepairExecutionPlan({
   plan,
+  previous_output,
   critic_feedback,
 }: {
   plan:
     MessageIntelligenceV2ExecutionPlan
+
+  previous_output:
+    MessageIntelligenceV2Output
 
   critic_feedback:
     MessageIntelligenceV2SemanticRepairContext
@@ -682,6 +714,10 @@ export function buildMessageIntelligenceV2CriticDrivenRepairExecutionPlan({
     user_prompt:
       JSON.stringify({
         ...originalPayload,
+        previous_candidate:
+          buildPreviousCandidatePayload(
+            previous_output,
+          ),
         semantic_repair_context: {
           ...critic_feedback,
           instruction:

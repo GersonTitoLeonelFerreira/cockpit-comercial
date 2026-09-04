@@ -592,6 +592,8 @@ export async function runMessageIntelligenceV2({
     buildMessageIntelligenceV2CriticDrivenRepairExecutionPlan(
       {
         plan,
+        previous_output:
+          primaryResult.output,
         critic_feedback: {
           reason_codes:
             criticAttempt1.output

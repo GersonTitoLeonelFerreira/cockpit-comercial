@@ -612,6 +612,7 @@ test(
       fakeOpenAIResponse({
         outputObject: criticOutput({
           verdict: 'repair',
+          reason_codes: ['other'],
           concise_feedback:
             'Precisa de mais uma correção.',
         }),
@@ -699,6 +700,7 @@ test(
       fakeOpenAIResponse({
         outputObject: criticOutput({
           verdict: 'repair',
+          reason_codes: ['other'],
           concise_feedback: 'Corrija X.',
         }),
       }),
@@ -711,6 +713,7 @@ test(
       fakeOpenAIResponse({
         outputObject: criticOutput({
           verdict: 'block',
+          reason_codes: ['other'],
           concise_feedback:
             'Ainda não está correto.',
         }),
@@ -824,6 +827,99 @@ test(
     assert.equal(
       result.error.code,
       'OPENAI_AUTHENTICATION_FAILED',
+    )
+  },
+)
+
+test(
+  'V2 runner: a chamada de repair acionada pelo critic envia previous_candidate ao provider',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      priceScenario,
+    )
+
+    const requestBodies = []
+
+    const responses = [
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput(),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'repair',
+          reason_codes: [
+            'semantic_mismatch',
+          ],
+          concise_feedback:
+            'Remova o adjetivo não sustentado.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          suggested_message:
+            'Faz sentido perguntar! O valor cobre acompanhamento estruturado, sem exageros.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ]
+
+    let calls = 0
+
+    const fetchImpl = async (
+      _url,
+      init,
+    ) => {
+      const index = Math.min(
+        calls,
+        responses.length - 1,
+      )
+
+      requestBodies.push(
+        JSON.parse(init.body),
+      )
+
+      calls += 1
+
+      return responses[index]
+    }
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: priceScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.equal(requestBodies.length, 4)
+
+    // requestBodies[2] é a chamada de repair (primary novamente, com o
+    // feedback do critic) — o payload precisa conter previous_candidate
+    // com a suggested_message anterior, para o modelo poder consultá-la.
+    const repairRequestText =
+      requestBodies[2].input[0].content[0]
+        .text
+    const repairPayload = JSON.parse(
+      repairRequestText,
+    )
+
+    assert.ok(
+      repairPayload.previous_candidate,
+    )
+    assert.equal(
+      repairPayload.previous_candidate
+        .suggested_message,
+      goodPrimaryOutput().suggested_message,
+    )
+    assert.equal(
+      repairPayload.semantic_repair_context
+        .concise_feedback,
+      'Remova o adjetivo não sustentado.',
     )
   },
 )
