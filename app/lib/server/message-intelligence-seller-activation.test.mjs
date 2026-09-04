@@ -73,7 +73,22 @@ function baseArguments(
       'Responder ao cliente.',
     reference_time:
       '2026-09-03T23:00:00.000Z',
-    dependencies,
+    dependencies: {
+      persist_telemetry:
+        async () => {},
+
+      now:
+        (() => {
+          let value = 1_000
+
+          return () => {
+            value += 10
+            return value
+          }
+        })(),
+
+      ...dependencies,
+    },
   }
 }
 
@@ -236,5 +251,184 @@ test(
       )
 
     assert.equal(result, null)
+  },
+)
+
+
+test(
+  'seller activation: active_selected é persistido antes da mensagem ser liberada',
+  async () => {
+    const order = []
+    let persisted = null
+
+    const result =
+      await tryGenerateActivatedMessageIntelligenceSellerMessageV1(
+        baseArguments({
+          env: activeEnv(),
+
+          create_source_loader:
+            () => async () => ({}),
+
+          run_message_intelligence:
+            async () => {
+              order.push('run')
+              return fakeRun()
+            },
+
+          persist_telemetry:
+            async ({ telemetry }) => {
+              order.push('persist')
+              persisted = telemetry
+            },
+        }),
+      )
+
+    assert.deepEqual(
+      order,
+      [
+        'run',
+        'persist',
+      ],
+    )
+
+    assert.equal(
+      result?.status,
+      'ready',
+    )
+
+    assert.equal(
+      persisted?.event_type,
+      'active_selected',
+    )
+
+    for (const forbiddenKey of [
+      'conversation_key',
+      'seller_intent',
+      'message',
+      'mie_message',
+      'legacy_message',
+    ]) {
+      assert.equal(
+        Object.hasOwn(
+          persisted,
+          forbiddenKey,
+        ),
+        false,
+      )
+    }
+  },
+)
+
+test(
+  'seller activation: falha ao persistir active_selected impede exposição do MIE',
+  async () => {
+    const result =
+      await tryGenerateActivatedMessageIntelligenceSellerMessageV1(
+        baseArguments({
+          env: activeEnv(),
+
+          create_source_loader:
+            () => async () => ({}),
+
+          run_message_intelligence:
+            async () =>
+              fakeRun(),
+
+          persist_telemetry:
+            async () => {
+              throw new Error(
+                'fake telemetry failure',
+              )
+            },
+        }),
+      )
+
+    assert.equal(
+      result,
+      null,
+    )
+  },
+)
+
+test(
+  'seller activation: resultado não surfaciável registra fallback técnico',
+  async () => {
+    let persisted = null
+
+    const result =
+      await tryGenerateActivatedMessageIntelligenceSellerMessageV1(
+        baseArguments({
+          env: activeEnv(),
+
+          create_source_loader:
+            () => async () => ({}),
+
+          run_message_intelligence:
+            async () =>
+              fakeRun({
+                wouldSurface:
+                  false,
+              }),
+
+          persist_telemetry:
+            async ({ telemetry }) => {
+              persisted = telemetry
+            },
+        }),
+      )
+
+    assert.equal(
+      result,
+      null,
+    )
+
+    assert.equal(
+      persisted?.event_type,
+      'active_fallback_no_message',
+    )
+  },
+)
+
+test(
+  'seller activation: falha de execução registra active_execution_failed',
+  async () => {
+    let persisted = null
+
+    const result =
+      await tryGenerateActivatedMessageIntelligenceSellerMessageV1(
+        baseArguments({
+          env: activeEnv(),
+
+          create_source_loader:
+            () => async () => ({}),
+
+          run_message_intelligence:
+            async () => {
+              throw new Error(
+                'fake execution failure',
+              )
+            },
+
+          persist_telemetry:
+            async ({ telemetry }) => {
+              persisted = telemetry
+            },
+        }),
+      )
+
+    assert.equal(
+      result,
+      null,
+    )
+
+    assert.equal(
+      persisted?.event_type,
+      'active_execution_failed',
+    )
+
+    assert.equal(
+      persisted?.final_status,
+      null,
+    )
   },
 )

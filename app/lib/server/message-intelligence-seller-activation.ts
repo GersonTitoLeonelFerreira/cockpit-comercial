@@ -12,11 +12,17 @@ import {
 
 import {
   runMessageIntelligenceV1,
+  type MessageIntelligenceRunResultV1,
 } from '@/app/lib/companion/message-intelligence/message-intelligence-runner'
 
 import {
   createMessageIntelligenceSourceLoaderV1,
 } from './message-intelligence-source-loader'
+
+import {
+  buildMessageIntelligenceActivePilotTelemetryV1,
+  persistMessageIntelligenceActivePilotTelemetryV1,
+} from './message-intelligence-active-pilot-telemetry'
 
 type SellerActivationEnvironment =
   Readonly<
@@ -43,6 +49,12 @@ export type MessageIntelligenceSellerActivationDependencies = {
 
   create_request_id?:
     () => string
+
+  persist_telemetry?:
+    typeof persistMessageIntelligenceActivePilotTelemetryV1
+
+  now?:
+    () => number
 }
 
 function normalizeCompanyIds(
@@ -144,8 +156,22 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV1({
     dependencies.create_request_id ??
     randomUUID
 
+  const persistTelemetry =
+    dependencies.persist_telemetry ??
+    persistMessageIntelligenceActivePilotTelemetryV1
+
+  const now =
+    dependencies.now ??
+    Date.now
+
+  const startedAt =
+    now()
+
+  let run:
+    MessageIntelligenceRunResultV1
+
   try {
-    const run =
+    run =
       await runMessageIntelligence({
         request: {
           contract_version:
@@ -167,62 +193,43 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV1({
             admin,
           }),
       })
+  } catch (error) {
+    const telemetry =
+      buildMessageIntelligenceActivePilotTelemetryV1({
+        event_type:
+          'active_execution_failed',
 
-    const evaluation =
-      run.shadow_evaluation
+        company_id,
+        seller_user_id,
+        cycle_id,
 
-    const finalMessage =
-      run.final_message_result
-        .final_message
-        ?.text
-        ?.trim() ??
-      ''
+        duration_ms:
+          now() -
+          startedAt,
 
-    const safeToSurface =
-      evaluation.automatic_send === false &&
-      evaluation.automatic_crm_write === false &&
-      evaluation.automatic_agenda_write === false &&
-      evaluation.would_surface_message === true &&
-      run.final_message_result.status ===
-        'selected' &&
-      Boolean(finalMessage)
+        run:
+          null,
+      })
 
-    if (!safeToSurface) {
-      console.info(
+    try {
+      await persistTelemetry({
+        admin,
+        telemetry,
+      })
+    } catch {
+      console.warn(
         'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE',
         JSON.stringify({
           event:
-            'seller_message_fallback',
+            'active_telemetry_persist_failed',
+          source_event:
+            'active_execution_failed',
           company_id,
           cycle_id,
-          final_status:
-            run.final_message_result
-              .status,
-          would_surface_message:
-            evaluation
-              .would_surface_message,
         }),
       )
-
-      return null
     }
 
-    console.info(
-      'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE',
-      JSON.stringify({
-        event:
-          'seller_message_selected',
-        company_id,
-        cycle_id,
-      }),
-    )
-
-    return {
-      status: 'ready',
-      message: finalMessage,
-      error: null,
-    }
-  } catch (error) {
     console.warn(
       'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE',
       JSON.stringify({
@@ -237,9 +244,134 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV1({
       }),
     )
 
-    // Ativação controlada é fail-open:
-    // qualquer problema do MIE volta para
-    // o gerador seller-facing atual.
     return null
+  }
+
+  const evaluation =
+    run.shadow_evaluation
+
+  const finalMessage =
+    run.final_message_result
+      .final_message
+      ?.text
+      ?.trim() ??
+    ''
+
+  const safeToSurface =
+    evaluation.automatic_send === false &&
+    evaluation.automatic_crm_write === false &&
+    evaluation.automatic_agenda_write === false &&
+    evaluation.would_surface_message === true &&
+    run.final_message_result.status ===
+      'selected' &&
+    Boolean(finalMessage)
+
+  if (!safeToSurface) {
+    const telemetry =
+      buildMessageIntelligenceActivePilotTelemetryV1({
+        event_type:
+          'active_fallback_no_message',
+
+        company_id,
+        seller_user_id,
+        cycle_id,
+
+        duration_ms:
+          now() -
+          startedAt,
+
+        run,
+      })
+
+    try {
+      await persistTelemetry({
+        admin,
+        telemetry,
+      })
+    } catch {
+      console.warn(
+        'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE',
+        JSON.stringify({
+          event:
+            'active_telemetry_persist_failed',
+          source_event:
+            'active_fallback_no_message',
+          company_id,
+          cycle_id,
+        }),
+      )
+    }
+
+    console.info(
+      'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE',
+      JSON.stringify({
+        event:
+          'seller_message_fallback',
+        company_id,
+        cycle_id,
+        final_status:
+          run.final_message_result
+            .status,
+        would_surface_message:
+          evaluation
+            .would_surface_message,
+      }),
+    )
+
+    return null
+  }
+
+  const telemetry =
+    buildMessageIntelligenceActivePilotTelemetryV1({
+      event_type:
+        'active_selected',
+
+      company_id,
+      seller_user_id,
+      cycle_id,
+
+      duration_ms:
+        now() -
+        startedAt,
+
+      run,
+    })
+
+  try {
+    // Regra do piloto:
+    // nenhuma exposição ativa sem
+    // trilha durável confirmada.
+    await persistTelemetry({
+      admin,
+      telemetry,
+    })
+  } catch {
+    console.warn(
+      'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE',
+      JSON.stringify({
+        event:
+          'active_selected_telemetry_required_but_failed',
+        company_id,
+        cycle_id,
+      }),
+    )
+
+    return null
+  }
+
+  console.info(
+    'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE',
+    JSON.stringify({
+      event:
+        'seller_message_selected',
+      company_id,
+      cycle_id,
+    }),
+  )
+
+  return {
+    status: 'ready',
+    message: finalMessage,
+    error: null,
   }
 }
