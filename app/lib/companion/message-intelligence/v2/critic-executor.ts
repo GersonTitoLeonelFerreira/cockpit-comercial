@@ -512,6 +512,12 @@ function normalizeCriticOutput({
         'seller_intent_became_fact',
       ),
 
+    seller_intent_not_executed:
+      requireBoolean(
+        value.seller_intent_not_executed,
+        'seller_intent_not_executed',
+      ),
+
     method_violation: requireBoolean(
       value.method_violation,
       'method_violation',
@@ -556,6 +562,10 @@ const CRITIC_BOOLEAN_TO_REASON_CODE = [
     'seller_intent_became_fact',
     'seller_intent_became_fact',
   ],
+  [
+    'seller_intent_not_executed',
+    'seller_intent_not_executed',
+  ],
   ['method_violation', 'method_violation'],
 ] as const
 
@@ -569,6 +579,7 @@ function requireCriticCrossFieldConsistency(
     output.repeated_resolved_question,
     output.commitment_assumption,
     output.seller_intent_became_fact,
+    output.seller_intent_not_executed,
     output.method_violation,
   ]
 
@@ -617,16 +628,28 @@ function requireCriticCrossFieldConsistency(
     const [field, reasonCode] of
     CRITIC_BOOLEAN_TO_REASON_CODE
   ) {
-    if (
-      output[field] &&
-      !output.reason_codes.includes(
+    const booleanTrue = output[field]
+
+    const reasonCodePresent =
+      output.reason_codes.includes(
         reasonCode,
       )
-    ) {
+
+    if (booleanTrue && !reasonCodePresent) {
       fail({
         code:
           'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
         message: `${field}=true precisa que reason_codes contenha "${reasonCode}".`,
+        status_code: 502,
+        retryable: false,
+      })
+    }
+
+    if (reasonCodePresent && !booleanTrue) {
+      fail({
+        code:
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        message: `reason_codes conter "${reasonCode}" precisa que ${field}=true.`,
         status_code: 502,
         retryable: false,
       })

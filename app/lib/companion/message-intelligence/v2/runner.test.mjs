@@ -18,6 +18,9 @@ import {
 import {
   priceScenario,
   vagueDoubtScenario,
+  coldFollowUpScenario,
+  thinkItOverScenario,
+  partnerScenario,
 } from './fixtures.ts'
 
 import {
@@ -189,6 +192,7 @@ function criticOutput({
     repeated_resolved_question: false,
     commitment_assumption: false,
     seller_intent_became_fact: false,
+    seller_intent_not_executed: false,
     method_violation: false,
     concise_feedback,
     ...rest,
@@ -524,6 +528,7 @@ test(
         outputObject: criticOutput({
           verdict: 'repair',
           reason_codes: ['semantic_mismatch'],
+          semantic_mismatch: true,
           concise_feedback:
             'Remova o adjetivo não sustentado.',
         }),
@@ -658,6 +663,7 @@ test(
         outputObject: criticOutput({
           verdict: 'block',
           reason_codes: ['method_violation'],
+          method_violation: true,
           concise_feedback:
             'Viola comportamento proibido.',
         }),
@@ -850,6 +856,7 @@ test(
           reason_codes: [
             'semantic_mismatch',
           ],
+          semantic_mismatch: true,
           concise_feedback:
             'Remova o adjetivo não sustentado.',
         }),
@@ -921,5 +928,386 @@ test(
         .concise_feedback,
       'Remova o adjetivo não sustentado.',
     )
+  },
+)
+
+// ============================================================================
+// Seller intent execution — regressão do live eval real (cold_follow_up) e
+// cobertura positiva/anti-regressão do sinal seller_intent_not_executed.
+//
+// O critic real é não determinístico (avaliado por eval ao vivo, não aqui).
+// Estes testes simulam o veredito que o critic deveria emitir e confirmam
+// que a arquitetura (contrato, repair, orçamento) reage corretamente a ele
+// — não testam o julgamento semântico do modelo em si.
+// ============================================================================
+
+test(
+  'V2 runner: regressão cold_follow_up — candidate passiva não executa a retomada, critic pede repair (seller_intent_not_executed) e a versão reparada mantém iniciativa sem virar cobrança',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      coldFollowUpScenario,
+    )
+
+    const passiveMessage =
+      'Sem problema, fica tranquilo. Quando conseguir olhar com calma, me chama por aqui e a gente retoma.'
+
+    const repairedMessage =
+      'Tranquilo, sem pressa nenhuma. Prefere que eu volte a falar com você em outro momento, ou consigo te ajudar com alguma dúvida agora?'
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          seller_intent_interpretation:
+            'Vendedor quer retomar a conversa sem soar como cobrança.',
+          recommended_commercial_objective:
+            'recover_process',
+          grounded_claims: [],
+          suggested_message: passiveMessage,
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'repair',
+          reason_codes: [
+            'seller_intent_not_executed',
+          ],
+          seller_intent_not_executed: true,
+          concise_feedback:
+            'A mensagem respeita o timing e não soa como cobrança, mas devolve toda a iniciativa ao cliente e não executa a retomada pedida por seller_intent. Preserve o tom sem cobrança e mantenha uma forma leve de continuidade, sem assumir horário, disponibilidade ou tratar o compromisso proposto como confirmado.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          seller_intent_interpretation:
+            'Vendedor quer retomar a conversa sem soar como cobrança.',
+          recommended_commercial_objective:
+            'recover_process',
+          grounded_claims: [],
+          suggested_message: repairedMessage,
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: coldFollowUpScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.equal(
+      result.final_message,
+      repairedMessage,
+    )
+    assert.equal(
+      result.critic.first.verdict,
+      'repair',
+    )
+    assert.deepEqual(
+      result.critic.first.reason_codes,
+      ['seller_intent_not_executed'],
+    )
+    assert.equal(
+      result.critic.second.verdict,
+      'pass',
+    )
+    // Orçamento preservado: 1 primary + 1 critic + 1 repair + 1 critic — a
+    // candidate original nunca chega a ser surfada.
+    assert.equal(fetchImpl.callCount(), 4)
+    assert.equal(
+      result.safety.would_surface_message,
+      true,
+    )
+    assert.equal(
+      result.safety.automatic_send,
+      false,
+    )
+  },
+)
+
+test(
+  'V2 runner: seller_intent_not_executed também é aceito ao avaliar a objeção de preço (responder sem executar a resposta)',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      priceScenario,
+    )
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          suggested_message:
+            'Entendo, realmente é importante avaliar bem antes de decidir.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'repair',
+          reason_codes: [
+            'seller_intent_not_executed',
+          ],
+          seller_intent_not_executed: true,
+          concise_feedback:
+            'A mensagem reconhece a objeção de preço, mas não responde a ela — seller_intent pede uma resposta à objeção, não apenas validação do sentimento do cliente.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput(),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: priceScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.deepEqual(
+      result.critic.first.reason_codes,
+      ['seller_intent_not_executed'],
+    )
+  },
+)
+
+test(
+  'V2 runner: seller_intent_not_executed também é aceito ao avaliar por que o cliente quer pensar (não reduz a incerteza)',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      thinkItOverScenario,
+    )
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          grounded_claims: [],
+          suggested_message:
+            'Sem problema, pensa com calma.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'repair',
+          reason_codes: [
+            'seller_intent_not_executed',
+          ],
+          seller_intent_not_executed: true,
+          concise_feedback:
+            'A mensagem respeita o timing, mas não busca entender o motivo do adiamento pedido por seller_intent.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput(),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: thinkItOverScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.deepEqual(
+      result.critic.first.reason_codes,
+      ['seller_intent_not_executed'],
+    )
+  },
+)
+
+test(
+  'V2 runner: seller_intent_not_executed também é aceito ao avaliar a facilitação da decisão com o sócio (encerra sem ajudar)',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      partnerScenario,
+    )
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          grounded_claims: [],
+          suggested_message:
+            'Conversa com ele e depois me avisa.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'repair',
+          reason_codes: [
+            'seller_intent_not_executed',
+          ],
+          seller_intent_not_executed: true,
+          concise_feedback:
+            'A mensagem encerra sem oferecer nenhuma ajuda prática para levar a proposta ao sócio, como seller_intent pede.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput(),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: partnerScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.deepEqual(
+      result.critic.first.reason_codes,
+      ['seller_intent_not_executed'],
+    )
+  },
+)
+
+test(
+  'V2 runner: anti-regressão — seller intent de dar espaço não exige CTA e passa de primeira (sem repair)',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      thinkItOverScenario,
+    )
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          seller_intent_interpretation:
+            'Vendedor quer deixar o cliente avaliar com calma e não insistir agora.',
+          grounded_claims: [],
+          suggested_message:
+            'Claro, fica à vontade para avaliar com calma. Qualquer dúvida, estou por aqui.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: thinkItOverScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.equal(
+      result.critic.first.verdict,
+      'pass',
+    )
+    assert.equal(result.critic.second, null)
+    // Nenhum repair consumido: apenas 1 primary + 1 critic.
+    assert.equal(fetchImpl.callCount(), 2)
+  },
+)
+
+test(
+  'V2 runner: anti-regressão — recusa explícita do cliente não recebe follow-up forçado e passa de primeira',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      coldFollowUpScenario,
+    )
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          seller_intent_interpretation:
+            'Cliente pediu explicitamente para não ser contatado novamente; vendedor respeita a recusa.',
+          grounded_claims: [],
+          suggested_message:
+            'Tudo bem, obrigado por avisar. Não vou mais te procurar sobre isso.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: coldFollowUpScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.equal(
+      result.critic.first.verdict,
+      'pass',
+    )
+    assert.equal(fetchImpl.callCount(), 2)
+  },
+)
+
+test(
+  'V2 runner: anti-regressão — encerramento operacional (confirmar recebimento) não exige pergunta comercial',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      priceScenario,
+    )
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          seller_intent_interpretation:
+            'Vendedor quer apenas confirmar que recebeu o documento.',
+          grounded_claims: [],
+          suggested_message:
+            'Recebi o documento, obrigado por enviar.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: priceScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.equal(
+      result.critic.first.verdict,
+      'pass',
+    )
+    assert.equal(fetchImpl.callCount(), 2)
   },
 )

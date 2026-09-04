@@ -86,6 +86,9 @@ const criticModelProperties = {
   seller_intent_became_fact: {
     type: 'boolean',
   },
+  seller_intent_not_executed: {
+    type: 'boolean',
+  },
   method_violation: {
     type: 'boolean',
   },

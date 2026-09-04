@@ -10,8 +10,12 @@
 // canônicos, que continuam intactos em executor.ts.
 // ============================================================================
 
+// v2: adiciona seller_intent_not_executed (boolean + reason code) — uma
+// candidate pode não contradizer seller_intent e ainda assim não a
+// executar materialmente. Mudança incompatível do Structured Output
+// (novo campo obrigatório em modo strict), daí o incremento de versão.
 export const MESSAGE_INTELLIGENCE_V2_CRITIC_CONTRACT_VERSION =
-  'message-intelligence-v2-critic-v1' as const
+  'message-intelligence-v2-critic-v2' as const
 
 export const MESSAGE_INTELLIGENCE_V2_CRITIC_VERDICTS = [
   'pass',
@@ -29,6 +33,7 @@ export const MESSAGE_INTELLIGENCE_V2_CRITIC_REASON_CODES = [
   'repeated_resolved_question',
   'commitment_assumption',
   'seller_intent_became_fact',
+  'seller_intent_not_executed',
   'method_violation',
   'unsupported_claim',
   'other',
@@ -47,6 +52,7 @@ export const MESSAGE_INTELLIGENCE_V2_CRITIC_MODEL_OUTPUT_FIELDS = [
   'repeated_resolved_question',
   'commitment_assumption',
   'seller_intent_became_fact',
+  'seller_intent_not_executed',
   'method_violation',
   'concise_feedback',
 ] as const
@@ -69,6 +75,7 @@ export type MessageIntelligenceV2CriticModelOutput = {
   repeated_resolved_question: boolean
   commitment_assumption: boolean
   seller_intent_became_fact: boolean
+  seller_intent_not_executed: boolean
   method_violation: boolean
 
   concise_feedback: string | null

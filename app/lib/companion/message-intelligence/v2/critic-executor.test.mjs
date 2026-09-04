@@ -96,6 +96,7 @@ function validCriticOutput(overrides = {}) {
     repeated_resolved_question: false,
     commitment_assumption: false,
     seller_intent_became_fact: false,
+    seller_intent_not_executed: false,
     method_violation: false,
     concise_feedback: null,
     ...overrides,
@@ -569,5 +570,144 @@ test(
         return true
       },
     )
+  },
+)
+
+// -- seller_intent_not_executed: cross-field consistency -------------------
+// Uma candidate pode não contradizer seller_intent e mesmo assim não a
+// executar materialmente (ex.: cold_follow_up devolvendo toda a iniciativa
+// ao cliente). Este sinal precisa das mesmas garantias de consistência que
+// os demais booleans do critic.
+
+test(
+  'V2 critic executor: verdict=pass com seller_intent_not_executed=true é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'pass',
+                seller_intent_not_executed: true,
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: seller_intent_not_executed=true sem reason_code correspondente é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'repair',
+                seller_intent_not_executed: true,
+                // reason_codes não contém 'seller_intent_not_executed'
+                reason_codes: [
+                  'semantic_mismatch',
+                ],
+                semantic_mismatch: true,
+                concise_feedback:
+                  'Não executa a intenção, mas o reason_code não bate.',
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: reason_code seller_intent_not_executed com boolean=false é rejeitado',
+  async () => {
+    const plan = buildPlan()
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2CriticAttempt(
+          {
+            plan,
+            provider: fakeProvider(
+              validCriticOutput({
+                verdict: 'repair',
+                reason_codes: [
+                  'seller_intent_not_executed',
+                ],
+                seller_intent_not_executed: false,
+                concise_feedback:
+                  'reason_code presente, mas o boolean correspondente está false.',
+              }),
+            ),
+          },
+        ),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_V2_CRITIC_OUTPUT_INCONSISTENT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 critic executor: verdict=repair com seller_intent_not_executed=true, reason_code e concise_feedback é aceito',
+  async () => {
+    const plan = buildPlan()
+
+    const result =
+      await executeMessageIntelligenceV2CriticAttempt(
+        {
+          plan,
+          provider: fakeProvider(
+            validCriticOutput({
+              verdict: 'repair',
+              reason_codes: [
+                'seller_intent_not_executed',
+              ],
+              seller_intent_not_executed: true,
+              concise_feedback:
+                'A mensagem reconhece o timing, mas devolve toda a iniciativa ao cliente sem executar a retomada pedida por seller_intent.',
+            }),
+          ),
+        },
+      )
+
+    assert.equal(result.output.verdict, 'repair')
+    assert.equal(
+      result.output.seller_intent_not_executed,
+      true,
+    )
+    assert.deepEqual(result.output.reason_codes, [
+      'seller_intent_not_executed',
+    ])
   },
 )
