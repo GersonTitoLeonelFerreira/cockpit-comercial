@@ -56,6 +56,7 @@ function createRuntimeHarness({
   generatedMessage =
     'Podemos conversar amanhã para alinharmos os próximos detalhes?',
   loadLeadSummaryImpl = null,
+  generationResponse = null,
 } = {}) {
   const dom = new JSDOM(
     `<!doctype html><html><head></head><body>
@@ -155,11 +156,12 @@ function createRuntimeHarness({
             ok: true,
             payload: {
               ok: true,
-              data: {
-                status: 'ready',
-                message: generatedMessage,
-                error: null,
-              },
+              data:
+                generationResponse ?? {
+                  status: 'ready',
+                  message: generatedMessage,
+                  error: null,
+                },
             },
           }
         },
@@ -280,6 +282,42 @@ test('Copiar usa apenas o clipboard e preserva o composer', async () => {
   ])
   assert.equal(harness.composer.textContent, '')
   assert.equal(harness.insertCommandCount, 0)
+})
+
+test('silêncio válido (status=no_message) não vira erro e não insere nem copia nada', async () => {
+  const harness = createRuntimeHarness({
+    generationResponse: {
+      status: 'no_message',
+      message: null,
+      error: null,
+    },
+  })
+  await generateMessage(harness)
+
+  const box = harness.document.querySelector(
+    '[data-yolen-seller-message-box]',
+  )
+
+  assert.doesNotMatch(
+    box.textContent,
+    /não conseguiu produzir|não foi possível gerar/i,
+  )
+  assert.match(
+    box.textContent,
+    /não há uma mensagem necessária agora/i,
+  )
+  assert.doesNotMatch(
+    box.innerHTML,
+    /yolen-seller-message-error/,
+  )
+  assert.doesNotMatch(
+    box.innerHTML,
+    /yolen-seller-message-actions/,
+  )
+
+  assert.equal(harness.copied.length, 0)
+  assert.equal(harness.insertCommandCount, 0)
+  assert.equal(harness.composer.textContent, '')
 })
 
 test('resposta atrasada de outra conversa não substitui o cliente atual', async () => {

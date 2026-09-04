@@ -527,56 +527,100 @@ export async function POST(request: Request) {
       // configurada (nenhum env do Vercel é alterado por este código).
       // Em ambos os casos, MESSAGE_INTELLIGENCE_SELLER_MODE /
       // MESSAGE_INTELLIGENCE_SELLER_COMPANY_IDS continuam sendo o gate de
-      // ativação por empresa, e qualquer resultado não seguro cai para o
-      // fallback legacy abaixo — nunca de V2 para V1.
+      // ativação por empresa.
       const engineVersion =
         resolveMessageIntelligenceEngineVersion()
 
-      const activatedGeneration =
-        engineVersion === 'v2'
-          ? await tryGenerateActivatedMessageIntelligenceSellerMessageV2({
-              admin,
-              company_id:
-                identity.company_id,
-              seller_user_id:
-                token.sub,
-              cycle_id:
-                identity.cycle_id,
-              conversation_key:
-                identity.conversation_key,
-              seller_intent:
-                sellerIntent,
-              reference_time:
-                shadowReferenceTime,
-            })
-          : await tryGenerateActivatedMessageIntelligenceSellerMessageV1({
-              admin,
-              company_id:
-                identity.company_id,
-              seller_user_id:
-                token.sub,
-              cycle_id:
-                identity.cycle_id,
-              conversation_key:
-                identity.conversation_key,
-              seller_intent:
-                sellerIntent,
-              reference_time:
-                shadowReferenceTime,
-            })
+      if (engineVersion === 'v2') {
+        const v2Result =
+          await tryGenerateActivatedMessageIntelligenceSellerMessageV2({
+            admin,
+            company_id:
+              identity.company_id,
+            seller_user_id:
+              token.sub,
+            cycle_id:
+              identity.cycle_id,
+            conversation_key:
+              identity.conversation_key,
+            seller_intent:
+              sellerIntent,
+            reference_time:
+              shadowReferenceTime,
+          })
 
-      if (activatedGeneration) {
-        return NextResponse.json(
-          {
-            ok: true,
-            data:
-              activatedGeneration,
-          },
-          {
-            status: 200,
-            headers: corsHeaders,
-          },
-        )
+        if (v2Result?.outcome === 'message') {
+          return NextResponse.json(
+            {
+              ok: true,
+              data: {
+                status: v2Result.status,
+                message: v2Result.message,
+                error: v2Result.error,
+              },
+            },
+            {
+              status: 200,
+              headers: corsHeaders,
+            },
+          )
+        }
+
+        if (v2Result?.outcome === 'silence') {
+          // Silêncio válido: o MIE V2 concluiu, sem erro, que nenhuma
+          // mensagem deveria ser sugerida agora. Isso NÃO é um fallback
+          // técnico — não chamamos composeSellerMessage aqui, ou a
+          // decisão de silêncio do V2 seria substituída por uma mensagem
+          // legacy não solicitada.
+          return NextResponse.json(
+            {
+              ok: true,
+              data: {
+                status: 'no_message',
+                message: null,
+                error: null,
+              },
+            },
+            {
+              status: 200,
+              headers: corsHeaders,
+            },
+          )
+        }
+
+        // v2Result === null: V2 não está ativo para a empresa ou falhou
+        // tecnicamente (config/provider/output inválido) — segue para o
+        // fallback legacy abaixo, exatamente como o V1 já faz hoje.
+      } else {
+        const v1Result =
+          await tryGenerateActivatedMessageIntelligenceSellerMessageV1({
+            admin,
+            company_id:
+              identity.company_id,
+            seller_user_id:
+              token.sub,
+            cycle_id:
+              identity.cycle_id,
+            conversation_key:
+              identity.conversation_key,
+            seller_intent:
+              sellerIntent,
+            reference_time:
+              shadowReferenceTime,
+          })
+
+        if (v1Result) {
+          return NextResponse.json(
+            {
+              ok: true,
+              data: v1Result,
+            },
+            {
+              status: 200,
+              headers: corsHeaders,
+            },
+          )
+        }
       }
 
       const currentInteraction =

@@ -63,6 +63,16 @@ function fakeRun({
   }
 }
 
+function spyingPersist(
+  recorded,
+  impl = async () => {},
+) {
+  return async ({ telemetry }) => {
+    recorded.push(telemetry)
+    return impl()
+  }
+}
+
 function baseArguments(dependencies) {
   return {
     admin: {},
@@ -111,26 +121,80 @@ test(
 )
 
 test(
-  'V2 seller activation: run gerado e seguro pode ser seller-facing',
+  'V2 seller activation: run gerado e seguro pode ser seller-facing (outcome=message)',
   async () => {
+    const recorded = []
+
     const result =
       await tryGenerateActivatedMessageIntelligenceSellerMessageV2(
         baseArguments({
           run_message_intelligence_v2: async () =>
             fakeRun(),
+          persist_telemetry:
+            spyingPersist(recorded),
         }),
       )
 
     assert.deepEqual(result, {
+      outcome: 'message',
       status: 'ready',
       message: 'Mensagem produzida pelo MIE V2.',
       error: null,
     })
+
+    assert.equal(recorded.length, 1)
+    assert.equal(
+      recorded[0].event_type,
+      'active_selected',
+    )
+    assert.equal(
+      recorded[0].final_status,
+      'selected',
+    )
+    assert.equal(
+      recorded[0].would_surface_message,
+      true,
+    )
   },
 )
 
 test(
-  'V2 seller activation: no_message cai para o fallback (retorna null)',
+  'V2 seller activation: silêncio válido (no_message) retorna outcome=silence, NUNCA null — não pode cair para o fallback legacy',
+  async () => {
+    const recorded = []
+
+    const result =
+      await tryGenerateActivatedMessageIntelligenceSellerMessageV2(
+        baseArguments({
+          run_message_intelligence_v2: async () =>
+            fakeRun({
+              status: 'no_message',
+              message: null,
+              wouldSurface: false,
+            }),
+          persist_telemetry:
+            spyingPersist(recorded),
+        }),
+      )
+
+    assert.deepEqual(result, {
+      outcome: 'silence',
+    })
+
+    assert.equal(recorded.length, 1)
+    assert.equal(
+      recorded[0].event_type,
+      'active_fallback_no_message',
+    )
+    assert.equal(
+      recorded[0].final_status,
+      'no_acceptable_message',
+    )
+  },
+)
+
+test(
+  'V2 seller activation: silêncio válido continua outcome=silence mesmo se a telemetria falhar ao persistir',
   async () => {
     const result =
       await tryGenerateActivatedMessageIntelligenceSellerMessageV2(
@@ -141,31 +205,69 @@ test(
               message: null,
               wouldSurface: false,
             }),
+          persist_telemetry: async () => {
+            throw new Error(
+              'persist failed',
+            )
+          },
         }),
       )
 
-    assert.equal(result, null)
+    // Silêncio não expõe conteúdo nenhum ao cliente, então a regra de
+    // "nenhuma exposição sem trilha durável" (que existe para proteger
+    // active_selected) não se aplica aqui — bloquear o silêncio faria o
+    // chamador cair para o legacy e substituir uma decisão válida por uma
+    // mensagem não solicitada.
+    assert.deepEqual(result, {
+      outcome: 'silence',
+    })
   },
 )
 
-test(
-  'V2 seller activation: config_not_ready cai para o fallback (retorna null)',
-  async () => {
-    const result =
-      await tryGenerateActivatedMessageIntelligenceSellerMessageV2(
-        baseArguments({
-          run_message_intelligence_v2: async () =>
-            fakeRun({
-              status: 'config_not_ready',
-              message: null,
-              wouldSurface: false,
-            }),
-        }),
+for (
+  const status of [
+    'config_not_ready',
+    'provider_error',
+    'invalid_output',
+  ]
+) {
+  test(
+    `V2 seller activation: falha técnica (${status}) cai para o fallback (retorna null) com telemetria active_execution_failed`,
+    async () => {
+      const recorded = []
+
+      const result =
+        await tryGenerateActivatedMessageIntelligenceSellerMessageV2(
+          baseArguments({
+            run_message_intelligence_v2: async () =>
+              fakeRun({
+                status,
+                message: null,
+                wouldSurface: false,
+              }),
+            persist_telemetry:
+              spyingPersist(recorded),
+          }),
+        )
+
+      assert.equal(result, null)
+
+      assert.equal(recorded.length, 1)
+      assert.equal(
+        recorded[0].event_type,
+        'active_execution_failed',
       )
-
-    assert.equal(result, null)
-  },
-)
+      assert.equal(
+        recorded[0].final_status,
+        null,
+      )
+      assert.equal(
+        recorded[0].would_surface_message,
+        null,
+      )
+    },
+  )
+}
 
 test(
   'V2 seller activation: automatic_send=true nunca pode ser surfado',
@@ -187,16 +289,29 @@ test(
 test(
   'V2 seller activation: erro do runner é contido e cai para o fallback',
   async () => {
+    const recorded = []
+
     const result =
       await tryGenerateActivatedMessageIntelligenceSellerMessageV2(
         baseArguments({
           run_message_intelligence_v2: async () => {
             throw new Error('boom')
           },
+          persist_telemetry:
+            spyingPersist(recorded),
         }),
       )
 
     assert.equal(result, null)
+    assert.equal(recorded.length, 1)
+    assert.equal(
+      recorded[0].event_type,
+      'active_execution_failed',
+    )
+    assert.equal(
+      recorded[0].final_status,
+      null,
+    )
   },
 )
 

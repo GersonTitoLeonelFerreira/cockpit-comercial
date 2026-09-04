@@ -36,11 +36,28 @@ type SellerActivationEnvironment =
     >
   >
 
-type SellerMessageGenerationV1 = {
-  status: 'ready'
-  message: string
-  error: null
-}
+// Silêncio válido (o modelo concluiu, sem erro, que nada deveria ser
+// dito agora) NÃO é a mesma coisa que "V2 não rodou/falhou tecnicamente".
+// Um outcome discriminado evita que os dois colapsem no mesmo `null` e
+// sejam ambos tratados como "cair para o fallback legacy":
+//   outcome='message'  -> mensagem V2 segura, pronta para surfar.
+//   outcome='silence'  -> V2 decidiu corretamente não intervir; o
+//                         chamador NÃO deve gerar uma mensagem legacy
+//                         para preencher o espaço.
+//   null                -> V2 não está ativo para a empresa, ou falhou
+//                         tecnicamente (config/provider/output inválido);
+//                         o chamador cai para o fallback legacy existente,
+//                         exatamente como o V1 já faz hoje.
+export type MessageIntelligenceSellerActivationV2Result =
+  | {
+      outcome: 'message'
+      status: 'ready'
+      message: string
+      error: null
+    }
+  | {
+      outcome: 'silence'
+    }
 
 export type MessageIntelligenceSellerActivationV2Dependencies = {
   env?: SellerActivationEnvironment
@@ -61,14 +78,78 @@ export type MessageIntelligenceSellerActivationV2Dependencies = {
     () => number
 }
 
+function logInfo(
+  event: string,
+  fields: Record<string, unknown>,
+) {
+  console.info(
+    'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE_V2',
+    JSON.stringify({
+      event,
+      engine_version: 'v2',
+      ...fields,
+    }),
+  )
+}
+
+function logWarn(
+  event: string,
+  fields: Record<string, unknown>,
+) {
+  console.warn(
+    'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE_V2',
+    JSON.stringify({
+      event,
+      engine_version: 'v2',
+      ...fields,
+    }),
+  )
+}
+
+async function persistBestEffort({
+  admin,
+  persistTelemetry,
+  telemetry,
+  sourceEvent,
+  company_id,
+  cycle_id,
+}: {
+  admin: SupabaseClient
+  persistTelemetry:
+    typeof persistMessageIntelligenceActivePilotTelemetryV1
+  telemetry: Parameters<
+    typeof persistMessageIntelligenceActivePilotTelemetryV1
+  >[0]['telemetry']
+  sourceEvent: string
+  company_id: string
+  cycle_id: string
+}): Promise<boolean> {
+  try {
+    await persistTelemetry({
+      admin,
+      telemetry,
+    })
+
+    return true
+  } catch {
+    logWarn(
+      'active_telemetry_persist_failed',
+      {
+        source_event: sourceEvent,
+        company_id,
+        cycle_id,
+      },
+    )
+
+    return false
+  }
+}
+
 /**
- * Ativação seller-facing do MIE V2. Mesmo contrato de retorno e as mesmas
- * regras de ativação por empresa do V1 (MESSAGE_INTELLIGENCE_SELLER_MODE /
- * MESSAGE_INTELLIGENCE_SELLER_COMPANY_IDS, wildcard proibido) — a escolha
- * de motor (V1 x V2) é decidida antes, pela rota, via
- * MESSAGE_INTELLIGENCE_ENGINE_VERSION. Qualquer resultado que não seja uma
- * mensagem final segura para surfar retorna null, e o chamador cai para o
- * fallback legacy existente — nunca para o V1.
+ * Ativação seller-facing do MIE V2. Mesmas regras de ativação por empresa
+ * do V1 (MESSAGE_INTELLIGENCE_SELLER_MODE / MESSAGE_INTELLIGENCE_SELLER_COMPANY_IDS,
+ * wildcard proibido) — a escolha de motor (V1 x V2) é decidida antes, pela
+ * rota, via MESSAGE_INTELLIGENCE_ENGINE_VERSION.
  */
 export async function tryGenerateActivatedMessageIntelligenceSellerMessageV2({
   admin,
@@ -90,7 +171,7 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV2({
   dependencies?:
     MessageIntelligenceSellerActivationV2Dependencies
 }): Promise<
-  SellerMessageGenerationV1 | null
+  MessageIntelligenceSellerActivationV2Result | null
 > {
   const env =
     dependencies.env ??
@@ -160,45 +241,28 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV2({
     const durationMs =
       now() - startedAt
 
-    const telemetry =
-      buildMessageIntelligenceActivePilotTelemetryV2({
-        event_type:
-          'active_execution_failed',
-
-        company_id,
-        seller_user_id,
-        cycle_id,
-
-        duration_ms: durationMs,
-
-        run: null,
-      })
-
-    try {
-      await persistTelemetry({
-        admin,
-        telemetry,
-      })
-    } catch {
-      console.warn(
-        'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE_V2',
-        JSON.stringify({
-          event:
-            'active_telemetry_persist_failed',
-          source_event:
+    await persistBestEffort({
+      admin,
+      persistTelemetry,
+      telemetry:
+        buildMessageIntelligenceActivePilotTelemetryV2({
+          event_type:
             'active_execution_failed',
           company_id,
+          seller_user_id,
           cycle_id,
+          duration_ms: durationMs,
+          run: null,
         }),
-      )
-    }
+      sourceEvent:
+        'active_execution_failed',
+      company_id,
+      cycle_id,
+    })
 
-    console.warn(
-      'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE_V2',
-      JSON.stringify({
-        event:
-          'seller_message_execution_failed',
-        engine_version: 'v2',
+    logWarn(
+      'seller_message_execution_failed',
+      {
         company_id,
         cycle_id,
         duration_ms: durationMs,
@@ -206,7 +270,7 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV2({
           error instanceof Error
             ? error.name
             : 'unknown',
-      }),
+      },
     )
 
     return null
@@ -215,42 +279,37 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV2({
   const durationMs =
     now() - startedAt
 
-  console.info(
-    'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE_V2',
-    JSON.stringify({
-      event: 'v2_run_completed',
-      engine_version: 'v2',
-      company_id,
-      cycle_id,
-      status: run.status,
-      would_surface_message:
-        run.safety.would_surface_message,
-      provider:
-        run.execution?.provider ?? null,
-      model:
-        run.execution?.model ??
-        (run.model_config.status === 'ready'
-          ? run.model_config.model
-          : null),
-      model_source:
-        run.model_config.status === 'ready'
-          ? run.model_config.source
-          : null,
-      request_id:
-        run.execution?.request_id ?? null,
-      usage:
-        run.execution?.usage ?? null,
-      attempts:
-        run.execution?.attempts ?? null,
-      repaired:
-        run.execution
-          ?.recovered_after_retry ??
-        false,
-      error_code:
-        run.error?.code ?? null,
-      duration_ms: durationMs,
-    }),
-  )
+  logInfo('v2_run_completed', {
+    company_id,
+    cycle_id,
+    status: run.status,
+    would_surface_message:
+      run.safety.would_surface_message,
+    provider:
+      run.execution?.provider ?? null,
+    model:
+      run.execution?.model ??
+      (run.model_config.status === 'ready'
+        ? run.model_config.model
+        : null),
+    model_source:
+      run.model_config.status === 'ready'
+        ? run.model_config.source
+        : null,
+    request_id:
+      run.execution?.request_id ?? null,
+    usage:
+      run.execution?.usage ?? null,
+    attempts:
+      run.execution?.attempts ?? null,
+    repaired:
+      run.execution
+        ?.recovered_after_retry ??
+      false,
+    error_code:
+      run.error?.code ?? null,
+    duration_ms: durationMs,
+  })
 
   const finalMessage =
     run.final_message?.trim() ?? ''
@@ -263,81 +322,94 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV2({
     run.safety.would_surface_message === true &&
     Boolean(finalMessage)
 
-  if (!safeToSurface) {
-    const telemetry =
+  if (safeToSurface) {
+    const persisted =
+      await persistBestEffort({
+        admin,
+        persistTelemetry,
+        telemetry:
+          buildMessageIntelligenceActivePilotTelemetryV2({
+            event_type: 'active_selected',
+            company_id,
+            seller_user_id,
+            cycle_id,
+            duration_ms: durationMs,
+            run,
+          }),
+        sourceEvent: 'active_selected',
+        company_id,
+        cycle_id,
+      })
+
+    if (!persisted) {
+      // Mesma regra do piloto V1: nenhuma exposição active_selected sem
+      // trilha durável confirmada. Cai para o fallback legacy.
+      logWarn(
+        'active_selected_telemetry_required_but_failed',
+        {
+          company_id,
+          cycle_id,
+        },
+      )
+
+      return null
+    }
+
+    return {
+      outcome: 'message',
+      status: 'ready',
+      message: finalMessage,
+      error: null,
+    }
+  }
+
+  if (run.status === 'no_message') {
+    // Silêncio válido: o modelo concluiu, sem erro, que nada deveria ser
+    // dito agora. Isso NÃO é uma falha nem gera exposição de conteúdo —
+    // por isso a persistência é best-effort (não bloqueia o outcome) e o
+    // chamador nunca deve substituir esta decisão por uma mensagem legacy.
+    await persistBestEffort({
+      admin,
+      persistTelemetry,
+      telemetry:
+        buildMessageIntelligenceActivePilotTelemetryV2({
+          event_type:
+            'active_fallback_no_message',
+          company_id,
+          seller_user_id,
+          cycle_id,
+          duration_ms: durationMs,
+          run,
+        }),
+      sourceEvent:
+        'active_fallback_no_message',
+      company_id,
+      cycle_id,
+    })
+
+    return { outcome: 'silence' }
+  }
+
+  // run.status ∈ {config_not_ready, provider_error, invalid_output}, ou
+  // 'generated' que falhou nas checagens de segurança redundantes acima —
+  // falha técnica real, não uma decisão válida. Fallback legacy.
+  await persistBestEffort({
+    admin,
+    persistTelemetry,
+    telemetry:
       buildMessageIntelligenceActivePilotTelemetryV2({
         event_type:
-          'active_fallback_no_message',
-
+          'active_execution_failed',
         company_id,
         seller_user_id,
         cycle_id,
-
         duration_ms: durationMs,
-
         run,
-      })
-
-    try {
-      await persistTelemetry({
-        admin,
-        telemetry,
-      })
-    } catch {
-      console.warn(
-        'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE_V2',
-        JSON.stringify({
-          event:
-            'active_telemetry_persist_failed',
-          source_event:
-            'active_fallback_no_message',
-          company_id,
-          cycle_id,
-        }),
-      )
-    }
-
-    return null
-  }
-
-  const telemetry =
-    buildMessageIntelligenceActivePilotTelemetryV2({
-      event_type:
-        'active_selected',
-
-      company_id,
-      seller_user_id,
-      cycle_id,
-
-      duration_ms: durationMs,
-
-      run,
-    })
-
-  try {
-    // Mesma regra do piloto V1: nenhuma exposição ativa sem trilha
-    // durável confirmada.
-    await persistTelemetry({
-      admin,
-      telemetry,
-    })
-  } catch {
-    console.warn(
-      'YOLEN_MESSAGE_INTELLIGENCE_ACTIVE_V2',
-      JSON.stringify({
-        event:
-          'active_selected_telemetry_required_but_failed',
-        company_id,
-        cycle_id,
       }),
-    )
+    sourceEvent: 'active_execution_failed',
+    company_id,
+    cycle_id,
+  })
 
-    return null
-  }
-
-  return {
-    status: 'ready',
-    message: finalMessage,
-    error: null,
-  }
+  return null
 }
