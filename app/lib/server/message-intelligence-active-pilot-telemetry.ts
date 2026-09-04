@@ -8,6 +8,10 @@ import type {
   MessageIntelligenceRunResultV1,
 } from '@/app/lib/companion/message-intelligence/message-intelligence-runner'
 
+import type {
+  MessageIntelligenceRunResultV2,
+} from '@/app/lib/companion/message-intelligence/v2/runner'
+
 const ACTIVE_PILOT_TABLE =
   'message_intelligence_active_pilot_events'
 
@@ -167,6 +171,88 @@ export function buildMessageIntelligenceActivePilotTelemetryV1({
     automatic_agenda_write:
       evaluation
         ?.automatic_agenda_write ??
+      false,
+  }
+}
+
+/**
+ * Mesma tabela/contrato de telemetria do V1 — engine_version=v2 não exige
+ * migration. A persistência (persistMessageIntelligenceActivePilotTelemetryV1)
+ * é reaproveitada sem alteração. Score e critic status do V2 não existem
+ * neste primeiro corte (não há reranking multi-candidate nem critic
+ * separado); os campos ficam null aqui e a distinção de motor fica nos
+ * logs estruturados (console), nunca no conteúdo persistido.
+ */
+export function buildMessageIntelligenceActivePilotTelemetryV2({
+  event_type,
+  company_id,
+  seller_user_id,
+  cycle_id,
+  duration_ms,
+  run,
+}: {
+  event_type:
+    MessageIntelligenceActivePilotEventV1
+
+  company_id:
+    string
+
+  seller_user_id:
+    string
+
+  cycle_id:
+    string
+
+  duration_ms:
+    number
+
+  run:
+    MessageIntelligenceRunResultV2 | null
+}): MessageIntelligenceActivePilotTelemetryV1 {
+  return {
+    event_type,
+
+    company_id,
+
+    seller_user_id,
+
+    cycle_id,
+
+    duration_ms:
+      normalizeDuration(
+        duration_ms,
+      ),
+
+    final_status:
+      run?.status ??
+      null,
+
+    would_surface_message:
+      run?.safety
+        .would_surface_message ??
+      null,
+
+    selected_overall_score:
+      null,
+
+    hard_gate_status:
+      null,
+
+    selected_critic_status:
+      null,
+
+    automatic_send:
+      run?.safety.automatic_send ??
+      false,
+
+    automatic_crm_write:
+      run?.safety
+        .automatic_crm_write ??
+      false,
+
+    automatic_agenda_write:
+      run?.safety
+        .automatic_agenda_write ??
       false,
   }
 }

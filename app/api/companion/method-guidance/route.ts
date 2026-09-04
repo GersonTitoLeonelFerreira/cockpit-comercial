@@ -57,6 +57,14 @@ import {
   tryGenerateActivatedMessageIntelligenceSellerMessageV1,
 } from '../../../lib/server/message-intelligence-seller-activation'
 
+import {
+  tryGenerateActivatedMessageIntelligenceSellerMessageV2,
+} from '../../../lib/server/message-intelligence-seller-activation-v2'
+
+import {
+  resolveMessageIntelligenceEngineVersion,
+} from '../../../lib/server/message-intelligence-engine-version'
+
 type MethodGuidanceBody = {
   cycle_id?: unknown
   conversation_key?: unknown
@@ -514,22 +522,48 @@ export async function POST(request: Request) {
       const shadowReferenceTime =
         new Date().toISOString()
 
+      // Seleção de motor backward-safe: default V1. V2 só entra quando
+      // MESSAGE_INTELLIGENCE_ENGINE_VERSION=v2 estiver explicitamente
+      // configurada (nenhum env do Vercel é alterado por este código).
+      // Em ambos os casos, MESSAGE_INTELLIGENCE_SELLER_MODE /
+      // MESSAGE_INTELLIGENCE_SELLER_COMPANY_IDS continuam sendo o gate de
+      // ativação por empresa, e qualquer resultado não seguro cai para o
+      // fallback legacy abaixo — nunca de V2 para V1.
+      const engineVersion =
+        resolveMessageIntelligenceEngineVersion()
+
       const activatedGeneration =
-        await tryGenerateActivatedMessageIntelligenceSellerMessageV1({
-          admin,
-          company_id:
-            identity.company_id,
-          seller_user_id:
-            token.sub,
-          cycle_id:
-            identity.cycle_id,
-          conversation_key:
-            identity.conversation_key,
-          seller_intent:
-            sellerIntent,
-          reference_time:
-            shadowReferenceTime,
-        })
+        engineVersion === 'v2'
+          ? await tryGenerateActivatedMessageIntelligenceSellerMessageV2({
+              admin,
+              company_id:
+                identity.company_id,
+              seller_user_id:
+                token.sub,
+              cycle_id:
+                identity.cycle_id,
+              conversation_key:
+                identity.conversation_key,
+              seller_intent:
+                sellerIntent,
+              reference_time:
+                shadowReferenceTime,
+            })
+          : await tryGenerateActivatedMessageIntelligenceSellerMessageV1({
+              admin,
+              company_id:
+                identity.company_id,
+              seller_user_id:
+                token.sub,
+              cycle_id:
+                identity.cycle_id,
+              conversation_key:
+                identity.conversation_key,
+              seller_intent:
+                sellerIntent,
+              reference_time:
+                shadowReferenceTime,
+            })
 
       if (activatedGeneration) {
         return NextResponse.json(
