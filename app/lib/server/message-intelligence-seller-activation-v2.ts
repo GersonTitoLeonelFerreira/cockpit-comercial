@@ -306,9 +306,28 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV2({
       run.execution
         ?.recovered_after_retry ??
       false,
+    repair_reason:
+      run.execution?.repair_reason ?? null,
     error_code:
       run.error?.code ?? null,
     duration_ms: durationMs,
+
+    // Custo/latência por fase (nunca conteúdo) — primary, critic
+    // primeira/segunda avaliação e a regeneração de repair, quando
+    // houver.
+    phase_durations_ms:
+      run.phase_durations_ms,
+
+    critic_first_verdict:
+      run.critic?.first.verdict ?? null,
+    critic_first_usage:
+      run.critic?.first.execution.usage ??
+      null,
+    critic_second_verdict:
+      run.critic?.second?.verdict ?? null,
+    critic_second_usage:
+      run.critic?.second?.execution
+        .usage ?? null,
   })
 
   const finalMessage =
