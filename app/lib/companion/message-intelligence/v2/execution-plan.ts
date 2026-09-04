@@ -22,6 +22,9 @@ export const MESSAGE_INTELLIGENCE_V2_PROMPT_VERSION =
 export const MESSAGE_INTELLIGENCE_V2_REPAIR_INSTRUCTION =
   'Repare somente o caminho indicado e retorne novamente o objeto completo conforme o schema. Use apenas IDs presentes em allowed_evidence que sustentem diretamente cada afirmação verificável; se nenhum ID sustentar uma afirmação, remova-a ou reescreva suggested_message sem ela em vez de inventar ou reutilizar evidência indevida.' as const
 
+export const MESSAGE_INTELLIGENCE_V2_SEMANTIC_REPAIR_INSTRUCTION =
+  'Um revisor semântico separado avaliou a candidate anterior e apontou o problema em semantic_repair_context abaixo. Corrija exclusivamente o que foi apontado, preservando tudo que já estava correto na candidate anterior. Não invente fato novo para compensar a correção — se não houver evidência real em allowed_evidence para sustentar algo, remova a afirmação ou reformule suggested_message sem ela. Retorne novamente o objeto completo conforme o schema.' as const
+
 const V2_CONTEXT_BRIDGE_MAX_MESSAGES = 6
 
 export type MessageIntelligenceV2AllowedEvidence = {
@@ -642,6 +645,47 @@ export function buildMessageIntelligenceV2RepairExecutionPlan({
           previous_failure_invariant,
           instruction:
             MESSAGE_INTELLIGENCE_V2_REPAIR_INSTRUCTION,
+        },
+      }),
+  }
+}
+
+export type MessageIntelligenceV2SemanticRepairContext = {
+  reason_codes: string[]
+  unsupported_claim_indexes: number[]
+  concise_feedback: string | null
+}
+
+// Repair da geração PRIMÁRIA acionado pelo veredito "repair" do semantic
+// critic (não pela validação determinística — essa usa
+// buildMessageIntelligenceV2RepairExecutionPlan acima). Mesma mecânica de 1
+// repair no máximo: o orçamento de regeneração é compartilhado entre
+// reparo determinístico e reparo por critic — nunca os dois no mesmo run.
+export function buildMessageIntelligenceV2CriticDrivenRepairExecutionPlan({
+  plan,
+  critic_feedback,
+}: {
+  plan:
+    MessageIntelligenceV2ExecutionPlan
+
+  critic_feedback:
+    MessageIntelligenceV2SemanticRepairContext
+}): MessageIntelligenceV2ExecutionPlan {
+  const originalPayload =
+    JSON.parse(
+      plan.user_prompt,
+    ) as Record<string, unknown>
+
+  return {
+    ...plan,
+
+    user_prompt:
+      JSON.stringify({
+        ...originalPayload,
+        semantic_repair_context: {
+          ...critic_feedback,
+          instruction:
+            MESSAGE_INTELLIGENCE_V2_SEMANTIC_REPAIR_INSTRUCTION,
         },
       }),
   }

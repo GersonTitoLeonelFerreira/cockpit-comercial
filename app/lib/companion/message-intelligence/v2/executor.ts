@@ -79,6 +79,12 @@ export type MessageIntelligenceV2Execution = {
 
   attempts: 1 | 2
   recovered_after_retry: boolean
+
+  // null quando attempts=1 (nenhum repair ocorreu). O runner sobrescreve
+  // para 'semantic_critic' quando a regeneração foi acionada pelo
+  // veredito do critic em vez de uma falha de validação determinística.
+  repair_reason:
+    'deterministic' | 'semantic_critic' | null
 }
 
 export type MessageIntelligenceV2ExecutionResult = {
@@ -1196,7 +1202,9 @@ async function executeAttempt({
   output: MessageIntelligenceV2Output
   execution: Omit<
     MessageIntelligenceV2Execution,
-    'attempts' | 'recovered_after_retry'
+    | 'attempts'
+    | 'recovered_after_retry'
+    | 'repair_reason'
   >
 }> {
   let response: StatefulCopilotProviderResponse
@@ -1287,6 +1295,10 @@ function buildResult({
       ...result.execution,
       attempts,
       recovered_after_retry: attempts === 2,
+      repair_reason:
+        attempts === 2
+          ? 'deterministic'
+          : null,
     },
   }
 }
@@ -1308,6 +1320,34 @@ function readFailureMetadata(
         ? details.v2_failure_invariant
         : error.code,
   }
+}
+
+// Primitiva de tentativa única (gera + valida deterministicamente uma vez,
+// sem repair automático embutido). Usada pelo runner para a regeneração
+// acionada pelo semantic critic, que compartilha o mesmo orçamento de "no
+// máximo 2 gerações totais" com o repair determinístico — nunca uma
+// terceira geração.
+export async function executeMessageIntelligenceV2SingleAttempt({
+  plan,
+  provider,
+}: {
+  plan: MessageIntelligenceV2ExecutionPlan
+  provider: StatefulCopilotProvider
+}): Promise<{
+  output: MessageIntelligenceV2Output
+  execution: Omit<
+    MessageIntelligenceV2Execution,
+    | 'attempts'
+    | 'recovered_after_retry'
+    | 'repair_reason'
+  >
+}> {
+  validatePlan(plan)
+
+  return executeAttempt({
+    plan,
+    provider,
+  })
 }
 
 export async function executeMessageIntelligenceV2Plan({
