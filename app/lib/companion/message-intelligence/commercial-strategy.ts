@@ -47,11 +47,88 @@ function normalizeText(
     .toLocaleLowerCase('pt-BR')
 }
 
+function supportAvailabilityIntent(
+  text: string,
+): boolean {
+  const hasOffer =
+    /\b(?:oferecer|ofereco|manter|ficar|deixar)\b/u.test(
+      text,
+    )
+  const hasSupport =
+    /\b(?:apoio|ajuda|auxilio|auxiliar|disponibilidade|disponivel)\b/u.test(
+      text,
+    )
+  const hasSupportContext =
+    /\b(?:pendenc|administrativ|operacion|duvid|necessidad|ajudar)\w*/u.test(
+      text,
+    )
+
+  return (
+    (hasOffer && hasSupport) ||
+    (hasSupport && hasSupportContext)
+  )
+}
+
+function explicitClarificationIntent(
+  text: string,
+): boolean {
+  return [
+    'confirmar com o cliente se',
+    'confirmar com a cliente se',
+    'perguntar ao cliente se',
+    'perguntar para o cliente se',
+    'perguntar preferencia',
+    'perguntar a preferencia',
+    'perguntar qual formato',
+    'perguntar se prefere',
+    'preferencia de formato',
+  ].some(term =>
+    text.includes(term),
+  )
+}
+
+function commitmentConfirmationIntent(
+  text: string,
+): boolean {
+  return (
+    /\b(?:confirmar|reafirmar)\b.*\b(?:agendamento|horario combinado|demonstracao|encontro|reuniao|compromisso|fechamento)\b/u.test(
+      text,
+    ) ||
+    /\b(?:agendamento|horario combinado|demonstracao|encontro|reuniao|compromisso)\b.*\bconfirmar\b/u.test(
+      text,
+    )
+  )
+}
+
 export function inferSellerRequestedMoveV1(
   sellerIntent: string,
 ): CommercialMoveV1 | null {
   const text =
     normalizeText(sellerIntent)
+
+  if (
+    supportAvailabilityIntent(
+      text,
+    )
+  ) {
+    return 'no_commercial_move'
+  }
+
+  if (
+    explicitClarificationIntent(
+      text,
+    )
+  ) {
+    return 'clarify_request'
+  }
+
+  if (
+    commitmentConfirmationIntent(
+      text,
+    )
+  ) {
+    return 'confirm_commitment'
+  }
 
   const rules: Array<{
     move: CommercialMoveV1
@@ -136,6 +213,8 @@ export function inferSellerRequestedMoveV1(
         'perguntar',
         'descobrir',
         'diagnosticar',
+        'entender melhor a necessidade',
+        'entender a necessidade',
       ],
     },
     {
