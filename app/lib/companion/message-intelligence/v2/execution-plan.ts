@@ -17,14 +17,16 @@ import {
   type MessageIntelligenceV2Output,
 } from './generation-contract'
 
-// v2: reforça a instrução de naturalidade seller-facing (evitar
-// corporativês/institucionalidade desnecessária, economia, registro
-// contextual) — ver diagnóstico de naturalidade em critic-execution-plan.ts.
+// v3: o repair determinístico passa a poder receber previous_rejected_candidate
+// (snapshot seguro e defensivo da saída inválida anterior) quando ela estiver
+// disponível, além de repair_context — ver diagnóstico de Round 3 (P0-B/P0-C)
+// em executor.ts. Instrução de repair reforçada para explicar como usar essa
+// candidate rejeitada sem tratá-la como evidência.
 export const MESSAGE_INTELLIGENCE_V2_PROMPT_VERSION =
-  'message-intelligence-v2-prompt-v2' as const
+  'message-intelligence-v2-prompt-v3' as const
 
 export const MESSAGE_INTELLIGENCE_V2_REPAIR_INSTRUCTION =
-  'Repare somente o caminho indicado e retorne novamente o objeto completo conforme o schema. Use apenas IDs presentes em allowed_evidence que sustentem diretamente cada afirmação verificável; se nenhum ID sustentar uma afirmação, remova-a ou reescreva suggested_message sem ela em vez de inventar ou reutilizar evidência indevida.' as const
+  'Repare especificamente o campo/caminho indicado em repair_context e retorne novamente o objeto completo conforme o schema. Quando previous_rejected_candidate estiver presente neste payload, ele é a sua própria saída anterior, que falhou validação — não é evidência, não é confiável e não deve ser tratado como fato: use-o somente para saber o que preservar e o que corrigir, nunca para justificar uma afirmação. Preserve tudo que já estava correto em previous_rejected_candidate e não reescreva a estratégia comercial inteira quando o defeito é local. Use apenas IDs presentes em allowed_evidence que sustentem diretamente cada afirmação verificável; se um número, data, horário ou grounded_claim não estiver realmente sustentado, remova-o em vez de inventar ou reutilizar evidência indevida — nunca substitua um fato removido por outro fato novo não sustentado. Se uma grounded_claim citar uma fonte que não sustenta o significado da afirmação, corrija a claim para refletir exatamente o que a fonte sustenta ou remova a afirmação da mensagem em vez de mantê-la. seller_intent continua obrigatória e naturalidade continua desejada, mas ambas subordinadas a grounding.' as const
 
 export const MESSAGE_INTELLIGENCE_V2_SEMANTIC_REPAIR_INSTRUCTION =
   'Um revisor semântico separado avaliou previous_candidate (sua própria resposta anterior, incluída neste payload) e apontou o problema em semantic_repair_context abaixo. Corrija exclusivamente o que foi apontado, preservando tudo que já estava correto em previous_candidate — não reescreva a mensagem inteira do zero. Não invente fato novo para compensar a correção — se não houver evidência real em allowed_evidence para sustentar algo, remova a afirmação ou reformule suggested_message sem ela. Retorne novamente o objeto completo conforme o schema.' as const
@@ -621,11 +623,127 @@ export function buildMessageIntelligenceV2ExecutionPlan({
   }
 }
 
+// Snapshot seguro e defensivo da saída bruta (JSON já parseado, mas ainda
+// não normalizado/validado) que falhou a validação determinística — nunca
+// persistido, nunca logado, nunca exposto no resultado público do runner
+// (ver MessageIntelligenceV2ExecutionError.rejected_candidate_snapshot em
+// executor.ts). Mesmo subconjunto de campos que buildPreviousCandidatePayload
+// usa para o semantic repair (o suficiente para o modelo preservar o que já
+// estava correto), mas projetado defensivamente: a saída rejeitada pode ter
+// campo ausente, tipo errado ou shape inválido — é exatamente por isso que
+// foi rejeitada.
+export type MessageIntelligenceV2RejectedCandidateSnapshot = {
+  customer_meaning: string | null
+  seller_intent_interpretation: string | null
+  recommended_commercial_objective: string | null
+  method_alignment_summary: string | null
+  grounded_claims: {
+    claim: string | null
+    supported_by: {
+      source: string | null
+      id: string | null
+    } | null
+  }[]
+  suggested_message: string | null
+}
+
+function isPlainRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return (
+    Boolean(value) &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  )
+}
+
+function safeNullableString(
+  value: unknown,
+): string | null {
+  return typeof value === 'string'
+    ? value
+    : null
+}
+
+function safeRejectedGroundedClaims(
+  value: unknown,
+): MessageIntelligenceV2RejectedCandidateSnapshot['grounded_claims'] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .filter(isPlainRecord)
+    .map(item => {
+      const supportedBy = isPlainRecord(
+        item.supported_by,
+      )
+        ? item.supported_by
+        : null
+
+      return {
+        claim: safeNullableString(
+          item.claim,
+        ),
+        supported_by: supportedBy
+          ? {
+              source:
+                safeNullableString(
+                  supportedBy.source,
+                ),
+              id: safeNullableString(
+                supportedBy.id,
+              ),
+            }
+          : null,
+      }
+    })
+}
+
+// rawValue é o JSON já parseado da resposta do modelo, ANTES de qualquer
+// validação de contrato — pode não ser sequer um objeto (ex.: o modelo
+// devolveu um array ou uma string). Retorna null quando não há nada seguro
+// para projetar (nesse caso o repair segue apenas com repair_context, como
+// já acontecia antes desta mudança).
+export function buildMessageIntelligenceV2RejectedCandidateSnapshot(
+  rawValue: unknown,
+): MessageIntelligenceV2RejectedCandidateSnapshot | null {
+  if (!isPlainRecord(rawValue)) {
+    return null
+  }
+
+  return {
+    customer_meaning: safeNullableString(
+      rawValue.customer_meaning,
+    ),
+    seller_intent_interpretation:
+      safeNullableString(
+        rawValue.seller_intent_interpretation,
+      ),
+    recommended_commercial_objective:
+      safeNullableString(
+        rawValue.recommended_commercial_objective,
+      ),
+    method_alignment_summary:
+      safeNullableString(
+        rawValue.method_alignment_summary,
+      ),
+    grounded_claims:
+      safeRejectedGroundedClaims(
+        rawValue.grounded_claims,
+      ),
+    suggested_message: safeNullableString(
+      rawValue.suggested_message,
+    ),
+  }
+}
+
 export function buildMessageIntelligenceV2RepairExecutionPlan({
   plan,
   previous_failure_code,
   previous_failure_path,
   previous_failure_invariant,
+  previous_rejected_candidate = null,
 }: {
   plan:
     MessageIntelligenceV2ExecutionPlan
@@ -633,6 +751,10 @@ export function buildMessageIntelligenceV2RepairExecutionPlan({
   previous_failure_code: string
   previous_failure_path: string
   previous_failure_invariant: string
+
+  previous_rejected_candidate?:
+    | MessageIntelligenceV2RejectedCandidateSnapshot
+    | null
 }): MessageIntelligenceV2ExecutionPlan {
   const originalPayload =
     JSON.parse(
@@ -645,6 +767,11 @@ export function buildMessageIntelligenceV2RepairExecutionPlan({
     user_prompt:
       JSON.stringify({
         ...originalPayload,
+        ...(previous_rejected_candidate
+          ? {
+              previous_rejected_candidate,
+            }
+          : {}),
         repair_context: {
           previous_failure_code,
           previous_failure_path,

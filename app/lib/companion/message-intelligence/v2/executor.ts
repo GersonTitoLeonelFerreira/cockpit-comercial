@@ -29,10 +29,12 @@ import {
 } from './generation-contract'
 
 import {
+  buildMessageIntelligenceV2RejectedCandidateSnapshot,
   buildMessageIntelligenceV2RepairExecutionPlan,
   MESSAGE_INTELLIGENCE_V2_PROMPT_VERSION,
   type MessageIntelligenceV2ExecutionPlan,
   type MessageIntelligenceV2NormalizationContext,
+  type MessageIntelligenceV2RejectedCandidateSnapshot,
 } from './execution-plan'
 
 import {
@@ -94,18 +96,32 @@ export type MessageIntelligenceV2ExecutionResult = {
 
 export class MessageIntelligenceV2ExecutionError
   extends StatefulCopilotExecutionError {
+  // Snapshot seguro e defensivo (ver buildMessageIntelligenceV2RejectedCandidateSnapshot
+  // em execution-plan.ts) da saída bruta que falhou validação — nunca
+  // proveniente de details (transporte público de erro compartilhado com
+  // outros usos de StatefulCopilotExecutionError), existe apenas em memória
+  // durante esta execução e NUNCA deve ser lido fora do fluxo interno de
+  // repair determinístico (executeMessageIntelligenceV2Plan). null quando a
+  // primeira tentativa nem chegou a produzir JSON parseável, ou quando a
+  // falha não veio da normalização da saída do modelo.
+  readonly rejected_candidate_snapshot:
+    MessageIntelligenceV2RejectedCandidateSnapshot | null
+
   constructor({
     code,
     message,
     status_code,
     retryable,
     details = null,
+    rejected_candidate_snapshot = null,
   }: {
     code: string
     message: string
     status_code: number
     retryable: boolean
     details?: JsonRecord | null
+    rejected_candidate_snapshot?:
+      MessageIntelligenceV2RejectedCandidateSnapshot | null
   }) {
     super({
       code,
@@ -117,6 +133,9 @@ export class MessageIntelligenceV2ExecutionError
 
     this.name =
       'MessageIntelligenceV2ExecutionError'
+
+    this.rejected_candidate_snapshot =
+      rejected_candidate_snapshot
   }
 }
 
@@ -126,12 +145,15 @@ function fail({
   status_code,
   retryable,
   details,
+  rejected_candidate_snapshot = null,
 }: {
   code: string
   message: string
   status_code: number
   retryable: boolean
   details?: JsonRecord | null
+  rejected_candidate_snapshot?:
+    MessageIntelligenceV2RejectedCandidateSnapshot | null
 }): never {
   throw new MessageIntelligenceV2ExecutionError({
     code,
@@ -139,6 +161,7 @@ function fail({
     status_code,
     retryable,
     details,
+    rejected_candidate_snapshot,
   })
 }
 
@@ -1250,11 +1273,47 @@ async function executeAttempt({
     response.content,
   )
 
+  let output: MessageIntelligenceV2Output
+
+  try {
+    output = normalizeMessageIntelligenceV2Output(
+      {
+        value: rawOutput,
+        context:
+          plan.normalization_context,
+      },
+    )
+  } catch (error) {
+    // rawOutput já é um JSON válido aqui (parseModelOutput não teria
+    // deixado passar o contrário) — anexamos um snapshot seguro dele ao
+    // erro só neste ponto, onde ele ainda está em escopo, para que um
+    // eventual repair determinístico saiba o que a tentativa anterior
+    // escreveu sem precisar confiar em nada dela como evidência. Nunca
+    // persistido, nunca logado — apenas em memória para esta execução.
+    if (
+      error instanceof
+      MessageIntelligenceV2ExecutionError
+    ) {
+      throw new MessageIntelligenceV2ExecutionError(
+        {
+          code: error.code,
+          message: error.message,
+          status_code: error.status_code,
+          retryable: error.retryable,
+          details: error.details,
+          rejected_candidate_snapshot:
+            buildMessageIntelligenceV2RejectedCandidateSnapshot(
+              rawOutput,
+            ),
+        },
+      )
+    }
+
+    throw error
+  }
+
   return {
-    output: normalizeMessageIntelligenceV2Output({
-      value: rawOutput,
-      context: plan.normalization_context,
-    }),
+    output,
 
     execution: {
       mode: 'model',
@@ -1397,6 +1456,8 @@ export async function executeMessageIntelligenceV2Plan({
         firstFailure.path,
       previous_failure_invariant:
         firstFailure.invariant,
+      previous_rejected_candidate:
+        firstError.rejected_candidate_snapshot,
     })
 
   const secondResult = await executeAttempt({

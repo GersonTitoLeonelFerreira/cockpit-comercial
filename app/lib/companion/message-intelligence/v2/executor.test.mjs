@@ -1043,3 +1043,363 @@ test(
     )
   },
 )
+
+// ============================================================================
+// Deterministic repair — previous_rejected_candidate (Round 3, P0-B/P0-C)
+//
+// Até aqui o repair determinístico sabia QUAL regra falhou (failure code/
+// path/invariant), mas não sabia O QUE o modelo escreveu que falhou — a
+// saída bruta da primeira tentativa era descartada. Estes testes provam que
+// a candidate rejeitada agora atravessa para a segunda tentativa (snapshot
+// seguro, nunca como evidência), sem relaxar nenhum gate determinístico e
+// sem abrir uma terceira geração.
+// ============================================================================
+
+function recordingProvider(outputs) {
+  const calls = []
+
+  const provider = async args => {
+    calls.push(args)
+
+    const index = Math.min(
+      calls.length - 1,
+      outputs.length - 1,
+    )
+
+    const next = outputs[index]
+
+    if (next.raw_content !== undefined) {
+      return {
+        content: next.raw_content,
+        provider: 'fake',
+        model: 'fake-model-v2',
+        request_id: `req-${calls.length}`,
+        usage: {
+          input_tokens: 120,
+          output_tokens: 80,
+          total_tokens: 200,
+        },
+      }
+    }
+
+    return {
+      content: JSON.stringify(next.output),
+      provider: 'fake',
+      model: 'fake-model-v2',
+      request_id: `req-${calls.length}`,
+      usage: {
+        input_tokens: 120,
+        output_tokens: 80,
+        total_tokens: 200,
+      },
+    }
+  }
+
+  provider.calls = calls
+
+  return provider
+}
+
+test(
+  'V2 executor: repair determinístico recebe a candidate rejeitada e corrige o fato protegido não sustentado (protected fact repair)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+
+    const rejected = generatedOutput(plan, {
+      suggested_message:
+        'Consigo fechar por R$ 50,00 esse mês, além do acompanhamento estruturado que já conversamos. Topa?',
+    })
+
+    const repaired = generatedOutput(plan, {
+      suggested_message:
+        'O valor cobre o acompanhamento estruturado durante todo o processo. Topa a gente seguir com isso?',
+    })
+
+    const provider = recordingProvider([
+      { output: rejected },
+      { output: repaired },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(result.execution.attempts, 2)
+    assert.equal(
+      result.execution.recovered_after_retry,
+      true,
+    )
+    assert.equal(
+      result.execution.repair_reason,
+      'deterministic',
+    )
+    assert.equal(
+      result.output.suggested_message,
+      repaired.suggested_message,
+    )
+
+    assert.equal(provider.calls.length, 2)
+
+    const repairPayload = JSON.parse(
+      provider.calls[1].user_prompt,
+    )
+
+    assert.ok(
+      repairPayload.previous_rejected_candidate,
+      'previous_rejected_candidate deveria estar presente no repair',
+    )
+    assert.equal(
+      repairPayload.previous_rejected_candidate
+        .suggested_message,
+      rejected.suggested_message,
+    )
+    assert.equal(
+      repairPayload.repair_context
+        .previous_failure_code,
+      'V2_UNSUPPORTED_PROTECTED_FACT',
+    )
+
+    // previous_rejected_candidate nunca pode virar/alterar evidência —
+    // continua isolado dos blocos confiáveis do payload.
+    assert.ok(
+      !(
+        'previous_rejected_candidate' in
+        repairPayload.commercial_context
+      ),
+    )
+    assert.ok(
+      !(
+        'previous_rejected_candidate' in
+        repairPayload.commercial_state
+      ),
+    )
+    assert.ok(
+      !(
+        'previous_rejected_candidate' in
+        repairPayload.allowed_evidence
+      ),
+    )
+    assert.deepEqual(
+      repairPayload.allowed_evidence,
+      JSON.parse(plan.user_prompt)
+        .allowed_evidence,
+    )
+  },
+)
+
+test(
+  'V2 executor: repair determinístico recebe a candidate rejeitada e corrige a grounded_claim não sustentada (grounded claim repair)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    const productId =
+      plan.normalization_context
+        .allowed_evidence.product_ids[0]
+
+    const rejected = generatedOutput(plan, {
+      grounded_claims: [
+        {
+          claim:
+            'O sistema integra automaticamente com qualquer ERP do mercado.',
+          supported_by: {
+            source: 'product',
+            id: productId,
+          },
+        },
+      ],
+      suggested_message:
+        'O sistema integra automaticamente com qualquer ERP do mercado, então não tem com o que se preocupar.',
+    })
+
+    const repaired = generatedOutput(plan, {
+      grounded_claims: [
+        {
+          claim:
+            'O plano inclui acompanhamento estruturado durante todo o processo.',
+          supported_by: {
+            source: 'product',
+            id: productId,
+          },
+        },
+      ],
+      suggested_message:
+        'O plano inclui acompanhamento estruturado durante todo o processo, isso já ajuda no que você precisa?',
+    })
+
+    const provider = recordingProvider([
+      { output: rejected },
+      { output: repaired },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(result.execution.attempts, 2)
+    assert.equal(
+      result.output.suggested_message,
+      repaired.suggested_message,
+    )
+
+    const repairPayload = JSON.parse(
+      provider.calls[1].user_prompt,
+    )
+
+    assert.equal(
+      repairPayload.previous_rejected_candidate
+        .grounded_claims[0].claim,
+      rejected.grounded_claims[0].claim,
+    )
+    assert.equal(
+      repairPayload.repair_context
+        .previous_failure_code,
+      'V2_UNGROUNDED_FACTUAL_CLAIM',
+    )
+  },
+)
+
+test(
+  'V2 executor: primeira tentativa sem JSON parseável não tem previous_rejected_candidate, mas o repair continua funcionando (invalid JSON fallback)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    const repaired = generatedOutput(plan)
+
+    const provider = recordingProvider([
+      { raw_content: 'isso não é JSON' },
+      { output: repaired },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(result.execution.attempts, 2)
+    assert.equal(
+      result.output.suggested_message,
+      repaired.suggested_message,
+    )
+
+    const repairPayload = JSON.parse(
+      provider.calls[1].user_prompt,
+    )
+
+    assert.ok(
+      !(
+        'previous_rejected_candidate' in
+        repairPayload
+      ),
+    )
+    assert.equal(
+      repairPayload.repair_context
+        .previous_failure_code,
+      'INVALID_V2_JSON',
+    )
+  },
+)
+
+test(
+  'V2 executor: candidate rejeitada com campo ausente/tipo inválido não quebra a projeção segura (malformed candidate)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+
+    const rejected = generatedOutput(plan, {
+      // suggested_message com tipo inválido (não é string) e
+      // grounded_claims parcialmente malformado — a saída foi rejeitada
+      // exatamente por isso; a projeção segura precisa lidar com isso sem
+      // lançar exceção.
+      suggested_message: 12345,
+      grounded_claims: [
+        { claim: 'ok', supported_by: 'não é objeto' },
+        'nem é um objeto',
+      ],
+    })
+
+    const repaired = generatedOutput(plan)
+
+    const provider = recordingProvider([
+      { output: rejected },
+      { output: repaired },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(result.execution.attempts, 2)
+    assert.equal(
+      result.output.suggested_message,
+      repaired.suggested_message,
+    )
+
+    const repairPayload = JSON.parse(
+      provider.calls[1].user_prompt,
+    )
+
+    assert.equal(
+      repairPayload.previous_rejected_candidate
+        .suggested_message,
+      null,
+    )
+    assert.equal(
+      repairPayload.previous_rejected_candidate
+        .grounded_claims[0].claim,
+      'ok',
+    )
+    assert.equal(
+      repairPayload.previous_rejected_candidate
+        .grounded_claims[0].supported_by,
+      null,
+    )
+  },
+)
+
+test(
+  'V2 executor: segunda tentativa também inválida continua falhando, sem terceira geração (bounded retry)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+
+    const rejected = generatedOutput(plan, {
+      suggested_message:
+        'Consigo fechar por R$ 50,00 esse mês.',
+    })
+
+    const provider = recordingProvider([
+      { output: rejected },
+      { output: rejected },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_UNSUPPORTED_PROTECTED_FACT',
+        )
+        return true
+      },
+    )
+
+    assert.equal(provider.calls.length, 2)
+
+    const repairPayload = JSON.parse(
+      provider.calls[1].user_prompt,
+    )
+
+    assert.equal(
+      repairPayload.previous_rejected_candidate
+        .suggested_message,
+      rejected.suggested_message,
+    )
+  },
+)

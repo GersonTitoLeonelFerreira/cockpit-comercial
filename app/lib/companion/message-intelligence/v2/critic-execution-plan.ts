@@ -21,12 +21,15 @@ import type {
   MessageIntelligenceV2ExecutionPlan,
 } from './execution-plan'
 
-// v3: critic passa a avaliar explicitamente a naturalidade seller-facing da
-// suggested_message — uma candidate pode ser correta, segura e executar
-// seller_intent e ainda soar institucional/artificial. Ver
-// unnatural_seller_message em critic-contract.ts.
+// v4: fortalece a fronteira entre seller_intent_not_executed e
+// unnatural_seller_message para o caso de retomada/follow-up (Round 3,
+// P0-A) — uma mensagem que apenas expressa disponibilidade futura sem
+// nenhuma ação comercial material do vendedor não executa a retomada,
+// mesmo sendo natural e sem pressão. Nenhum campo novo no contrato
+// estruturado, só reforço conceitual do prompt — contract version não
+// muda.
 export const MESSAGE_INTELLIGENCE_V2_CRITIC_PROMPT_VERSION =
-  'message-intelligence-v2-critic-prompt-v3' as const
+  'message-intelligence-v2-critic-prompt-v4' as const
 
 export type MessageIntelligenceV2CriticExecutionPlan = {
   prompt_version:
@@ -58,6 +61,10 @@ function buildSystemPrompt(): string {
     'seller_intent_not_executed é uma falha diferente de seller_intent_became_fact: became_fact é a candidate transformando o objetivo do vendedor em uma afirmação sobre o cliente sem evidência; not_executed é a candidate não contradizer nada e não inventar fato, mas mesmo assim não cumprir na prática o que seller_intent pede, quando essa intenção exige uma ação comercial (retomar, responder uma objeção, buscar entender um motivo, facilitar uma decisão, propor um próximo passo). Avalie sempre estas três perguntas separadas antes de marcar seller_intent_not_executed: (1) entendimento — a candidate entendeu corretamente o objetivo declarado pelo vendedor, refletido em seller_intent_interpretation? (2) execução — suggested_message realmente realiza esse objetivo de forma material, e não apenas reconhece o timing, empatiza ou devolve toda a iniciativa ao cliente? (3) limites — a execução respeita conversation, commercial_state, sales_method, required_behaviors, prohibited_behaviors, grounding, commitments, timing e qualquer limite explícito colocado pelo cliente na própria conversa?',
 
     'Não marque seller_intent_not_executed=true só porque a mensagem não contém uma pergunta ou uma chamada para ação: quando seller_intent for dar espaço ao cliente, respeitar um pedido de silêncio ou de não ser contatado, reconhecer uma recusa explícita, ou apenas confirmar algo operacional (ex.: recebimento de um documento), a ausência de iniciativa ativa costuma ser exatamente o que foi pedido e não deve ser penalizada — não existe uma regra fixa de que toda mensagem precisa ter uma pergunta ou avançar a venda. Da mesma forma, nunca marque seller_intent_not_executed=true para justificar ou exigir pressionar, insistir, pedir fechamento, forçar reunião, criar urgência ou escassez, inventar compromisso, horário ou autorização, tratar proposed como confirmado, ou ignorar uma recusa/pedido de espaço explícito do cliente — isso seria method_violation, commitment_assumption ou seller_intent_became_fact, nunca uma correção legítima de execução. Executar seller_intent é diferente de avançar a venda de forma agressiva.',
+
+    'Caso específico e frequente de seller_intent_not_executed: quando seller_intent pedir explicitamente retomar, reativar, voltar a um assunto ou dar um follow-up, e a conversa não contiver recusa explícita, pedido de espaço/silêncio, pedido para não ser contatado, nem o próprio cliente já ter dito que é ele quem vai retomar contato, a mensagem precisa conter alguma ação comercial material de retomada — não basta reconhecer o timing. Reconhecer a falta de tempo do cliente, dizer que não há problema ou que não quer soar como cobrança é necessário, mas sozinho não é suficiente: se a mensagem inteira se resume a expressar que o vendedor está disponível para quando o cliente quiser ou que vai retomar quando for um bom momento, sem o vendedor propor voltar a falar em algum momento, sem indicar quando ele mesmo retoma, e sem retomar agora um ponto específico da conversa, a iniciativa ficou inteiramente do lado do cliente e a retomada não foi executada — marque seller_intent_not_executed=true. Isso não exige uma data, horário ou reunião específica, nem transforma a mensagem em cobrança: qualquer ação que mantenha a iniciativa do lado do vendedor (propor voltar a falar em um momento futuro sugerido pelo próprio vendedor, retomar agora um ponto específico que ficou em aberto, ou perguntar algo que reabra a conversa) conta como execução válida da retomada.',
+
+    'Naturalidade (unnatural_seller_message) e execução de seller intent (seller_intent_not_executed) são gates independentes e nunca um substitui o outro: uma mensagem pode ser perfeitamente natural, leve e sem pressão e ainda assim não executar a ação comercial que seller_intent pede — nesse caso o problema é exclusivamente seller_intent_not_executed, nunca unnatural_seller_message. Da mesma forma, uma mensagem pode executar a ação comercial corretamente e ainda soar institucional ou ensaiada — nesse caso o problema é exclusivamente unnatural_seller_message, nunca seller_intent_not_executed. Nunca marque um desses sinais para descrever a falha do outro.',
 
     'seller_intent é sempre a referência principal da intenção do vendedor. candidate.seller_intent_interpretation e candidate.recommended_commercial_objective ajudam a entender como a candidate interpretou a intenção, mas não a substituem: se o objective ou a interpretação escolhidos pela candidate divergem do que seller_intent realmente pede, trate isso como um problema semântico da própria candidate (seller_intent_not_executed e/ou semantic_mismatch, conforme o caso) — nunca aceite o objective da candidate como justificativa válida para uma mensagem que não cumpre a intenção original.',
 

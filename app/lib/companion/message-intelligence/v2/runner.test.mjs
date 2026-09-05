@@ -2069,3 +2069,187 @@ test(
     assert.equal(fetchImpl.callCount(), 4)
   },
 )
+
+// ============================================================================
+// P0-A — Round 3: cold_follow_up perdeu iniciativa comercial e o critic deu
+// pass. A candidate real do Round 3 ("Sem problema! Fica à vontade para
+// olhar com calma. Quando for um bom momento, a gente retoma por aqui.")
+// apenas expressa disponibilidade futura, sem nenhuma ação comercial do
+// vendedor — reconhece o timing mas devolve a retomada inteiramente ao
+// cliente. Isso precisa cair em seller_intent_not_executed, nunca em
+// unnatural_seller_message (a mensagem já É natural). Os testes abaixo
+// simulam o veredito que o critic deveria emitir e confirmam que a
+// arquitetura reage corretamente — não testam o julgamento real do modelo.
+// ============================================================================
+
+test(
+  'V2 runner: regressão Round 3 — cold_follow_up passivo (só expressa disponibilidade futura) recebe repair por seller_intent_not_executed e a versão reparada mantém iniciativa material',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      coldFollowUpScenario,
+    )
+
+    const passiveMessage =
+      'Sem problema! Fica à vontade para olhar com calma. Quando for um bom momento, a gente retoma por aqui.'
+
+    const activeMessage =
+      'Sem problema, fica tranquilo. Posso te chamar no começo da próxima semana para retomarmos com calma?'
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          seller_intent_interpretation:
+            'Vendedor quer retomar a conversa sem soar como cobrança.',
+          recommended_commercial_objective:
+            'recover_process',
+          grounded_claims: [],
+          suggested_message: passiveMessage,
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'repair',
+          reason_codes: [
+            'seller_intent_not_executed',
+          ],
+          seller_intent_not_executed: true,
+          // A mensagem já é natural e sem cobrança — o problema não é
+          // forma, é a retomada ter ficado inteiramente com o cliente.
+          unnatural_seller_message: false,
+          concise_feedback:
+            'A mensagem reconhece o timing e não soa como cobrança, mas apenas expressa disponibilidade futura sem nenhuma ação comercial do vendedor — a retomada ficou inteiramente com o cliente. Preserve o tom leve e proponha o próprio vendedor voltar a falar em algum momento, sem inventar horário ou compromisso.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          seller_intent_interpretation:
+            'Vendedor quer retomar a conversa sem soar como cobrança.',
+          recommended_commercial_objective:
+            'recover_process',
+          grounded_claims: [],
+          suggested_message: activeMessage,
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: coldFollowUpScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.equal(
+      result.final_message,
+      activeMessage,
+    )
+    assert.equal(
+      result.critic.first.verdict,
+      'repair',
+    )
+    assert.deepEqual(
+      result.critic.first.reason_codes,
+      ['seller_intent_not_executed'],
+    )
+    assert.equal(
+      result.critic.second.verdict,
+      'pass',
+    )
+    assert.equal(
+      result.execution.repair_reason,
+      'semantic_critic',
+    )
+    assert.equal(fetchImpl.callCount(), 4)
+  },
+)
+
+test(
+  'V2 runner: anti-regressão — dar espaço sem insistir continua pass mesmo sem nenhuma ação comercial (não virou CTA universal)',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      coldFollowUpScenario,
+    )
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          seller_intent_interpretation:
+            'Vendedor quer dar espaço e não insistir agora.',
+          grounded_claims: [],
+          suggested_message:
+            'Sem problema, fica à vontade. Quando fizer sentido, seguimos por aqui.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: coldFollowUpScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.equal(
+      result.critic.first.verdict,
+      'pass',
+    )
+    assert.equal(fetchImpl.callCount(), 2)
+  },
+)
+
+test(
+  'V2 runner: anti-regressão — cliente disse que ele mesmo entra em contato não exige o vendedor forçar iniciativa',
+  async () => {
+    const sources = await loadSourcesForScenario(
+      coldFollowUpScenario,
+    )
+
+    const fetchImpl = queueFetch([
+      fakeOpenAIResponse({
+        outputObject: goodPrimaryOutput({
+          customer_meaning:
+            'Cliente disse que vai entrar em contato assim que conseguir analisar a proposta.',
+          seller_intent_interpretation:
+            'Vendedor quer responder sem pressionar, respeitando que o cliente disse que retoma contato.',
+          grounded_claims: [],
+          suggested_message:
+            'Perfeito, fico no aguardo então. Qualquer dúvida, é só me chamar.',
+        }),
+      }),
+      fakeOpenAIResponse({
+        outputObject: criticOutput({
+          verdict: 'pass',
+        }),
+      }),
+    ])
+
+    const result = await runMessageIntelligenceV2(
+      baseRunArgs({
+        sources,
+        scenario: coldFollowUpScenario,
+        fetch_impl: fetchImpl,
+      }),
+    )
+
+    assert.equal(result.status, 'generated')
+    assert.equal(
+      result.critic.first.verdict,
+      'pass',
+    )
+    assert.equal(fetchImpl.callCount(), 2)
+  },
+)
