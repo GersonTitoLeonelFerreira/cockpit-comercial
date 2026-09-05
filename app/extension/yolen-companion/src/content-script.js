@@ -171,6 +171,8 @@
   const leadCreationInFlightKeys =
     new Set()
   let autoContactLookupInFlight = false
+  let autoContactLookupConversationRefreshPending =
+    false
   let capturedAudioBlobEntries = []
   let automaticAnalysisTimerId = 0
   let automaticAnalysisScheduledKey = null
@@ -4777,6 +4779,14 @@
       }
     } finally {
       autoContactLookupInFlight = false
+
+      if (
+        autoContactLookupConversationRefreshPending
+      ) {
+        autoContactLookupConversationRefreshPending =
+          false
+        processObservedWhatsAppChange()
+      }
     }
   }
 
@@ -5018,6 +5028,29 @@
     }
 
     return messageMutationDetected
+  }
+
+  function processObservedWhatsAppChange() {
+    const messageMutationDetected =
+      refreshConversationSnapshot()
+
+    checkPendingSuggestedMessageSentFromConversation()
+
+    if (messageMutationDetected) {
+      scheduleCaptureIngestion(0)
+
+      scheduleAutomaticAnalysis(
+        'Mensagem editada ou apagada detectada. A Yolen atualizará a análise em 8 segundos.',
+      )
+
+      return
+    }
+
+    scheduleCaptureIngestion()
+
+    scheduleAutomaticAnalysis(
+      'Nova mensagem detectada. A Yolen aguardará 8 segundos antes de atualizar a análise.',
+    )
   }
 
   function getConnectionLabel() {
@@ -15548,6 +15581,24 @@
         return
       }
 
+      const visibleConversationKey =
+        getConversationKey(
+          getConversationTitle(),
+        )
+
+      if (
+        visibleConversationKey &&
+        state.conversationKey &&
+        visibleConversationKey !==
+          state.conversationKey
+      ) {
+        // A identidade visível do WhatsApp já mudou. A mensagem/intenção
+        // do cliente anterior não pode permanecer clicável nem durante o
+        // debounce de 600 ms que estabiliza o DOM da nova conversa.
+        window.YolenCompanionSellerMessageRuntime
+          ?.clear?.()
+      }
+
       window.clearTimeout(
         observeWhatsAppChanges.timeoutId,
       )
@@ -15555,27 +15606,30 @@
       observeWhatsAppChanges.timeoutId =
       window.setTimeout(() => {
         if (autoContactLookupInFlight) {
+          const latestVisibleConversationKey =
+            getConversationKey(
+              getConversationTitle(),
+            )
+
+          if (
+            latestVisibleConversationKey &&
+            latestVisibleConversationKey !==
+              state.conversationKey
+          ) {
+            // Não descarta a troca A→B só porque a abertura automática
+            // dos dados de A ainda está terminando. O finally do lookup
+            // reaplica exatamente uma leitura do DOM já estabilizado.
+            autoContactLookupConversationRefreshPending =
+              true
+
+            window.YolenCompanionSellerMessageRuntime
+              ?.clear?.()
+          }
+
           return
         }
 
-        const messageMutationDetected =
-          refreshConversationSnapshot()
-
-        checkPendingSuggestedMessageSentFromConversation()
-
-        if (messageMutationDetected) {
-          scheduleCaptureIngestion(0)
-
-          scheduleAutomaticAnalysis(
-            'Mensagem editada ou apagada detectada. A Yolen atualizará a análise em 8 segundos.',
-          )
-        } else {
-          scheduleCaptureIngestion()
-
-          scheduleAutomaticAnalysis(
-            'Nova mensagem detectada. A Yolen aguardará 8 segundos antes de atualizar a análise.',
-          )
-        }
+        processObservedWhatsAppChange()
       }, 600)
     })
 

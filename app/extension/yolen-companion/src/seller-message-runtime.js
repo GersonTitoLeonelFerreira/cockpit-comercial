@@ -658,10 +658,30 @@
     const requestContextKey =
       buildRequestContextKey(payload)
 
+    const visibleContextKey =
+      buildRequestContextKey(
+        currentContext?.payload,
+      )
+
     latestRequestedContextKey =
       requestContextKey
     const requestId = latestRequestId + 1
     latestRequestId = requestId
+
+    if (
+      !requestContextKey ||
+      (
+        visibleContextKey &&
+        visibleContextKey !==
+          requestContextKey
+      )
+    ) {
+      // A nova conversa ainda pode estar carregando, mas o vendedor já
+      // saiu da anterior. O compositor antigo deixa de existir antes do
+      // await para impossibilitar Gerar/Incluir/Copiar com contexto A.
+      currentContext = null
+      removeVisibleComposer()
+    }
 
     const result =
       await originalLoadLeadSummary(payload)

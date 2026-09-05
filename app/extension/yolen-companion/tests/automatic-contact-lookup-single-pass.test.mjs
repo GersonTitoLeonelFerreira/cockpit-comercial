@@ -36,11 +36,21 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
   const finishLookupIndex = lookupBlock.indexOf(
     'autoContactLookupInFlight = false',
   )
+  const replayPendingIndex = lookupBlock.indexOf(
+    'autoContactLookupConversationRefreshPending',
+    finishLookupIndex,
+  )
+  const replayRefreshIndex = lookupBlock.indexOf(
+    'processObservedWhatsAppChange()',
+    replayPendingIndex,
+  )
 
   assert.ok(closeIndex >= 0)
   assert.ok(resolvedKeyIndex > closeIndex)
   assert.ok(resolveLeadIndex > resolvedKeyIndex)
   assert.ok(finishLookupIndex > resolveLeadIndex)
+  assert.ok(replayPendingIndex > finishLookupIndex)
+  assert.ok(replayRefreshIndex > replayPendingIndex)
 
   assert.doesNotMatch(
     lookupBlock,
@@ -63,13 +73,23 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
     observerEnd,
   )
 
+  const immediateClearIndex = observerBlock.indexOf(
+    'YolenCompanionSellerMessageRuntime',
+  )
   const suppressionIndex = observerBlock.indexOf(
     'if (autoContactLookupInFlight) {',
   )
+  const queuedRefreshIndex = observerBlock.indexOf(
+    'autoContactLookupConversationRefreshPending =',
+    suppressionIndex,
+  )
   const observerRefreshIndex = observerBlock.indexOf(
-    'refreshConversationSnapshot()',
+    'processObservedWhatsAppChange()',
+    suppressionIndex,
   )
 
-  assert.ok(suppressionIndex >= 0)
+  assert.ok(immediateClearIndex >= 0)
+  assert.ok(suppressionIndex > immediateClearIndex)
+  assert.ok(queuedRefreshIndex > suppressionIndex)
   assert.ok(observerRefreshIndex > suppressionIndex)
 })

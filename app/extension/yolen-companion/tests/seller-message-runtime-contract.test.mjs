@@ -397,3 +397,144 @@ test('resposta atrasada de outra conversa não substitui o cliente atual', async
     'whatsapp:cliente-b',
   )
 })
+
+
+test('troca A -> B remove imediatamente a mensagem de A enquanto B ainda carrega', async () => {
+  let resolveConversationB = null
+
+  const response = (summary) => ({
+    ok: true,
+    payload: {
+      ok: true,
+      data: {
+        working_summary: summary,
+        method_guidance: {
+          status: 'ready',
+          method_name: 'Método publicado',
+          stage_name: 'Descoberta',
+          next_step:
+            'Entender melhor a necessidade.',
+        },
+      },
+    },
+  })
+
+  const harness = createRuntimeHarness({
+    generatedMessage:
+      'Oi Larissa! Posso te ajudar com as dúvidas sobre o sistema.',
+    loadLeadSummaryImpl(payload) {
+      if (
+        payload.conversation_key ===
+        'whatsapp:cliente-a'
+      ) {
+        return Promise.resolve(
+          response(
+            'Cliente aceitou continuar a conversa.',
+          ),
+        )
+      }
+
+      if (
+        payload.conversation_key ===
+        'whatsapp:cliente-b'
+      ) {
+        return new Promise((resolve) => {
+          resolveConversationB = resolve
+        })
+      }
+
+      throw new Error(
+        'Conversa inesperada no teste.',
+      )
+    },
+  })
+
+  await harness.api.loadLeadSummary({
+    cycle_id: 'cycle-a',
+    conversation_key: 'whatsapp:cliente-a',
+  })
+  await settleRuntime()
+
+  const intent = harness.document.querySelector(
+    '[data-yolen-seller-message-intent]',
+  )
+
+  intent.value =
+    'Quero responder as dúvidas da Larissa.'
+
+  intent.dispatchEvent(
+    new harness.document.defaultView.Event(
+      'input',
+      { bubbles: true },
+    ),
+  )
+
+  harness.document.querySelector(
+    '[data-yolen-seller-message-action="generate"]',
+  ).click()
+
+  await settleRuntime()
+
+  assert.match(
+    harness.document.querySelector(
+      '[data-yolen-seller-message-box]',
+    ).textContent,
+    /Larissa/,
+  )
+
+  const loadConversationB =
+    harness.api.loadLeadSummary({
+      cycle_id: 'cycle-b',
+      conversation_key: 'whatsapp:cliente-b',
+    })
+
+  // O contexto A desaparece SINCRONAMENTE, antes de B responder.
+  assert.equal(
+    harness.document.querySelector(
+      '[data-yolen-seller-message-box]',
+    ),
+    null,
+  )
+
+  assert.equal(
+    harness.document.querySelector(
+      '[data-yolen-seller-message-action="generate"]',
+    ),
+    null,
+  )
+
+  harness.document.querySelector(
+    '[data-yolen-textarea="lead-summary"]',
+  ).value =
+    'Resumo exclusivo do cliente B.'
+
+  assert.equal(
+    typeof resolveConversationB,
+    'function',
+  )
+
+  resolveConversationB(
+    response(
+      'Resumo exclusivo do cliente B.',
+    ),
+  )
+
+  await loadConversationB
+  await settleRuntime()
+
+  const boxB = harness.document.querySelector(
+    '[data-yolen-seller-message-box]',
+  )
+
+  assert.ok(boxB)
+
+  assert.doesNotMatch(
+    boxB.textContent,
+    /Larissa/,
+  )
+
+  assert.doesNotMatch(
+    boxB.innerHTML,
+    /data-yolen-seller-message-action="insert"/,
+  )
+})
