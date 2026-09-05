@@ -6,6 +6,8 @@
   width: 390px;
   height: 100vh;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   background:
     radial-gradient(circle at top left, rgba(47, 107, 255, 0.18), transparent 28%),
     linear-gradient(180deg, #0b111d 0%, #070b12 100%);
@@ -21,12 +23,37 @@
     "Segoe UI",
     sans-serif;
   padding: 16px;
-  overflow-y: auto;
+  overflow: hidden;
   overflow-anchor: none;
 }
 
 #yolen-companion-panel * {
   box-sizing: border-box;
+}
+
+/* YOLEN UX8 — SHELL ESTRUTURAL ESTÁVEL
+ *
+ * O painel não é mais o container de scroll. Header, cartão de contato,
+ * barra de abas, pre-send-assessment e rodapé são regiões de tamanho
+ * fixo (flex: 0 0 auto) e nunca rolam. Apenas .yolen-workspace-body
+ * (a região 'seller-information-architecture', com o conteúdo das abas
+ * Agora/Análise/Cliente) rola — ver getPanelRegionContainer() em
+ * content-script.js. Nenhuma dessas regras usa position: sticky: a
+ * estabilidade vem da árvore flex, não de truques de scroll.
+ */
+.yolen-region-header,
+.yolen-region-contact-card,
+.yolen-region-pre-send-assessment,
+.yolen-region-seller-area-tabs,
+.yolen-region-footer {
+  flex: 0 0 auto;
+}
+
+.yolen-workspace-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-anchor: none;
 }
 
 .yolen-panel-header {
@@ -1949,6 +1976,32 @@ html.yolen-companion-collapsed #app {
   border-color: rgba(96,165,250,.25);
   box-shadow: none;
 }
+
+/* UX8: a barra de abas agora é sua própria região estrutural
+ * (yolen-region-seller-area-tabs), fora de .yolen-seller-workspace--ux7,
+ * para ficar fora do scroll (ver .yolen-workspace-body acima). As regras
+ * .yolen-seller-workspace--ux7 acima ficam órfãs (não têm mais
+ * .yolen-seller-tabs como descendente) — mantidas por ora para não
+ * ampliar o diff; estas replicam a mesma aparência no novo lugar. */
+.yolen-region-seller-area-tabs .yolen-seller-tabs {
+  position: static;
+  margin: 0 0 9px;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 11px;
+  background: rgba(7,12,20,.96);
+}
+.yolen-region-seller-area-tabs .yolen-seller-tab {
+  padding: 8px 5px;
+  border-radius: 8px;
+  font-size: 9px;
+}
+.yolen-region-seller-area-tabs .yolen-seller-tab--active {
+  background: rgba(37,99,235,.18);
+  border-color: rgba(96,165,250,.25);
+  box-shadow: none;
+}
+
 .yolen-seller-workspace--ux7 .yolen-seller-panel {
   min-width: 0;
 }

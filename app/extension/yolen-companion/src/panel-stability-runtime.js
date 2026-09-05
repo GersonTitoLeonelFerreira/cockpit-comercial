@@ -58,6 +58,25 @@
     return document.getElementById(PANEL_ID)
   }
 
+  // UX8 (FASE B.1) — helper canônico do dono do scroll seller-facing.
+  // Antes da UX8, #yolen-companion-panel era, ele mesmo, o elemento
+  // rolável; agora quem rola de verdade é .yolen-workspace-body (o painel
+  // externo tem overflow:hidden — ver styles.css). Nunca ler/escrever
+  // scrollTop/scrollHeight/clientHeight do painel operacionalmente a
+  // partir daqui: sempre passar por este helper. Devolve null (nunca
+  // lança, nunca inventa scroll no painel) quando o workspace-body ainda
+  // não existe — modo colapsado (a casca colapsada não tem regiões) ou um
+  // instante antes do primeiro render expandido — e quem chama trata isso
+  // como fail-safe: sem workspace-body, não há posição de leitura para
+  // capturar/restaurar.
+  function getWorkspaceScrollContainer(targetPanel) {
+    return (
+      targetPanel?.querySelector(
+        '[data-yolen-workspace-body]',
+      ) || null
+    )
+  }
+
   function getConversationLabel(targetPanel) {
     return String(
       targetPanel
@@ -138,15 +157,20 @@
   }
 
   function captureScroll(targetPanel) {
-    if (!targetPanel || restoring) {
+    const scrollTarget =
+      getWorkspaceScrollContainer(
+        targetPanel,
+      )
+
+    if (!scrollTarget || restoring) {
       return
     }
 
     const maxScroll = Math.max(
       0,
-      targetPanel.scrollHeight - targetPanel.clientHeight,
+      scrollTarget.scrollHeight - scrollTarget.clientHeight,
     )
-    const top = Math.max(0, targetPanel.scrollTop)
+    const top = Math.max(0, scrollTarget.scrollTop)
     const distanceFromBottom = Math.max(
       0,
       maxScroll - top,
@@ -450,7 +474,14 @@
         anchor.viewportTop
 
       if (Math.abs(delta) > 0.5) {
-        currentPanel.scrollTop += delta
+        const scrollTarget =
+          getWorkspaceScrollContainer(
+            currentPanel,
+          )
+
+        if (scrollTarget) {
+          scrollTarget.scrollTop += delta
+        }
       }
 
       captureScroll(currentPanel)
@@ -468,9 +499,18 @@
   }
 
   function getRestoreTop(targetPanel) {
+    const scrollTarget =
+      getWorkspaceScrollContainer(
+        targetPanel,
+      )
+
+    if (!scrollTarget) {
+      return 0
+    }
+
     const maxScroll = Math.max(
       0,
-      targetPanel.scrollHeight - targetPanel.clientHeight,
+      scrollTarget.scrollHeight - scrollTarget.clientHeight,
     )
 
     if (scrollSnapshot.nearBottom) {
@@ -528,13 +568,22 @@
     )
 
     bindPanel(currentPanel)
-    currentPanel.scrollTop = Math.min(
-      restoreTop,
-      Math.max(
-        0,
-        currentPanel.scrollHeight - currentPanel.clientHeight,
-      ),
-    )
+
+    const scrollTarget =
+      getWorkspaceScrollContainer(
+        currentPanel,
+      )
+
+    if (scrollTarget) {
+      scrollTarget.scrollTop = Math.min(
+        restoreTop,
+        Math.max(
+          0,
+          scrollTarget.scrollHeight - scrollTarget.clientHeight,
+        ),
+      )
+    }
+
     captureScroll(currentPanel)
   }
 
@@ -622,20 +671,27 @@
     )
   }
 
-  function bindPanel(targetPanel) {
-    if (!targetPanel) {
+  // UX8 (FASE B.1): os listeners de wheel/touchmove/scroll precisam viver
+  // no dono real do scroll (.yolen-workspace-body), não no painel externo
+  // — scroll não faz bubble, então um listener no painel nunca seria
+  // notificado do scroll de um descendente. O dono do scroll é recriado
+  // sempre que o shell é reconstruído (colapsar/expandir), por isso o
+  // "já vinculado" fica marcado no próprio elemento do dono do scroll, não
+  // no painel (que persiste pela vida toda da extensão).
+  function bindWorkspaceScrollTarget(
+    targetPanel,
+    scrollTarget,
+  ) {
+    if (
+      !scrollTarget ||
+      scrollTarget.__yolenScrollBound === true
+    ) {
       return
     }
 
-    patchPanelInnerHtml(targetPanel)
+    scrollTarget.__yolenScrollBound = true
 
-    if (targetPanel.__yolenStabilityBound === true) {
-      return
-    }
-
-    targetPanel.__yolenStabilityBound = true
-
-    targetPanel.addEventListener(
+    scrollTarget.addEventListener(
       'wheel',
       () => {
         releaseActionVisualAnchor()
@@ -643,7 +699,7 @@
       { passive: true },
     )
 
-    targetPanel.addEventListener(
+    scrollTarget.addEventListener(
       'touchmove',
       () => {
         releaseActionVisualAnchor()
@@ -651,7 +707,7 @@
       { passive: true },
     )
 
-    targetPanel.addEventListener(
+    scrollTarget.addEventListener(
       'scroll',
       () => {
         if (actionVisualAnchor) {
@@ -662,6 +718,21 @@
         captureScroll(targetPanel)
       },
       { passive: true },
+    )
+  }
+
+  function bindPanel(targetPanel) {
+    if (!targetPanel) {
+      return
+    }
+
+    patchPanelInnerHtml(targetPanel)
+
+    bindWorkspaceScrollTarget(
+      targetPanel,
+      getWorkspaceScrollContainer(
+        targetPanel,
+      ),
     )
 
     captureScroll(targetPanel)
@@ -692,7 +763,15 @@
       }
 
       bindPanel(currentPanel)
-      currentPanel.scrollTop = getRestoreTop(currentPanel)
+
+      const scrollTarget =
+        getWorkspaceScrollContainer(
+          currentPanel,
+        )
+
+      if (scrollTarget) {
+        scrollTarget.scrollTop = getRestoreTop(currentPanel)
+      }
     }
 
     queueMicrotask(() => {
@@ -793,7 +872,16 @@
       }
       restoreSequence += 1
       restoring = false
-      currentPanel.scrollTop = 0
+
+      const scrollTarget =
+        getWorkspaceScrollContainer(
+          currentPanel,
+        )
+
+      if (scrollTarget) {
+        scrollTarget.scrollTop = 0
+      }
+
       return
     }
 
@@ -871,7 +959,13 @@
       }
 
       lockInteraction(input, 'intent')
-      const intendedTop = currentPanel.scrollTop
+
+      const scrollTarget =
+        getWorkspaceScrollContainer(
+          currentPanel,
+        )
+      const intendedTop =
+        scrollTarget?.scrollTop ?? null
 
       event.preventDefault()
 
@@ -881,7 +975,10 @@
         input.focus()
       }
 
-      currentPanel.scrollTop = intendedTop
+      if (scrollTarget && intendedTop !== null) {
+        scrollTarget.scrollTop = intendedTop
+      }
+
       captureScroll(currentPanel)
     },
     true,

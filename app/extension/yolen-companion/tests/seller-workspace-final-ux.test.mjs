@@ -190,9 +190,21 @@ test('abas seller-facing nunca usam focus que pode rolar o painel', () => {
     /preventScroll:\s*true/,
   )
 
+  // UX8 (FASE B.1): #yolen-companion-panel não é mais o elemento rolável
+  // (.yolen-workspace-body é) — a restauração de posição no fallback de
+  // foco precisa passar pelo helper canônico getWorkspaceScrollContainer,
+  // nunca escrever panel.scrollTop diretamente.
   assert.match(
     block,
-    /panel\.scrollTop\s*=\s*scrollTop/,
+    /getWorkspaceScrollContainer\(\s*panel,?\s*\)/,
+  )
+  assert.match(
+    block,
+    /scrollContainer\.scrollTop\s*=\s*scrollTop/,
+  )
+  assert.doesNotMatch(
+    block,
+    /panel\.scrollTop\s*=/,
   )
 
   const wiringStart =

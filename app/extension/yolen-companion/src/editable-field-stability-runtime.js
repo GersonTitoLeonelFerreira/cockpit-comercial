@@ -26,6 +26,23 @@
     return document.getElementById(PANEL_ID)
   }
 
+  // UX8 (FASE B.2) — mesmo helper canônico de content-script.js e
+  // panel-stability-runtime.js (arquivos isolados, duplicado localmente
+  // de propósito). Antes da UX8, #yolen-companion-panel era, ele mesmo,
+  // o elemento rolável; agora quem rola de verdade é .yolen-workspace-body
+  // (o painel externo tem overflow:hidden — ver styles.css). Nunca ler/
+  // escrever scrollTop/scrollHeight/clientHeight do painel operacionalmente
+  // a partir daqui: sempre passar por este helper. Devolve null (nunca
+  // lança, nunca inventa scroll no painel) quando o workspace-body ainda
+  // não existe — modo colapsado — e quem chama trata isso como fail-safe.
+  function getWorkspaceScrollContainer(targetPanel) {
+    return (
+      targetPanel?.querySelector(
+        '[data-yolen-workspace-body]',
+      ) || null
+    )
+  }
+
   function getCurrentInnerHtmlDescriptor(targetPanel) {
     return (
       Object.getOwnPropertyDescriptor(
@@ -72,11 +89,20 @@
         return
       }
 
-      currentPanel.scrollTop = Math.min(
+      const scrollTarget =
+        getWorkspaceScrollContainer(
+          currentPanel,
+        )
+
+      if (!scrollTarget) {
+        return
+      }
+
+      scrollTarget.scrollTop = Math.min(
         intendedTop,
         Math.max(
           0,
-          currentPanel.scrollHeight - currentPanel.clientHeight,
+          scrollTarget.scrollHeight - scrollTarget.clientHeight,
         ),
       )
     }
@@ -102,15 +128,34 @@
       return
     }
 
-    const previousTop = currentPanel.scrollTop
+    const previousScrollTarget =
+      getWorkspaceScrollContainer(
+        currentPanel,
+      )
+    const previousTop =
+      previousScrollTarget
+        ? previousScrollTarget.scrollTop
+        : null
+
     applyThroughBase(currentPanel, html)
-    currentPanel.scrollTop = Math.min(
-      previousTop,
-      Math.max(
-        0,
-        currentPanel.scrollHeight - currentPanel.clientHeight,
-      ),
-    )
+
+    // applyThroughBase substitui panel.innerHTML inteiro — o node antigo
+    // de workspace-body (se havia um) é destruído; resolve de novo depois
+    // da substituição para restaurar no node atual, não num node morto.
+    const scrollTarget =
+      getWorkspaceScrollContainer(
+        currentPanel,
+      )
+
+    if (scrollTarget && previousTop !== null) {
+      scrollTarget.scrollTop = Math.min(
+        previousTop,
+        Math.max(
+          0,
+          scrollTarget.scrollHeight - scrollTarget.clientHeight,
+        ),
+      )
+    }
   }
 
   function patchPanel(targetPanel) {
@@ -195,7 +240,15 @@
       !locked ||
       lockedScrollTop === null
     ) {
-      lockedScrollTop = currentPanel.scrollTop
+      const scrollTarget =
+        getWorkspaceScrollContainer(
+          currentPanel,
+        )
+
+      lockedScrollTop =
+        scrollTarget
+          ? scrollTarget.scrollTop
+          : null
     }
 
     locked = true

@@ -357,6 +357,12 @@
     const panel = document.createElement('aside')
     panel.id = PANEL_ID
     panel.className = ROOT_CLASS
+    // Shell estrutural UX8 (workspace fixo: header/contato/abas/rodapé
+    // fora do scroll, corpo único rolável). O conteúdo interno das abas
+    // ainda é o UX7 (data-yolen-ux-build="UX7" em getSellerInformationArchitectureHtml)
+    // até a migração das FASES C/D — as duas convivem por camada, não por
+    // sobreposição de CSS.
+    panel.setAttribute('data-yolen-ux-build', 'UX8')
 
     document.body.appendChild(panel)
 
@@ -465,6 +471,57 @@
     )
   }
 
+  // UX8 (shell estável): único ponto de scroll seller-facing. Header,
+  // contato, barra de abas, pre-send-assessment e rodapé continuam
+  // filhos diretos do painel (flex: 0 0 auto, fora do scroll — ver
+  // styles.css). Somente a região 'seller-information-architecture'
+  // (o conteúdo das abas Agora/Análise/Cliente) mora dentro dele.
+  //
+  // getWorkspaceScrollContainer() é o helper canônico para achar o dono
+  // real do scroll seller-facing (FASE B.1). Antes da UX8,
+  // #yolen-companion-panel era, ele mesmo, o elemento rolável; agora quem
+  // rola é .yolen-workspace-body. Nunca ler/escrever
+  // panel.scrollTop/scrollHeight/clientHeight operacionalmente — sempre
+  // passar por aqui. Devolve null (nunca lança, nunca inventa scroll no
+  // painel) quando o workspace-body ainda não existe — modo colapsado, ou
+  // um instante antes do primeiro render expandido — e quem chama trata
+  // isso como fail-safe.
+  function getWorkspaceScrollContainer(
+    panel,
+  ) {
+    return (
+      panel?.querySelector(
+        '[data-yolen-workspace-body]',
+      ) || null
+    )
+  }
+
+  function getWorkspaceBodyContainer(
+    panel,
+  ) {
+    let container =
+      getWorkspaceScrollContainer(panel)
+
+    if (!container) {
+      container =
+        document.createElement('div')
+      container.className =
+        'yolen-workspace-body'
+      container.setAttribute(
+        'data-yolen-workspace-body',
+        'true',
+      )
+      panel.appendChild(container)
+    }
+
+    return container
+  }
+
+  const WORKSPACE_BODY_REGION_KEYS =
+    new Set([
+      'seller-information-architecture',
+    ])
+
   function getPanelRegionContainer(
     panel,
     regionKey,
@@ -482,7 +539,17 @@
         'data-yolen-region',
         regionKey,
       )
-      panel.appendChild(container)
+
+      const regionParent =
+        WORKSPACE_BODY_REGION_KEYS.has(
+          regionKey,
+        )
+          ? getWorkspaceBodyContainer(
+              panel,
+            )
+          : panel
+
+      regionParent.appendChild(container)
     }
 
     return container
@@ -4754,8 +4821,11 @@
     const panel =
       document.getElementById(PANEL_ID)
 
-    if (panel) {
-      panel.scrollTop = 0
+    const scrollContainer =
+      getWorkspaceScrollContainer(panel)
+
+    if (scrollContainer) {
+      scrollContainer.scrollTop = 0
     }
 
     lastSelectedChatActivitySnapshot =
@@ -10599,6 +10669,24 @@
     )
   }
 
+  // UX8 (shell estável): a barra de abas precisa viver FORA da região
+  // rolável (workspace-body) para não fazer scroll junto com o conteúdo.
+  // Ver renderPanel()/getPanelRegionContainer() — a barra é sua própria
+  // região top-level, renderizada antes de 'seller-information-architecture'.
+  function getSellerAreaTabsBarHtml() {
+    return `
+      <div
+        class="yolen-seller-tabs"
+        role="tablist"
+        aria-label="Áreas do Yolen Companion"
+      >
+        ${getSellerAreaTabHtml('now', 'Agora')}
+        ${getSellerAreaTabHtml('analysis', 'Análise')}
+        ${getSellerAreaTabHtml('client', 'Cliente')}
+      </div>
+    `
+  }
+
   function getSellerInformationArchitectureHtml() {
     const nowHtml =
       getNowAttentionSnapshotHtml() +
@@ -10623,16 +10711,6 @@
 
     return `
       <div class="yolen-seller-workspace yolen-seller-workspace--ux7" data-yolen-ux-build="UX7">
-        <div
-          class="yolen-seller-tabs"
-          role="tablist"
-          aria-label="Áreas do Yolen Companion"
-        >
-          ${getSellerAreaTabHtml('now', 'Agora')}
-          ${getSellerAreaTabHtml('analysis', 'Análise')}
-          ${getSellerAreaTabHtml('client', 'Cliente')}
-        </div>
-
         ${getSellerAreaPanelHtml(
           'now',
           nowHtml,
@@ -10684,8 +10762,14 @@
             PANEL_ID,
           )
 
+        const scrollContainer =
+          getWorkspaceScrollContainer(
+            panel,
+          )
+
         const scrollTop =
-          panel?.scrollTop ?? null
+          scrollContainer?.scrollTop ??
+          null
 
         try {
           tab.focus({
@@ -10695,10 +10779,10 @@
           tab.focus()
 
           if (
-            panel &&
+            scrollContainer &&
             scrollTop !== null
           ) {
-            panel.scrollTop =
+            scrollContainer.scrollTop =
               scrollTop
           }
         }
@@ -12557,6 +12641,12 @@
       panel,
       'pre-send-assessment',
       getPreSendAssessmentCardHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
+      'seller-area-tabs',
+      getSellerAreaTabsBarHtml(),
     )
 
     renderPanelRegion(

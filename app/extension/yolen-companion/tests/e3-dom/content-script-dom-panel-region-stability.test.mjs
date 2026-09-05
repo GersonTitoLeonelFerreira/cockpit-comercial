@@ -43,6 +43,14 @@ function getPanel(document) {
   return document.getElementById('yolen-companion-panel')
 }
 
+// UX8 (FASE B.1): #yolen-companion-panel deixou de ser o elemento
+// rolável — .yolen-workspace-body é quem rola de verdade agora (o painel
+// externo tem overflow:hidden). Os testes de posição de leitura/scroll
+// abaixo simulam e verificam o scroll aqui, não mais no painel.
+function getWorkspaceBody(document) {
+  return getPanel(document)?.querySelector('[data-yolen-workspace-body]')
+}
+
 function dispatch(target, type, init = {}) {
   const EventCtor =
     target.Event ??
@@ -69,10 +77,14 @@ test('1) atualização de resumo em segundo plano preserva a posição de leitur
   const panel = getPanel(document)
   await waitFor(() => Boolean(document.querySelector('.yolen-lead-summary-card')))
 
-  // jsdom não faz layout: simula um painel realmente rolável.
-  Object.defineProperty(panel, 'scrollHeight', { get: () => 3000, configurable: true })
-  Object.defineProperty(panel, 'clientHeight', { get: () => 600, configurable: true })
-  panel.scrollTop = 850
+  const workspaceBody = getWorkspaceBody(document)
+  assert.ok(workspaceBody, 'workspace-body precisa existir (UX8)')
+
+  // jsdom não faz layout: simula um workspace-body realmente rolável
+  // (é ele, não o painel, quem rola de verdade na UX8 — ver styles.css).
+  Object.defineProperty(workspaceBody, 'scrollHeight', { get: () => 3000, configurable: true })
+  Object.defineProperty(workspaceBody, 'clientHeight', { get: () => 600, configurable: true })
+  workspaceBody.scrollTop = 850
 
   const sellerWorkspaceRegionBefore = panel.querySelector(
     '[data-yolen-region="seller-information-architecture"]',
@@ -88,7 +100,8 @@ test('1) atualização de resumo em segundo plano preserva a posição de leitur
   await waitFor(() => resolveLeadCalls(calls).length > 1)
   await sleep(30)
 
-  assert.equal(panel.scrollTop, 850, 'scroll não pode voltar ao topo por causa de uma atualização de fundo')
+  assert.equal(workspaceBody.scrollTop, 850, 'scroll não pode voltar ao topo por causa de uma atualização de fundo')
+  assert.equal(panel.getAttribute('data-yolen-ux-build'), 'UX8')
 
   // UX7 mantém estável o boundary seller-facing. O conteúdo interno
   // pode ser recalculado, mas o painel e sua região estrutural permanecem.
@@ -298,9 +311,12 @@ test('7) mudança real de conversa reseta scroll e não vaza rascunho do lead an
   await waitFor(() => Boolean(document.querySelector('[data-yolen-lead-create-form]')))
 
   const panel = getPanel(document)
-  Object.defineProperty(panel, 'scrollHeight', { get: () => 3000, configurable: true })
-  Object.defineProperty(panel, 'clientHeight', { get: () => 600, configurable: true })
-  panel.scrollTop = 700
+  const workspaceBody = getWorkspaceBody(document)
+  assert.ok(workspaceBody, 'workspace-body precisa existir (UX8)')
+
+  Object.defineProperty(workspaceBody, 'scrollHeight', { get: () => 3000, configurable: true })
+  Object.defineProperty(workspaceBody, 'clientHeight', { get: () => 600, configurable: true })
+  workspaceBody.scrollTop = 700
 
   const nameInput = document.querySelector('[name="yolen-lead-name"]')
   nameInput.value = 'Rascunho do Cliente A'
@@ -316,7 +332,10 @@ test('7) mudança real de conversa reseta scroll e não vaza rascunho do lead an
   await waitFor(() => resolveLeadCalls(calls).some((call) => call.payload.phone !== PHONE_DIGITS))
   await sleep(30)
 
-  assert.equal(panel.scrollTop, 0, 'uma mudança real de conversa precisa resetar o scroll')
+  // UX8 (FASE B.1): quem precisa voltar a 0 é o dono real do scroll
+  // (.yolen-workspace-body) — o painel externo (overflow:hidden) nunca
+  // teve um scrollTop operacional para resetar.
+  assert.equal(getWorkspaceBody(document).scrollTop, 0, 'uma mudança real de conversa precisa resetar o scroll do workspace-body')
 
   const nameInputAfter = document.querySelector('[name="yolen-lead-name"]')
 
