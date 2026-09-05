@@ -76,7 +76,7 @@ test(
 
     const end =
       contentScript.indexOf(
-        'function dispatchContactInfoEscape()',
+        'function closeContactInfoPanel()',
         start,
       )
 
@@ -107,54 +107,77 @@ test(
 )
 
 test(
-  'se o click do X nao fechar o perfil o fluxo usa Escape e confirma o fechamento',
+  'fechamento automatico nunca usa Escape para navegar no WhatsApp',
   () => {
-    const start =
+    assert.doesNotMatch(
+      contentScript,
+      /function dispatchContactInfoEscape\(/,
+    )
+
+    const closeStart =
+      contentScript.indexOf(
+        'function closeContactInfoPanel()',
+      )
+
+    const closeEnd =
+      contentScript.indexOf(
+        'async function waitForContactInfoPanelClosed(',
+        closeStart,
+      )
+
+    assert.notEqual(closeStart, -1)
+    assert.notEqual(closeEnd, -1)
+
+    const closeBlock =
+      contentScript.slice(
+        closeStart,
+        closeEnd,
+      )
+
+    assert.doesNotMatch(
+      closeBlock,
+      /KeyboardEvent/,
+    )
+
+    assert.doesNotMatch(
+      closeBlock,
+      /Escape/,
+    )
+
+    const waitStart =
       contentScript.indexOf(
         'async function closeContactInfoPanelAndWait()',
       )
 
-    const end =
+    const waitEnd =
       contentScript.indexOf(
         'async function waitForContactPanelPhone(',
-        start,
+        waitStart,
       )
 
-    assert.notEqual(start, -1)
-    assert.notEqual(end, -1)
+    assert.notEqual(waitStart, -1)
+    assert.notEqual(waitEnd, -1)
 
-    const block =
+    const waitBlock =
       contentScript.slice(
-        start,
-        end,
+        waitStart,
+        waitEnd,
       )
 
-    assert.match(
-      block,
-      /waitForContactInfoPanelClosed\(/,
+    assert.doesNotMatch(
+      waitBlock,
+      /Escape/,
     )
 
-    assert.match(
-      block,
-      /dispatchContactInfoEscape\(\)/,
-    )
+    const waits =
+      waitBlock.match(
+        /waitForContactInfoPanelClosed\(/g,
+      ) || []
 
-    const firstWait =
-      block.indexOf(
-        'waitForContactInfoPanelClosed(',
-      )
-
-    const escape =
-      block.indexOf(
-        'dispatchContactInfoEscape()',
-      )
-
-    assert.ok(
-      firstWait >= 0,
-    )
-
-    assert.ok(
-      escape > firstWait,
+    assert.equal(
+      waits.length,
+      1,
+      'o fechamento deve tentar somente o controle X e confirmar o resultado',
     )
   },
 )

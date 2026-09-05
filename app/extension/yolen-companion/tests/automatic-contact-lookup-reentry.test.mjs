@@ -26,57 +26,77 @@ function getLookupBlock() {
 }
 
 test(
-  'lookup so marca a conversa como tentada depois de acionar o perfil',
+  'sem painel aberto lookup falha fechado sem navegar nem consumir tentativa',
   () => {
     const block = getLookupBlock()
 
-    const clickIndex = block.indexOf(
-      'const clicked = clickElement(getClickableHeaderTarget())',
+    const failClosedIndex = block.indexOf(
+      'if (!hadContactPanelOpen) {',
     )
 
     const successMarkIndex = block.indexOf(
       'autoLookupAttemptedKeys.add(',
-      clickIndex,
+      failClosedIndex,
     )
 
-    assert.ok(clickIndex >= 0)
-    assert.ok(successMarkIndex > clickIndex)
+    assert.ok(failClosedIndex >= 0)
+    assert.ok(successMarkIndex > failClosedIndex)
 
-    const beforeClick = block.slice(
-      0,
-      clickIndex,
+    const failClosedBlock = block.slice(
+      failClosedIndex,
+      successMarkIndex,
+    )
+
+    assert.match(
+      failClosedBlock,
+      /A Yolen não altera a navegação do WhatsApp/,
+    )
+
+    assert.match(
+      failClosedBlock,
+      /return/,
     )
 
     assert.doesNotMatch(
-      beforeClick,
+      failClosedBlock,
+      /clickElement\(/,
+    )
+
+    assert.doesNotMatch(
+      failClosedBlock,
       /autoLookupAttemptedKeys\.add\(/,
     )
   },
 )
 
 test(
-  'falha de preparacao pode aguardar o DOM sem provocar nova abertura visual ilimitada',
+  'politica fail-closed nao agenda retry visual de abertura',
   () => {
     const block = getLookupBlock()
 
-    assert.match(
+    assert.doesNotMatch(
       contentScript,
-      /AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES = 4/,
-    )
-
-    assert.match(
-      block,
-      /autoLookupPrepareRetryCounts\.get\(/,
-    )
-
-    assert.match(
-      block,
       /AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
+      contentScript,
+      /AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES/,
+    )
+
+    assert.doesNotMatch(
+      contentScript,
+      /autoLookupPrepareRetryCounts/,
+    )
+
+    assert.doesNotMatch(
       block,
-      /retryCount <\s*AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES/,
+      /getClickableHeaderTarget\(/,
+    )
+
+    assert.doesNotMatch(
+      block,
+      /clickElement\(/,
     )
   },
 )

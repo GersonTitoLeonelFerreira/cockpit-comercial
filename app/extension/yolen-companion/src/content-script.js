@@ -9,10 +9,7 @@
   const HASH_SESSION_KEY = 'yolen_companion_session'
   const PANEL_COLLAPSED_STORAGE_KEY =
     'yolen_companion_panel_collapsed'
-  const AUTO_CONTACT_LOOKUP_DELAY_MS = 900
   const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 6000
-  const AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS = 500
-  const AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES = 4
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
   // Override só para teste: permite exercitar o debounce real da análise
   // automática (mesmo setTimeout, mesma lógica de reagendamento contra uma
@@ -171,6 +168,8 @@
   const leadCreationInFlightKeys =
     new Set()
   let autoContactLookupInFlight = false
+  let autoContactLookupConversationRefreshPending =
+    false
   let capturedAudioBlobEntries = []
   let automaticAnalysisTimerId = 0
   let automaticAnalysisScheduledKey = null
@@ -221,7 +220,6 @@
   let captureIngestionRetryAttempt = 0
 
   const autoLookupAttemptedKeys = new Set()
-  const autoLookupPrepareRetryCounts = new Map()
   const cachedPhonesByConversationKey = new Map()
   const cachedPhonesByLookupIdentity = new Map()
   const lastIngestedCaptureKeys = new Map()
@@ -1055,7 +1053,51 @@
   }
 
   function getSelectedChatElement() {
-    return document.querySelector('[aria-selected="true"]')
+    const selectedElements =
+      Array.from(
+        document.querySelectorAll(
+          '[aria-selected="true"]',
+        ),
+      )
+
+    return (
+      selectedElements.find((element) => {
+        if (
+          element.closest?.(
+            `#${PANEL_ID}`,
+          ) ||
+          element.closest?.('#main')
+        ) {
+          return false
+        }
+
+        const chatRowSelector =
+          '[data-testid="cell-frame-container"], [role="row"], [role="listitem"], [data-id]'
+
+        const chatRow =
+          element.matches?.(
+            chatRowSelector,
+          )
+            ? element
+            : element.closest?.(
+                chatRowSelector,
+              )
+
+        if (!chatRow) {
+          return false
+        }
+
+        return Boolean(
+          chatRow.matches?.(
+            '[data-testid="cell-frame-title"]',
+          ) ||
+          chatRow.querySelector?.(
+            '[data-testid="cell-frame-title"], span[title], [dir="auto"][title]',
+          ),
+        )
+      }) ||
+      null
+    )
   }
 
   function getSelectedChatTitle() {
@@ -1422,6 +1464,13 @@
   }
 
   function getConversationTitle() {
+    const main =
+      getMainConversationRoot()
+
+    if (!main) {
+      return null
+    }
+
     const primaryHeaderTitle =
       getMainHeaderPrimaryTitle()
 
@@ -1442,7 +1491,9 @@
       return headerTitle
     }
 
-    return getSelectedChatTitle() || null
+    // Sem um header real da conversa, não usamos nenhum item
+    // selecionado da barra lateral como identidade do contato.
+    return null
   }
 
   function getConversationPhone(title, conversationKey) {
@@ -4316,27 +4367,6 @@
     )
   }
 
-  function getClickableHeaderTarget() {
-    const header = getMainHeader()
-
-    if (!header) {
-      return null
-    }
-
-    const roleButton = header.querySelector('[role="button"]')
-
-    if (roleButton) {
-      return roleButton
-    }
-
-    const clickable = Array.from(header.querySelectorAll('div, span, button')).find((element) => {
-      const rect = element.getBoundingClientRect()
-      return rect.width > 80 && rect.height > 20
-    })
-
-    return clickable || header
-  }
-
   function clickElement(element) {
     if (!element) {
       return false
@@ -4478,28 +4508,6 @@
     return clickElement(element)
   }
 
-  function dispatchContactInfoEscape() {
-    const buildEscapeEvent = () =>
-      new KeyboardEvent(
-        'keydown',
-        {
-          key: 'Escape',
-          code: 'Escape',
-          keyCode: 27,
-          which: 27,
-          bubbles: true,
-        },
-      )
-
-    window.dispatchEvent(
-      buildEscapeEvent(),
-    )
-
-    document.dispatchEvent(
-      buildEscapeEvent(),
-    )
-  }
-
   function closeContactInfoPanel() {
     const header =
       findContactInfoHeader()
@@ -4514,16 +4522,15 @@
     const closeControl =
       getContactInfoCloseControl()
 
-    if (closeControl) {
-      return (
-        activateContactInfoCloseControl(
-          closeControl,
-        )
-      )
+    if (!closeControl) {
+      return false
     }
 
-    dispatchContactInfoEscape()
-    return true
+    return (
+      activateContactInfoCloseControl(
+        closeControl,
+      )
+    )
   }
 
   async function waitForContactInfoPanelClosed(
@@ -4556,19 +4563,8 @@
       return false
     }
 
-    const closedAfterControl =
-      await waitForContactInfoPanelClosed(
-        10,
-      )
-
-    if (closedAfterControl) {
-      return true
-    }
-
-    dispatchContactInfoEscape()
-
     return waitForContactInfoPanelClosed(
-      12,
+      10,
     )
   }
 
@@ -4634,69 +4630,14 @@
 
     try {
       if (!hadContactPanelOpen) {
-        const clicked = clickElement(getClickableHeaderTarget())
-
-        if (!clicked) {
-          const retryCount =
-            autoLookupPrepareRetryCounts.get(
-              lookupIdentity,
-            ) || 0
-
-          if (
-            retryCount <
-            AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES
-          ) {
-            autoLookupPrepareRetryCounts.set(
-              lookupIdentity,
-              retryCount + 1,
-            )
-
-            state = {
-              ...state,
-              autoLookupStatus:
-                'Preparando os dados do contato...',
-            }
-
-            renderPanel()
-
-            window.setTimeout(() => {
-              if (
-                state.connected &&
-                !state.conversationPhone &&
-                state.contactLookupIdentity ===
-                  lookupIdentity &&
-                !autoLookupAttemptedKeys.has(
-                  lookupIdentity,
-                )
-              ) {
-                runAutomaticContactLookup(
-                  conversationKey,
-                )
-              }
-            }, AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS)
-
-            return
-          }
-
-          autoLookupAttemptedKeys.add(
-            lookupIdentity,
-          )
-
-          state = {
-            ...state,
-            autoLookupStatus:
-              'Não consegui abrir os dados do contato nesta tentativa. Troque de conversa e volte para tentar novamente.',
-          }
-
-          renderPanel()
-          return
+        state = {
+          ...state,
+          autoLookupStatus:
+            'Telefone ainda não disponível. A Yolen não altera a navegação do WhatsApp para buscar esse dado.',
         }
 
-        autoLookupPrepareRetryCounts.delete(
-          lookupIdentity,
-        )
-
-        await sleep(AUTO_CONTACT_LOOKUP_DELAY_MS)
+        renderPanel()
+        return
       }
 
       autoLookupAttemptedKeys.add(
@@ -4777,6 +4718,14 @@
       }
     } finally {
       autoContactLookupInFlight = false
+
+      if (
+        autoContactLookupConversationRefreshPending
+      ) {
+        autoContactLookupConversationRefreshPending =
+          false
+        processObservedWhatsAppChange()
+      }
     }
   }
 
@@ -4920,10 +4869,6 @@
           autoLookupAttemptedKeys.delete(
             contactLookupIdentity,
           )
-
-          autoLookupPrepareRetryCounts.delete(
-            contactLookupIdentity,
-          )
         }
       }
 
@@ -5018,6 +4963,29 @@
     }
 
     return messageMutationDetected
+  }
+
+  function processObservedWhatsAppChange() {
+    const messageMutationDetected =
+      refreshConversationSnapshot()
+
+    checkPendingSuggestedMessageSentFromConversation()
+
+    if (messageMutationDetected) {
+      scheduleCaptureIngestion(0)
+
+      scheduleAutomaticAnalysis(
+        'Mensagem editada ou apagada detectada. A Yolen atualizará a análise em 8 segundos.',
+      )
+
+      return
+    }
+
+    scheduleCaptureIngestion()
+
+    scheduleAutomaticAnalysis(
+      'Nova mensagem detectada. A Yolen aguardará 8 segundos antes de atualizar a análise.',
+    )
   }
 
   function getConnectionLabel() {
@@ -15548,6 +15516,24 @@
         return
       }
 
+      const visibleConversationKey =
+        getConversationKey(
+          getConversationTitle(),
+        )
+
+      if (
+        visibleConversationKey &&
+        state.conversationKey &&
+        visibleConversationKey !==
+          state.conversationKey
+      ) {
+        // A identidade visível do WhatsApp já mudou. A mensagem/intenção
+        // do cliente anterior não pode permanecer clicável nem durante o
+        // debounce de 600 ms que estabiliza o DOM da nova conversa.
+        window.YolenCompanionSellerMessageRuntime
+          ?.clear?.()
+      }
+
       window.clearTimeout(
         observeWhatsAppChanges.timeoutId,
       )
@@ -15555,27 +15541,30 @@
       observeWhatsAppChanges.timeoutId =
       window.setTimeout(() => {
         if (autoContactLookupInFlight) {
+          const latestVisibleConversationKey =
+            getConversationKey(
+              getConversationTitle(),
+            )
+
+          if (
+            latestVisibleConversationKey &&
+            latestVisibleConversationKey !==
+              state.conversationKey
+          ) {
+            // Não descarta a troca A→B só porque a abertura automática
+            // dos dados de A ainda está terminando. O finally do lookup
+            // reaplica exatamente uma leitura do DOM já estabilizado.
+            autoContactLookupConversationRefreshPending =
+              true
+
+            window.YolenCompanionSellerMessageRuntime
+              ?.clear?.()
+          }
+
           return
         }
 
-        const messageMutationDetected =
-          refreshConversationSnapshot()
-
-        checkPendingSuggestedMessageSentFromConversation()
-
-        if (messageMutationDetected) {
-          scheduleCaptureIngestion(0)
-
-          scheduleAutomaticAnalysis(
-            'Mensagem editada ou apagada detectada. A Yolen atualizará a análise em 8 segundos.',
-          )
-        } else {
-          scheduleCaptureIngestion()
-
-          scheduleAutomaticAnalysis(
-            'Nova mensagem detectada. A Yolen aguardará 8 segundos antes de atualizar a análise.',
-          )
-        }
+        processObservedWhatsAppChange()
       }, 600)
     })
 
