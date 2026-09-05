@@ -109,6 +109,179 @@ test(
   },
 )
 
+// ============================================================================
+// P2 — allowed_evidence.memory_ids não pode incluir memória histórica
+// (resolved/superseded). Memória histórica continua disponível como
+// CONTEXTO em commercial_state (para não repetir pergunta já resolvida),
+// mas não pode autorizar uma grounded_claim atual.
+// ============================================================================
+
+function memoryItem({
+  memory_id,
+  memory_status,
+  summary = 'Item de memória de teste.',
+}) {
+  return {
+    memory_id,
+    collection: 'needs',
+    kind: 'test_kind',
+    summary,
+    value: null,
+    confidence: null,
+    memory_status,
+    created_in_state_version: 1,
+    updated_in_state_version: 1,
+    closed_in_state_version: null,
+    evidence_message_ids: [],
+    attributes: {},
+    provenance: [],
+  }
+}
+
+function buildSnapshotWithMemoryStatuses(
+  scenario,
+) {
+  const snapshot = scenario.build()
+
+  snapshot.customer.needs = [
+    ...snapshot.customer.needs,
+    memoryItem({
+      memory_id: 'memory-active-1',
+      memory_status: 'active',
+      summary:
+        'Necessidade ativa de teste.',
+    }),
+  ]
+
+  snapshot.customer.resolved_information = [
+    ...snapshot.customer
+      .resolved_information,
+    memoryItem({
+      memory_id: 'memory-resolved-1',
+      memory_status: 'resolved',
+      summary:
+        'Informação já resolvida de teste.',
+    }),
+  ]
+
+  snapshot.customer.superseded_information = [
+    ...snapshot.customer
+      .superseded_information,
+    memoryItem({
+      memory_id: 'memory-superseded-1',
+      memory_status: 'superseded',
+      summary:
+        'Informação substituída de teste.',
+    }),
+  ]
+
+  return snapshot
+}
+
+test(
+  'V2 execution plan: P2 — memória com memory_status=active aparece em allowed_evidence.memory_ids',
+  () => {
+    const snapshot =
+      buildSnapshotWithMemoryStatuses(
+        priceScenario,
+      )
+
+    const plan =
+      buildMessageIntelligenceV2ExecutionPlan(
+        { snapshot },
+      )
+
+    assert.ok(
+      plan.normalization_context
+        .allowed_evidence.memory_ids.includes(
+          'memory-active-1',
+        ),
+    )
+  },
+)
+
+test(
+  'V2 execution plan: P2 — memória com memory_status=resolved NÃO aparece em allowed_evidence.memory_ids',
+  () => {
+    const snapshot =
+      buildSnapshotWithMemoryStatuses(
+        priceScenario,
+      )
+
+    const plan =
+      buildMessageIntelligenceV2ExecutionPlan(
+        { snapshot },
+      )
+
+    assert.equal(
+      plan.normalization_context
+        .allowed_evidence.memory_ids.includes(
+          'memory-resolved-1',
+        ),
+      false,
+    )
+  },
+)
+
+test(
+  'V2 execution plan: P2 — memória com memory_status=superseded NÃO aparece em allowed_evidence.memory_ids',
+  () => {
+    const snapshot =
+      buildSnapshotWithMemoryStatuses(
+        priceScenario,
+      )
+
+    const plan =
+      buildMessageIntelligenceV2ExecutionPlan(
+        { snapshot },
+      )
+
+    assert.equal(
+      plan.normalization_context
+        .allowed_evidence.memory_ids.includes(
+          'memory-superseded-1',
+        ),
+      false,
+    )
+  },
+)
+
+test(
+  'V2 execution plan: P2 — resolved_information e superseded_information continuam presentes em commercial_state como contexto histórico',
+  () => {
+    const snapshot =
+      buildSnapshotWithMemoryStatuses(
+        priceScenario,
+      )
+
+    const plan =
+      buildMessageIntelligenceV2ExecutionPlan(
+        { snapshot },
+      )
+
+    const payload = JSON.parse(
+      plan.user_prompt,
+    )
+
+    assert.ok(
+      payload.commercial_state.resolved_information.some(
+        item =>
+          item.memory_id ===
+          'memory-resolved-1',
+      ),
+      'resolved_information deveria continuar disponível como contexto histórico',
+    )
+    assert.ok(
+      payload.commercial_state.superseded_information.some(
+        item =>
+          item.memory_id ===
+          'memory-superseded-1',
+      ),
+      'superseded_information deveria continuar disponível como contexto histórico',
+    )
+  },
+)
+
 test(
   'V2 execution plan: repair plan preserva payload original e adiciona repair_context',
   () => {

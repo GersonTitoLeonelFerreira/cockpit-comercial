@@ -1403,3 +1403,373 @@ test(
     )
   },
 )
+
+// ============================================================================
+// P1 — Protected facts: comparação por token completo canonicalizado, nunca
+// por substring. "R$ 50" não pode ser aceito só porque "R$ 500" existe no
+// contexto, nem "10%" só porque "110%" existe.
+// ============================================================================
+
+test(
+  'V2 executor: P1 — R$ 50 na mensagem não é sustentado por R$ 500 no contexto (substring não é prova)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    plan.normalization_context.grounding_text +=
+      '\n"R$ 500"'
+
+    const bad = generatedOutput(plan, {
+      suggested_message:
+        'Consigo fechar por R$ 50 esse mês, além do acompanhamento estruturado.',
+    })
+
+    const provider = queueProvider([
+      { output: bad },
+      { output: bad },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_UNSUPPORTED_PROTECTED_FACT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 executor: P1 — 10% na mensagem não é sustentado por 110% no contexto (substring não é prova)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    plan.normalization_context.grounding_text +=
+      '\n"110%"'
+
+    const bad = generatedOutput(plan, {
+      suggested_message:
+        'Nessa condição o desconto aplicado é de 10%, faz sentido pra você?',
+    })
+
+    const provider = queueProvider([
+      { output: bad },
+      { output: bad },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_UNSUPPORTED_PROTECTED_FACT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 executor: P1 — mesmo valor protegido do contexto passa (R$ 500 == R$ 500)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    plan.normalization_context.grounding_text +=
+      '\n"R$ 500"'
+
+    const good = generatedOutput(plan, {
+      suggested_message:
+        'Consigo fechar por R$ 500 esse mês, além do acompanhamento estruturado.',
+    })
+
+    const provider = queueProvider([
+      { output: good },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(
+      result.output.suggested_message,
+      good.suggested_message,
+    )
+  },
+)
+
+test(
+  'V2 executor: P1 — múltiplos protected facts: todos precisam existir no contexto, um ausente já falha',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    plan.normalization_context.grounding_text +=
+      '\n"R$ 500" "10%"'
+
+    // R$ 500 está sustentado, mas 20% não bate com o único percentual do
+    // contexto (10%) — um protected fact não sustentado já é suficiente
+    // para falhar, mesmo com outro sustentado.
+    const bad = generatedOutput(plan, {
+      suggested_message:
+        'O valor é R$ 500, com desconto de 20% esse mês.',
+    })
+
+    const provider = queueProvider([
+      { output: bad },
+      { output: bad },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_UNSUPPORTED_PROTECTED_FACT',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 executor: P1 — repair determinístico corrige fato protegido não sustentado (comparação por token, não substring)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    plan.normalization_context.grounding_text +=
+      '\n"R$ 500"'
+
+    const rejected = generatedOutput(plan, {
+      suggested_message:
+        'Consigo fechar por R$ 50 esse mês.',
+    })
+
+    const repaired = generatedOutput(plan, {
+      suggested_message:
+        'O valor é de R$ 500, além do acompanhamento estruturado.',
+    })
+
+    const provider = queueProvider([
+      { output: rejected },
+      { output: repaired },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(result.execution.attempts, 2)
+    assert.equal(
+      result.execution.recovered_after_retry,
+      true,
+    )
+    assert.equal(
+      result.execution.repair_reason,
+      'deterministic',
+    )
+    assert.equal(
+      result.output.suggested_message,
+      repaired.suggested_message,
+    )
+  },
+)
+
+// ============================================================================
+// P2 — Uma grounded_claim citando memória histórica (resolved/superseded)
+// precisa ser rejeitada: allowed_evidence.memory_ids só contém memória
+// active (ver execution-plan.test.mjs para a cobertura de
+// buildAllowedEvidence em si).
+// ============================================================================
+
+function memoryItem({
+  memory_id,
+  memory_status,
+  summary = 'Item de memória de teste.',
+}) {
+  return {
+    memory_id,
+    collection: 'needs',
+    kind: 'test_kind',
+    summary,
+    value: null,
+    confidence: null,
+    memory_status,
+    created_in_state_version: 1,
+    updated_in_state_version: 1,
+    closed_in_state_version: null,
+    evidence_message_ids: [],
+    attributes: {},
+    provenance: [],
+  }
+}
+
+function buildPlanWithHistoricalMemory(
+  scenario,
+) {
+  const snapshot = scenario.build()
+
+  snapshot.customer.resolved_information = [
+    ...snapshot.customer
+      .resolved_information,
+    memoryItem({
+      memory_id: 'memory-resolved-1',
+      memory_status: 'resolved',
+      summary:
+        'Cliente já disse que o valor é R$ 199,90.',
+    }),
+  ]
+
+  snapshot.customer.superseded_information = [
+    ...snapshot.customer
+      .superseded_information,
+    memoryItem({
+      memory_id: 'memory-superseded-1',
+      memory_status: 'superseded',
+      summary:
+        'Cliente havia dito algo que depois mudou.',
+    }),
+  ]
+
+  return buildMessageIntelligenceV2ExecutionPlan(
+    { snapshot },
+  )
+}
+
+test(
+  'V2 executor: P2 — grounded_claim citando memória resolved é rejeitada',
+  async () => {
+    const plan =
+      buildPlanWithHistoricalMemory(
+        priceScenario,
+      )
+
+    const bad = generatedOutput(plan, {
+      grounded_claims: [
+        {
+          claim:
+            'Cliente já disse que o valor é R$ 199,90.',
+          supported_by: {
+            source: 'memory',
+            id: 'memory-resolved-1',
+          },
+        },
+      ],
+    })
+
+    const provider = queueProvider([
+      { output: bad },
+      { output: bad },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_GROUNDED_CLAIM_REF_INVALID',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'V2 executor: P2 — grounded_claim citando memória superseded é rejeitada',
+  async () => {
+    const plan =
+      buildPlanWithHistoricalMemory(
+        priceScenario,
+      )
+
+    const bad = generatedOutput(plan, {
+      grounded_claims: [
+        {
+          claim:
+            'Cliente havia dito algo que depois mudou.',
+          supported_by: {
+            source: 'memory',
+            id: 'memory-superseded-1',
+          },
+        },
+      ],
+    })
+
+    const provider = queueProvider([
+      { output: bad },
+      { output: bad },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_GROUNDED_CLAIM_REF_INVALID',
+        )
+        return true
+      },
+    )
+  },
+)
+
+// ============================================================================
+// Regressão de terceira revisão: afirmação factual/comercial sem nenhuma
+// grounded_claim nunca pode surgir como generated — reforça a cobertura já
+// existente com o exemplo literal auditado (garantia sem evidência).
+// ============================================================================
+
+test(
+  'V2 executor: regressão — afirmação comercial sem grounded_claims nunca surge como generated (garantia sem evidência)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+
+    const bad = generatedOutput(plan, {
+      grounded_claims: [],
+      suggested_message:
+        'O plano tem garantia vitalícia, então você não precisa se preocupar depois.',
+    })
+
+    const provider = queueProvider([
+      { output: bad },
+      { output: bad },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_UNGROUNDED_FACTUAL_CLAIM',
+        )
+        return true
+      },
+    )
+  },
+)

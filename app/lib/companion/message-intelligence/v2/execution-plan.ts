@@ -187,8 +187,16 @@ function buildAllowedEvidence(
     ),
   ]
 
+  // Memória histórica (resolved_information/superseded_information)
+  // continua útil como CONTEXTO — para não repetir pergunta já respondida
+  // e entender o histórico —, mas não pode autorizar uma grounded_claim
+  // atual: só memória com memory_status=active é evidência válida.
   const memoryIds =
     collectMemoryItems(snapshot.customer)
+      .filter(
+        item =>
+          item.memory_status === 'active',
+      )
       .map(item => item.memory_id)
       .filter(
         (id): id is string =>

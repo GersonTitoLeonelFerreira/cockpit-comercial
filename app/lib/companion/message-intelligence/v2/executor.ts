@@ -378,6 +378,98 @@ function getProtectedFacts(
   )
 }
 
+// Canonicaliza um número em formato pt-BR (ponto como separador de milhar,
+// vírgula como separador decimal) para uma forma comparável. Assume
+// convenção brasileira de formatação — a mesma já usada em todo o restante
+// do prompt/validação do MIE V2 — não é um parser financeiro genérico.
+function canonicalizePtBrDecimal(
+  raw: string,
+): string {
+  const cleaned = raw
+    .replace(/\./gu, '')
+    .replace(',', '.')
+
+  const parsed = Number.parseFloat(cleaned)
+
+  return Number.isFinite(parsed)
+    ? parsed.toFixed(2)
+    : cleaned
+}
+
+// Une "/" e "-" como o mesmo separador e remove zeros à esquerda de cada
+// segmento (05/06 e 5/6 são a mesma data), sem reordenar dia/mês/ano —
+// message e allowedContext usam a mesma convenção pt-BR.
+function canonicalizeDateLike(
+  raw: string,
+): string {
+  return raw
+    .split(/[/-]/u)
+    .map(segment =>
+      String(
+        Number.parseInt(segment, 10),
+      ),
+    )
+    .join('/')
+}
+
+// "9h" e "09h00" são a mesma hora (minutos implícitos = 00).
+function canonicalizeTimeLike(
+  raw: string,
+): string {
+  const match =
+    /^(\d{1,2})h(\d{2})?$/u.exec(raw)
+
+  if (!match) {
+    return raw
+  }
+
+  const hour = Number.parseInt(
+    match[1],
+    10,
+  )
+
+  return `${hour}:${match[2] ?? '00'}`
+}
+
+// Canonicaliza um protected fact já extraído (getProtectedFacts) para uma
+// chave comparável por igualdade — nunca por substring. R$ 50 e R$ 500 têm
+// chaves diferentes; 10% e 110% têm chaves diferentes; formatos que
+// representam o mesmo valor (R$ 500 / R$ 500,00; 9h / 09h00; 05/06 / 5/6)
+// colapsam na mesma chave.
+function canonicalizeProtectedFact(
+  rawFact: string,
+): string {
+  const normalized = normalizeForGrounding(
+    rawFact,
+  ).replace(/\s+/gu, '')
+
+  if (normalized.startsWith('r$')) {
+    return `money:${canonicalizePtBrDecimal(
+      normalized.slice(2),
+    )}`
+  }
+
+  if (normalized.endsWith('%')) {
+    return `percent:${canonicalizePtBrDecimal(
+      normalized.slice(0, -1),
+    )}`
+  }
+
+  if (normalized.includes('h')) {
+    return `time:${canonicalizeTimeLike(
+      normalized,
+    )}`
+  }
+
+  return `date:${canonicalizeDateLike(
+    normalized,
+  )}`
+}
+
+// Compara protected facts como CONJUNTO DE TOKENS COMPLETOS canonicalizados
+// (messageProtectedFacts ⊆ allowedProtectedFacts) — nunca por substring.
+// Substring permitiria que "R$ 50" fosse aceito só porque "R$ 500" existe
+// no contexto, ou que "10%" passasse por existir dentro de "110%".
 function hasUnsupportedProtectedFact({
   message,
   allowedContext,
@@ -385,13 +477,16 @@ function hasUnsupportedProtectedFact({
   message: string
   allowedContext: string
 }): boolean {
-  const normalizedContext =
-    normalizeForGrounding(allowedContext)
+  const allowedFacts = new Set(
+    getProtectedFacts(allowedContext).map(
+      canonicalizeProtectedFact,
+    ),
+  )
 
   return getProtectedFacts(message).some(
     fact =>
-      !normalizedContext.includes(
-        normalizeForGrounding(fact),
+      !allowedFacts.has(
+        canonicalizeProtectedFact(fact),
       ),
   )
 }
