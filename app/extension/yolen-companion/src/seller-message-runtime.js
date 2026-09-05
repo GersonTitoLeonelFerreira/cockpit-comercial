@@ -330,9 +330,11 @@
           ].join('')
         : state.status === 'loading'
           ? '<div class="yolen-seller-message-note">Gerando mensagem…</div>'
-          : state.status === 'error'
-            ? `<div class="yolen-seller-message-error">${escapeHtml(state.error || 'Não foi possível gerar a mensagem.')}</div>`
-            : ''
+          : state.status === 'no_message'
+            ? '<div class="yolen-seller-message-note">Não há uma mensagem necessária agora.</div>'
+            : state.status === 'error'
+              ? `<div class="yolen-seller-message-error">${escapeHtml(state.error || 'Não foi possível gerar a mensagem.')}</div>`
+              : ''
 
     const feedbackHtml = state.feedback
       ? `<div class="yolen-seller-message-note">${escapeHtml(state.feedback)}</div>`
@@ -468,6 +470,17 @@
     }
 
     const generation = result.payload.data
+
+    if (generation.status === 'no_message') {
+      // Silêncio válido: a Yolen decidiu, sem erro, que nenhuma
+      // mensagem deveria ser sugerida agora. Não é um erro — não insere,
+      // não copia e não envia nada.
+      state.status = 'no_message'
+      state.message = null
+      state.error = null
+      queueRender()
+      return
+    }
 
     if (
       generation.status !== 'ready' ||
