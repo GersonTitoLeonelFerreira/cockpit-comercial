@@ -133,6 +133,19 @@
   let panelCollapsed = false
   let activeSellerArea = 'now'
 
+  // UX8 FASE C: fonte canônica única das áreas seller-facing e sua ordem
+  // oficial (Agora, Mensagem, Análise, Cliente). setActiveSellerArea() e
+  // handleSellerAreaKeyboard() usavam cada um sua própria lista — se uma
+  // área nova fosse adicionada num lugar e esquecida no outro, a
+  // navegação por teclado e o valor aceito por setActiveSellerArea()
+  // divergiriam silenciosamente. Uma única lista, em ordem, evita isso.
+  const SELLER_AREAS = [
+    'now',
+    'message',
+    'analysis',
+    'client',
+  ]
+
   // Rendering por região: renderPanel() costumava fazer panel.innerHTML =
   // <painel inteiro> a cada mudança de estado (ver histórico em
   // renderPanelRegion() abaixo). panelRegionHtmlCache guarda o último HTML
@@ -10681,8 +10694,28 @@
         aria-label="Áreas do Yolen Companion"
       >
         ${getSellerAreaTabHtml('now', 'Agora')}
+        ${getSellerAreaTabHtml('message', 'Mensagem')}
         ${getSellerAreaTabHtml('analysis', 'Análise')}
         ${getSellerAreaTabHtml('client', 'Cliente')}
+      </div>
+    `
+  }
+
+  // UX8 FASE C: superfície própria do composer seller-facing. Nesta fase
+  // é só o mount estrutural — seller-message-runtime.js já procura o
+  // mount do composer em qualquer lugar do documento (e não se importa
+  // se o painel-pai está com [hidden]), então bastou mover este div para
+  // cá; o runtime não precisou mudar. O design fiel
+  // à imagem de referência (objetivo, presets, textarea, resultado) é
+  // FASE D — aqui o composer real já aparece dentro deste mount assim
+  // que o contexto da conversa atual for válido.
+  function getSellerMessageAreaHtml() {
+    return `
+      <div
+        class="yolen-seller-message-workspace"
+        data-yolen-seller-message-workspace
+      >
+        <div data-yolen-seller-message-mount></div>
       </div>
     `
   }
@@ -10700,6 +10733,9 @@
         </div>
       `)
 
+    const messageHtml =
+      getSellerMessageAreaHtml()
+
     const analysisHtml =
       getDetailedAnalysisAreaHtml()
 
@@ -10714,6 +10750,11 @@
         ${getSellerAreaPanelHtml(
           'now',
           nowHtml,
+        )}
+
+        ${getSellerAreaPanelHtml(
+          'message',
+          messageHtml,
         )}
 
         ${getSellerAreaPanelHtml(
@@ -10733,13 +10774,7 @@
     nextArea,
     options = {},
   ) {
-    const areas = [
-      'now',
-      'analysis',
-      'client',
-    ]
-
-    if (!areas.includes(nextArea)) {
+    if (!SELLER_AREAS.includes(nextArea)) {
       return
     }
 
@@ -10793,12 +10828,6 @@
   function handleSellerAreaKeyboard(
     event,
   ) {
-    const areas = [
-      'now',
-      'analysis',
-      'client',
-    ]
-
     const currentArea =
       event.currentTarget
         ?.getAttribute(
@@ -10806,7 +10835,7 @@
         )
 
     const currentIndex =
-      areas.indexOf(currentArea)
+      SELLER_AREAS.indexOf(currentArea)
 
     if (currentIndex < 0) {
       return
@@ -10820,18 +10849,18 @@
     ) {
       nextIndex =
         (currentIndex + 1) %
-        areas.length
+        SELLER_AREAS.length
     } else if (
       event.key === 'ArrowLeft' ||
       event.key === 'ArrowUp'
     ) {
       nextIndex =
-        (currentIndex - 1 + areas.length) %
-        areas.length
+        (currentIndex - 1 + SELLER_AREAS.length) %
+        SELLER_AREAS.length
     } else if (event.key === 'Home') {
       nextIndex = 0
     } else if (event.key === 'End') {
-      nextIndex = areas.length - 1
+      nextIndex = SELLER_AREAS.length - 1
     }
 
     if (nextIndex === null) {
@@ -10840,7 +10869,7 @@
 
     event.preventDefault()
     setActiveSellerArea(
-      areas[nextIndex],
+      SELLER_AREAS[nextIndex],
       { focus: true },
     )
   }

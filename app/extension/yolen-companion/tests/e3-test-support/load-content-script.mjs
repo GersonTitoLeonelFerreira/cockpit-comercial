@@ -198,6 +198,8 @@ function createFakeBackground({
   saveLeadSummaryResult,
   createLeadResult,
   getMeResult,
+  methodGuidanceResult,
+  messageGenerationResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
@@ -248,6 +250,40 @@ function createFakeBackground({
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
+    // Uma única action real (LOAD_METHOD_GUIDANCE) atende dois runtimes
+    // diferentes (só relevantes com withSellerMessageRuntime: true):
+    // lead-method-guidance-runtime.js pede o próximo passo (sem
+    // `operation` no payload) e seller-message-runtime.js pede a geração
+    // da mensagem (`operation: 'generate_message'`) — distinguidos aqui
+    // como o próprio backend real distingue.
+    LOAD_METHOD_GUIDANCE: async (requestPayload) => {
+      if (requestPayload?.operation === 'generate_message') {
+        const data = await (
+          typeof messageGenerationResult === 'function'
+            ? messageGenerationResult(requestPayload)
+            : (messageGenerationResult ?? {
+                status: 'ready',
+                message: 'Mensagem gerada de teste.',
+                error: null,
+              })
+        )
+
+        return { ok: true, statusCode: 200, payload: { ok: true, data } }
+      }
+
+      const data = await (
+        typeof methodGuidanceResult === 'function'
+          ? methodGuidanceResult(requestPayload)
+          : (methodGuidanceResult ?? {
+              status: 'ready',
+              method_name: 'Método de teste',
+              stage_name: 'Contato',
+              next_step: 'Responder ao ponto levantado pelo cliente.',
+            })
+      )
+
+      return { ok: true, statusCode: 200, payload: { ok: true, data } }
+    },
     ANALYZE_CONVERSATION: async (requestPayload) => {
       const payload =
         typeof analysisResult === 'function'
@@ -375,6 +411,19 @@ const STABILITY_RUNTIME_FILES = [
   'lead-automation.js',
 ]
 
+// Carregados só quando `withSellerMessageRuntime: true` (UX8 FASE C) —
+// os dois runtimes que envolvem YolenCompanionApi.loadLeadSummary ANTES
+// de content-script.js chamá-lo pela primeira vez, na mesma ordem
+// relativa em que o manifest.json real os injeta (logo depois de
+// yolen-api.js, antes de qualquer outra dependência). Sem isso, o mount
+// do composer ([data-yolen-seller-message-mount], agora na aba MENSAGEM)
+// nunca teria seu conteúdo real montado nestes testes — só a estrutura
+// estática do painel seria exercitada.
+const SELLER_MESSAGE_RUNTIME_FILES = [
+  'lead-method-guidance-runtime.js',
+  'seller-message-runtime.js',
+]
+
 export function loadContentScript({
   initialHtml,
   resolutionsByPhone,
@@ -385,7 +434,10 @@ export function loadContentScript({
   saveLeadSummaryResult,
   createLeadResult,
   getMeResult,
+  methodGuidanceResult,
+  messageGenerationResult,
   withStabilityRuntimes = false,
+  withSellerMessageRuntime = false,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
   const background = createFakeBackground({
@@ -397,6 +449,8 @@ export function loadContentScript({
     saveLeadSummaryResult,
     createLeadResult,
     getMeResult,
+    methodGuidanceResult,
+    messageGenerationResult,
   })
 
   const fakeChrome = {
@@ -453,6 +507,35 @@ export function loadContentScript({
 
   for (const dependency of DEPENDENCY_FILES) {
     vm.runInContext(readSource(dependency), sandbox, { filename: dependency })
+
+    if (withSellerMessageRuntime && dependency === 'yolen-api.js') {
+      // yolen-api.js expõe `window.YolenCompanionApi = {...}` (window
+      // literal). lead-method-guidance-runtime.js e seller-message-runtime.js
+      // leem `root.YolenCompanionApi`, onde `root` é
+      // `typeof globalThis !== 'undefined' ? globalThis : window` — dentro
+      // de um vm.createContext, `globalThis` É o próprio objeto do
+      // sandbox, um objeto DIFERENTE de `sandbox.window` (o Window real do
+      // jsdom). Num navegador de verdade `window === globalThis`, então
+      // essa distinção nunca existe; aqui, sem esta ponte, `root.YolenCompanionApi`
+      // seria `undefined` e os dois runtimes nunca instalariam seu wrap
+      // (early-return silencioso). Como é o MESMO objeto (não uma cópia),
+      // a mutação de `api.loadLeadSummary` feita pelos runtimes continua
+      // visível em `window.YolenCompanionApi.loadLeadSummary` — exatamente
+      // o que content-script.js chama.
+      sandbox.YolenCompanionApi = sandbox.window.YolenCompanionApi
+
+      for (const runtimeFile of SELLER_MESSAGE_RUNTIME_FILES) {
+        vm.runInContext(readSource(runtimeFile), sandbox, { filename: runtimeFile })
+      }
+
+      // seller-message-runtime.js expõe sua API pública via
+      // `root.YolenCompanionSellerMessageRuntime = Object.freeze({...})`
+      // (root-scoped); content-script.js lê essa mesma API via
+      // `window.YolenCompanionSellerMessageRuntime` — a ponte inversa da
+      // acima, pelo mesmo motivo.
+      sandbox.window.YolenCompanionSellerMessageRuntime =
+        sandbox.YolenCompanionSellerMessageRuntime
+    }
   }
   vm.runInContext(readSource('content-script.js'), sandbox, { filename: 'content-script.js' })
 
