@@ -181,3 +181,99 @@ test('resolucao do lead usa identidade estavel da consulta e nao repete por muta
     /Grupos não são vinculados a leads/,
   )
 })
+
+
+test(
+  'busca automatica nunca clica na interface do WhatsApp para obter telefone',
+  () => {
+    const lookupStart =
+      contentScript.indexOf(
+        'async function runAutomaticContactLookup(conversationKey)',
+      )
+
+    const lookupEnd =
+      contentScript.indexOf(
+        'function clearLeadStateForNewConversation()',
+        lookupStart,
+      )
+
+    assert.notEqual(lookupStart, -1)
+    assert.notEqual(lookupEnd, -1)
+
+    const lookupBlock =
+      contentScript.slice(
+        lookupStart,
+        lookupEnd,
+      )
+
+    assert.doesNotMatch(
+      lookupBlock,
+      /getClickableHeaderTarget\(/,
+    )
+
+    assert.doesNotMatch(
+      lookupBlock,
+      /clickElement\(/,
+    )
+
+    assert.match(
+      lookupBlock,
+      /if \(!hadContactPanelOpen\)/,
+    )
+
+    assert.match(
+      lookupBlock,
+      /A Yolen não altera a navegação do WhatsApp/,
+    )
+
+    assert.doesNotMatch(
+      contentScript,
+      /function getClickableHeaderTarget\(/,
+    )
+  },
+)
+
+test(
+  'sem header real nenhum item lateral vira titulo da conversa',
+  () => {
+    const start =
+      contentScript.indexOf(
+        'function getConversationTitle()',
+      )
+
+    const end =
+      contentScript.indexOf(
+        'function getConversationPhone(',
+        start,
+      )
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    const block =
+      contentScript.slice(
+        start,
+        end,
+      )
+
+    assert.match(
+      block,
+      /const main =\s*getMainConversationRoot\(\)/,
+    )
+
+    assert.match(
+      block,
+      /if \(!main\) \{\s*return null\s*\}/,
+    )
+
+    assert.doesNotMatch(
+      block,
+      /return getSelectedChatTitle\(\)/,
+    )
+
+    assert.match(
+      block,
+      /return null/,
+    )
+  },
+)
