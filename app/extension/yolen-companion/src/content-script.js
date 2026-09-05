@@ -4869,7 +4869,7 @@
           autoLookupAttemptedKeys.delete(
             contactLookupIdentity,
           )
-}
+        }
       }
 
       if (conversationChanged) {
