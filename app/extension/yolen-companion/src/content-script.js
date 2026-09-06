@@ -10,6 +10,11 @@
   const PANEL_COLLAPSED_STORAGE_KEY =
     'yolen_companion_panel_collapsed'
   const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 6000
+  // O bridge de identidade responde de forma essencialmente síncrona (lê
+  // um React Fiber já presente na página e responde no mesmo ciclo) — o
+  // timeout aqui só cobre o caso do bridge ainda não estar instalado ou a
+  // página não ter carregado o header ainda, nunca uma espera normal.
+  const IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS = 1200
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
   // Override só para teste: permite exercitar o debounce real da análise
   // automática (mesmo setTimeout, mesma lógica de reagendamento contra uma
@@ -236,6 +241,14 @@
   const cachedPhonesByConversationKey = new Map()
   const cachedPhonesByLookupIdentity = new Map()
   const lastIngestedCaptureKeys = new Map()
+
+  // Identity bridge (page world): protocolo request/response por
+  // requestId, sem polling. Só um pedido pode estar em voo por vez porque
+  // só é disparado de dentro de runAutomaticContactLookup, que já é
+  // single-flight (autoContactLookupInFlight).
+  let identityBridgeInstalled = false
+  let identityRequestSequence = 0
+  const identityBridgeResponseWaiters = new Map()
 
   const confirmedCaptureVersionsByConversation =
     new Map()
@@ -1031,6 +1044,117 @@
     })
   }
 
+  // Mesmo padrão arquitetural do whatsapp-audio-bridge.js: um <script src>
+  // real injetado no documento, executado pelo motor JS da PÁGINA (page
+  // world do WhatsApp Web), não pelo content script isolado — só assim é
+  // possível enxergar as props do React da própria aplicação do WhatsApp.
+  function injectWhatsAppIdentityBridge() {
+    const runtime = getExtensionRuntime()
+
+    if (!runtime?.getURL) {
+      return
+    }
+
+    if (document.getElementById('yolen-whatsapp-identity-bridge-script')) {
+      return
+    }
+
+    const script = document.createElement('script')
+    script.id = 'yolen-whatsapp-identity-bridge-script'
+    script.src = runtime.getURL('src/whatsapp-identity-bridge.js')
+    script.async = false
+
+    script.onload = () => {
+      script.remove()
+    }
+
+    document.documentElement.appendChild(script)
+  }
+
+  function listenToWhatsAppIdentityBridge() {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) {
+        return
+      }
+
+      if (event.origin !== window.location.origin) {
+        return
+      }
+
+      if (
+        event.data?.source !==
+        'YOLEN_COMPANION_WHATSAPP_IDENTITY_BRIDGE'
+      ) {
+        return
+      }
+
+      if (event.data?.action === 'BRIDGE_READY') {
+        identityBridgeInstalled = true
+        return
+      }
+
+      if (event.data?.action !== 'ACTIVE_CHAT_IDENTITY') {
+        return
+      }
+
+      const requestId = event.data?.requestId
+
+      if (typeof requestId !== 'string') {
+        return
+      }
+
+      const waiter =
+        identityBridgeResponseWaiters.get(requestId)
+
+      // Sem waiter conhecido: resposta de um requestId que já expirou (ou
+      // nunca foi nosso) — descarta silenciosamente, nunca aplica.
+      if (!waiter) {
+        return
+      }
+
+      waiter(event.data.identity || null)
+    })
+  }
+
+  // Dispara UM pedido (nunca polling) e devolve uma promise que resolve
+  // com a identidade recebida, ou null se o bridge não responder dentro
+  // do timeout (bridge ausente/ainda não instalado — o chamador cai no
+  // fallback existente sem quebrar).
+  function requestActiveChatIdentity(timeoutMs) {
+    const requestId = `yolen-identity-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    identityRequestSequence += 1
+    const sequence = identityRequestSequence
+
+    return new Promise((resolve) => {
+      let settled = false
+
+      const finish = (identity) => {
+        if (settled) {
+          return
+        }
+
+        settled = true
+        identityBridgeResponseWaiters.delete(requestId)
+        resolve(identity)
+      }
+
+      identityBridgeResponseWaiters.set(requestId, finish)
+
+      window.setTimeout(() => finish(null), timeoutMs)
+
+      window.postMessage(
+        {
+          source: 'YOLEN_COMPANION_CONTENT_SCRIPT',
+          action: 'GET_ACTIVE_CHAT_IDENTITY',
+          requestId,
+          sequence,
+        },
+        window.location.origin,
+      )
+    })
+  }
+
   function onlyDigits(value) {
     return String(value || '').replace(/\D/g, '')
   }
@@ -1084,6 +1208,43 @@
     }
 
     return isLikelyPhone(digits) ? onlyDigits(digits) : null
+  }
+
+  // Valida a identidade recebida do whatsapp-identity-bridge (page world).
+  // Mesma allowlist de PHONE_JID_DOMAINS: LID nunca vira telefone, grupo
+  // nunca resolve, e qualquer inconsistência entre phoneJid e
+  // user@server é motivo de falha fechada — a evidência não é confiável.
+  function validateBridgeIdentityPhone(identity) {
+    if (!identity || typeof identity !== 'object' || identity.isGroup) {
+      return null
+    }
+
+    const phoneServer = String(identity.phoneServer || '').toLowerCase()
+
+    if (!PHONE_JID_DOMAINS.has(phoneServer)) {
+      return null
+    }
+
+    const phoneUser = String(identity.phone || '')
+
+    if (!isLikelyPhone(phoneUser)) {
+      return null
+    }
+
+    const digits = onlyDigits(phoneUser)
+
+    if (identity.phoneJid) {
+      const expectedSerialized = `${digits}@${phoneServer}`
+
+      if (
+        String(identity.phoneJid).toLowerCase() !==
+        expectedSerialized
+      ) {
+        return null
+      }
+    }
+
+    return digits
   }
 
   function isProfileOrContactPanelText(value) {
@@ -1741,6 +1902,55 @@
     }
 
     return null
+  }
+
+  // Fonte mais forte que o fallback passivo por JID de DOM (que só vê
+  // atributos, não o modelo real do WhatsApp): pede a identidade da
+  // conversa ativa ao whatsapp-identity-bridge (page world) e valida o
+  // resultado contra a conversa que originou o pedido antes de aplicar —
+  // o pedido é assíncrono (postMessage) e a conversa pode ter trocado
+  // enquanto ele estava em voo.
+  async function tryResolveViaIdentityBridge(
+    conversationKey,
+    expectedTitle,
+  ) {
+    if (!conversationKey) {
+      return null
+    }
+
+    const identity = await requestActiveChatIdentity(
+      IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS,
+    )
+
+    if (!identity) {
+      return null
+    }
+
+    const currentConversationKey =
+      getConversationKey(
+        getMainHeaderPrimaryTitle() ||
+        expectedTitle,
+      )
+
+    if (
+      state.conversationKey !==
+        conversationKey ||
+      currentConversationKey !==
+        conversationKey
+    ) {
+      return null
+    }
+
+    const phone = validateBridgeIdentityPhone(identity)
+
+    if (!phone) {
+      return null
+    }
+
+    return {
+      phone,
+      source: 'Identidade ativa do WhatsApp',
+    }
   }
 
   function getVisibleMessagesCount() {
@@ -4830,6 +5040,48 @@
     renderPanel()
 
     try {
+      // Fonte mais forte primeiro: identidade real do WhatsApp via
+      // whatsapp-identity-bridge.js (page world, React Fiber). Se o
+      // bridge não estiver instalado ou não responder a tempo, cai sem
+      // consumir a tentativa para as etapas seguintes (JID de DOM, depois
+      // painel de contato).
+      const bridgeResult =
+        await tryResolveViaIdentityBridge(
+          conversationKey,
+          lookupTitle,
+        )
+
+      if (bridgeResult) {
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
+        cachedPhonesByConversationKey.set(
+          conversationKey,
+          bridgeResult.phone,
+        )
+
+        state = {
+          ...state,
+          conversationPhone: bridgeResult.phone,
+          phoneSource: bridgeResult.source,
+          autoLookupStatus: null,
+        }
+
+        renderPanel()
+
+        if (state.connected) {
+          lastResolvedConversationKey =
+            conversationKey
+          lastResolvedContactLookupIdentity =
+            lookupIdentity
+
+          resolveCurrentLead()
+        }
+
+        return
+      }
+
       // Etapa passiva: leitura de JIDs já presentes no DOM da conversa
       // atual (linha selecionada, depois mensagens em #main). Nenhuma
       // navegação, nenhum clique — se falhar, cai sem consumir a
@@ -16032,6 +16284,8 @@
 
     listenToWhatsAppAudioBridge()
     injectWhatsAppAudioBridge()
+    listenToWhatsAppIdentityBridge()
+    injectWhatsAppIdentityBridge()
     createPanel()
     renderPanel()
     await captureSessionFromHash()

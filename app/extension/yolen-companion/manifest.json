@@ -75,6 +75,7 @@
     {
       "resources": [
         "src/whatsapp-audio-bridge.js",
+        "src/whatsapp-identity-bridge.js",
         "assets/yolen-mark.png"
       ],
       "matches": [
