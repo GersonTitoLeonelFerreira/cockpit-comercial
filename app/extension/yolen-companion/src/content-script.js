@@ -4792,11 +4792,30 @@
         lookupTitle,
       )
 
+    // A tentativa só é válida para a conversa ATUAL: sem esta checagem, um
+    // lookup agendado 300ms atrás para a conversa A (setTimeout em
+    // refreshConversationSnapshot) continuaria executando mesmo depois do
+    // vendedor já ter trocado para B — aplicando dado de B sob a chave de
+    // A. state.conversationKey é sempre a conversa mais recente conhecida
+    // por refreshConversationSnapshot (síncrono, atualizado antes de
+    // qualquer agendamento).
     if (
       !conversationKey ||
+      state.conversationKey !==
+        conversationKey
+    ) {
+      return
+    }
+
+    // Se essa conversationKey já foi tentada sem sucesso, só vale reentrar
+    // quando o vendedor abriu o painel de contato manualmente depois —
+    // nesse caso ainda há uma fonte nova e legítima de telefone a ler.
+    // Sem essa exceção, "attempted" travaria essa conversa para sempre.
+    if (
       autoLookupAttemptedKeys.has(
         conversationKey,
-      )
+      ) &&
+      !findContactInfoPanel()
     ) {
       return
     }
@@ -4822,6 +4841,27 @@
         })
 
       if (passiveResult) {
+        // Revalidação obrigatória: resolvePassivePhoneForConversation()
+        // acabou de ler o DOM ATUAL de forma síncrona, mas essa chamada
+        // já pode ter atravessado uma troca de conversa síncrona (A -> B)
+        // desde que este lookup foi agendado. Sem confirmar de novo que a
+        // conversa ainda é a mesma, o telefone de B poderia ser cacheado
+        // e aplicado sob a chave de A.
+        const currentConversationKeyForPassive =
+          getConversationKey(
+            getMainHeaderPrimaryTitle() ||
+            state.conversationTitle,
+          )
+
+        if (
+          state.conversationKey !==
+            conversationKey ||
+          currentConversationKeyForPassive !==
+            conversationKey
+        ) {
+          return
+        }
+
         autoLookupAttemptedKeys.add(
           conversationKey,
         )
@@ -4856,6 +4896,15 @@
         Boolean(findContactInfoPanel())
 
       if (!hadContactPanelOpen) {
+        // Marca como tentada para não reagendar a cada mutation do
+        // WhatsApp enquanto nada muda (retry ilimitado) — mas isso não
+        // tranca a conversa para sempre: o guard de reentrada acima
+        // libera uma nova tentativa assim que o vendedor abrir o painel
+        // de contato manualmente.
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
         state = {
           ...state,
           autoLookupStatus:
@@ -4898,8 +4947,10 @@
         )
 
       if (
+        state.conversationKey !==
+          conversationKey ||
         currentConversationKey !==
-        conversationKey
+          conversationKey
       ) {
         return
       }
@@ -5184,9 +5235,14 @@
       state.connected &&
       !phoneResult.phone &&
       conversationKey &&
-      !autoLookupAttemptedKeys.has(
+      // Uma conversationKey já tentada não reagenda a cada mutation (o
+      // WhatsApp gera muitas) — mas isso não pode travar para sempre: se
+      // o vendedor abriu o painel de contato manualmente depois do
+      // fail-closed, há uma fonte nova e legítima de telefone a ler.
+      (!autoLookupAttemptedKeys.has(
         conversationKey,
-      )
+      ) ||
+        findContactInfoPanel())
     ) {
       window.setTimeout(() => {
         runAutomaticContactLookup(
