@@ -29,6 +29,7 @@
         "src/lead-summary-runtime-cache.js",
         "src/lead-method-guidance-runtime.js",
         "src/seller-message-runtime.js",
+        "src/ux8-interaction-consistency-runtime.js",
         "src/lead-summary-expand-state.js",
         "src/message-mutations.js",
         "src/conversation-registration-tools.js",
