@@ -36,14 +36,17 @@ test('grupo e bloqueado antes da busca automatica de telefone', () => {
     /state\.isGroupConversation/,
   )
 
+  // conversationKey (não lookupIdentity, o nome normalizado — colide
+  // entre contatos homônimos) é a chave de tentativa desde a UX8
+  // Automatic Passive Lead Resolution.
   assert.match(
     lookupBlock,
-    /autoLookupAttemptedKeys\.has\(\s*lookupIdentity/,
+    /autoLookupAttemptedKeys\.has\(\s*conversationKey/,
   )
 
   assert.match(
     lookupBlock,
-    /autoLookupAttemptedKeys\.add\(\s*lookupIdentity/,
+    /autoLookupAttemptedKeys\.add\(\s*conversationKey/,
   )
 
   assert.match(
@@ -156,14 +159,18 @@ test('resolucao do lead usa identidade estavel da consulta e nao repete por muta
     /const isGroupConversation =\s*isGroupConversationHeader\(\)/,
   )
 
+  // O gate de deduplicação usa conversationKey (identidade única por
+  // conversa) desde a UX8 Automatic Passive Lead Resolution —
+  // contactLookupIdentity (nome normalizado) colide entre contatos
+  // homônimos e não pode mais governar sozinho essa decisão.
   assert.match(
     refreshBlock,
-    /lastResolvedContactLookupIdentity !==\s*contactLookupIdentity/,
+    /lastResolvedConversationKey !==\s*conversationKey/,
   )
 
   assert.match(
     refreshBlock,
-    /!autoLookupAttemptedKeys\.has\(\s*contactLookupIdentity/,
+    /!autoLookupAttemptedKeys\.has\(\s*conversationKey/,
   )
 
   const groupBranchIndex = refreshBlock.indexOf(

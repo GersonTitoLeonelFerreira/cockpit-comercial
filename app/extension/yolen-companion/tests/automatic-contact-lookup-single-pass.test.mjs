@@ -27,11 +27,18 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
   const closeIndex = lookupBlock.indexOf(
     'closeContactInfoPanelAndWait()',
   )
+  // Escopado a partir de closeIndex: a UX8 Automatic Passive Lead
+  // Resolution acrescentou um ramo passivo (JID de DOM) que também marca
+  // resolução antes deste ponto — o invariante testado aqui é
+  // especificamente o ciclo baseado no painel de contato já aberto, que
+  // continua fechando o painel automático antes de marcar resolvido.
   const resolvedKeyIndex = lookupBlock.indexOf(
     'lastResolvedConversationKey =',
+    closeIndex,
   )
   const resolveLeadIndex = lookupBlock.indexOf(
     'resolveCurrentLead()',
+    resolvedKeyIndex,
   )
   const finishLookupIndex = lookupBlock.indexOf(
     'autoContactLookupInFlight = false',

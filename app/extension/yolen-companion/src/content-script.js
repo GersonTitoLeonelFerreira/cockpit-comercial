@@ -1062,6 +1062,30 @@
     return null
   }
 
+  // JIDs do WhatsApp Web codificam identidades bem diferentes no mesmo
+  // formato "<id>@<domínio>": só "@c.us" e "@s.whatsapp.net" são o número
+  // de telefone real de uma pessoa. "@g.us" é grupo, "@lid" é um
+  // identificador opaco de privacidade (NÃO é o telefone) e
+  // "@broadcast"/"@newsletter" não são conversas individuais — por isso a
+  // allowlist explícita em vez de só validar o formato dos dígitos.
+  const PHONE_JID_DOMAINS = new Set(['c.us', 's.whatsapp.net'])
+
+  function extractPhoneFromJid(rawValue) {
+    const match = String(rawValue || '').match(/(\d{8,15})@([a-z0-9.]+)/i)
+
+    if (!match) {
+      return null
+    }
+
+    const [, digits, domain] = match
+
+    if (!PHONE_JID_DOMAINS.has(domain.toLowerCase())) {
+      return null
+    }
+
+    return isLikelyPhone(digits) ? onlyDigits(digits) : null
+  }
+
   function isProfileOrContactPanelText(value) {
     const normalized = String(value || '').trim().toLowerCase()
 
@@ -1210,7 +1234,7 @@
     return null
   }
 
-  function getSelectedChatStableIdentity() {
+  function getSelectedChatDataId() {
     const selectedElement = getSelectedChatElement()
 
     if (!selectedElement) {
@@ -1225,11 +1249,20 @@
         .querySelector?.('[data-id]')
         ?.getAttribute?.('data-id') || ''
 
-    const dataId =
-      directDataId || nestedDataId
+    return directDataId || nestedDataId
+  }
+
+  function getSelectedChatStableIdentity() {
+    const dataId = getSelectedChatDataId()
 
     if (dataId) {
       return `data:${dataId}`
+    }
+
+    const selectedElement = getSelectedChatElement()
+
+    if (!selectedElement) {
+      return ''
     }
 
     const avatarSource =
@@ -1604,21 +1637,11 @@
       }
     }
 
-    const lookupIdentity =
-      getAutomaticContactLookupIdentity(title)
-
-    const cachedPhoneByLookupIdentity =
-      cachedPhonesByLookupIdentity.get(
-        lookupIdentity,
-      )
-
-    if (cachedPhoneByLookupIdentity) {
-      return {
-        phone: cachedPhoneByLookupIdentity,
-        source: 'Dados do contato automático',
-      }
-    }
-
+    // cachedPhonesByLookupIdentity é indexado pelo NOME normalizado da
+    // conversa (getAutomaticContactLookupIdentity), não por uma identidade
+    // única — dois contatos homônimos colidiriam nessa chave. Por isso não
+    // é mais fonte autoritativa aqui: só cachedPhonesByConversationKey
+    // (chave única por conversa real) resolve automaticamente.
     const cachedPhone =
       cachedPhonesByConversationKey.get(
         conversationKey,
@@ -1631,10 +1654,93 @@
       }
     }
 
+    const passivePhone =
+      resolvePassivePhoneForConversation({
+        conversationKey,
+        title,
+      })
+
+    if (passivePhone) {
+      cachedPhonesByConversationKey.set(
+        conversationKey,
+        passivePhone.phone,
+      )
+
+      return passivePhone
+    }
+
     return {
       phone: null,
       source: null,
     }
+  }
+
+  function collectPhoneJidCandidatesInMain() {
+    const main = getMainConversationRoot()
+
+    if (!main) {
+      return []
+    }
+
+    const phones = new Set()
+
+    main.querySelectorAll('[data-id]').forEach((element) => {
+      const phone = extractPhoneFromJid(
+        element.getAttribute('data-id'),
+      )
+
+      if (phone) {
+        phones.add(phone)
+      }
+    })
+
+    return Array.from(phones)
+  }
+
+  // Última etapa, estritamente passiva, da resolução automática de
+  // telefone: nenhuma navegação, nenhum clique, nenhuma abertura de
+  // painel — só leitura de atributos já presentes no DOM da conversa
+  // ATUAL. Grupo e auto-conversa nunca chegam a escanear JIDs de
+  // mensagens (evidência de "quem está na conversa" não se aplica a eles).
+  function resolvePassivePhoneForConversation({
+    conversationKey,
+    title,
+  }) {
+    if (
+      !conversationKey ||
+      isSelfConversationTitle(title) ||
+      isGroupConversationHeader()
+    ) {
+      return null
+    }
+
+    const selectedChatPhone =
+      extractPhoneFromJid(
+        getSelectedChatDataId(),
+      )
+
+    if (selectedChatPhone) {
+      return {
+        phone: selectedChatPhone,
+        source: 'JID da conversa selecionada',
+      }
+    }
+
+    // Várias linhas de mensagem podem carregar `data-id`s diferentes
+    // (ex.: mensagens próprias vs. do contato). Sem uma linha selecionada
+    // confiável, um único telefone candidato ainda é seguro de usar — mas
+    // dois ou mais candidatos distintos são ambíguos: falha fechado em vez
+    // de escolher um arbitrariamente.
+    const mainPhones = collectPhoneJidCandidatesInMain()
+
+    if (mainPhones.length === 1) {
+      return {
+        phone: mainPhones[0],
+        source: 'JID das mensagens',
+      }
+    }
+
+    return null
   }
 
   function getVisibleMessagesCount() {
@@ -4688,9 +4794,8 @@
 
     if (
       !conversationKey ||
-      !lookupIdentity ||
       autoLookupAttemptedKeys.has(
-        lookupIdentity,
+        conversationKey,
       )
     ) {
       return
@@ -4698,22 +4803,63 @@
 
     autoContactLookupInFlight = true
 
-    const hadContactPanelOpen =
-      Boolean(findContactInfoPanel())
-
     state = {
       ...state,
-      autoLookupStatus: 'Abrindo dados do contato automaticamente...',
+      autoLookupStatus: 'Identificando contato...',
     }
 
     renderPanel()
 
     try {
+      // Etapa passiva: leitura de JIDs já presentes no DOM da conversa
+      // atual (linha selecionada, depois mensagens em #main). Nenhuma
+      // navegação, nenhum clique — se falhar, cai sem consumir a
+      // tentativa para o fluxo existente baseado no painel de contato.
+      const passiveResult =
+        resolvePassivePhoneForConversation({
+          conversationKey,
+          title: lookupTitle,
+        })
+
+      if (passiveResult) {
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
+        cachedPhonesByConversationKey.set(
+          conversationKey,
+          passiveResult.phone,
+        )
+
+        state = {
+          ...state,
+          conversationPhone: passiveResult.phone,
+          phoneSource: passiveResult.source,
+          autoLookupStatus: null,
+        }
+
+        renderPanel()
+
+        if (state.connected) {
+          lastResolvedConversationKey =
+            conversationKey
+          lastResolvedContactLookupIdentity =
+            lookupIdentity
+
+          resolveCurrentLead()
+        }
+
+        return
+      }
+
+      const hadContactPanelOpen =
+        Boolean(findContactInfoPanel())
+
       if (!hadContactPanelOpen) {
         state = {
           ...state,
           autoLookupStatus:
-            'Telefone ainda não disponível. A Yolen não altera a navegação do WhatsApp para buscar esse dado.',
+            'Telefone ainda não disponível para identificação automática. A Yolen não altera a navegação do WhatsApp para buscar esse dado.',
         }
 
         renderPanel()
@@ -4721,7 +4867,7 @@
       }
 
       autoLookupAttemptedKeys.add(
-        lookupIdentity,
+        conversationKey,
       )
 
       const phone =
@@ -4745,15 +4891,15 @@
         }
       }
 
-      const currentLookupIdentity =
-        getAutomaticContactLookupIdentity(
+      const currentConversationKey =
+        getConversationKey(
           getMainHeaderPrimaryTitle() ||
           state.conversationTitle,
         )
 
       if (
-        currentLookupIdentity !==
-        lookupIdentity
+        currentConversationKey !==
+        conversationKey
       ) {
         return
       }
@@ -4947,18 +5093,23 @@
       if (contactLookupChanged) {
         lastResolvedContactLookupIdentity =
           null
-
-        if (contactLookupIdentity) {
-          autoLookupAttemptedKeys.delete(
-            contactLookupIdentity,
-          )
-        }
       }
 
       if (conversationChanged) {
         rememberCurrentPreResolutionCapture()
 
         lastResolvedConversationKey = null
+
+        // conversationKey (não contactLookupIdentity, que é só o nome
+        // normalizado e colide entre contatos homônimos) é a identidade
+        // única de tentativa: entrar numa conversa dá a ela um novo ciclo
+        // de resolução automática, mesmo que outra conversa com o mesmo
+        // nome já tenha sido tentada antes.
+        if (conversationKey) {
+          autoLookupAttemptedKeys.delete(
+            conversationKey,
+          )
+        }
 
         resetConversationMessageLedger(
           conversationKey,
@@ -5016,9 +5167,9 @@
     if (
       state.connected &&
       phoneResult.phone &&
-      contactLookupIdentity &&
-      lastResolvedContactLookupIdentity !==
-        contactLookupIdentity
+      conversationKey &&
+      lastResolvedConversationKey !==
+        conversationKey
     ) {
       lastResolvedConversationKey =
         conversationKey
@@ -5033,9 +5184,8 @@
       state.connected &&
       !phoneResult.phone &&
       conversationKey &&
-      contactLookupIdentity &&
       !autoLookupAttemptedKeys.has(
-        contactLookupIdentity,
+        conversationKey,
       )
     ) {
       window.setTimeout(() => {
