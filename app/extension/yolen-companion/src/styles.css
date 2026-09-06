@@ -1016,7 +1016,10 @@ html.yolen-companion-collapsed #app {
 
 .yolen-seller-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* UX8 FASE C adicionou a 4ª aba (Mensagem) — este grid precisa
+   * acompanhar SELLER_AREAS.length (content-script.js), senão a última
+   * aba (Cliente) quebra para uma segunda linha. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   margin: 2px 0 12px;
   padding: 4px;
@@ -2054,33 +2057,230 @@ html.yolen-companion-collapsed #app {
   font-size: 10px;
   box-shadow: none;
 }
-.yolen-seller-workspace--ux7 [data-yolen-seller-message-box] {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(126,153,194,.10);
+/* YOLEN UX8 — MESSAGE WORKSPACE (FASE D)
+ *
+ * Design fiel à imagem de referência para a aba MENSAGEM. Substitui o
+ * bloco de overrides .yolen-seller-workspace--ux7 .yolen-seller-message-*
+ * que existia aqui antes (composer embutido em AGORA, classes antigas
+ * yolen-seller-message-*) — seller-message-runtime.js (FASE D) passou a
+ * renderizar as classes yolen-message-* abaixo diretamente, então não há
+ * mais necessidade de escopar por .yolen-seller-workspace--ux7: essas
+ * classes só existem dentro do mount da aba MENSAGEM. Os data-attributes
+ * (data-yolen-seller-message-*) usados pelo runtime para ações/estado
+ * não mudaram — só a apresentação visual.
+ */
+.yolen-message-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.yolen-seller-workspace--ux7 .yolen-seller-message-title {
-  color: #f2f7fd;
+
+.yolen-message-objective-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(126, 153, 194, 0.16);
+  background: linear-gradient(180deg, rgba(17, 27, 43, 0.80), rgba(8, 14, 23, 0.76));
+}
+
+.yolen-message-objective-title {
+  color: #f5f9ff;
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.yolen-message-objective-help {
+  color: #9fb0c6;
   font-size: 11px;
-  letter-spacing: 0;
-  text-transform: none;
+  line-height: 1.45;
+  margin-bottom: 12px;
 }
-.yolen-seller-workspace--ux7 .yolen-seller-message-help {
+
+.yolen-message-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.yolen-message-preset {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(126, 153, 194, 0.25);
+  border-radius: 999px;
+  background: rgba(21, 36, 57, 0.65);
+  color: #cfe1f7;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.yolen-message-preset:hover {
+  border-color: rgba(147, 197, 253, 0.55);
+  color: #eef6ff;
+}
+
+.yolen-message-preset:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+.yolen-message-preset--active {
+  border-color: rgba(34, 197, 94, 0.55);
+  background: rgba(22, 101, 52, 0.24);
+  color: #dcfce7;
+}
+
+.yolen-message-intent-field {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.yolen-message-intent {
+  box-sizing: border-box;
+  width: 100%;
+  height: 96px;
+  resize: none;
+  overflow-y: auto;
+  border: 1px solid rgba(126, 153, 194, 0.24);
+  border-radius: 10px;
+  background: #0d1726;
+  color: #eef6ff;
+  padding: 10px 10px 22px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.yolen-message-intent:focus {
+  border-color: rgba(96, 165, 250, 0.7);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+}
+
+.yolen-message-intent::placeholder {
+  color: #5c6f89;
+}
+
+.yolen-message-intent-counter {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  border-radius: 6px;
+  background: rgba(13, 23, 38, 0.85);
+  color: #6f829b;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+.yolen-message-generate {
+  width: 100%;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.yolen-message-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.yolen-message-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  flex: 0 0 auto;
+  animation: yolen-message-spin 0.7s linear infinite;
+}
+
+@keyframes yolen-message-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.yolen-message-result-card {
+  padding: 13px;
+  border-radius: 14px;
+  border: 1px solid rgba(126, 153, 194, 0.18);
+  background: rgba(9, 20, 34, 0.75);
+}
+
+.yolen-message-result-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #93c5fd;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 9px;
+}
+
+.yolen-message-result-scroll {
+  max-height: 200px;
+  overflow-y: auto;
+  overflow-anchor: none;
+}
+
+.yolen-message-result-text {
+  color: #f2f7fd;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.yolen-message-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.yolen-message-footnote {
+  margin-top: 9px;
   color: #7d90aa;
   font-size: 10px;
+  line-height: 1.4;
 }
-.yolen-seller-workspace--ux7 .yolen-seller-message-preset {
-  padding: 5px 8px;
-  font-size: 9px;
-}
-.yolen-seller-workspace--ux7 .yolen-seller-message-intent {
-  min-height: 64px;
-  font-size: 11px;
-}
-.yolen-seller-workspace--ux7 .yolen-seller-message-generate {
-  padding: 10px 12px;
+
+.yolen-message-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 11px;
   border-radius: 10px;
+  border: 1px solid rgba(126, 153, 194, 0.14);
+  background: rgba(9, 20, 34, 0.6);
+  color: #9fb0c6;
   font-size: 11px;
+  line-height: 1.4;
+}
+
+.yolen-message-status--error {
+  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(127, 29, 29, 0.16);
+  color: #fca5a5;
+}
+
+.yolen-message-feedback {
+  margin-top: 8px;
+  color: #9fb0c6;
+  font-size: 10.5px;
+  line-height: 1.4;
 }
 
 /* Operational utilities are subordinate to CLIENTE. */

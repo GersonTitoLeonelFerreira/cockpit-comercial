@@ -202,7 +202,7 @@ test('gerar mensagem em A aparece na aba MENSAGEM; trocar para B some; voltar pa
   dispatch(intentField, 'input')
   dispatch(document.querySelector('[data-yolen-seller-message-action="generate"]'), 'click')
 
-  await waitFor(() => document.querySelector('.yolen-seller-message-result-text')?.textContent === MARKER_A)
+  await waitFor(() => document.querySelector('.yolen-message-result-text')?.textContent === MARKER_A)
   assert.equal(document.querySelector('[data-yolen-seller-panel="message"]')?.hasAttribute('hidden'), false)
 
   // Troca real de conversa: A -> B.
@@ -263,7 +263,7 @@ test('geração de A em voo: trocar para B antes da resposta atrasada chegar nun
   dispatch(document.querySelector('[data-yolen-seller-message-action="generate"]'), 'click')
 
   await waitFor(() => Boolean(resolveGenerationForA), { timeoutMs: 4000 })
-  await waitFor(() => document.querySelector('.yolen-seller-message-note')?.textContent === 'Gerando mensagem…')
+  await waitFor(() => document.querySelector('.yolen-message-status')?.textContent === 'Gerando mensagem…')
 
   // Troca para B ANTES da geração de A resolver.
   switchWhatsAppConversationToB(document)
@@ -335,7 +335,7 @@ test('Incluir no WhatsApp e Copiar continuam ligados ao contexto atual, sem envi
   dispatch(intentField, 'input')
   dispatch(document.querySelector('[data-yolen-seller-message-action="generate"]'), 'click')
 
-  await waitFor(() => document.querySelector('.yolen-seller-message-result-text'))
+  await waitFor(() => document.querySelector('.yolen-message-result-text'))
 
   dispatch(document.querySelector('[data-yolen-seller-message-action="copy"]'), 'click')
   await sleep(10)

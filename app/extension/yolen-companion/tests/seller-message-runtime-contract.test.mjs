@@ -306,13 +306,15 @@ test('silêncio válido (status=no_message) não vira erro e não insere nem cop
     box.textContent,
     /não há uma mensagem necessária agora/i,
   )
+  // UX8 FASE D: classes renomeadas para yolen-message-* — no_message
+  // continua sem estado de erro nem bloco de ações (Incluir/Copiar).
   assert.doesNotMatch(
     box.innerHTML,
-    /yolen-seller-message-error/,
+    /yolen-message-status--error/,
   )
   assert.doesNotMatch(
     box.innerHTML,
-    /yolen-seller-message-actions/,
+    /yolen-message-actions/,
   )
 
   assert.equal(harness.copied.length, 0)

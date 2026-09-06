@@ -208,33 +208,7 @@
     return `${normalized.slice(0, 25).trim()}…`
   }
 
-  function ensureStyles() {
-    if (document.getElementById('yolen-seller-message-runtime-styles')) {
-      return
-    }
-
-    const style = document.createElement('style')
-    style.id = 'yolen-seller-message-runtime-styles'
-    style.textContent = [
-      '.yolen-seller-message-box{margin-top:14px;padding-top:14px;border-top:1px solid rgba(126,153,194,.16)}',
-      '.yolen-seller-message-title{color:#8ea0b8;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}',
-      '.yolen-seller-message-help{color:#9fb0c6;font-size:11px;line-height:1.45;margin-bottom:9px}',
-      '.yolen-seller-message-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px}',
-      '.yolen-seller-message-preset{border:1px solid rgba(126,153,194,.25);background:rgba(21,36,57,.65);color:#cfe1f7;border-radius:999px;padding:6px 8px;font-size:10px;font-weight:700;cursor:pointer;text-align:left}',
-      '.yolen-seller-message-preset:hover{border-color:rgba(147,197,253,.55)}',
-      '.yolen-seller-message-intent{box-sizing:border-box;width:100%;min-height:68px;resize:vertical;border:1px solid rgba(126,153,194,.24);border-radius:10px;background:#0d1726;color:#eef6ff;padding:10px;font:inherit;font-size:12px;line-height:1.45;outline:none}',
-      '.yolen-seller-message-intent:focus{border-color:rgba(96,165,250,.7)}',
-      '.yolen-seller-message-generate{margin-top:8px;width:100%}',
-      '.yolen-seller-message-result{margin-top:12px;padding:11px;border-radius:10px;background:rgba(9,20,34,.75);border:1px solid rgba(126,153,194,.18)}',
-      '.yolen-seller-message-result-label{color:#8ea0b8;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px}',
-      '.yolen-seller-message-result-text{color:#f2f7fd;font-size:12px;line-height:1.55;white-space:pre-wrap}',
-      '.yolen-seller-message-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}',
-      '.yolen-seller-message-note{margin-top:8px;color:#9fb0c6;font-size:10px;line-height:1.4}',
-      '.yolen-seller-message-error{margin-top:8px;color:#fca5a5;font-size:10px;line-height:1.4}',
-    ].join('')
-
-    document.head?.appendChild(style)
-  }
+  const INTENT_MAX_LENGTH = 1000
 
   function renderComposer() {
     const context = currentContext
@@ -267,8 +241,6 @@
       return
     }
 
-    ensureStyles()
-
     const guidance = getGuidance(context)
     const guidanceLabel = guidanceSlot?.querySelector?.(
       '.yolen-method-guidance-label',
@@ -291,6 +263,7 @@
         'data-yolen-seller-message-box',
         '',
       )
+      box.className = 'yolen-message-workspace'
     }
 
     if (dedicatedMount) {
@@ -309,59 +282,68 @@
 
     const state = getState(context)
     const presets = getPresets(guidance)
+    const trimmedIntent = state.intent.trim()
     const disabled =
-      !state.intent.trim() ||
+      !trimmedIntent ||
       state.status === 'loading'
 
+    // Card do resultado só aparece com uma mensagem pronta — loading,
+    // no_message e error usam um status compacto (uma linha, sem card),
+    // para nunca competir em altura com o card do objetivo.
     const resultHtml =
       state.status === 'ready' && state.message
         ? [
-            '<div class="yolen-seller-message-result">',
-            '<div class="yolen-seller-message-result-label">Mensagem sugerida</div>',
-            '<div class="yolen-seller-message-result-text">',
+            '<div class="yolen-message-result-card">',
+            '<div class="yolen-message-result-label">✨ Mensagem sugerida</div>',
+            '<div class="yolen-message-result-scroll">',
+            '<div class="yolen-message-result-text">',
             escapeHtml(state.message),
             '</div>',
-            '<div class="yolen-seller-message-actions">',
+            '</div>',
+            '<div class="yolen-message-actions">',
             '<button type="button" class="yolen-primary-button" data-yolen-seller-message-action="insert">Incluir no WhatsApp</button>',
             '<button type="button" class="yolen-secondary-button" data-yolen-seller-message-action="copy">Copiar</button>',
             '</div>',
-            '<div class="yolen-seller-message-note">A Yolen não envia a mensagem. Revise antes de enviar.</div>',
+            '<div class="yolen-message-footnote">A Yolen não envia mensagens automaticamente. Revise antes de enviar.</div>',
             '</div>',
           ].join('')
         : state.status === 'loading'
-          ? '<div class="yolen-seller-message-note">Gerando mensagem…</div>'
+          ? '<div class="yolen-message-status"><span class="yolen-message-spinner" aria-hidden="true"></span>Gerando mensagem…</div>'
           : state.status === 'no_message'
-            ? '<div class="yolen-seller-message-note">Não há uma mensagem necessária agora.</div>'
+            ? '<div class="yolen-message-status">Não há uma mensagem necessária agora.</div>'
             : state.status === 'error'
-              ? `<div class="yolen-seller-message-error">${escapeHtml(state.error || 'Não foi possível gerar a mensagem.')}</div>`
+              ? `<div class="yolen-message-status yolen-message-status--error">${escapeHtml(state.error || 'Não foi possível gerar a mensagem.')}</div>`
               : ''
 
     const feedbackHtml = state.feedback
-      ? `<div class="yolen-seller-message-note">${escapeHtml(state.feedback)}</div>`
+      ? `<div class="yolen-message-feedback">${escapeHtml(state.feedback)}</div>`
       : ''
 
     const html = [
-      '<div class="yolen-seller-message-box">',
-      '<div class="yolen-seller-message-title">O que você quer fazer agora?</div>',
-      '<div class="yolen-seller-message-help">A orientação acima é uma recomendação. Diga o que você quer comunicar e a Yolen prepara a mensagem.</div>',
-      '<div class="yolen-seller-message-presets">',
+      '<div class="yolen-message-objective-card">',
+      '<div class="yolen-message-objective-title">Objetivo da mensagem</div>',
+      '<div class="yolen-message-objective-help">Escolha um foco ou descreva o que você quer comunicar.</div>',
+      '<div class="yolen-message-presets">',
       presets.map((preset, index) => (
-        `<button type="button" class="yolen-seller-message-preset" data-yolen-seller-message-preset="${index}">${escapeHtml(shortPresetLabel(preset))}</button>`
+        `<button type="button" class="yolen-message-preset${preset.trim() === trimmedIntent ? ' yolen-message-preset--active' : ''}" data-yolen-seller-message-preset="${index}">${escapeHtml(shortPresetLabel(preset))}</button>`
       )).join(''),
       '</div>',
-      '<textarea class="yolen-seller-message-intent" data-yolen-seller-message-intent maxlength="1000" placeholder="Ex.: Quero responder ao ponto específico que o cliente trouxe.">',
+      '<div class="yolen-message-intent-field">',
+      `<textarea class="yolen-message-intent" data-yolen-seller-message-intent maxlength="${INTENT_MAX_LENGTH}" placeholder="Ex.: Quero responder ao ponto específico que o cliente trouxe.">`,
       escapeHtml(state.intent),
       '</textarea>',
-      '<button type="button" class="yolen-primary-button yolen-seller-message-generate" data-yolen-seller-message-action="generate"',
+      `<div class="yolen-message-intent-counter" data-yolen-seller-message-counter>${state.intent.length} / ${INTENT_MAX_LENGTH}</div>`,
+      '</div>',
+      '<button type="button" class="yolen-primary-button yolen-message-generate" data-yolen-seller-message-action="generate"',
       disabled ? ' disabled' : '',
       '>',
       state.status === 'loading'
-        ? 'Gerando…'
+        ? '<span class="yolen-message-spinner" aria-hidden="true"></span>Gerando…'
         : 'Gerar mensagem',
       '</button>',
+      '</div>',
       resultHtml,
       feedbackHtml,
-      '</div>',
     ].join('')
 
     const renderKey = hashText(html)
@@ -739,6 +721,17 @@
         button.disabled =
           !state.intent.trim() ||
           state.status === 'loading'
+      }
+
+      // Atualizado diretamente (sem queueRender) pelo mesmo motivo do
+      // botão acima: re-renderizar o box a cada tecla recriaria a
+      // textarea e derrubaria o foco/posição do cursor do vendedor.
+      const counter = document.querySelector(
+        '[data-yolen-seller-message-counter]',
+      )
+
+      if (counter) {
+        counter.textContent = `${state.intent.length} / ${INTENT_MAX_LENGTH}`
       }
     },
     true,
