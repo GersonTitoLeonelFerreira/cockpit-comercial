@@ -704,6 +704,24 @@
     wirePanelInteractions(panel)
   }
 
+  // Libera qualquer lock de ação de região preso — usado tanto no
+  // fallback de pointerup/pointercancel/dragstart (a interação normal
+  // nunca deveria deixar um lock órfão, mas se o click esperado não
+  // chegar a disparar, o lock ficaria preso para sempre) quanto na troca
+  // real de conversa (clearLeadStateForNewConversation()): nenhum lock
+  // visual pode sobreviver a uma invalidação de contexto e continuar
+  // impedindo renderPanelRegion() de substituir o HTML da conversa nova.
+  function clearPanelRegionActionLocks() {
+    document
+      .querySelectorAll(
+        '[data-yolen-region-action-lock="true"]',
+      )
+      .forEach((region) => {
+        delete region.dataset
+          .yolenRegionActionLock
+      })
+  }
+
   // Trava mínima contra o botão "desclicar" — a versão por região do
   // mecanismo já usado em panel-stability-runtime.js/
   // editable-field-stability-runtime.js para o painel inteiro. Aqui só
@@ -829,20 +847,49 @@
     document.addEventListener(
       eventName,
       () => {
-        document
-          .querySelectorAll(
-            '[data-yolen-region-action-lock="true"]',
-          )
-          .forEach((region) => {
-            delete region.dataset
-              .yolenRegionActionLock
-          })
-
+        clearPanelRegionActionLocks()
         flushPendingPanelRegions()
       },
       true,
     )
   }
+
+  // Fallback de liberação: o fluxo normal trava no pointerdown e libera
+  // no click da MESMA região (acima). Mas nem todo pointerdown é seguido
+  // de um click nessa região — o ponteiro pode soltar fora do elemento,
+  // ou a própria região pode ser substituída/desaparecer entre o
+  // pointerdown e o click esperado. Sem este fallback, o lock ficaria
+  // preso para sempre, e renderPanelRegion() nunca mais substituiria o
+  // HTML dessa região (o bug real de smoke: seller-information-architecture
+  // travada com conteúdo de uma conversa antiga).
+  //
+  // Agendado com setTimeout(..., 0) — nunca liberado sincronamente aqui —
+  // para rodar DEPOIS do click normal da mesma sequência de gesto
+  // (pointerdown -> pointerup -> click, nessa ordem, na mesma task; o
+  // release do click acima roda em microtask/setTimeout(0) já agendados
+  // antes deste). Se o click já liberou o lock, esta varredura não
+  // encontra nada e não faz nada; só age quando o click esperado nunca
+  // chega.
+  document.addEventListener(
+    'pointerup',
+    () => {
+      window.setTimeout(() => {
+        const hadLockedRegion = Boolean(
+          document.querySelector(
+            '[data-yolen-region-action-lock="true"]',
+          ),
+        )
+
+        if (!hadLockedRegion) {
+          return
+        }
+
+        clearPanelRegionActionLocks()
+        flushPendingPanelRegions()
+      }, 0)
+    },
+    true,
+  )
 
   document.addEventListener(
     'focusout',
@@ -5254,10 +5301,16 @@
     // Mudança REAL de conversa: diferente de uma atualização de estado em
     // segundo plano (que só troca o conteúdo interno de uma região), aqui
     // o vendedor trocou de contato de verdade — nenhum rascunho ou
-    // posição de leitura do lead anterior pode vazar para o novo. Limpa o
-    // cache de regiões (força todas a recalcular no próximo renderPanel())
-    // e qualquer render que tivesse ficado retido esperando uma interação
+    // posição de leitura do lead anterior pode vazar para o novo. Um lock
+    // de ação de região preso (pointerdown sem click correspondente,
+    // interação normal da conversa ANTERIOR) faria renderPanelRegion()
+    // achar que a região ainda está em uso e nunca substituir o HTML da
+    // conversa nova — por isso o lock é descartado ANTES de limpar
+    // caches/pending regions, nunca depois. Limpa também o cache de
+    // regiões (força todas a recalcular no próximo renderPanel()) e
+    // qualquer render que tivesse ficado retido esperando uma interação
     // do lead anterior, e volta o scroll ao topo.
+    clearPanelRegionActionLocks()
     panelRegionHtmlCache.clear()
     panelRegionPendingHtml.clear()
     controlledOpenClientIntelligenceGroups.clear()
