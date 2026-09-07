@@ -255,6 +255,36 @@
   // não existe uma identidade estrutural observável.
   let bridgeConfirmedGroupContext = null
 
+  // Identidade a persistir para uma confirmação de grupo do bridge.
+  // NUNCA usa getSelectedChatStableIdentity() aqui — essa função cai para
+  // `title:<nome>` quando a linha selecionada não expõe data-id/avatar, e
+  // título não é identidade única (dois chats homônimos sem data-id/avatar
+  // no momento da leitura produziriam o mesmo valor). Prioridade: 1) o
+  // chatId retornado pelo próprio identity bridge (JID real do grupo, lido
+  // do Fiber — sempre presente quando o bridge confirma isGroup); 2) o
+  // data-id estrutural real da linha selecionada, só como defesa caso o
+  // bridge excepcionalmente não traga chatId. Sem nenhum dos dois, a
+  // confirmação fica sem stableIdentity e isBridgeConfirmedGroupForConversation
+  // cai para o fallback conservador por conversationKey.
+  //
+  // Usa o mesmo prefixo `data:` de getSelectedChatStableIdentity() para o
+  // chatId do bridge: os dois representam o mesmo espaço de valores (o JID
+  // serializado do WhatsApp), e a linha selecionada do MESMO grupo
+  // normalmente expõe esse JID como data-id assim que renderizada — sem
+  // essa unificação, a comparação em isBridgeConfirmedGroupForConversation
+  // veria `chat:<jid>` (persistido aqui) e `data:<jid>` (lido do DOM na
+  // mesma conversa) como identidades diferentes e derrubaria a
+  // classificação de grupo em qualquer mutation subsequente.
+  function getBridgeConfirmedGroupIdentity(bridgeChatId) {
+    if (bridgeChatId) {
+      return `data:${bridgeChatId}`
+    }
+
+    const dataId = getSelectedChatDataId()
+
+    return dataId ? `data:${dataId}` : null
+  }
+
   function isBridgeConfirmedGroupForConversation(
     conversationKey,
   ) {
@@ -2008,6 +2038,16 @@
     if (identity.isGroup === true) {
       return {
         status: 'group',
+        // chatId aqui é o JID real do grupo (identity.chatId, lido do
+        // Fiber do WhatsApp) — a única identidade estruturalmente única
+        // que este confirmação de grupo pode oferecer. Nunca cai para
+        // título: dois chats homônimos sem data-id/avatar no momento da
+        // leitura produziriam o mesmo título, mas nunca o mesmo chatId.
+        chatId:
+          typeof identity.chatId === 'string' &&
+          identity.chatId
+            ? identity.chatId
+            : null,
       }
     }
 
@@ -5128,8 +5168,9 @@
         bridgeConfirmedGroupContext = {
           conversationKey,
           stableIdentity:
-            getSelectedChatStableIdentity() ||
-            null,
+            getBridgeConfirmedGroupIdentity(
+              bridgeResult.chatId,
+            ),
         }
 
         autoLookupAttemptedKeys.add(
@@ -5489,10 +5530,20 @@
         conversationTitle,
       )
 
-    const isGroupConversation =
+    // Calculado uma vez e reaproveitado abaixo: além de decidir
+    // isGroupConversation, também é o sinal de que uma evidência de grupo
+    // persistida (bridgeConfirmedGroupContext) já não corresponde à
+    // conversa que o DOM mostra agora — mesmo quando conversationKey não
+    // mudou (dois chats homônimos sem data-id/avatar no momento da leitura
+    // produzem a mesma conversationKey, mas o chatId/data-id estrutural
+    // continua distinguindo-os assim que fica disponível).
+    const bridgeSaysGroup =
       isBridgeConfirmedGroupForConversation(
         conversationKey,
-      ) ||
+      )
+
+    const isGroupConversation =
+      bridgeSaysGroup ||
       isGroupConversationHeader()
 
     const contactLookupIdentity =
@@ -5530,20 +5581,33 @@
           null
       }
 
-      if (conversationChanged) {
-        rememberCurrentPreResolutionCapture()
+      // A evidência de grupo vale apenas para a conversa em que o
+      // identity bridge a produziu. Isso vale tanto numa troca real
+      // (conversationKey muda) quanto no caso mais raro em que dois chats
+      // diferentes produzem a MESMA conversationKey (título homônimo sem
+      // data-id/avatar no momento em que cada um foi lido) — bridgeSaysGroup
+      // já reflete a identidade estrutural mais forte (chatId do
+      // bridge/data-id) e diverge mesmo com a chave igual. Sempre que a
+      // evidência guardada deixa de corresponder à conversa ATUAL, ela é
+      // descartada e a chave sai de "já tentada" — sem isso, uma
+      // conversationKey coincidente ficaria travada como grupo/sem nova
+      // tentativa para sempre, mesmo depois do bridge provar que é um chat
+      // diferente.
+      if (
+        bridgeConfirmedGroupContext &&
+        !bridgeSaysGroup
+      ) {
+        bridgeConfirmedGroupContext = null
 
-        // A evidência de grupo vale apenas para a conversa em que o
-        // identity bridge a produziu. Uma troca real libera a conversa
-        // nova para sua própria classificação/resolução.
-        if (
-          bridgeConfirmedGroupContext &&
-          !isBridgeConfirmedGroupForConversation(
+        if (conversationKey) {
+          autoLookupAttemptedKeys.delete(
             conversationKey,
           )
-        ) {
-          bridgeConfirmedGroupContext = null
         }
+      }
+
+      if (conversationChanged) {
+        rememberCurrentPreResolutionCapture()
 
         lastResolvedConversationKey = null
 

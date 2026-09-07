@@ -607,3 +607,95 @@ test('Y) trocar do grupo confirmado para uma nova conversa 1:1 descarta a classi
     '5511954321098',
   )
 })
+
+// P2 (PR #271, achado Codex) — "Persist group status only with a unique
+// chat identity": a confirmação de grupo do bridge só pode ser persistida
+// com uma identidade realmente única (o chatId do próprio bridge, ou um
+// data-id estrutural real) — nunca com `title:<nome exibido>`, porque dois
+// chats homônimos sem data-id/avatar disponível no momento da leitura
+// produziriam o mesmo valor e um contato 1:1 herdaria a classificação de
+// grupo de outro chat.
+test('Z) grupo confirmado só por título homônimo não gruda em um contato 1:1 diferente com o mesmo nome', async () => {
+  const HOMONYM_TITLE = 'Mesmo Nome'
+
+  // Linha da sidebar deliberadamente sem data-id/avatar (só o título é
+  // visível) — o mesmo shape valerá para o contato 1:1 homônimo mais
+  // adiante, reproduzindo o cenário em que nenhum dos dois lados tem
+  // data-id/avatar confiável no momento da leitura.
+  const { calls, window, document } = loadContentScript({
+    initialHtml: `<!doctype html><html><body>
+      <div id="app">
+        <div id="pane-side">
+          <div aria-selected="true" role="row">
+            <span title="${HOMONYM_TITLE}">${HOMONYM_TITLE}</span>
+          </div>
+        </div>
+        <div id="main">
+          <header><span title="${HOMONYM_TITLE}">${HOMONYM_TITLE}</span></header>
+          <div id="conversation-body"></div>
+        </div>
+      </div>
+    </body></html>`,
+  })
+
+  let secondConversationActive = false
+
+  const requests = installFakeIdentityBridge(window, () => {
+    if (secondConversationActive) {
+      return {
+        chatId: '5511955554444@c.us',
+        chatIdType: 'c.us',
+        phone: '5511955554444',
+        phoneJid: '5511955554444@c.us',
+        phoneServer: 'c.us',
+        isGroup: false,
+      }
+    }
+
+    return {
+      chatId: '120363011112222333@g.us',
+      chatIdType: 'g.us',
+      phone: null,
+      phoneJid: null,
+      phoneServer: null,
+      isGroup: true,
+    }
+  })
+
+  await waitFor(() => requests.length >= 1)
+  await sleep(300)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'grupo confirmado pelo bridge (mesmo sem data-id/avatar na sidebar) não pode resolver lead',
+  )
+
+  // Troca real para um contato 1:1 com o MESMO título e a MESMA ausência
+  // de data-id/avatar na sidebar — a única evidência estrutural
+  // realmente única vem do chatId que o próprio identity bridge devolve
+  // para a conversa ativa, não do DOM.
+  secondConversationActive = true
+
+  const app = document.getElementById('app')
+
+  app.innerHTML = `<div id="pane-side">
+      <div aria-selected="true" role="row">
+        <span title="${HOMONYM_TITLE}">${HOMONYM_TITLE}</span>
+      </div>
+    </div>
+    <div id="main">
+      <header><span title="${HOMONYM_TITLE}">${HOMONYM_TITLE}</span></header>
+      <div id="conversation-body"></div>
+    </div>`
+
+  const resolved = await waitFor(
+    () => resolveLeadCalls(calls).at(-1),
+  )
+
+  assert.equal(
+    resolved.payload.phone,
+    '5511955554444',
+    'o contato 1:1 homônimo não pode herdar a classificação de grupo persistida sob o mesmo título — ele deve resolver normalmente',
+  )
+})

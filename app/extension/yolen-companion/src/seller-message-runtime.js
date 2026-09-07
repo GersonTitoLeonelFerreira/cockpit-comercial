@@ -51,6 +51,15 @@
     return `${text.length}:${(hash >>> 0).toString(16)}`
   }
 
+  const UX8_SHELL_SELECTOR =
+    '#yolen-companion-panel[data-yolen-ux-build="UX8"]'
+
+  function isUx8ShellActive() {
+    return Boolean(
+      document.querySelector(UX8_SHELL_SELECTOR),
+    )
+  }
+
   function buildContext(payload, data) {
     const workingSummary =
       typeof data?.working_summary === 'string' &&
@@ -251,6 +260,17 @@
       guidanceLabel.textContent !== 'Orientação da Yolen'
     ) {
       guidanceLabel.textContent = 'Orientação da Yolen'
+    }
+
+    if (isUx8ShellActive() && !dedicatedMount) {
+      // Dentro do shell UX8 o composer só existe no mount dedicado. Sem
+      // ele, inserir no fallback legado (depois do guidanceSlot) entra em
+      // loop com ux8-interaction-consistency-runtime.js, que remove
+      // qualquer composer fora do mount a cada mutation — a orientação
+      // acima permanece visível; só o composer fica ausente até o mount
+      // dedicado voltar.
+      removeVisibleComposer()
+      return
     }
 
     let box = document.querySelector(
@@ -821,13 +841,18 @@
       '[data-yolen-seller-message-mount]',
     )
 
-    // Só remonta quando o shell do resumo foi recriado.
+    // Só remonta quando o shell do resumo foi recriado. Dentro do shell
+    // UX8 sem o mount dedicado não há fallback legado a remontar — evita
+    // reenfileirar renderComposer() a cada mutation enquanto o mount
+    // está fora do ar (renderComposer() já é um no-op nesse caso, mas
+    // sem este guard o observer ficaria re-testando a cada mutation
+    // irrelevante do WhatsApp).
     if (
       !box &&
       summaryInput &&
       (
         dedicatedMount ||
-        guidanceSlot
+        (guidanceSlot && !isUx8ShellActive())
       )
     ) {
       queueRender()
