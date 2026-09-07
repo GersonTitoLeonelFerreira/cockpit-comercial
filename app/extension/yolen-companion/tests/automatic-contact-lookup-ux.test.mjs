@@ -22,7 +22,7 @@ test('grupo e bloqueado antes da busca automatica de telefone', () => {
     'async function runAutomaticContactLookup(conversationKey)',
   )
   const lookupEnd = contentScript.indexOf(
-    'function clearLeadStateForNewConversation()',
+    'function hardResetConversationWorkspace()',
     lookupStart,
   )
 
@@ -200,7 +200,7 @@ test(
 
     const lookupEnd =
       contentScript.indexOf(
-        'function clearLeadStateForNewConversation()',
+        'function hardResetConversationWorkspace()',
         lookupStart,
       )
 

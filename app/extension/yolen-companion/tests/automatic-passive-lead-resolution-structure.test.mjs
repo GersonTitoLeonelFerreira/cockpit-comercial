@@ -139,7 +139,7 @@ test('getConversationPhone: cachedPhonesByConversationKey (identidade única) é
 test('runAutomaticContactLookup: resolução passiva roda antes do fail-closed do painel de contato, sem navegar', () => {
   const block = blockBetween(
     'async function runAutomaticContactLookup(conversationKey)',
-    'function clearLeadStateForNewConversation()',
+    'function hardResetConversationWorkspace()',
   )
 
   const passiveIndex = block.indexOf('resolvePassivePhoneForConversation(')
@@ -162,7 +162,7 @@ test('runAutomaticContactLookup: resolução passiva roda antes do fail-closed d
 test('autoLookupAttemptedKeys e lastResolvedConversationKey usam conversationKey (identidade única), não o nome normalizado', () => {
   const lookupBlock = blockBetween(
     'async function runAutomaticContactLookup(conversationKey)',
-    'function clearLeadStateForNewConversation()',
+    'function hardResetConversationWorkspace()',
   )
 
   assert.doesNotMatch(lookupBlock, /autoLookupAttemptedKeys\.(has|add)\(\s*lookupIdentity/)

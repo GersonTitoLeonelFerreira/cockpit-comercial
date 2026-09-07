@@ -37,6 +37,6 @@ test('seller-message runtime exposes syncContext and clears on conversation swit
   )
   assert.match(
     contentScript,
-    /function clearLeadStateForNewConversation\(\)[\s\S]*?YolenCompanionSellerMessageRuntime[\s\S]*?\.clear\?\.\(\)/,
+    /function hardResetConversationWorkspace\(\)[\s\S]*?YolenCompanionSellerMessageRuntime[\s\S]*?\.clear\?\.\(\)/,
   )
 })

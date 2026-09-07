@@ -13,7 +13,7 @@
 //
 // Correção (exclusivamente o lifecycle do region-action-lock):
 //   1) clearPanelRegionActionLocks() é chamado no início de
-//      clearLeadStateForNewConversation() — uma troca REAL de conversa
+//      hardResetConversationWorkspace() — uma troca REAL de conversa
 //      descarta qualquer lock imediatamente, antes de limpar
 //      caches/pending regions.
 //   2) fallback de liberação no pointerup (agendado com setTimeout(0), ou
@@ -318,7 +318,7 @@ test('f) sem troca real de conversa, o lock de região continua protegendo o DOM
   // criação de lead (região seller-information-architecture) precisa
   // continuar com sua identidade de node preservada durante uma
   // atualização em segundo plano NA MESMA conversa — a nova regra de
-  // invalidação de lock em clearLeadStateForNewConversation() só pode
+  // invalidação de lock em hardResetConversationWorkspace() só pode
   // disparar numa troca REAL de conversa, nunca aqui.
   const { document, calls } = loadContentScript({
     initialHtml: initialPageHtml(),

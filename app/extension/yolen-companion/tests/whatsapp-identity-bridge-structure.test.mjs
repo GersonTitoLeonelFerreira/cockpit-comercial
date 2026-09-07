@@ -227,7 +227,7 @@ test('content-script: runAutomaticContactLookup consulta o bridge ANTES do fallb
   const block = blockBetween(
     contentScript,
     'async function runAutomaticContactLookup(conversationKey)',
-    'function clearLeadStateForNewConversation()',
+    'function hardResetConversationWorkspace()',
   )
 
   const bridgeIndex = block.indexOf('tryResolveViaIdentityBridge(')

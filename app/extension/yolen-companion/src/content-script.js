@@ -162,6 +162,14 @@
   const panelRegionHtmlCache = new Map()
   const panelRegionPendingHtml = new Map()
 
+  // Fronteira de segurança de contexto (hardResetConversationWorkspace()):
+  // nenhum mecanismo de estabilidade visual (region-action-lock, foco em
+  // campo editável, HTML retido em panelRegionPendingHtml) pode impedir a
+  // troca de DOM quando a conversa mudou de verdade. Ligada só durante o
+  // único renderPanel() forçado disparado pela fronteira; qualquer outro
+  // render (mesma conversa) continua respeitando as proteções normais.
+  let forcingConversationBoundaryRender = false
+
   // Estado controlado dos accordions da Inteligência Comercial.
   // Não dependemos da ação nativa de <details> do navegador: quando o
   // vendedor abre um grupo, a chave fica registrada aqui e é reaplicada
@@ -642,6 +650,7 @@
     }
 
     if (
+      !forcingConversationBoundaryRender &&
       isRegionInteractionActive(
         container,
       )
@@ -708,7 +717,7 @@
   // fallback de pointerup/pointercancel/dragstart (a interação normal
   // nunca deveria deixar um lock órfão, mas se o click esperado não
   // chegar a disparar, o lock ficaria preso para sempre) quanto na troca
-  // real de conversa (clearLeadStateForNewConversation()): nenhum lock
+  // real de conversa (hardResetConversationWorkspace()): nenhum lock
   // visual pode sobreviver a uma invalidação de contexto e continuar
   // impedindo renderPanelRegion() de substituir o HTML da conversa nova.
   function clearPanelRegionActionLocks() {
@@ -5287,7 +5296,24 @@
     }
   }
 
-  function clearLeadStateForNewConversation() {
+  // Fronteira única entre conversas (regra de produto: troca de conversa
+  // no WhatsApp invalida IMEDIATAMENTE todo o contexto comercial visível
+  // da conversa anterior — nenhum dado de A pode sobreviver, nem durante
+  // o loading de B). Chamado pelo chamador DEPOIS de `state` já refletir
+  // a identidade da conversa NOVA (conversationKey/título/telefone/
+  // isGroupConversation/isSelfConversation) — é essa ordem que garante
+  // que o renderPanel() forçado abaixo já calcule o HTML da conversa
+  // nova, nunca da antiga.
+  //
+  // Preservação de foco/scroll/regionActionLock/pendingRegionHtml/drafts
+  // só vale DENTRO da mesma conversationKey. Numa troca real, nenhum
+  // desses mecanismos de estabilidade pode impedir o reset: por isso o
+  // renderPanel() aqui roda com forcingConversationBoundaryRender=true,
+  // que faz renderPanelRegion() ignorar isRegionInteractionActive() (lock
+  // OU foco em campo editável) e substituir o DOM de toda região na
+  // hora — nunca adiar para panelRegionPendingHtml esperando uma
+  // interação da conversa que já não existe mais.
+  function hardResetConversationWorkspace() {
     capturedAudioBlobEntries = []
     window.YolenCompanionSellerMessageRuntime
       ?.clear?.()
@@ -5298,18 +5324,11 @@
     clearCompanionClientContextRefreshTimer()
     activeSellerArea = 'now'
 
-    // Mudança REAL de conversa: diferente de uma atualização de estado em
-    // segundo plano (que só troca o conteúdo interno de uma região), aqui
-    // o vendedor trocou de contato de verdade — nenhum rascunho ou
-    // posição de leitura do lead anterior pode vazar para o novo. Um lock
-    // de ação de região preso (pointerdown sem click correspondente,
-    // interação normal da conversa ANTERIOR) faria renderPanelRegion()
-    // achar que a região ainda está em uso e nunca substituir o HTML da
-    // conversa nova — por isso o lock é descartado ANTES de limpar
-    // caches/pending regions, nunca depois. Limpa também o cache de
-    // regiões (força todas a recalcular no próximo renderPanel()) e
-    // qualquer render que tivesse ficado retido esperando uma interação
-    // do lead anterior, e volta o scroll ao topo.
+    // Limpa o lock de ação de região (não pode proteger DOM de uma
+    // conversa que já não existe mais), o cache de HTML por região
+    // (força todas a recalcular no próximo renderPanel()), qualquer
+    // render que tivesse ficado retido esperando uma interação do lead
+    // anterior, e o estado dos accordions da Inteligência Comercial.
     clearPanelRegionActionLocks()
     panelRegionHtmlCache.clear()
     panelRegionPendingHtml.clear()
@@ -5378,6 +5397,19 @@
       preSendDraft: '',
       preSendGateOpen: false,
       preSendBypassKey: null,
+    }
+
+    // Não basta zerar `state` e confiar que um renderPanel() futuro vai
+    // aplicar o resultado — o próprio renderer pode decidir preservar o
+    // DOM antigo (lock, foco, pending html). A fronteira precisa GARANTIR
+    // que nenhum DOM seller-facing da conversa anterior sobreviva: força
+    // um render imediato, ignorando toda proteção de estabilidade.
+    forcingConversationBoundaryRender = true
+
+    try {
+      renderPanel()
+    } finally {
+      forcingConversationBoundaryRender = false
     }
   }
 
@@ -5452,10 +5484,14 @@
         resetConversationMessageLedger(
           conversationKey,
         )
-
-        clearLeadStateForNewConversation()
       }
 
+    // A identidade da conversa NOVA precisa estar em `state` ANTES de
+    // qualquer hardResetConversationWorkspace() abaixo — é o renderPanel()
+    // forçado dentro dela que decide o HTML de cada região, e ele lê
+    // state.conversationKey/isGroupConversation/isSelfConversation
+    // diretamente. Chamar a fronteira antes desta atribuição faria o
+    // render forçado ainda enxergar a conversa ANTERIOR.
     state = {
       ...state,
       conversationTitle,
@@ -5467,6 +5503,10 @@
       contactLookupIdentity,
       isSelfConversation,
       isGroupConversation,
+    }
+
+    if (conversationChanged) {
+      hardResetConversationWorkspace()
     }
 
     const messageMutationDetected =
@@ -5486,8 +5526,7 @@
       lastResolvedConversationKey = null
       lastResolvedContactLookupIdentity =
         null
-      clearLeadStateForNewConversation()
-      renderPanel()
+      hardResetConversationWorkspace()
       return messageMutationDetected
     }
 
@@ -5495,8 +5534,7 @@
       lastResolvedConversationKey = null
       lastResolvedContactLookupIdentity =
         null
-      clearLeadStateForNewConversation()
-      renderPanel()
+      hardResetConversationWorkspace()
       return messageMutationDetected
     }
 
@@ -5749,7 +5787,7 @@
     // pode ser aplicado à região "Conversa" se ele pertencer à conversa
     // ATUAL — se o vendedor já trocou de conversa, leadCreationConversationKey
     // não bate mais com state.conversationKey e este bloco fica inerte
-    // (clearLeadStateForNewConversation() já zera os dois campos numa
+    // (hardResetConversationWorkspace() já zera os dois campos numa
     // troca real, isto aqui é uma segunda trava de segurança).
     const creationBelongsToCurrentConversation =
       Boolean(state.conversationKey) &&
@@ -6327,7 +6365,7 @@
   // identidade que originou aquele resultado (company/cycle/conversation)
   // ainda bate com o contexto atual — reavaliado a cada renderPanel(), sem
   // esperar uma análise nova terminar. Isto cobre um caso que
-  // clearLeadStateForNewConversation() (troca real de aba/conversa) não
+  // hardResetConversationWorkspace() (troca real de aba/conversa) não
   // cobre: a MESMA conversation_key ser resolvida para um cycle_id
   // diferente (ex.: resolveCurrentLead() encontrando um ciclo novo para o
   // mesmo lead), o que não é uma "troca de conversa" no sentido de DOM/
@@ -11259,7 +11297,7 @@
   // elegível): o mount só existe no HTML quando isSellerMessageMountEligible()
   // é verdadeiro. Isso é puramente de leitura de state — nenhum side
   // effect aqui; a limpeza explícita do runtime continua acontecendo nos
-  // pontos reais de transição (clearLeadStateForNewConversation(), branch
+  // pontos reais de transição (hardResetConversationWorkspace(), branch
   // de grupo, e o branch sem cycle/conversationKey de
   // loadCompanionLeadSummaryForCurrentCycle()). Isso garante que, mesmo
   // que algum chamador futuro esqueça de limpar o runtime explicitamente,
@@ -14602,7 +14640,7 @@
     // já começou?" — se não, a resposta é descartada silenciosamente e
     // NUNCA é aplicada a `state` (nunca sobrescreve a conversa/ciclo
     // atualmente visível, que já tem seu próprio estado zerado por
-    // clearLeadStateForNewConversation() na troca, ou preenchido por uma
+    // hardResetConversationWorkspace() na troca, ou preenchido por uma
     // análise mais recente). O resultado da conversa de origem não é
     // "destruído" por isso — ele simplesmente nunca chega a ser escrito
     // num `state` que já pertence a outra conversa.

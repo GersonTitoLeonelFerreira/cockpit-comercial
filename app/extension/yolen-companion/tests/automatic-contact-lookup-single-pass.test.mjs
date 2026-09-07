@@ -12,7 +12,7 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
     'async function runAutomaticContactLookup(conversationKey)',
   )
   const lookupEnd = contentScript.indexOf(
-    'function clearLeadStateForNewConversation()',
+    'function hardResetConversationWorkspace()',
     lookupStart,
   )
 

@@ -363,7 +363,7 @@ test('dentro da mesma conversa, uma resposta antiga presa nunca sobrescreve uma 
   // conversationAnalysisLoading é true, então duas análises da MESMA
   // conversa só podem ficar "em voo" ao mesmo tempo se o vendedor sair da
   // conversa (o que zera conversationAnalysisLoading via
-  // clearLeadStateForNewConversation, reexibindo o botão) e voltar antes
+  // hardResetConversationWorkspace, reexibindo o botão) e voltar antes
   // da primeira resposta ter chegado. A primeira análise de A continua
   // presa (ainda não resolveu); ao voltar para A, o vendedor dispara uma
   // SEGUNDA análise, que responde rápido; só depois a primeira,
@@ -411,7 +411,7 @@ test('dentro da mesma conversa, uma resposta antiga presa nunca sobrescreve uma 
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
   // Sai rapidamente para B (isso reseta conversationAnalysisLoading via
-  // clearLeadStateForNewConversation, mesmo com a 1ª análise de A ainda
+  // hardResetConversationWorkspace, mesmo com a 1ª análise de A ainda
   // pendente) e volta para A — o botão "Analisar agora" reaparece.
   await goToConversationB({
     document,

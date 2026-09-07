@@ -12,7 +12,7 @@ function getLookupBlock() {
     'async function runAutomaticContactLookup(conversationKey)',
   )
   const end = contentScript.indexOf(
-    'function clearLeadStateForNewConversation()',
+    'function hardResetConversationWorkspace()',
     start,
   )
 

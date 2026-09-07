@@ -196,7 +196,7 @@ test(
   () => {
     const block =
       getBlock(
-        'function clearLeadStateForNewConversation',
+        'function hardResetConversationWorkspace',
         'function refreshConversationSnapshot',
       )
 
