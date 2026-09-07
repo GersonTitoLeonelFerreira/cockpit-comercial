@@ -280,11 +280,18 @@
       return `data:${bridgeChatId}`
     }
 
-    const dataId = getSelectedChatDataId()
-
-    return dataId ? `data:${dataId}` : null
+    return getSelectedChatStrongIdentity()
   }
 
+  // Comparação por identidade FORTE apenas (chatId do bridge/data-id
+  // estrutural — nunca avatar/título, que getSelectedChatStableIdentity()
+  // aceitaria). Três resultados possíveis:
+  //   - stored e current fortes e IGUAIS      -> confirmado (true)
+  //   - stored e current fortes e DIFERENTES  -> prova real de troca (false)
+  //   - current ausente (DOM sem data-id agora, ex.: mutation/virtualização
+  //     temporária) -> AMBÍGUO: ausência de identidade forte não é prova de
+  //     troca, então fail-closed (true) — quem chama isto é responsável por
+  //     agendar uma revalidação via bridge para resolver a ambiguidade.
   function isBridgeConfirmedGroupForConversation(
     conversationKey,
   ) {
@@ -292,22 +299,37 @@
       return false
     }
 
-    const currentStableIdentity =
-      getSelectedChatStableIdentity()
+    if (bridgeConfirmedGroupContext.stableIdentity) {
+      const currentStrongIdentity =
+        getSelectedChatStrongIdentity()
 
-    if (
-      bridgeConfirmedGroupContext.stableIdentity &&
-      currentStableIdentity
-    ) {
+      if (!currentStrongIdentity) {
+        return true
+      }
+
       return (
         bridgeConfirmedGroupContext.stableIdentity ===
-        currentStableIdentity
+        currentStrongIdentity
       )
     }
 
     return (
       bridgeConfirmedGroupContext.conversationKey ===
       conversationKey
+    )
+  }
+
+  // true quando a evidência de grupo persistida só continua valendo por
+  // fail-closed (identidade forte ausente no DOM agora), não porque foi
+  // reconfirmada. Sinal para agendar uma revalidação via identity bridge —
+  // sem ela, uma conversationKey coincidente (título homônimo) ficaria
+  // travada como grupo para sempre, e nenhum participante escapa pelo
+  // fallback de DOM enquanto isso (fail-closed continua bloqueando
+  // getConversationPhone/resolveCurrentLead até o bridge decidir).
+  function isBridgeConfirmedGroupContextAmbiguous() {
+    return Boolean(
+      bridgeConfirmedGroupContext?.stableIdentity &&
+        !getSelectedChatStrongIdentity(),
     )
   }
 
@@ -1544,6 +1566,18 @@
     return selectedTitle
       ? `title:${selectedTitle}`
       : ''
+  }
+
+  // Só data-id: nunca cai para avatar/título. Usada onde uma identidade
+  // FRACA (título, ou até avatar — WhatsApp reaproveita a mesma imagem
+  // padrão entre vários contatos/grupos sem foto) não pode ser aceita como
+  // prova de que a conversa mudou. Ausência de retorno aqui significa
+  // apenas "o DOM não expõe identidade estrutural agora" — nunca "é outra
+  // conversa".
+  function getSelectedChatStrongIdentity() {
+    const dataId = getSelectedChatDataId()
+
+    return dataId ? `data:${dataId}` : null
   }
 
   function getConversationKey(title) {
@@ -5516,6 +5550,101 @@
     }
   }
 
+  // Revalidação via bridge para o caso ambíguo (identidade forte ausente
+  // no DOM, mas ainda sem prova de troca real): dispara UM pedido ao
+  // identity bridge para decidir a favor de "ainda é o mesmo grupo" ou
+  // "não é mais" — nunca decide isso só pela ausência de data-id/avatar no
+  // DOM (ver isBridgeConfirmedGroupContextAmbiguous()). Debounce (300ms) +
+  // cooldown (1s) evitam storm de pedidos enquanto a conversa permanece
+  // ambígua através de várias mutations seguidas.
+  let bridgeGroupRevalidationPending = false
+  let lastBridgeGroupRevalidationAt = 0
+  const BRIDGE_GROUP_REVALIDATION_COOLDOWN_MS = 1000
+
+  function scheduleBridgeGroupRevalidation(
+    conversationKey,
+    title,
+  ) {
+    if (
+      !state.connected ||
+      !conversationKey ||
+      bridgeGroupRevalidationPending ||
+      Date.now() - lastBridgeGroupRevalidationAt <
+        BRIDGE_GROUP_REVALIDATION_COOLDOWN_MS
+    ) {
+      return
+    }
+
+    bridgeGroupRevalidationPending = true
+
+    window.setTimeout(() => {
+      void runBridgeGroupRevalidation(
+        conversationKey,
+        title,
+      )
+    }, 300)
+  }
+
+  async function runBridgeGroupRevalidation(
+    conversationKey,
+    title,
+  ) {
+    lastBridgeGroupRevalidationAt = Date.now()
+
+    try {
+      const bridgeResult =
+        await tryResolveViaIdentityBridge(
+          conversationKey,
+          title,
+        )
+
+      // A conversa pode ter mudado de verdade enquanto o pedido estava em
+      // voo — nesse caso o ciclo normal de refreshConversationSnapshot já
+      // está cuidando da conversa nova; aplicar esta resposta aqui seria
+      // usar evidência da conversa ERRADA.
+      if (
+        state.conversationKey !== conversationKey
+      ) {
+        return
+      }
+
+      if (bridgeResult.status === 'group') {
+        // Reconfirmado — mesmo grupo (ou outro, mas ainda grupo): guarda o
+        // chatId mais recente e mantém fail-closed até a próxima
+        // ambiguidade.
+        bridgeConfirmedGroupContext = {
+          conversationKey,
+          stableIdentity:
+            getBridgeConfirmedGroupIdentity(
+              bridgeResult.chatId,
+            ),
+        }
+        return
+      }
+
+      if (bridgeResult.status === 'resolved') {
+        // O bridge provou que a conversa ATUAL não é mais o grupo
+        // guardado — só agora a classificação pode ser descartada.
+        cachedPhonesByConversationKey.set(
+          conversationKey,
+          bridgeResult.phone,
+        )
+
+        bridgeConfirmedGroupContext = null
+        autoLookupAttemptedKeys.delete(
+          conversationKey,
+        )
+
+        refreshConversationSnapshot()
+      }
+
+      // status 'unavailable': inconclusivo — permanece fail-closed; uma
+      // mutation futura (depois do cooldown) tenta revalidar de novo.
+    } finally {
+      bridgeGroupRevalidationPending = false
+    }
+  }
+
   function refreshConversationSnapshot() {
     const conversationTitle =
       getConversationTitle()
@@ -5545,6 +5674,19 @@
     const isGroupConversation =
       bridgeSaysGroup ||
       isGroupConversationHeader()
+
+    // Ausência de identidade forte no DOM (data-id/avatar temporariamente
+    // fora do ar) nunca prova troca de conversa — bridgeSaysGroup já fica
+    // fail-closed (true) nesse caso. Mas o fail-closed sozinho travaria uma
+    // conversationKey coincidente como grupo para sempre; só o bridge pode
+    // desambiguar, então agenda uma revalidação dele quando a única razão
+    // de ainda sermos "grupo" é a ambiguidade, não uma reconfirmação real.
+    if (isBridgeConfirmedGroupContextAmbiguous()) {
+      scheduleBridgeGroupRevalidation(
+        conversationKey,
+        conversationTitle,
+      )
+    }
 
     const contactLookupIdentity =
       getAutomaticContactLookupIdentity(

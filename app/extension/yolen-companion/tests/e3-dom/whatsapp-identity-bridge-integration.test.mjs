@@ -699,3 +699,131 @@ test('Z) grupo confirmado só por título homônimo não gruda em um contato 1:1
     'o contato 1:1 homônimo não pode herdar a classificação de grupo persistida sob o mesmo título — ele deve resolver normalmente',
   )
 })
+
+// P2 (follow-up, PR #271) — "keep bridge group fail-closed during ambiguous
+// identity": isBridgeConfirmedGroupForConversation() compara a identidade
+// FORTE persistida (chatId do bridge/data-id) contra getSelectedChatStableIdentity(),
+// que pode cair para `title:<nome>` quando data-id/avatar somem numa
+// mutation da MESMA conversa. Uma ausência temporária de identidade forte
+// no DOM não é prova de troca — sem fail-closed, getConversationPhone()
+// roda antes de qualquer revalidação e um telefone de participante exposto
+// no header vira lead. Ao mesmo tempo, um título homônimo não pode grudar
+// o grupo para sempre: só o próprio identity bridge (revalidação) ou uma
+// identidade estrutural forte realmente diferente podem descartar a
+// classificação.
+test('AA) grupo ambíguo (sem data-id/avatar) fica fail-closed até o bridge revalidar; participante do header nunca vira lead; troca real para 1:1 homônimo resolve depois', async () => {
+  const GROUP_TITLE = 'Grupo Ambíguo AA'
+  const GROUP_JID = '120363055554444333@g.us'
+
+  const { calls, window, document } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: GROUP_TITLE,
+      sidebarDataId: GROUP_JID,
+    }),
+  })
+
+  let bridgeMode = 'group'
+
+  const requests = installFakeIdentityBridge(
+    window,
+    () => {
+      if (bridgeMode === 'group') {
+        return {
+          chatId: GROUP_JID,
+          chatIdType: 'g.us',
+          phone: null,
+          phoneJid: null,
+          phoneServer: null,
+          isGroup: true,
+        }
+      }
+
+      return {
+        chatId: '5511933332222@c.us',
+        chatIdType: 'c.us',
+        phone: '5511933332222',
+        phoneJid: '5511933332222@c.us',
+        phoneServer: 'c.us',
+        isGroup: false,
+      }
+    },
+  )
+
+  // 1+2) Grupo sem aria-label reconhecível, confirmado pelo bridge com
+  // chatId @g.us — a linha da sidebar ainda tem o data-id do próprio grupo
+  // neste momento (evidência forte disponível na confirmação inicial).
+  await waitFor(() => requests.length >= 1)
+  await sleep(300)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'grupo recém-confirmado não pode resolver lead',
+  )
+
+  const requestsAfterInitialConfirm = requests.length
+
+  // 3+4) A MESMA conversa perde data-id na sidebar — ausência de
+  // identidade forte não é evidência de troca.
+  const sidebarRow = document.querySelector(
+    '[aria-selected="true"]',
+  )
+  sidebarRow.removeAttribute('data-id')
+
+  // 5+6) Mutation adicional expõe um telefone de participante no header —
+  // exatamente o cenário que o fail-closed precisa bloquear.
+  const header = document.querySelector('#main header')
+  const participantPhone = document.createElement('span')
+  participantPhone.setAttribute(
+    'title',
+    '5511965432109',
+  )
+  participantPhone.textContent = '5511965432109'
+  header.appendChild(participantPhone)
+
+  await sleep(1600)
+
+  // 7) Continua fail-closed: nenhum participante vira lead.
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'ausência temporária de data-id/avatar não pode derrubar a classificação de grupo nem deixar o participante do header resolver como lead',
+  )
+
+  // 8) O bridge foi consultado de novo para revalidar a MESMA ambiguidade
+  // (fail-closed não significa "nunca mais pergunta") — mas sem storm:
+  // várias mutations seguidas não geram uma tempestade de pedidos.
+  assert.ok(
+    requests.length > requestsAfterInitialConfirm,
+    'a ambiguidade deveria ter disparado pelo menos uma revalidação via bridge',
+  )
+  assert.ok(
+    requests.length <=
+      requestsAfterInitialConfirm + 3,
+    `revalidação não pode virar storm de requests; obteve ${requests.length - requestsAfterInitialConfirm} pedidos extras`,
+  )
+
+  // 9) Troca REAL para um contato 1:1 homônimo (mesmo título do grupo,
+  // agora com um data-id estruturalmente diferente) — só com evidência
+  // forte de identidade diferente (ou o bridge) a classificação pode cair.
+  bridgeMode = 'individual'
+
+  const app = document.getElementById('app')
+
+  app.innerHTML = buildAppInnerHtml({
+    headerTitle: GROUP_TITLE,
+    sidebarDataId: '5511933332222@c.us',
+  })
+
+  // 10+11) O bridge/data-id prova que a conversa atual não é mais o grupo
+  // antigo e o contato 1:1 resolve normalmente.
+  const resolved = await waitFor(
+    () => resolveLeadCalls(calls).at(-1),
+  )
+
+  assert.equal(
+    resolved.payload.phone,
+    '5511933332222',
+    'o contato 1:1 homônimo deve resolver normalmente assim que uma identidade estrutural realmente diferente aparece — o grupo antigo não pode grudar para sempre',
+  )
+})
