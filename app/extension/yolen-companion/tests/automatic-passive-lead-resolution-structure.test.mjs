@@ -128,12 +128,10 @@ test('getConversationPhone: cachedPhonesByConversationKey (identidade única) é
 
   assert.match(block, /cachedPhonesByConversationKey\.get\(/)
   assert.doesNotMatch(block, /cachedPhonesByLookupIdentity\.get\(/)
-  assert.match(block, /resolvePassivePhoneForConversation\(/)
+  assert.doesNotMatch(block, /resolvePassivePhoneForConversation\(/)
 
-  // Ordem: cache por conversationKey antes da tentativa passiva de JID.
-  const cacheIndex = block.indexOf('cachedPhonesByConversationKey.get(')
-  const passiveIndex = block.indexOf('resolvePassivePhoneForConversation(')
-  assert.ok(passiveIndex > cacheIndex)
+  // Descoberta passiva não pode acontecer aqui: ela pertence
+  // exclusivamente ao runAutomaticContactLookup(), depois do bridge.
 })
 
 test('runAutomaticContactLookup: resolução passiva roda antes do fail-closed do painel de contato, sem navegar', () => {

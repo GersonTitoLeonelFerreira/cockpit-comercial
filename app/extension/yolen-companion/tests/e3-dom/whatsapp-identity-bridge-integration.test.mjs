@@ -409,3 +409,74 @@ test('T) troca rápida A->B->C mantém só C aplicável', async () => {
     'só a resolução de C deveria ter acontecido — nenhuma resolução espúria de A ou B',
   )
 })
+
+
+test('V) bridge confirma grupo mesmo com JID individual único em #main: nunca resolve lead pelo fallback', async () => {
+  const { calls, window } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: 'Grupo Sem Aria Main',
+      mainDataIds: [
+        'true_5511987654321@c.us_A',
+      ],
+    }),
+  })
+
+  const requests = installFakeIdentityBridge(
+    window,
+    () => ({
+      chatId: '120363099999999999@g.us',
+      chatIdType: 'g.us',
+      phone: null,
+      phoneJid: null,
+      phoneServer: null,
+      isGroup: true,
+    }),
+  )
+
+  await sleep(1800)
+
+  assert.ok(
+    requests.length >= 1,
+    'o bridge precisa ter sido consultado antes do fallback',
+  )
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'grupo confirmado pelo bridge é terminal mesmo com um @c.us único em #main',
+  )
+})
+
+test('W) bridge confirma grupo sem aria-label reconhecível e com JID individual na conversa selecionada: nunca resolve lead', async () => {
+  const { calls, window } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: 'Grupo Em Outro Idioma',
+      sidebarDataId: '5511976543210@c.us',
+    }),
+  })
+
+  const requests = installFakeIdentityBridge(
+    window,
+    () => ({
+      chatId: '120363088888888888@g.us',
+      chatIdType: 'g.us',
+      phone: null,
+      phoneJid: null,
+      phoneServer: null,
+      isGroup: true,
+    }),
+  )
+
+  await sleep(1800)
+
+  assert.ok(
+    requests.length >= 1,
+    'a classificação forte do bridge precisa ser consultada',
+  )
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'grupo confirmado pelo bridge nunca pode cair para o JID individual da sidebar',
+  )
+})

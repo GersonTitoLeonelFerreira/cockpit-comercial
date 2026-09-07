@@ -1853,21 +1853,6 @@
       }
     }
 
-    const passivePhone =
-      resolvePassivePhoneForConversation({
-        conversationKey,
-        title,
-      })
-
-    if (passivePhone) {
-      cachedPhonesByConversationKey.set(
-        conversationKey,
-        passivePhone.phone,
-      )
-
-      return passivePhone
-    }
-
     return {
       phone: null,
       source: null,
@@ -1953,7 +1938,9 @@
     expectedTitle,
   ) {
     if (!conversationKey) {
-      return null
+      return {
+        status: 'unavailable',
+      }
     }
 
     const identity = await requestActiveChatIdentity(
@@ -1961,7 +1948,9 @@
     )
 
     if (!identity) {
-      return null
+      return {
+        status: 'unavailable',
+      }
     }
 
     const currentConversationKey =
@@ -1976,16 +1965,27 @@
       currentConversationKey !==
         conversationKey
     ) {
-      return null
+      return {
+        status: 'unavailable',
+      }
+    }
+
+    if (identity.isGroup === true) {
+      return {
+        status: 'group',
+      }
     }
 
     const phone = validateBridgeIdentityPhone(identity)
 
     if (!phone) {
-      return null
+      return {
+        status: 'unavailable',
+      }
     }
 
     return {
+      status: 'resolved',
       phone,
       source: 'Identidade ativa do WhatsApp',
     }
@@ -5089,7 +5089,21 @@
           lookupTitle,
         )
 
-      if (bridgeResult) {
+      if (bridgeResult.status === 'group') {
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
+        state = {
+          ...state,
+          autoLookupStatus: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      if (bridgeResult.status === 'resolved') {
         autoLookupAttemptedKeys.add(
           conversationKey,
         )
