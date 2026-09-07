@@ -480,3 +480,130 @@ test('W) bridge confirma grupo sem aria-label reconhecível e com JID individual
     'grupo confirmado pelo bridge nunca pode cair para o JID individual da sidebar',
   )
 })
+
+
+test('X) grupo confirmado pelo bridge permanece terminal após mutation que expõe telefone no header', async () => {
+  const { calls, window, document } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: 'Grupo Persistido Pelo Bridge',
+      sidebarDataId:
+        '120363077777777777@g.us',
+    }),
+  })
+
+  const requests = installFakeIdentityBridge(
+    window,
+    () => ({
+      chatId: '120363077777777777@g.us',
+      chatIdType: 'g.us',
+      phone: null,
+      phoneJid: null,
+      phoneServer: null,
+      isGroup: true,
+    }),
+  )
+
+  await waitFor(() => requests.length >= 1)
+  await sleep(300)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'grupo confirmado inicialmente não pode resolver lead',
+  )
+
+  // Simula uma mutation posterior do WhatsApp em que o detector visual
+  // continua sem aria-label reconhecível, mas aparece um texto/atributo
+  // com formato de telefone dentro do header. A conversa continua sendo
+  // a MESMA: o título primário permanece intacto.
+  const header = document.querySelector('#main header')
+  const participantPhone = document.createElement('span')
+  participantPhone.setAttribute(
+    'title',
+    '5511965432109',
+  )
+  participantPhone.textContent =
+    '5511965432109'
+  header.appendChild(participantPhone)
+
+  await sleep(1600)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'a classificação de grupo do bridge deve sobreviver às mutations da mesma conversa e bloquear getConversationPhone/resolveCurrentLead',
+  )
+})
+
+test('Y) trocar do grupo confirmado para uma nova conversa 1:1 descarta a classificação persistida', async () => {
+  const { calls, window, document } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: 'Grupo Antes Da Troca',
+      sidebarDataId:
+        '120363066666666666@g.us',
+    }),
+  })
+
+  const requests = installFakeIdentityBridge(
+    window,
+    () => {
+      const selectedDataId =
+        document
+          .querySelector(
+            '[aria-selected="true"]',
+          )
+          ?.getAttribute('data-id') ||
+        ''
+
+      if (
+        selectedDataId.includes(
+          '5511954321098@c.us',
+        )
+      ) {
+        return {
+          chatId: '5511954321098@c.us',
+          chatIdType: 'c.us',
+          phone: '5511954321098',
+          phoneJid:
+            '5511954321098@c.us',
+          phoneServer: 'c.us',
+          isGroup: false,
+        }
+      }
+
+      return {
+        chatId:
+          '120363066666666666@g.us',
+        chatIdType: 'g.us',
+        phone: null,
+        phoneJid: null,
+        phoneServer: null,
+        isGroup: true,
+      }
+    },
+  )
+
+  await waitFor(() => requests.length >= 1)
+  await sleep(300)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+  )
+
+  const app = document.getElementById('app')
+
+  app.innerHTML = buildAppInnerHtml({
+    headerTitle: 'Cliente Depois Do Grupo',
+    sidebarDataId: '5511954321098@c.us',
+  })
+
+  const resolved = await waitFor(
+    () => resolveLeadCalls(calls).at(-1),
+  )
+
+  assert.equal(
+    resolved.payload.phone,
+    '5511954321098',
+  )
+})

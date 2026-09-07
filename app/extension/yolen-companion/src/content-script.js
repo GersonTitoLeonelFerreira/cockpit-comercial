@@ -246,6 +246,41 @@
   let captureIngestionRetryAttempt = 0
 
   const autoLookupAttemptedKeys = new Set()
+
+  // Evidência forte do identity bridge para a conversa ATUAL.
+  // O título/header é informação de apresentação e pode mudar durante
+  // mutations da MESMA conversa. Por isso, quando disponível, a identidade
+  // estrutural da linha selecionada é a autoridade para manter ou descartar
+  // a classificação de grupo. conversationKey é apenas o fallback quando
+  // não existe uma identidade estrutural observável.
+  let bridgeConfirmedGroupContext = null
+
+  function isBridgeConfirmedGroupForConversation(
+    conversationKey,
+  ) {
+    if (!bridgeConfirmedGroupContext) {
+      return false
+    }
+
+    const currentStableIdentity =
+      getSelectedChatStableIdentity()
+
+    if (
+      bridgeConfirmedGroupContext.stableIdentity &&
+      currentStableIdentity
+    ) {
+      return (
+        bridgeConfirmedGroupContext.stableIdentity ===
+        currentStableIdentity
+      )
+    }
+
+    return (
+      bridgeConfirmedGroupContext.conversationKey ===
+      conversationKey
+    )
+  }
+
   const cachedPhonesByConversationKey = new Map()
   const cachedPhonesByLookupIdentity = new Map()
   const lastIngestedCaptureKeys = new Map()
@@ -5090,16 +5125,29 @@
         )
 
       if (bridgeResult.status === 'group') {
+        bridgeConfirmedGroupContext = {
+          conversationKey,
+          stableIdentity:
+            getSelectedChatStableIdentity() ||
+            null,
+        }
+
         autoLookupAttemptedKeys.add(
           conversationKey,
         )
 
         state = {
           ...state,
+          conversationPhone: null,
+          phoneSource: null,
           autoLookupStatus: null,
+          isGroupConversation: true,
         }
 
-        renderPanel()
+        // Uma classificação forte de grupo é também uma fronteira
+        // comercial: nenhum contexto seller-facing que tenha sido
+        // construído enquanto a conversa parecia 1:1 pode permanecer.
+        hardResetConversationWorkspace()
         return
       }
 
@@ -5442,6 +5490,9 @@
       )
 
     const isGroupConversation =
+      isBridgeConfirmedGroupForConversation(
+        conversationKey,
+      ) ||
       isGroupConversationHeader()
 
     const contactLookupIdentity =
@@ -5481,6 +5532,18 @@
 
       if (conversationChanged) {
         rememberCurrentPreResolutionCapture()
+
+        // A evidência de grupo vale apenas para a conversa em que o
+        // identity bridge a produziu. Uma troca real libera a conversa
+        // nova para sua própria classificação/resolução.
+        if (
+          bridgeConfirmedGroupContext &&
+          !isBridgeConfirmedGroupForConversation(
+            conversationKey,
+          )
+        ) {
+          bridgeConfirmedGroupContext = null
+        }
 
         lastResolvedConversationKey = null
 
