@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
+  CHROME_MIN_VERSION,
   ENVIRONMENTS,
   EXTENSION_ROOT,
   FIREFOX_STRICT_MIN_VERSION,
@@ -129,6 +130,10 @@ export function manifestHostsAndPermissionsMatch(actualManifest, expectedManifes
 export function firefoxGeckoSettingsValid(actualManifest, expectedStrictMinVersion) {
   const gecko = actualManifest?.browser_specific_settings?.gecko
   return typeof gecko?.id === 'string' && gecko.id.length > 0 && gecko?.strict_min_version === expectedStrictMinVersion
+}
+
+export function chromeMinimumVersionValid(actualManifest, expectedMinimumChromeVersion) {
+  return actualManifest?.minimum_chrome_version === expectedMinimumChromeVersion
 }
 
 export function manifestMatchesExpectedTransform(actualManifest, expectedManifest) {
@@ -375,6 +380,15 @@ function runChecksForTarget(targetName, environment, sourceManifest, globalAllow
           'Pacote Chrome não carrega configuração exclusiva do Firefox (browser_specific_settings)',
           manifest?.browser_specific_settings === undefined,
           { actual: manifest?.browser_specific_settings ?? null },
+        ),
+      )
+
+      checks.push(
+        check(
+          'chrome_minimum_version_valid',
+          `minimum_chrome_version definido (esperado ${CHROME_MIN_VERSION})`,
+          chromeMinimumVersionValid(manifest, CHROME_MIN_VERSION),
+          { actual: manifest?.minimum_chrome_version ?? null, expectedMinimumChromeVersion: CHROME_MIN_VERSION },
         ),
       )
     }

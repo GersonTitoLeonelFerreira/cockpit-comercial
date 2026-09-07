@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import {
+  CHROME_MIN_VERSION,
   EXTENSION_ROOT,
   FIREFOX_STRICT_MIN_VERSION,
   ICON_SIZES,
@@ -18,6 +19,7 @@ import {
 } from '../scripts/build-package.mjs'
 import { decodePng, resizePngSquare } from '../scripts/lib/png-resize.mjs'
 import {
+  chromeMinimumVersionValid,
   classifyReleaseCandidate,
   firefoxGeckoSettingsValid,
   manifestBackgroundMatches,
@@ -109,16 +111,90 @@ test('Chrome e Firefox PROD: icons declarados no manifest e os PNGs corresponden
 })
 
 // 7) Firefox possui strict_min_version -----------------------------------
-test('Firefox PROD: browser_specific_settings.gecko possui strict_min_version com justificativa técnica (MV3 estável)', () => {
+test('A) Firefox PROD: browser_specific_settings.gecko.strict_min_version === "128.0" (mínimo funcional real: content_scripts[].world === "MAIN")', () => {
   const prodManifest = toProductionManifest(sourceManifest, 'firefox')
 
-  assert.equal(prodManifest.browser_specific_settings.gecko.strict_min_version, FIREFOX_STRICT_MIN_VERSION)
+  assert.equal(FIREFOX_STRICT_MIN_VERSION, '128.0')
+  assert.equal(prodManifest.browser_specific_settings.gecko.strict_min_version, '128.0')
   assert.equal(typeof prodManifest.browser_specific_settings.gecko.id, 'string')
   assert.ok(firefoxGeckoSettingsValid(prodManifest, FIREFOX_STRICT_MIN_VERSION))
 
   // Chrome PROD não deve carregar nenhuma configuração exclusiva do Firefox.
   const chromeProdManifest = toProductionManifest(sourceManifest, 'chrome')
   assert.equal(chromeProdManifest.browser_specific_settings, undefined)
+})
+
+// B) Chrome possui minimum_chrome_version ----------------------------------
+test('B) Chrome PROD: minimum_chrome_version === "111" (mesmo motivo: content_scripts[].world === "MAIN")', () => {
+  const prodManifest = toProductionManifest(sourceManifest, 'chrome')
+
+  assert.equal(CHROME_MIN_VERSION, '111')
+  assert.equal(prodManifest.minimum_chrome_version, '111')
+  assert.ok(chromeMinimumVersionValid(prodManifest, CHROME_MIN_VERSION))
+})
+
+// C) DEV nunca ganha as chaves de versão mínima -----------------------------
+test('C) Chrome/Firefox DEV: não ganham minimum_chrome_version/strict_min_version (exclusivo dos pacotes prod, mesmo padrão de `icons`)', () => {
+  for (const targetName of Object.keys(TARGETS)) {
+    const devManifest = TARGETS[targetName].adaptManifest(sourceManifest)
+
+    assert.equal(devManifest.minimum_chrome_version, undefined)
+    assert.equal(devManifest.browser_specific_settings?.gecko?.strict_min_version, undefined)
+  }
+})
+
+// D) world: MAIN sobrevive à transformação DEV -> PROD nos dois navegadores -
+test('D) Chrome/Firefox PROD continuam com o bloco content_scripts world: "MAIN" só para o bridge de identidade', () => {
+  for (const targetName of Object.keys(TARGETS)) {
+    const prodManifest = toProductionManifest(sourceManifest, targetName)
+
+    const mainWorldBlock = prodManifest.content_scripts.find((block) => block.world === 'MAIN')
+
+    assert.ok(mainWorldBlock, `esperava um bloco content_scripts world: "MAIN" no pacote ${targetName} PROD`)
+    assert.deepEqual(mainWorldBlock.js, ['src/whatsapp-identity-bridge.js'])
+    assert.equal(mainWorldBlock.run_at, 'document_start')
+    assert.deepEqual(mainWorldBlock.matches, ['https://web.whatsapp.com/*'])
+  }
+})
+
+// E) Validador rejeita Firefox com strict_min_version abaixo de 128 --------
+test('E) release validator: firefoxGeckoSettingsValid falha se strict_min_version < 128.0 (ex.: regressão para 109.0)', () => {
+  const expected = toProductionManifest(sourceManifest, 'firefox')
+  const tampered = structuredClone(expected)
+  tampered.browser_specific_settings.gecko.strict_min_version = '109.0'
+
+  assert.equal(firefoxGeckoSettingsValid(tampered, FIREFOX_STRICT_MIN_VERSION), false)
+  assert.equal(manifestMatchesExpectedTransform(tampered, expected), false)
+
+  const technicalPass = [
+    firefoxGeckoSettingsValid(tampered, FIREFOX_STRICT_MIN_VERSION),
+    manifestMatchesExpectedTransform(tampered, expected),
+  ].every(Boolean)
+  const result = classifyReleaseCandidate({ technicalPass, localhostDetected: manifestHasDevHosts(tampered) })
+  assert.notEqual(result.classification, 'STORE_ELIGIBLE_CANDIDATE')
+  assert.equal(result.storeEligible, false)
+})
+
+// F) Validador rejeita Chrome com minimum_chrome_version abaixo de 111 -----
+test('F) release validator: chromeMinimumVersionValid falha se minimum_chrome_version < 111 (ex.: ausente ou desatualizado)', () => {
+  const expected = toProductionManifest(sourceManifest, 'chrome')
+  const tampered = structuredClone(expected)
+  tampered.minimum_chrome_version = '100'
+
+  assert.equal(chromeMinimumVersionValid(tampered, CHROME_MIN_VERSION), false)
+  assert.equal(manifestMatchesExpectedTransform(tampered, expected), false)
+
+  const technicalPass = [
+    chromeMinimumVersionValid(tampered, CHROME_MIN_VERSION),
+    manifestMatchesExpectedTransform(tampered, expected),
+  ].every(Boolean)
+  const result = classifyReleaseCandidate({ technicalPass, localhostDetected: manifestHasDevHosts(tampered) })
+  assert.notEqual(result.classification, 'STORE_ELIGIBLE_CANDIDATE')
+  assert.equal(result.storeEligible, false)
+
+  // Também cobre "ausente" (não só "desatualizado").
+  delete tampered.minimum_chrome_version
+  assert.equal(chromeMinimumVersionValid(tampered, CHROME_MIN_VERSION), false)
 })
 
 // 8) Reintroduzir localhost derruba store eligibility ---------------------

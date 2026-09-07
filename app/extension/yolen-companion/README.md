@@ -29,9 +29,10 @@ memória (`toProductionManifest()`, em `scripts/build-package.mjs`) que:
   (`host_permissions`, cada `content_scripts[].matches`, cada
   `web_accessible_resources[].matches`);
 - vincula `icons` aos PNGs já gerados a partir de `assets/yolen-mark.png`;
-- para Chrome: mantém só `background.service_worker` e remove
+- para Chrome: mantém só `background.service_worker`, remove
   `browser_specific_settings` (é específico de Gecko/Safari, não faz
-  sentido num pacote Chrome);
+  sentido num pacote Chrome) e adiciona `minimum_chrome_version` (ver
+  justificativa técnica abaixo);
 - para Firefox: mantém só `background.scripts` e adiciona
   `browser_specific_settings.gecko.strict_min_version` (ver justificativa
   técnica na seção "Ícones e ajustes específicos de navegador" abaixo).
@@ -109,14 +110,21 @@ mesma arte já aprovada. Os arquivos ficam em `assets/icons/` dentro de
 **todo** pacote (dev e prod), mas só o manifest **prod** os referencia via
 `icons`.
 
-**`strict_min_version` do Firefox (`109.0`)**: é a primeira versão do
-Firefox com suporte estável (fora de flag) a Manifest V3 —
-`content_scripts`, `host_permissions`, `web_accessible_resources` no
-formato de objeto (`resources` + `matches`) e `background.scripts` como
-event page não persistente, exatamente o que este manifest usa. Nenhuma
-API declarada aqui (a extensão só pede a permissão `storage`) exige uma
-versão mais nova. Essa chave só é adicionada aos pacotes **prod** do
-Firefox — o Firefox dev continua sem ela, como antes do D3.
+**`strict_min_version` do Firefox (`128.0`)**: Manifest V3 básico
+(`content_scripts`, `host_permissions`, `web_accessible_resources` no
+formato de objeto, `background.scripts` como event page não persistente)
+já era suportado, fora de flag, desde o Firefox 109. Mas o Companion
+depende funcionalmente de `content_scripts[].world === "MAIN"` — o
+active-chat identity bridge só consegue ler o React Fiber da própria
+página do WhatsApp Web rodando nesse world — e o Firefox só adicionou essa
+capacidade na versão 128, que passa a ser o mínimo real da extensão. Essa
+chave só é adicionada aos pacotes **prod** do Firefox — o Firefox dev
+continua sem ela, como antes do D3.
+
+**`minimum_chrome_version` do Chrome (`111`)**: pelo mesmo motivo —
+`content_scripts[].world === "MAIN"` tem suporte pleno no Chrome a partir
+da versão 111. Só o pacote **prod** do Chrome declara essa chave; o
+Chrome dev continua sem ela.
 
 ### Reprodutibilidade
 
