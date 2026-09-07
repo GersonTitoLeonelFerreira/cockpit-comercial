@@ -10550,6 +10550,9 @@
       getCaptureConversationKey()
 
     if (!cycleId || !conversationKey) {
+      window.YolenCompanionSellerMessageRuntime
+        ?.clear?.()
+
       state = {
         ...state,
         companionLeadSummary: {
@@ -11141,6 +11144,55 @@
     `
   }
 
+  // Elegibilidade "dura": esta conversa TEM, em tese, um contexto
+  // comercial (não é grupo/self, está conectada, e já existe um ciclo e
+  // uma conversationKey de captura resolvidos) — independente de o
+  // resumo já ter chegado ou não. Não confundir com isSellerMessageMountEligible():
+  // esta função sozinha não decide se o mount aparece, só se FAZ SENTIDO
+  // a conversa ter um composer seller em algum momento.
+  function hasSellerMessageCommercialContext() {
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    return Boolean(
+      state.connected &&
+      !state.isGroupConversation &&
+      !state.isSelfConversation &&
+      state.conversationKey &&
+      cycleId &&
+      conversationKey,
+    )
+  }
+
+  // Elegibilidade do MOUNT: além do contexto comercial existir, o resumo
+  // do lead precisa estar pronto E pertencer EXATAMENTE a este cycle e a
+  // esta conversationKey de captura — nunca a um cycle/conversationKey
+  // anterior ainda não invalidado. Não exige working_summary aqui: essa é
+  // uma decisão do próprio seller-message-runtime.js (via syncContext),
+  // não desta camada — esta é só isolamento/ownership de contexto, não
+  // regra de disponibilidade de conteúdo.
+  function isSellerMessageMountEligible() {
+    if (!hasSellerMessageCommercialContext()) {
+      return false
+    }
+
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    return Boolean(
+      state.companionLeadSummary?.status === 'ready' &&
+      state.companionLeadSummaryCycleId === cycleId &&
+      state.companionLeadSummaryConversationKey ===
+        conversationKey,
+    )
+  }
+
   // UX8 FASE C: superfície própria do composer seller-facing. Nesta fase
   // é só o mount estrutural — seller-message-runtime.js já procura o
   // mount do composer em qualquer lugar do documento (e não se importa
@@ -11149,7 +11201,39 @@
   // à imagem de referência (objetivo, presets, textarea, resultado) é
   // FASE D — aqui o composer real já aparece dentro deste mount assim
   // que o contexto da conversa atual for válido.
+  //
+  // Defesa em profundidade (P0 — stale seller message em contexto não
+  // elegível): o mount só existe no HTML quando isSellerMessageMountEligible()
+  // é verdadeiro. Isso é puramente de leitura de state — nenhum side
+  // effect aqui; a limpeza explícita do runtime continua acontecendo nos
+  // pontos reais de transição (clearLeadStateForNewConversation(), branch
+  // de grupo, e o branch sem cycle/conversationKey de
+  // loadCompanionLeadSummaryForCurrentCycle()). Isso garante que, mesmo
+  // que algum chamador futuro esqueça de limpar o runtime explicitamente,
+  // o mount simplesmente não existe no DOM para um contexto inelegível —
+  // não há superfície para um composer antigo reaparecer.
   function getSellerMessageAreaHtml() {
+    if (!isSellerMessageMountEligible()) {
+      return `
+        <div
+          class="yolen-seller-message-workspace"
+          data-yolen-seller-message-workspace
+        >
+          <div
+            class="yolen-card yolen-seller-area-card yolen-status-neutral"
+          >
+            <div class="yolen-section-label">
+              Mensagem
+            </div>
+
+            <div class="yolen-seller-empty-state">
+              A geração de mensagem fica disponível quando esta conversa possui um contexto comercial válido na Yolen.
+            </div>
+          </div>
+        </div>
+      `
+    }
+
     return `
       <div
         class="yolen-seller-message-workspace"

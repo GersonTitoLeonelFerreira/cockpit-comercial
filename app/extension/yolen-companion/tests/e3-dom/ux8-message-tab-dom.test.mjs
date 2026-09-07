@@ -172,6 +172,13 @@ test('existe exatamente um mount seller-facing no DOM real, e ele mora só na ab
   await waitFor(() => resolveLeadCalls(calls).length > 0)
   await waitFor(() => Boolean(document.querySelector('[data-yolen-seller-area="message"]')))
 
+  // P0 stale-seller-message: o mount só existe no DOM quando o contexto
+  // comercial é elegível E o resumo do lead já chegou (isSellerMessageMountEligible()
+  // em content-script.js) — antes disso, a aba MENSAGEM mostra o estado
+  // neutro "contexto comercial válido" em vez do mount.
+  await waitFor(() => leadSummaryCalls(calls).length > 0)
+  await waitFor(() => Boolean(document.querySelector('[data-yolen-seller-message-mount]')))
+
   const mounts = document.querySelectorAll('[data-yolen-seller-message-mount]')
   assert.equal(mounts.length, 1)
 
