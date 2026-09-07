@@ -1,8 +1,17 @@
 // P0 — Real WhatsApp Active Chat Identity: prova por texto-fonte de que o
-// bridge/injeção seguem exatamente o padrão já provado por
-// whatsapp-audio-bridge.js (page world, request/response por postMessage,
-// sem polling) e que nenhuma navegação sintética foi introduzida em
-// content-script.js pela integração.
+// bridge é carregado pelo mecanismo NATIVO do Manifest V3 (content_scripts
+// com "world": "MAIN", "run_at": "document_start") — não mais por injeção
+// manual de <script src> — e que o protocolo request/response por
+// postMessage (sem polling) e as regras de validação continuam intactos,
+// sem nenhuma navegação sintética introduzida em content-script.js.
+//
+// Correção de arquitetura: a injeção manual (document.createElement
+// ('script') + runtime.getURL + appendChild, o mesmo padrão de
+// whatsapp-audio-bridge.js) foi comprovada, por diagnóstico real no
+// Firefox, como insuficiente para este bridge — bridgeInstalled
+// permanecia false mesmo com o React Fiber e o mapeamento LID -> PN
+// comprovadamente acessíveis na página. Trocado pela declaração nativa
+// "world": "MAIN" do Manifest V3.
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -32,20 +41,41 @@ function blockBetween(source, startMarker, endMarker, fromIndex = 0) {
   return source.slice(start, end)
 }
 
-test('manifest: whatsapp-identity-bridge.js é web_accessible_resource só para web.whatsapp.com, e NÃO está em content_scripts', () => {
-  const whatsappResourceBlock = manifest.web_accessible_resources.find(
-    (block) => block.resources.includes('src/whatsapp-identity-bridge.js'),
+test('A/B/C) manifest: bloco dedicado com world MAIN, document_start, contendo só o bridge de identidade', () => {
+  const mainWorldBlock = manifest.content_scripts.find(
+    (block) => block.world === 'MAIN',
   )
 
-  assert.ok(whatsappResourceBlock, 'esperava src/whatsapp-identity-bridge.js em web_accessible_resources')
-  assert.deepEqual(whatsappResourceBlock.matches, ['https://web.whatsapp.com/*'])
+  assert.ok(mainWorldBlock, 'esperava um bloco content_scripts com "world": "MAIN"')
+  assert.deepEqual(mainWorldBlock.matches, ['https://web.whatsapp.com/*'])
+  assert.deepEqual(mainWorldBlock.js, ['src/whatsapp-identity-bridge.js'])
+  assert.equal(mainWorldBlock.run_at, 'document_start')
+})
 
-  for (const block of manifest.content_scripts) {
-    assert.ok(
-      !(block.js || []).includes('src/whatsapp-identity-bridge.js'),
-      'o bridge de identidade não pode ser carregado como content script isolado — só via <script src> no page world',
-    )
-  }
+test('D) whatsapp-identity-bridge.js não está em nenhum bloco ISOLATED (sem world, ou world diferente de MAIN)', () => {
+  const isolatedBlocksWithBridge = manifest.content_scripts.filter(
+    (block) =>
+      block.world !== 'MAIN' &&
+      (block.js || []).includes('src/whatsapp-identity-bridge.js'),
+  )
+
+  assert.deepEqual(isolatedBlocksWithBridge, [])
+})
+
+test('E) whatsapp-identity-bridge.js não é mais web_accessible_resource (não precisa mais — carregado nativamente via content_scripts)', () => {
+  const whatsappResourceBlock = manifest.web_accessible_resources.find(
+    (block) => (block.resources || []).includes('src/whatsapp-identity-bridge.js'),
+  )
+
+  assert.equal(whatsappResourceBlock, undefined)
+
+  // whatsapp-audio-bridge.js continua na arquitetura antiga — não faz
+  // parte desta correção e não pode ter sido removido por engano.
+  const audioResourceBlock = manifest.web_accessible_resources.find(
+    (block) => (block.resources || []).includes('src/whatsapp-audio-bridge.js'),
+  )
+
+  assert.ok(audioResourceBlock)
 })
 
 test('bridge: só responde a mensagens da própria janela, mesma origem, e da fonte esperada (mesmo padrão do audio bridge)', () => {
@@ -87,16 +117,48 @@ test('bridge: nunca clica, nunca navega, nunca dispara Escape — é leitura pur
   assert.doesNotMatch(bridgeSource, /dispatchEvent/)
 })
 
-test('content-script: injeta o bridge exatamente como o audio bridge (script real via runtime.getURL, page world)', () => {
-  const block = blockBetween(
+test('F/G) content-script não injeta mais o bridge manualmente — nem a função, nem <script>, nem runtime.getURL para ele', () => {
+  assert.doesNotMatch(contentScript, /function injectWhatsAppIdentityBridge/)
+  assert.doesNotMatch(contentScript, /injectWhatsAppIdentityBridge\(\)/)
+  assert.doesNotMatch(
     contentScript,
-    'function injectWhatsAppIdentityBridge()',
-    'function listenToWhatsAppIdentityBridge()',
+    /runtime\.getURL\('src\/whatsapp-identity-bridge\.js'\)/,
   )
 
-  assert.match(block, /runtime\.getURL\('src\/whatsapp-identity-bridge\.js'\)/)
-  assert.match(block, /document\.createElement\('script'\)/)
-  assert.match(block, /document\.documentElement\.appendChild\(script\)/)
+  // O bridge de áudio continua usando a arquitetura antiga — não pode ter
+  // sido removido por engano junto com a do bridge de identidade.
+  assert.match(contentScript, /function injectWhatsAppAudioBridge\(\)/)
+  assert.match(contentScript, /injectWhatsAppAudioBridge\(\)/)
+})
+
+test('H) listener, request e response continuam presentes e intactos após a correção de arquitetura', () => {
+  assert.match(contentScript, /function listenToWhatsAppIdentityBridge\(\)/)
+  assert.match(contentScript, /function requestActiveChatIdentity\(/)
+  assert.match(contentScript, /async function tryResolveViaIdentityBridge\(/)
+})
+
+test('BRIDGE_READY é só diagnóstico: requestActiveChatIdentity/tryResolveViaIdentityBridge nunca checam identityBridgeInstalled (o MAIN world pode carregar antes OU depois do listener isolado)', () => {
+  const requestBlock = blockBetween(
+    contentScript,
+    'function requestActiveChatIdentity(',
+    'function onlyDigits(',
+  )
+
+  assert.doesNotMatch(requestBlock, /identityBridgeInstalled/)
+
+  const tryResolveBlock = blockBetween(
+    contentScript,
+    'async function tryResolveViaIdentityBridge(',
+    'function getVisibleMessagesCount(',
+  )
+
+  assert.doesNotMatch(tryResolveBlock, /identityBridgeInstalled/)
+
+  // identityBridgeInstalled só é ESCRITO (ao receber BRIDGE_READY) — nunca
+  // lido/checado em lugar nenhum do arquivo, então não pode virar um
+  // requisito funcional nem um motivo para introduzir polling/retry.
+  const readSites = (contentScript.match(/identityBridgeInstalled/g) || []).length
+  assert.equal(readSites, 2, 'esperava só a declaração (let) e a atribuição em BRIDGE_READY — nenhuma leitura')
 })
 
 test('content-script: listener do bridge de identidade valida origem/fonte antes de processar', () => {
@@ -177,10 +239,10 @@ test('content-script: runAutomaticContactLookup consulta o bridge ANTES do fallb
   assert.ok(panelIndex > passiveIndex)
 })
 
-test('content-script: integração do bridge não introduz click/Escape/navegação/observer novo', () => {
+test('P) integração do bridge não introduz click/Escape/navegação/observer novo', () => {
   const block = blockBetween(
     contentScript,
-    'function injectWhatsAppIdentityBridge()',
+    'function listenToWhatsAppIdentityBridge()',
     'function onlyDigits(',
   )
 
@@ -191,7 +253,7 @@ test('content-script: integração do bridge não introduz click/Escape/navegaç
   assert.doesNotMatch(block, /aria-selected=["']true["']/)
 })
 
-test('start() injeta e escuta o bridge de identidade (mesmo padrão do bridge de áudio)', () => {
+test('start() só escuta o bridge de identidade — não injeta mais nada para ele (o MAIN world já carrega via manifest)', () => {
   const startBlock = blockBetween(
     contentScript,
     'async function start()',
@@ -201,12 +263,11 @@ test('start() injeta e escuta o bridge de identidade (mesmo padrão do bridge de
   const audioListenIndex = startBlock.indexOf('listenToWhatsAppAudioBridge()')
   const audioInjectIndex = startBlock.indexOf('injectWhatsAppAudioBridge()')
   const identityListenIndex = startBlock.indexOf('listenToWhatsAppIdentityBridge()')
-  const identityInjectIndex = startBlock.indexOf('injectWhatsAppIdentityBridge()')
 
   assert.ok(audioListenIndex >= 0)
   assert.ok(audioInjectIndex > audioListenIndex)
   assert.ok(identityListenIndex > audioInjectIndex)
-  assert.ok(identityInjectIndex > identityListenIndex)
+  assert.doesNotMatch(startBlock, /injectWhatsAppIdentityBridge/)
 })
 
 test('commits de fallback (b84d300/6c0b9cb) não foram removidos: resolvePassivePhoneForConversation e a allowlist de JID continuam presentes', () => {

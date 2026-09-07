@@ -50,12 +50,16 @@ test('B2 carrega o extrator antes do content script sem executar escrita', () =>
     ),
   )
 
+  // Desde a correção de arquitetura do identity bridge (P0 — Real WhatsApp
+  // Active Chat Identity), há dois blocos casando com web.whatsapp.com: o
+  // novo bloco MAIN world (só whatsapp-identity-bridge.js) e o bloco
+  // ISOLATED de sempre — este teste precisa do isolado.
   const whatsappScript =
     manifest.content_scripts.find(
       (entry) =>
         entry.matches?.includes(
           'https://web.whatsapp.com/*',
-        ),
+        ) && entry.world !== 'MAIN',
     )
 
   assert.ok(whatsappScript)

@@ -1044,33 +1044,15 @@
     })
   }
 
-  // Mesmo padrão arquitetural do whatsapp-audio-bridge.js: um <script src>
-  // real injetado no documento, executado pelo motor JS da PÁGINA (page
-  // world do WhatsApp Web), não pelo content script isolado — só assim é
-  // possível enxergar as props do React da própria aplicação do WhatsApp.
-  function injectWhatsAppIdentityBridge() {
-    const runtime = getExtensionRuntime()
-
-    if (!runtime?.getURL) {
-      return
-    }
-
-    if (document.getElementById('yolen-whatsapp-identity-bridge-script')) {
-      return
-    }
-
-    const script = document.createElement('script')
-    script.id = 'yolen-whatsapp-identity-bridge-script'
-    script.src = runtime.getURL('src/whatsapp-identity-bridge.js')
-    script.async = false
-
-    script.onload = () => {
-      script.remove()
-    }
-
-    document.documentElement.appendChild(script)
-  }
-
+  // src/whatsapp-identity-bridge.js roda no MAIN world por declaração
+  // nativa no manifest.json (content_scripts com "world": "MAIN",
+  // "run_at": "document_start") — não por injeção manual de <script src>.
+  // Isso é necessário porque um <script src> injetado via
+  // document.createElement (o padrão usado por whatsapp-audio-bridge.js)
+  // não conseguiu, na prática, executar a tempo/no contexto certo para
+  // enxergar as props do React da própria aplicação do WhatsApp
+  // (confirmado por diagnóstico real: bridgeInstalled permanecia false).
+  // O content script isolado só precisa escutar as respostas.
   function listenToWhatsAppIdentityBridge() {
     window.addEventListener('message', (event) => {
       if (event.source !== window) {
@@ -16285,7 +16267,6 @@
     listenToWhatsAppAudioBridge()
     injectWhatsAppAudioBridge()
     listenToWhatsAppIdentityBridge()
-    injectWhatsAppIdentityBridge()
     createPanel()
     renderPanel()
     await captureSessionFromHash()

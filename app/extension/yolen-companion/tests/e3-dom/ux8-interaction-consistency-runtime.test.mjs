@@ -53,11 +53,17 @@ test('manifest carrega o guard UX8 depois do seller-message e antes do content-s
   const manifest = JSON.parse(
     readFileSync(MANIFEST_PATH, 'utf8'),
   )
+  // Desde a correção de arquitetura do identity bridge (P0 — Real WhatsApp
+  // Active Chat Identity), existem DOIS blocos content_scripts que casam
+  // com web.whatsapp.com: o novo bloco MAIN world (só
+  // whatsapp-identity-bridge.js) e o bloco ISOLATED de sempre (todos os
+  // outros scripts, incluindo o guard UX8) — o teste precisa
+  // especificamente do isolado.
   const scripts =
     manifest.content_scripts.find((entry) =>
       entry.matches?.includes(
         'https://web.whatsapp.com/*',
-      ),
+      ) && entry.world !== 'MAIN',
     )?.js ?? []
 
   const sellerMessageIndex = scripts.indexOf(
