@@ -1822,3 +1822,149 @@ test('AG) resultado atrasado do painel de A não pode ser cacheado no epoch de B
     'resultado tardio do painel iniciado em A deve ser descartado depois que activeChatEpoch mudou para B',
   )
 })
+
+test('AH) painel aberto depois de A resolvido não pode ser adotado pelo epoch de B homônimo', async () => {
+  const TITLE = 'Mesmo Nome AH'
+  const PHONE_A = '5511912348001'
+  const MARKER_A = 'MARCADOR_LEAD_A_AH'
+
+  const { calls, window, document } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: TITLE,
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: defaultLeadResolution({
+        phone: PHONE_A,
+        lead: {
+          id: 'lead-a-ah',
+          name: MARKER_A,
+          phone: PHONE_A,
+          email: null,
+          cpf_cnpj: null,
+          deleted_at: null,
+        },
+      }),
+    },
+  })
+
+  // A resolve pelo bridge normalmente. B nunca recebe resposta do bridge
+  // (indisponível/inconclusivo) — undefined simula "bridge não responde",
+  // exatamente como o teste N).
+  let bridgeMode = 'A'
+
+  installFakeIdentityBridge(
+    window,
+    () => {
+      if (bridgeMode === 'A') {
+        return {
+          chatId: `${PHONE_A}@c.us`,
+          chatIdType: 'c.us',
+          phone: PHONE_A,
+          phoneJid: `${PHONE_A}@c.us`,
+          phoneServer: 'c.us',
+          isGroup: false,
+        }
+      }
+
+      return undefined
+    },
+  )
+
+  function panelText() {
+    return (
+      document
+        .getElementById('yolen-companion-panel')
+        ?.textContent || ''
+    )
+  }
+
+  const resolvedA = await waitFor(() =>
+    resolveLeadCalls(calls).at(-1),
+  )
+
+  assert.equal(
+    resolvedA.payload.phone,
+    PHONE_A,
+    'A precisa resolver normalmente pelo bridge antes de qualquer painel existir',
+  )
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    1,
+  )
+
+  await waitFor(() =>
+    panelText().includes(MARKER_A),
+  )
+
+  // SÓ DEPOIS de A já ter conversationPhone (resolvido acima) o vendedor
+  // abre manualmente o painel de contato de A. Como
+  // runAutomaticContactLookup() retorna cedo quando state.conversationPhone
+  // já existe, nenhum novo lookup de A jamais chama
+  // getContactInfoPanelForEpoch() para este painel — ele só pode ser
+  // registrado por observação estrutural (o MutationObserver já existente),
+  // nunca por um lookup de A que não vai acontecer.
+  const latePanel =
+    document.createElement('div')
+
+  latePanel.id = 'late-manual-contact-panel'
+
+  latePanel.innerHTML = `
+    <header><span>Dados do contato</span></header>
+    <div>
+      <span title="+55 11 91234-8001">+55 11 91234-8001</span>
+    </div>
+  `
+
+  document.body.appendChild(latePanel)
+
+  await sleep(700)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    1,
+    'o painel manual de A sozinho não pode gerar nova resolução',
+  )
+
+  // Troca estrutural real para um homônimo B: mesmo título visível,
+  // #main/header remontados (novo activeChatEpoch). O WhatsApp deixa o
+  // painel antigo de A montado no DOM (fora de #app, como no mundo real).
+  // B não tem JID passivo utilizável e o bridge nunca responde para B.
+  bridgeMode = 'B'
+
+  const app =
+    document.getElementById('app')
+
+  app.innerHTML = buildAppInnerHtml({
+    headerTitle: TITLE,
+  })
+
+  // Folga generosa: 600ms debounce + 300ms agendamento + 1200ms timeout do
+  // bridge para B + tempo de poll do painel — tudo isso sem que B tenha
+  // NENHUMA evidência própria de telefone.
+  await sleep(3200)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    1,
+    'B não pode resolver usando o telefone de A lido do painel antigo — o painel pertence ao epoch de A, não ao de B',
+  )
+
+  assert.ok(
+    !panelText().includes(MARKER_A),
+    'o lead de A não pode continuar visível no painel depois da troca estrutural para B',
+  )
+
+  assert.ok(
+    !panelText().includes(PHONE_A),
+    'o telefone de A (vazado do painel antigo) não pode aparecer para B',
+  )
+
+  assert.deepEqual(
+    resolveLeadCalls(calls).map(
+      (call) => call.payload.phone,
+    ),
+    [PHONE_A],
+    'nenhuma resolução adicional pode ter ocorrido usando o telefone de A',
+  )
+})

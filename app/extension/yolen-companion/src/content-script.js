@@ -1898,16 +1898,25 @@
 
   let contactInfoPanelStructuralContext = null
 
-  function getContactInfoPanelForEpoch(epoch) {
+  // Vincula o painel ao epoch em que ele foi OBSERVADO por esta função pela
+  // primeira vez — nunca ao epoch de quem primeiro precisou consultá-lo.
+  // Chamada tanto no callback bruto do MutationObserver (a cada mutation
+  // relevante, para capturar o momento real em que o painel aparece,
+  // mesmo quando nenhum lookup automático chega a rodar — ex.: conversa já
+  // com conversationPhone resolvido) quanto por getContactInfoPanelForEpoch
+  // (fallback síncrono para quando um lookup consulta o painel antes do
+  // observer ter tido a chance de rodar). Um painel que sobrevive a uma
+  // troca estrutural (mesmo nó DOM, WhatsApp não o desmontou) mantém o
+  // epoch em que apareceu; só um nó novo pode ser vinculado ao epoch atual.
+  function refreshContactInfoPanelStructuralContext(
+    epoch,
+  ) {
     const panel = findContactInfoPanel()
 
     if (!panel) {
       contactInfoPanelStructuralContext = null
 
-      return {
-        panel: null,
-        authorized: false,
-      }
+      return null
     }
 
     if (
@@ -1917,6 +1926,22 @@
       contactInfoPanelStructuralContext = {
         panel,
         epoch,
+      }
+    }
+
+    return panel
+  }
+
+  function getContactInfoPanelForEpoch(epoch) {
+    const panel =
+      refreshContactInfoPanelStructuralContext(
+        epoch,
+      )
+
+    if (!panel) {
+      return {
+        panel: null,
+        authorized: false,
       }
     }
 
@@ -17050,6 +17075,19 @@
       const previousActiveChatEpoch =
         activeChatEpoch
       refreshActiveChatEpoch()
+
+      // Também antes de QUALQUER gate: registra o painel de contato pelo
+      // epoch em que ele é observado aqui, não pelo epoch de quem primeiro
+      // precisar lê-lo. Uma conversa cujo telefone já foi resolvido nunca
+      // aciona runAutomaticContactLookup() -> getContactInfoPanelForEpoch()
+      // (guard de state.conversationPhone), então um painel aberto
+      // manualmente DEPOIS dessa resolução só seria "visto" pela primeira
+      // vez quando um homônimo seguinte fizer seu próprio lookup — e nesse
+      // momento o epoch já seria do homônimo, fazendo o painel antigo
+      // (ainda montado pelo WhatsApp) parecer pertencente à conversa nova.
+      refreshContactInfoPanelStructuralContext(
+        activeChatEpoch,
+      )
 
       if (
         activeChatEpoch !== previousActiveChatEpoch
