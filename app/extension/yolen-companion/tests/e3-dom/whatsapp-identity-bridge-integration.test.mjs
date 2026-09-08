@@ -827,3 +827,219 @@ test('AA) grupo ambíguo (sem data-id/avatar) fica fail-closed até o bridge rev
     'o contato 1:1 homônimo deve resolver normalmente assim que uma identidade estrutural realmente diferente aparece — o grupo antigo não pode grudar para sempre',
   )
 })
+
+// P1 (novo achado Codex, PR #271) — "Key bridge-resolved phones by the
+// bridge chat ID": bridgeResult.status === 'resolved' cacheava o telefone
+// só por conversationKey visual, descartando bridgeResult.chatId. Dois
+// contatos 1:1 homônimos sem data-id/avatar disponível produzem a MESMA
+// conversationKey — o telefone do primeiro vazava para o segundo assim
+// que o vendedor trocasse de conversa, porque cachedPhonesByConversationKey
+// nunca sabia que o chatId por trás da chave tinha mudado.
+// bridgeResolvedContactContext ancora o telefone cacheado ao chatId que o
+// bridge realmente provou; uma conversationKey coincidente só continua
+// autorizada enquanto o bridge não provar (via revalidação) que agora é
+// outro chat — e essa prova é o que gera a fronteira comercial real
+// (leadResolution/telefone anteriores somem), mesmo sem a conversationKey
+// textual mudar.
+test('AB) contato 1:1 resolvido pelo bridge não gruda em um homônimo diferente sob a MESMA conversationKey visual', async () => {
+  const HOMONYM_TITLE = 'Mesmo Nome AB'
+  const PHONE_A = '5511911111111'
+  const PHONE_B = '5511922222222'
+
+  const { calls, window, document } = loadContentScript({
+    initialHtml: buildPageHtml({ headerTitle: HOMONYM_TITLE }),
+  })
+
+  let bridgeMode = 'A'
+
+  const requests = installFakeIdentityBridge(
+    window,
+    () => {
+      if (bridgeMode === 'A') {
+        return {
+          chatId: `${PHONE_A}@c.us`,
+          chatIdType: 'c.us',
+          phone: PHONE_A,
+          phoneJid: `${PHONE_A}@c.us`,
+          phoneServer: 'c.us',
+          isGroup: false,
+        }
+      }
+
+      return {
+        chatId: `${PHONE_B}@c.us`,
+        chatIdType: 'c.us',
+        phone: PHONE_B,
+        phoneJid: `${PHONE_B}@c.us`,
+        phoneServer: 'c.us',
+        isGroup: false,
+      }
+    },
+  )
+
+  // A) contato 1:1 sem data-id/avatar disponível resolve normalmente pelo
+  // bridge.
+  const resolvedA = await waitFor(
+    () => resolveLeadCalls(calls).at(-1),
+  )
+
+  assert.equal(resolvedA.payload.phone, PHONE_A)
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    1,
+  )
+
+  const requestsAfterA = requests.length
+
+  // B) troca REAL para outro contato 1:1 com o MESMO título — o DOM
+  // continua sem data-id/avatar, então a conversationKey visual
+  // permanece IDÊNTICA à de A.
+  bridgeMode = 'B'
+
+  const app = document.getElementById('app')
+  app.innerHTML = buildAppInnerHtml({
+    headerTitle: HOMONYM_TITLE,
+  })
+
+  // Nenhuma mutation imediatamente após a troca pode reaplicar o telefone
+  // de A como uma nova resolução seria; o bridge ainda precisa ser
+  // consultado de novo.
+  await sleep(200)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    1,
+    'a troca para B não pode, sozinha, gerar uma segunda resolução com o telefone de A',
+  )
+
+  const resolvedB = await waitFor(() => {
+    const list = resolveLeadCalls(calls)
+    return list.length >= 2 && list.at(-1)
+  })
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    2,
+    'B deve resolver exatamente uma vez a mais — nenhuma reaplicação espúria do telefone de A',
+  )
+
+  assert.equal(
+    resolveLeadCalls(calls)[0].payload.phone,
+    PHONE_A,
+    'a primeira resolução continua sendo a de A',
+  )
+
+  assert.equal(
+    resolvedB.payload.phone,
+    PHONE_B,
+    'B só pode resolver com o próprio telefone — nunca com o de A, mesmo com a conversationKey visual igual',
+  )
+
+  assert.ok(
+    requests.length > requestsAfterA,
+    'o bridge precisa ter sido consultado de novo para B, mesmo com a conversationKey visual igual à de A (chatId é a autoridade, não o texto)',
+  )
+})
+
+// Seção 6 da missão (corrida): o pedido para a conversa exibida no load
+// ainda está em voo (atraso simulado, resposta FIXA — não lê o DOM ao
+// responder, simulando o pior caso de uma resposta que descreve a
+// conversa de ANTES da troca) quando o vendedor já troca para um homônimo
+// sob a MESMA conversationKey visual. tryResolveViaIdentityBridge() já
+// descarta uma resposta cuja conversationKey não bate mais com a atual
+// (ver teste L/M) — mas isso não protege o caso em que a própria
+// conversationKey COLIDE (mesmo título, nenhum data-id/avatar em nenhum
+// dos dois lados): nesse ponto cego, nem o texto nem o DOM têm qualquer
+// sinal para provar a troca no instante em que a resposta chega, e a
+// resposta contaminada pode ser aplicada uma vez — limitação inerente de
+// verificação só por DOM, não deste achado especificamente. O que esta
+// correção garante é a AUTOCORREÇÃO: assim que a próxima atividade real do
+// WhatsApp (uma mensagem nova, por exemplo — o caso comum, já que a
+// página nunca fica parada) dá ao bridge a chance de revalidar a
+// conversationKey coincidente, o chatId comprovado substitui a associação
+// contaminada e QUALQUER contexto comercial da resposta atrasada
+// desaparece — a conversa nunca fica permanentemente presa ao telefone
+// errado.
+test('race) resposta atrasada e contaminada durante a troca para um homônimo sob a MESMA conversationKey se autocorrige na atividade seguinte do WhatsApp', async () => {
+  const HOMONYM_TITLE = 'Mesmo Nome Corrida'
+  const STALE_PHONE = '5511900003333'
+  const PHONE_B = '5511900004444'
+
+  const { calls, window, document } = loadContentScript({
+    initialHtml: buildPageHtml({ headerTitle: HOMONYM_TITLE }),
+  })
+
+  let invocationCount = 0
+
+  installFakeIdentityBridge(
+    window,
+    () => {
+      invocationCount += 1
+
+      // A PRIMEIRA resposta é sempre a "contaminada" (dados de antes da
+      // troca), não importa quando ela realmente chega — modela o pior
+      // caso de um bridge que capturou a identidade no momento do envio,
+      // não do processamento. Qualquer chamada seguinte (a revalidação
+      // desta correção) já reflete a conversa realmente atual.
+      if (invocationCount === 1) {
+        return {
+          chatId: `${STALE_PHONE}@c.us`,
+          chatIdType: 'c.us',
+          phone: STALE_PHONE,
+          phoneJid: `${STALE_PHONE}@c.us`,
+          phoneServer: 'c.us',
+          isGroup: false,
+        }
+      }
+
+      return {
+        chatId: `${PHONE_B}@c.us`,
+        chatIdType: 'c.us',
+        phone: PHONE_B,
+        phoneJid: `${PHONE_B}@c.us`,
+        phoneServer: 'c.us',
+        isGroup: false,
+      }
+    },
+    { delayMs: 400 },
+  )
+
+  // O primeiro lookup (para a conversa carregada) ainda está em voo
+  // (atraso de 400ms) quando o vendedor já troca para um homônimo — mesmo
+  // título, mesma conversationKey visual (nenhum dos dois expõe
+  // data-id/avatar).
+  await sleep(150)
+
+  const app = document.getElementById('app')
+  app.innerHTML = buildAppInnerHtml({
+    headerTitle: HOMONYM_TITLE,
+  })
+
+  // A resposta contaminada chega (~400ms) e, sem nenhum sinal de DOM para
+  // provar a troca, pode aplicar o telefone errado uma vez — o ponto cego
+  // reconhecido acima.
+  await sleep(500)
+
+  // Atividade real do WhatsApp (uma mensagem chegando) dá ao bridge a
+  // chance de revalidar a conversationKey coincidente.
+  const conversationBody = document.getElementById(
+    'conversation-body',
+  )
+  const newMessage = document.createElement('div')
+  newMessage.textContent = 'mensagem nova depois da troca'
+  conversationBody.appendChild(newMessage)
+
+  // A conversa exibida agora precisa terminar resolvida com o PRÓPRIO
+  // telefone — a autocorreção via bridge vence a contaminação anterior.
+  const resolved = await waitFor(() => {
+    const list = resolveLeadCalls(calls)
+    const last = list.at(-1)
+    return last?.payload?.phone === PHONE_B && last
+  })
+
+  assert.equal(
+    resolved.payload.phone,
+    PHONE_B,
+    'a conversa atual precisa terminar resolvida com o próprio telefone, mesmo depois de uma resposta atrasada e contaminada ter chegado durante a troca',
+  )
+})

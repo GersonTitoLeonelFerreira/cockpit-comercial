@@ -255,27 +255,28 @@
   // não existe uma identidade estrutural observável.
   let bridgeConfirmedGroupContext = null
 
-  // Identidade a persistir para uma confirmação de grupo do bridge.
-  // NUNCA usa getSelectedChatStableIdentity() aqui — essa função cai para
-  // `title:<nome>` quando a linha selecionada não expõe data-id/avatar, e
-  // título não é identidade única (dois chats homônimos sem data-id/avatar
-  // no momento da leitura produziriam o mesmo valor). Prioridade: 1) o
-  // chatId retornado pelo próprio identity bridge (JID real do grupo, lido
-  // do Fiber — sempre presente quando o bridge confirma isGroup); 2) o
-  // data-id estrutural real da linha selecionada, só como defesa caso o
-  // bridge excepcionalmente não traga chatId. Sem nenhum dos dois, a
-  // confirmação fica sem stableIdentity e isBridgeConfirmedGroupForConversation
-  // cai para o fallback conservador por conversationKey.
+  // Identidade a persistir para uma confirmação de grupo OU de contato
+  // resolvido pelo bridge. NUNCA usa getSelectedChatStableIdentity() aqui —
+  // essa função cai para `title:<nome>` quando a linha selecionada não
+  // expõe data-id/avatar, e título não é identidade única (dois chats
+  // homônimos sem data-id/avatar no momento da leitura produziriam o mesmo
+  // valor). Prioridade: 1) o chatId retornado pelo próprio identity bridge
+  // (JID real do chat, lido do Fiber — sempre presente numa resposta do
+  // bridge, seja grupo ou contato resolvido); 2) o data-id estrutural real
+  // da linha selecionada, só como defesa caso o bridge excepcionalmente
+  // não traga chatId. Sem nenhum dos dois, a confirmação fica sem
+  // stableIdentity e as comparações caem para o fallback conservador por
+  // conversationKey.
   //
   // Usa o mesmo prefixo `data:` de getSelectedChatStableIdentity() para o
   // chatId do bridge: os dois representam o mesmo espaço de valores (o JID
-  // serializado do WhatsApp), e a linha selecionada do MESMO grupo
+  // serializado do WhatsApp), e a linha selecionada do MESMO chat
   // normalmente expõe esse JID como data-id assim que renderizada — sem
-  // essa unificação, a comparação em isBridgeConfirmedGroupForConversation
-  // veria `chat:<jid>` (persistido aqui) e `data:<jid>` (lido do DOM na
-  // mesma conversa) como identidades diferentes e derrubaria a
-  // classificação de grupo em qualquer mutation subsequente.
-  function getBridgeConfirmedGroupIdentity(bridgeChatId) {
+  // essa unificação, a comparação veria `chat:<jid>` (persistido aqui) e
+  // `data:<jid>` (lido do DOM na mesma conversa) como identidades
+  // diferentes e derrubaria a classificação em qualquer mutation
+  // subsequente.
+  function getBridgeStrongIdentity(bridgeChatId) {
     if (bridgeChatId) {
       return `data:${bridgeChatId}`
     }
@@ -329,6 +330,81 @@
   function isBridgeConfirmedGroupContextAmbiguous() {
     return Boolean(
       bridgeConfirmedGroupContext?.stableIdentity &&
+        !getSelectedChatStrongIdentity(),
+    )
+  }
+
+  // Identidade forte (chatId do bridge) do último contato 1:1 RESOLVIDO
+  // PELO BRIDGE, associada à conversationKey visual em que ele foi obtido.
+  // Existe porque cachedPhonesByConversationKey/conversationKey visual
+  // podem colidir entre dois contatos homônimos sem data-id/avatar
+  // disponível — "João" com chatId 5511111111111@c.us e outro "João" com
+  // chatId 5511222222222@c.us produzem a MESMA conversationKey. Sem isto,
+  // o telefone resolvido para o primeiro "João" seria reaplicado ao
+  // segundo só porque a chave visual é igual: vazamento de identidade
+  // entre clientes. bridgeResult.chatId é a autoridade; título/avatar
+  // nunca provam que dois contatos resolvidos pelo bridge são o mesmo.
+  let bridgeResolvedContactContext = null
+
+  // true quando o telefone bridge-resolved cacheado para conversationKey
+  // pode continuar sendo mostrado: nenhum contexto ainda (ou o contexto é
+  // de outra chave visual), identidade forte atual CONFIRMA a mesma
+  // conversa, ou identidade forte está ausente no DOM agora (mutation/
+  // virtualização temporária — não é prova de troca, ver comentário de
+  // isBridgeConfirmedGroupForConversation()). Só retorna false quando o
+  // DOM mostra uma identidade forte que CONTRADIZ a guardada — prova real
+  // de que a conversationKey visual colidiu com outro contato.
+  //
+  // A ambiguidade sozinha NÃO pode disparar reset a cada mutation (isso
+  // criava um loop resolve→reset→resolve para QUALQUER contato sem
+  // data-id/avatar persistente no DOM, o caso comum). Em vez disso,
+  // isBridgeResolvedContactContextAmbiguous() sinaliza a mesma ambiguidade
+  // para agendar uma revalidação única (debounce+cooldown) via
+  // scheduleBridgeIdentityRevalidation() — só uma resposta do bridge que
+  // prova um chatId diferente é que descarta esta associação (ver
+  // runBridgeIdentityRevalidation()).
+  function isBridgeResolvedContactAuthorizedForConversation(
+    conversationKey,
+  ) {
+    if (
+      !bridgeResolvedContactContext ||
+      bridgeResolvedContactContext.conversationKey !==
+        conversationKey
+    ) {
+      return true
+    }
+
+    if (!bridgeResolvedContactContext.stableIdentity) {
+      return true
+    }
+
+    const currentStrongIdentity =
+      getSelectedChatStrongIdentity()
+
+    if (!currentStrongIdentity) {
+      return true
+    }
+
+    return (
+      bridgeResolvedContactContext.stableIdentity ===
+      currentStrongIdentity
+    )
+  }
+
+  // true quando a evidência de contato resolvido persistida para esta
+  // conversationKey só continua valendo por fail-closed (identidade forte
+  // ausente no DOM agora), não porque foi reconfirmada. Sinal para
+  // agendar uma revalidação via identity bridge — sem ela, uma
+  // conversationKey coincidente (homônimo 1:1) ficaria com o telefone do
+  // contato anterior indefinidamente, sem nunca dar ao bridge a chance de
+  // provar que agora é outro chat.
+  function isBridgeResolvedContactContextAmbiguous(
+    conversationKey,
+  ) {
+    return Boolean(
+      bridgeResolvedContactContext?.stableIdentity &&
+        bridgeResolvedContactContext.conversationKey ===
+          conversationKey &&
         !getSelectedChatStrongIdentity(),
     )
   }
@@ -1945,7 +2021,18 @@
         conversationKey,
       )
 
-    if (cachedPhone) {
+    // A própria conversationKey visual também pode colidir (dois contatos
+    // 1:1 homônimos sem data-id/avatar disponível): um telefone cacheado
+    // aqui a partir de uma resolução do bridge só pode ser reutilizado
+    // enquanto a identidade forte (chatId) que o originou ainda é
+    // compatível com o que o DOM mostra agora — nunca por título/avatar
+    // coincidirem.
+    if (
+      cachedPhone &&
+      isBridgeResolvedContactAuthorizedForConversation(
+        conversationKey,
+      )
+    ) {
       return {
         phone: cachedPhone,
         source: 'Dados do contato automático',
@@ -2096,6 +2183,16 @@
     return {
       status: 'resolved',
       phone,
+      // chatId aqui é o JID real do contato (identity.chatId, lido do
+      // Fiber) — a única identidade estruturalmente única que este
+      // resultado pode oferecer. Dois contatos 1:1 homônimos sem
+      // data-id/avatar no momento da leitura produzem o mesmo
+      // conversationKey visual, mas nunca o mesmo chatId.
+      chatId:
+        typeof identity.chatId === 'string' &&
+        identity.chatId
+          ? identity.chatId
+          : null,
       source: 'Identidade ativa do WhatsApp',
     }
   }
@@ -5202,7 +5299,7 @@
         bridgeConfirmedGroupContext = {
           conversationKey,
           stableIdentity:
-            getBridgeConfirmedGroupIdentity(
+            getBridgeStrongIdentity(
               bridgeResult.chatId,
             ),
         }
@@ -5227,6 +5324,33 @@
       }
 
       if (bridgeResult.status === 'resolved') {
+        const resolvedIdentity =
+          getBridgeStrongIdentity(
+            bridgeResult.chatId,
+          )
+
+        // Revalidação de corrida: tryResolveViaIdentityBridge() já
+        // rejeita uma resposta cuja conversationKey não bate mais com a
+        // conversa atual, mas conversationKey pode COLIDIR entre dois
+        // contatos 1:1 homônimos (mesmo texto, chats diferentes) — nesse
+        // caso aquela checagem não percebe nada de errado. Se o DOM já
+        // mostra uma identidade forte AGORA e ela diverge do chatId desta
+        // resposta, a resposta descreve outro chat (provavelmente
+        // atrasada de antes da troca): descarta sem aplicar phone/cache/
+        // contexto nenhum, e sem marcar a chave como tentada — a conversa
+        // REALMENTE atual ainda merece sua própria tentativa.
+        const currentStrongIdentityNow =
+          getSelectedChatStrongIdentity()
+
+        if (
+          currentStrongIdentityNow &&
+          resolvedIdentity &&
+          currentStrongIdentityNow !==
+            resolvedIdentity
+        ) {
+          return
+        }
+
         autoLookupAttemptedKeys.add(
           conversationKey,
         )
@@ -5235,6 +5359,16 @@
           conversationKey,
           bridgeResult.phone,
         )
+
+        // Ancora o telefone à identidade forte que o bridge acabou de
+        // provar para ESTA conversationKey — sem isso, uma troca real
+        // para outro contato homônimo (mesma chave visual) reutilizaria
+        // este telefone só porque a chave bate (ver
+        // isBridgeResolvedContactAuthorizedForConversation()).
+        bridgeResolvedContactContext = {
+          conversationKey,
+          stableIdentity: resolvedIdentity,
+        }
 
         state = {
           ...state,
@@ -5552,44 +5686,50 @@
 
   // Revalidação via bridge para o caso ambíguo (identidade forte ausente
   // no DOM, mas ainda sem prova de troca real): dispara UM pedido ao
-  // identity bridge para decidir a favor de "ainda é o mesmo grupo" ou
-  // "não é mais" — nunca decide isso só pela ausência de data-id/avatar no
-  // DOM (ver isBridgeConfirmedGroupContextAmbiguous()). Debounce (300ms) +
-  // cooldown (1s) evitam storm de pedidos enquanto a conversa permanece
-  // ambígua através de várias mutations seguidas.
-  let bridgeGroupRevalidationPending = false
-  let lastBridgeGroupRevalidationAt = 0
-  const BRIDGE_GROUP_REVALIDATION_COOLDOWN_MS = 1000
+  // identity bridge para decidir a favor de "ainda é a mesma classificação
+  // guardada" ou "não é mais" — nunca decide isso só pela ausência de
+  // data-id/avatar no DOM (ver isBridgeConfirmedGroupContextAmbiguous() e
+  // isBridgeResolvedContactContextAmbiguous()). Atende os dois contextos
+  // guardados (grupo confirmado E contato resolvido) porque só existe UMA
+  // conversa visível por vez neste content script — nunca há ambiguidade
+  // de grupo e de contato para chaves diferentes disputando o mesmo
+  // pedido. Debounce (300ms) + cooldown (1s) evitam storm de pedidos
+  // enquanto a conversa permanece ambígua através de várias mutations
+  // seguidas.
+  let bridgeIdentityRevalidationPending = false
+  let lastBridgeIdentityRevalidationAt = 0
+  const BRIDGE_IDENTITY_REVALIDATION_COOLDOWN_MS = 1000
 
-  function scheduleBridgeGroupRevalidation(
+  function scheduleBridgeIdentityRevalidation(
     conversationKey,
     title,
   ) {
     if (
       !state.connected ||
       !conversationKey ||
-      bridgeGroupRevalidationPending ||
-      Date.now() - lastBridgeGroupRevalidationAt <
-        BRIDGE_GROUP_REVALIDATION_COOLDOWN_MS
+      bridgeIdentityRevalidationPending ||
+      Date.now() -
+        lastBridgeIdentityRevalidationAt <
+        BRIDGE_IDENTITY_REVALIDATION_COOLDOWN_MS
     ) {
       return
     }
 
-    bridgeGroupRevalidationPending = true
+    bridgeIdentityRevalidationPending = true
 
     window.setTimeout(() => {
-      void runBridgeGroupRevalidation(
+      void runBridgeIdentityRevalidation(
         conversationKey,
         title,
       )
     }, 300)
   }
 
-  async function runBridgeGroupRevalidation(
+  async function runBridgeIdentityRevalidation(
     conversationKey,
     title,
   ) {
-    lastBridgeGroupRevalidationAt = Date.now()
+    lastBridgeIdentityRevalidationAt = Date.now()
 
     try {
       const bridgeResult =
@@ -5608,6 +5748,17 @@
         return
       }
 
+      const previousContactContext =
+        bridgeResolvedContactContext?.conversationKey ===
+        conversationKey
+          ? bridgeResolvedContactContext
+          : null
+
+      const hadGroupContextForKey = Boolean(
+        bridgeConfirmedGroupContext?.conversationKey ===
+          conversationKey,
+      )
+
       if (bridgeResult.status === 'group') {
         // Reconfirmado — mesmo grupo (ou outro, mas ainda grupo): guarda o
         // chatId mais recente e mantém fail-closed até a próxima
@@ -5615,25 +5766,76 @@
         bridgeConfirmedGroupContext = {
           conversationKey,
           stableIdentity:
-            getBridgeConfirmedGroupIdentity(
+            getBridgeStrongIdentity(
               bridgeResult.chatId,
             ),
         }
+
+        // Havia um contato resolvido persistido para esta MESMA chave e o
+        // bridge acabou de provar que, na verdade, é um grupo — fronteira
+        // comercial real: nada do contato anterior pode sobreviver.
+        if (previousContactContext) {
+          bridgeResolvedContactContext = null
+          cachedPhonesByConversationKey.delete(
+            conversationKey,
+          )
+          lastResolvedConversationKey = null
+          autoLookupAttemptedKeys.delete(
+            conversationKey,
+          )
+          hardResetConversationWorkspace()
+          refreshConversationSnapshot()
+        }
+
         return
       }
 
       if (bridgeResult.status === 'resolved') {
-        // O bridge provou que a conversa ATUAL não é mais o grupo
-        // guardado — só agora a classificação pode ser descartada.
+        const resolvedIdentity =
+          getBridgeStrongIdentity(
+            bridgeResult.chatId,
+          )
+
+        // Só é uma fronteira REAL se havia uma classificação guardada
+        // para esta chave (grupo, ou contato com uma identidade forte
+        // DIFERENTE da agora provada) — uma simples reconfirmação (mesmo
+        // chatId de antes) não pode gerar reset nem nova chamada de
+        // resolveCurrentLead.
+        const isRealBoundary =
+          hadGroupContextForKey ||
+          (Boolean(
+            previousContactContext?.stableIdentity,
+          ) &&
+            Boolean(resolvedIdentity) &&
+            previousContactContext.stableIdentity !==
+              resolvedIdentity)
+
         cachedPhonesByConversationKey.set(
           conversationKey,
           bridgeResult.phone,
         )
 
+        // Âncora usada também em runAutomaticContactLookup(): sem isto,
+        // um homônimo 1:1 futuro sob a MESMA conversationKey reutilizaria
+        // este telefone só pela chave visual coincidir.
+        bridgeResolvedContactContext = {
+          conversationKey,
+          stableIdentity: resolvedIdentity,
+        }
+
         bridgeConfirmedGroupContext = null
         autoLookupAttemptedKeys.delete(
           conversationKey,
         )
+
+        if (isRealBoundary) {
+          // Nenhum dado comercial (leadResolution, resumo, etc.) do
+          // grupo/contato anterior sob esta chave pode sobreviver a uma
+          // fronteira provada pelo bridge — mesmo com a conversationKey
+          // textual inalterada.
+          lastResolvedConversationKey = null
+          hardResetConversationWorkspace()
+        }
 
         refreshConversationSnapshot()
       }
@@ -5641,7 +5843,7 @@
       // status 'unavailable': inconclusivo — permanece fail-closed; uma
       // mutation futura (depois do cooldown) tenta revalidar de novo.
     } finally {
-      bridgeGroupRevalidationPending = false
+      bridgeIdentityRevalidationPending = false
     }
   }
 
@@ -5677,12 +5879,20 @@
 
     // Ausência de identidade forte no DOM (data-id/avatar temporariamente
     // fora do ar) nunca prova troca de conversa — bridgeSaysGroup já fica
-    // fail-closed (true) nesse caso. Mas o fail-closed sozinho travaria uma
-    // conversationKey coincidente como grupo para sempre; só o bridge pode
-    // desambiguar, então agenda uma revalidação dele quando a única razão
-    // de ainda sermos "grupo" é a ambiguidade, não uma reconfirmação real.
-    if (isBridgeConfirmedGroupContextAmbiguous()) {
-      scheduleBridgeGroupRevalidation(
+    // fail-closed (true) nesse caso, e o mesmo vale para um telefone
+    // bridge-resolved já cacheado (ver isBridgeResolvedContactAuthorizedForConversation()).
+    // Mas o fail-closed sozinho travaria uma conversationKey coincidente
+    // (grupo OU homônimo 1:1) para sempre; só o bridge pode desambiguar,
+    // então agenda uma revalidação dele quando a única razão de ainda
+    // confiarmos na classificação/telefone guardado é a ambiguidade, não
+    // uma reconfirmação real.
+    if (
+      isBridgeConfirmedGroupContextAmbiguous() ||
+      isBridgeResolvedContactContextAmbiguous(
+        conversationKey,
+      )
+    ) {
+      scheduleBridgeIdentityRevalidation(
         conversationKey,
         conversationTitle,
       )
