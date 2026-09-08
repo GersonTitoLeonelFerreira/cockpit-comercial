@@ -1741,17 +1741,25 @@
   }
 
   function getSelectedChatDataId() {
-    const selectedElement = getSelectedChatElement()
+    // Usa a ROW ESTRUTURAL (mesma resolução de getSelectedChatStructuralRow():
+    // o próprio elemento marcado como selecionado, ou o ancestral mais
+    // próximo que combina com o seletor de row), não só esse elemento e
+    // seus descendentes. O WhatsApp pode marcar como selecionado um FILHO
+    // da row que carrega o data-id real (ex.: role=row + data-id na row,
+    // marcação de seleção num div interno dela); olhar só descendentes do
+    // elemento marcado nunca encontraria esse data-id na row ancestral.
+    const selectedChatRow =
+      getSelectedChatStructuralRow()
 
-    if (!selectedElement) {
+    if (!selectedChatRow) {
       return ''
     }
 
     const directDataId =
-      selectedElement.getAttribute?.('data-id') || ''
+      selectedChatRow.getAttribute?.('data-id') || ''
 
     const nestedDataId =
-      selectedElement
+      selectedChatRow
         .querySelector?.('[data-id]')
         ?.getAttribute?.('data-id') || ''
 

@@ -2071,3 +2071,48 @@ test('AK) linha selecionada com data-id @g.us é prova terminal de grupo — nã
     'um data-id @g.us na linha selecionada prova que é grupo — extractPhoneFromJid() rejeitar esse domínio não pode abrir caminho para aceitar o JID de um PARTICIPANTE lido em #main como se fosse o contato',
   )
 })
+
+test('AL) data-id @g.us na linha estrutural ANCESTRAL (aria-selected num filho) também é prova terminal de grupo', async () => {
+  const GROUP_TITLE = 'Grupo Suporte ES'
+  const GROUP_JID = '120363099998887771@g.us'
+  const PARTICIPANT_PHONE = '5511999995555'
+
+  // Forma de DOM real e suportada: data-id vive na ROW estrutural
+  // ([role="row"]), aria-selected="true" vive num FILHO dela — não
+  // co-localizados no mesmo elemento (diferente do que AK exercita).
+  // getSelectedChatDataId() precisa subir até a row ancestral (mesma
+  // lógica de getSelectedChatStructuralRow()), não só olhar o próprio
+  // elemento aria-selected e seus descendentes.
+  const initialHtml = `<!doctype html><html><body>
+    <div id="app">
+      <div id="pane-side">
+        <div role="row" data-id="${GROUP_JID}">
+          <div aria-selected="true">
+            <span title="${GROUP_TITLE}">${GROUP_TITLE}</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="main">
+        <header><span title="${GROUP_TITLE}">${GROUP_TITLE}</span></header>
+        <div id="conversation-body">
+          <div data-id="true_${PARTICIPANT_PHONE}@c.us_msg1"></div>
+        </div>
+      </div>
+    </div>
+  </body></html>`
+
+  const { calls, window } = loadContentScript({
+    initialHtml,
+  })
+
+  installFakeIdentityBridge(window, () => undefined)
+
+  await sleep(3000)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'data-id @g.us na row ancestral (aria-selected num filho) prova que é grupo tanto quanto quando co-localizados — getSelectedChatDataId() precisa subir até a row estrutural para enxergar isso',
+  )
+})
