@@ -247,6 +247,19 @@
 
   const autoLookupAttemptedKeys = new Set()
 
+  // conversationKey -> epoch em que o identity bridge teve sua chance
+  // completa de classificar a conversa e NÃO a confirmou como grupo
+  // (resolveu 1:1, ou ficou indisponível/inconclusivo). getConversationPhone()
+  // só pode aceitar o título/cabeçalho como telefone (fonte fraca — ver
+  // 'Cabeçalho da conversa'/'Contato selecionado') quando esta entrada
+  // existir E bater com o epoch ATUAL: sem isso, um grupo recém-aberto cujo
+  // título por coincidência parece telefone seria resolvido como lead antes
+  // de qualquer chance do bridge dizer que é grupo — e a checagem por epoch
+  // (não só por conversationKey) impede que essa autorização vaze para um
+  // homônimo B (grupo) só porque a MESMA chave textual já foi liberada para
+  // A (1:1) num epoch anterior.
+  const nonGroupClassifiedEpochByConversationKey = new Map()
+
   // Evidência forte do identity bridge para a conversa ATUAL.
   // O título/header é informação de apresentação e pode mudar durante
   // mutations da MESMA conversa. Por isso, quando disponível, a identidade
@@ -2158,13 +2171,28 @@
   }
 
   function getConversationPhone(title, conversationKey) {
-    const headerCandidates = getMainHeaderTextCandidates()
+    // Título/cabeçalho é a fonte MAIS FRACA de telefone (contato 1:1 não
+    // salvo — WhatsApp mostra o número cru como título) e só pode
+    // autorizar resolução depois que o identity bridge já teve sua chance
+    // completa de classificar ESTE epoch como não-grupo (ver
+    // runAutomaticContactLookup() -> nonGroupClassifiedEpochByConversationKey).
+    // Sem este gate, um grupo recém-aberto cujo título por coincidência
+    // parece telefone seria resolvido como lead antes de qualquer chance do
+    // bridge dizer que é grupo.
+    const weakTitlePhoneAuthorized =
+      nonGroupClassifiedEpochByConversationKey.get(
+        conversationKey,
+      ) === activeChatEpoch
 
-    for (const candidate of headerCandidates) {
-      if (isLikelyPhone(candidate)) {
-        return {
-          phone: onlyDigits(candidate),
-          source: 'Cabeçalho da conversa',
+    if (weakTitlePhoneAuthorized) {
+      const headerCandidates = getMainHeaderTextCandidates()
+
+      for (const candidate of headerCandidates) {
+        if (isLikelyPhone(candidate)) {
+          return {
+            phone: onlyDigits(candidate),
+            source: 'Cabeçalho da conversa',
+          }
         }
       }
     }
@@ -2176,12 +2204,14 @@
       }
     }
 
-    const selectedTitle = getSelectedChatTitle()
+    if (weakTitlePhoneAuthorized) {
+      const selectedTitle = getSelectedChatTitle()
 
-    if (selectedTitle && isLikelyPhone(selectedTitle)) {
-      return {
-        phone: onlyDigits(selectedTitle),
-        source: 'Contato selecionado',
+      if (selectedTitle && isLikelyPhone(selectedTitle)) {
+        return {
+          phone: onlyDigits(selectedTitle),
+          source: 'Contato selecionado',
+        }
       }
     }
 
@@ -5520,6 +5550,16 @@
         return
       }
 
+      // O bridge teve sua chance completa e NÃO confirmou grupo (resolveu
+      // 1:1, ou ficou indisponível/inconclusivo) — a partir de agora,
+      // getConversationPhone() pode aceitar o título desta conversa, NESTE
+      // epoch, como fonte fraca de telefone sem risco de autorizar um
+      // grupo como lead antes da classificação.
+      nonGroupClassifiedEpochByConversationKey.set(
+        conversationKey,
+        activeChatEpoch,
+      )
+
       if (bridgeResult.status === 'resolved') {
         const resolvedIdentity =
           getBridgeStrongIdentity(
@@ -5644,6 +5684,60 @@
           ...state,
           conversationPhone: passiveResult.phone,
           phoneSource: passiveResult.source,
+          autoLookupStatus: null,
+        }
+
+        renderPanel()
+
+        if (state.connected) {
+          lastResolvedConversationKey =
+            conversationKey
+          lastResolvedContactLookupIdentity =
+            lookupIdentity
+
+          resolveCurrentLead()
+        }
+
+        return
+      }
+
+      // Reconsulta getConversationPhone(): o bridge acabou de ter sua
+      // chance completa e não confirmou grupo (marcado acima em
+      // nonGroupClassifiedEpochByConversationKey), então a fonte mais
+      // fraca (título/cabeçalho parece telefone) agora está autorizada
+      // para ESTE epoch. Sem esta reconsulta explícita, marcar a
+      // autorização não teria efeito nenhum até um próximo refresh
+      // incidental do WhatsApp acontecer.
+      const titleResult =
+        getConversationPhone(
+          lookupTitle,
+          conversationKey,
+        )
+
+      if (titleResult.phone) {
+        const currentConversationKeyForTitle =
+          getConversationKey(
+            getMainHeaderPrimaryTitle() ||
+            state.conversationTitle,
+          )
+
+        if (
+          state.conversationKey !==
+            conversationKey ||
+          currentConversationKeyForTitle !==
+            conversationKey
+        ) {
+          return
+        }
+
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
+        state = {
+          ...state,
+          conversationPhone: titleResult.phone,
+          phoneSource: titleResult.source,
           autoLookupStatus: null,
         }
 
@@ -6030,6 +6124,17 @@
       }
 
       if (bridgeResult.status === 'resolved') {
+        // Revalidação acabou de provar que esta conversa NÃO é grupo —
+        // libera getConversationPhone() para aceitar o título como fonte
+        // fraca de telefone neste epoch (ver
+        // nonGroupClassifiedEpochByConversationKey em
+        // runAutomaticContactLookup()). 'unavailable' aqui NÃO libera:
+        // ambíguo durante uma revalidação continua fail-closed como grupo.
+        nonGroupClassifiedEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
+        )
+
         const resolvedIdentity =
           getBridgeStrongIdentity(
             bridgeResult.chatId,

@@ -92,9 +92,17 @@ test(
 
     assert.ok(reentryGuardIndex >= 0)
     assert.ok(reentryGuardEnd > reentryGuardIndex)
+
+    // Contrato atual (epoch-aware): reentrada não é mais decidida por
+    // "o painel existe no DOM agora" (!findContactInfoPanel()), e sim por
+    // "o painel pertence ao epoch da conversa atual"
+    // (!contactPanelAtLookupStart.authorized) — ver
+    // getContactInfoPanelForEpoch()/refreshContactInfoPanelStructuralContext().
+    // Um painel stale de uma conversa anterior (mesmo nó DOM, epoch
+    // diferente) não pode mais liberar reentrada só por existir.
     assert.match(
       reentryGuardBlock,
-      /!findContactInfoPanel\(\)/,
+      /!contactPanelAtLookupStart\.authorized/,
     )
   },
 )

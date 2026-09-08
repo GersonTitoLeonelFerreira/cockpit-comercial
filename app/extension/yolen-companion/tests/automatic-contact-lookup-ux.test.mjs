@@ -154,9 +154,13 @@ test('resolucao do lead usa identidade estavel da consulta e nao repete por muta
     refreshEnd,
   )
 
+  // Contrato atual: isGroupConversation também considera a classificação
+  // persistida do bridge (bridgeSaysGroup) além do header — ver
+  // "Persist bridge-confirmed group classification" — mas continua
+  // incluindo isGroupConversationHeader() como uma das fontes.
   assert.match(
     refreshBlock,
-    /const isGroupConversation =\s*isGroupConversationHeader\(\)/,
+    /const isGroupConversation =\s*bridgeSaysGroup \|\|\s*isGroupConversationHeader\(\)/,
   )
 
   // O gate de deduplicação usa conversationKey (identidade única por

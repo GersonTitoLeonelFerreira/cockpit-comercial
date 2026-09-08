@@ -83,8 +83,18 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
   const immediateClearIndex = observerBlock.indexOf(
     'YolenCompanionSellerMessageRuntime',
   )
+  // A checagem de "if (autoContactLookupInFlight) {" aparece DUAS vezes
+  // neste bloco: uma no callback bruto do MutationObserver (ACTIVE CHAT
+  // EPOCH — reagenda B quando A ainda está em voo durante uma troca
+  // estrutural, sem relação com o ciclo visual único testado aqui) e
+  // outra dentro do callback debounced, que é a suprimida por este
+  // invariante. Buscar a partir de immediateClearIndex pula a primeira
+  // (anterior a ela) e alcança a segunda, que é a única relevante para o
+  // "ciclo visual único" — nunca reagendar processObservedWhatsAppChange()
+  // enquanto o próprio lookup automático ainda está em voo.
   const suppressionIndex = observerBlock.indexOf(
     'if (autoContactLookupInFlight) {',
+    immediateClearIndex,
   )
   const queuedRefreshIndex = observerBlock.indexOf(
     'autoContactLookupConversationRefreshPending =',

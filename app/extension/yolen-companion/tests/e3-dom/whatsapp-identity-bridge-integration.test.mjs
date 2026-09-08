@@ -1968,3 +1968,40 @@ test('AH) painel aberto depois de A resolvido não pode ser adotado pelo epoch d
     'nenhuma resolução adicional pode ter ocorrido usando o telefone de A',
   )
 })
+
+test('AI) grupo com título em formato de telefone não resolve lead antes do bridge classificar', async () => {
+  const GROUP_TITLE = '5511999998888'
+
+  const { calls, window } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: GROUP_TITLE,
+    }),
+  })
+
+  installFakeIdentityBridge(window, () => ({
+    chatId: `${GROUP_TITLE}@g.us`,
+    chatIdType: 'g.us',
+    phone: GROUP_TITLE,
+    phoneJid: `${GROUP_TITLE}@g.us`,
+    phoneServer: 'g.us',
+    isGroup: true,
+  }))
+
+  // Na primeira montagem (refreshConversationSnapshot() síncrono em
+  // start(), antes de qualquer round-trip do bridge), isGroupConversation
+  // só é true se o bridge já tiver classificado o grupo ou se
+  // isGroupConversationHeader() detectar uma chamada em grupo ativa no
+  // header — nenhum dos dois é verdade aqui. getConversationPhone() não
+  // sabe que é um grupo e aceita o próprio título (formato de telefone)
+  // como se fosse o telefone do contato. loadYolenSession() com
+  // resolveLeadAfterLoad:true chama resolveCurrentLead() assim que
+  // GET_ME responde, sem esperar o bridge — se isso disparar
+  // RESOLVE_LEAD, um grupo vira lead.
+  await sleep(1600)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'um grupo cujo título parece telefone nunca pode ser resolvido como lead antes (ou depois) do bridge confirmar que é grupo',
+  )
+})
