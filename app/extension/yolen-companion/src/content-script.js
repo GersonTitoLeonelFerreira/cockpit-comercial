@@ -441,7 +441,11 @@
         previousSelectedChatRow,
       selectedChatStrongIdentity:
         selectedChatRow
-          ? selectedChatStrongIdentity
+          ? selectedChatStrongIdentity ||
+            (selectedChatRow ===
+            previousSelectedChatRow
+              ? previousSelectedChatStrongIdentity
+              : null)
           : previousSelectedChatStrongIdentity,
     }
 

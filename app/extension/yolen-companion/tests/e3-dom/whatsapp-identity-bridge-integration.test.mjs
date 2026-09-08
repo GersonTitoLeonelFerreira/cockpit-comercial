@@ -1446,3 +1446,194 @@ test('AD) linha selecionada separa homônimos com #main/header reutilizados, lim
     'a boundary deve produzir exatamente um retry para B, sem request storm',
   )
 })
+
+test('AE) mesma row preserva data-id forte através de gap temporário e separa A->B', async () => {
+  const TITLE = 'Mesmo Nome AE'
+  const PHONE_A = '5511900008891'
+  const PHONE_B = '5511900008892'
+  const MARKER_A = 'MARCADOR_LEAD_A_AE'
+  const MARKER_B = 'MARCADOR_LEAD_B_AE'
+
+  // O aria-selected fica num descendente. Assim:
+  // - getSelectedChatStructuralRow() usa o ancestral role=row e enxerga data-id forte;
+  // - getSelectedChatStableIdentity()/conversationKey ficam no mesmo title fraco.
+  // Isso isola exatamente o activeChatEpoch: mesma row DOM, mesma
+  // conversationKey, mesmo #main/header, strong ID A -> ausente -> B.
+  const initialHtml = `<!doctype html><html><body><div id="app">
+    <div id="pane-side">
+      <div id="row-shared" role="row" data-id="${PHONE_A}@c.us">
+        <div id="selected-shared" aria-selected="true">
+          <span title="${TITLE}">${TITLE}</span>
+        </div>
+      </div>
+    </div>
+    <div id="main">
+      <header><span title="${TITLE}">${TITLE}</span></header>
+      <div id="conversation-body"></div>
+    </div>
+  </div></body></html>`
+
+  const env = loadContentScript({
+    initialHtml,
+    resolutionsByPhone: {
+      [PHONE_A]: defaultLeadResolution({
+        phone: PHONE_A,
+        lead: {
+          id: 'ae-a',
+          name: MARKER_A,
+          phone: PHONE_A,
+        },
+      }),
+      [PHONE_B]: defaultLeadResolution({
+        phone: PHONE_B,
+        lead: {
+          id: 'ae-b',
+          name: MARKER_B,
+          phone: PHONE_B,
+        },
+      }),
+    },
+  })
+
+  let bridgeMode = 'A'
+  const requests = installFakeIdentityBridge(
+    env.window,
+    () => {
+      const phone =
+        bridgeMode === 'A'
+          ? PHONE_A
+          : PHONE_B
+
+      return {
+        chatId: `${phone}@c.us`,
+        chatIdType: 'c.us',
+        phone,
+        phoneJid: `${phone}@c.us`,
+        phoneServer: 'c.us',
+        isGroup: false,
+      }
+    },
+    { delayMs: 100 },
+  )
+
+  const panelText = () =>
+    env.document
+      .getElementById('yolen-companion-panel')
+      ?.textContent || ''
+
+  const resolvedA = await waitFor(() =>
+    resolveLeadCalls(env.calls).at(-1),
+  )
+  assert.equal(resolvedA.payload.phone, PHONE_A)
+  await waitFor(() =>
+    panelText().includes(MARKER_A),
+  )
+
+  const row =
+    env.document.getElementById('row-shared')
+  const selected =
+    env.document.getElementById('selected-shared')
+  const main =
+    env.document.getElementById('main')
+  const header =
+    main.querySelector('header')
+  const requestsAfterA = requests.length
+
+  // Fase gap: a mesma row perde temporariamente o strong data-id.
+  // A childList mutation força o observer real a reavaliar a assinatura.
+  // Isso NÃO é uma troca de conversa e não pode gerar reset/request storm.
+  row.removeAttribute('data-id')
+  const gapMutation =
+    env.document.createElement('span')
+  gapMutation.textContent = 'gap'
+  selected.appendChild(gapMutation)
+
+  await sleep(150)
+
+  assert.strictEqual(
+    env.document.getElementById('row-shared'),
+    row,
+  )
+  assert.strictEqual(
+    env.document.getElementById('main'),
+    main,
+  )
+  assert.strictEqual(
+    main.querySelector('header'),
+    header,
+  )
+  assert.ok(
+    panelText().includes(MARKER_A),
+    'o gap temporário do strong ID na mesma row não pode invalidar A',
+  )
+  assert.equal(
+    requests.length,
+    requestsAfterA,
+    'o gap temporário na mesma row não pode criar request storm',
+  )
+
+  // Agora a MESMA row recebe um strong ID diferente. Como o ID A foi
+  // preservado através do gap, B deve ser comparado contra A e formar
+  // boundary mesmo com conversationKey/#main/header inalterados.
+  bridgeMode = 'B'
+  row.setAttribute('data-id', `${PHONE_B}@c.us`)
+  const bMutation =
+    env.document.createElement('span')
+  bMutation.textContent = 'b'
+  selected.appendChild(bMutation)
+
+  await sleep(150)
+
+  assert.strictEqual(
+    env.document.getElementById('row-shared'),
+    row,
+  )
+  assert.strictEqual(
+    env.document.getElementById('main'),
+    main,
+  )
+  assert.strictEqual(
+    main.querySelector('header'),
+    header,
+  )
+  assert.ok(
+    !panelText().includes(MARKER_A),
+    'quando B aparece após o gap, o workspace stale de A deve sumir imediatamente',
+  )
+  assert.ok(
+    !panelText().includes(PHONE_A),
+    'o telefone stale de A não pode sobreviver à boundary A->gap->B',
+  )
+
+  const resolvedB = await waitFor(() => {
+    const calls = resolveLeadCalls(env.calls)
+    return calls.length === 2
+      ? calls.at(-1)
+      : null
+  })
+
+  assert.equal(resolvedB.payload.phone, PHONE_B)
+  assert.deepEqual(
+    resolveLeadCalls(env.calls).map(
+      (call) => call.payload.phone,
+    ),
+    [PHONE_A, PHONE_B],
+    'A->gap->B deve resolver B em ciclo próprio, sem reutilizar A',
+  )
+  await waitFor(() =>
+    panelText().includes(MARKER_B),
+  )
+
+  assert.equal(
+    requests.length,
+    requestsAfterA + 1,
+    'B deve receber exatamente uma consulta própria após a boundary',
+  )
+
+  await sleep(700)
+  assert.equal(
+    requests.length,
+    requestsAfterA + 1,
+    'A->gap->B não pode produzir request storm',
+  )
+})
