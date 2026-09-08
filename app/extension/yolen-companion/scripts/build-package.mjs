@@ -87,7 +87,9 @@ export const SHARED_RUNTIME_FILES = [
   'src/panel-stability-runtime.js',
   'src/seller-message-runtime.js',
   'src/styles.css',
+  'src/ux8-interaction-consistency-runtime.js',
   'src/whatsapp-audio-bridge.js',
+  'src/whatsapp-identity-bridge.js',
   'src/yolen-api.js',
   'src/yolen-bridge.js',
   'src/yolen-page-bridge.js',
@@ -191,13 +193,24 @@ function withProductionIcons(manifest) {
   return clone
 }
 
-// Primeira versão do Firefox com suporte estável (fora de flag) a
-// Manifest V3 — `content_scripts`, `host_permissions`,
-// `web_accessible_resources` no formato de objeto (resources + matches) e
-// `background.scripts` como event page não persistente. Nenhuma API usada
-// por este manifest (permissions: ["storage"], os campos acima) exige uma
-// versão mais nova do que essa. https://www.mozilla.org/en-US/firefox/109.0/releasenotes/
-export const FIREFOX_STRICT_MIN_VERSION = '109.0'
+// Manifest V3 básico (content_scripts, host_permissions,
+// web_accessible_resources no formato de objeto, background.scripts como
+// event page não persistente) já era suportado, fora de flag, desde o
+// Firefox 109. Mas o Companion agora DEPENDE funcionalmente de
+// content_scripts[].world === "MAIN" (o active-chat identity bridge só
+// consegue ler o React Fiber da própria página rodando nesse world) — o
+// Firefox só adicionou essa capacidade na versão 128. Por isso 128 passa
+// a ser o mínimo funcional real da extensão, não apenas o mínimo de
+// Manifest V3. https://www.mozilla.org/en-US/firefox/128.0/releasenotes/
+export const FIREFOX_STRICT_MIN_VERSION = '128.0'
+
+// content_scripts[].world === "MAIN" (usado pelo mesmo motivo acima) tem
+// suporte pleno no Chrome a partir da versão 111 — antes disso, scripts
+// declarados com "world": "MAIN" simplesmente não eram reconhecidos pelo
+// manifest. Só o pacote PROD declara isso (mesmo padrão de
+// FIREFOX_STRICT_MIN_VERSION/strict_min_version, que também só é aplicado
+// na transformação PROD).
+export const CHROME_MIN_VERSION = '111'
 
 // Transformação determinística DEV → PROD. `manifest.json` (a fonte de
 // desenvolvimento) nunca é editado — esta função sempre recebe o manifest
@@ -219,6 +232,7 @@ export function toProductionManifest(sourceManifest, targetName) {
     // browser_specific_settings é específico de Gecko/Safari — não faz
     // sentido carregar isso num pacote Chrome de produção.
     delete manifest.browser_specific_settings
+    manifest.minimum_chrome_version = CHROME_MIN_VERSION
   } else if (targetName === 'firefox') {
     manifest.browser_specific_settings = {
       ...manifest.browser_specific_settings,

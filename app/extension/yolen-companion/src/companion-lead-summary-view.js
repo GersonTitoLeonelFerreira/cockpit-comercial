@@ -354,7 +354,13 @@
       '<div data-yolen-method-guidance-slot>' +
       renderMethodGuidance(data.method_guidance) +
       '</div>' +
-      '<div data-yolen-seller-message-mount></div>' +
+      // UX8 FASE C: o mount do composer seller-facing saiu daqui — agora
+      // vive exclusivamente na aba MENSAGEM (content-script.js,
+      // getSellerMessageAreaHtml()). Este input hidden continua aqui de
+      // propósito: seller-message-runtime.js valida o working summary
+      // atual pelo valor dele antes de montar o composer
+      // (document.querySelector não se importa se o painel está
+      // hidden), e AGORA continua mostrando o "Resumo atual".
       '<input type="hidden" data-yolen-textarea="lead-summary" value="' +
       escapeHtml(workingSummary) +
       '">' +

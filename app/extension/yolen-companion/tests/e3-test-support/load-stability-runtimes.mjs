@@ -27,6 +27,18 @@ export const PANEL_ID = 'yolen-companion-panel'
 // dois runtimes de estabilidade reconhecem: o rótulo do lead (usado para
 // detectar mudança real de conversa), o textarea de intenção da mensagem, um
 // campo de formulário editável (Nome) e um botão de ação.
+//
+// UX8 (FASE B.1): espelha a estrutura real de content-script.js —
+// `.yolen-lead-name` (o "contato") é filho direto do painel, FORA do scroll;
+// só a região de conteúdo interativo (textarea/input/botão/filler) mora
+// dentro de `[data-yolen-workspace-body]`, o dono real do scroll seller-facing
+// (ver getWorkspaceScrollContainer() em content-script.js e nos dois
+// runtimes de estabilidade). Antes da UX8 o próprio painel era o elemento
+// rolável; um fixture sem esse wrapper nunca é encontrado por
+// getWorkspaceScrollContainer(), e captureScroll()/restore() ficam sempre
+// no-op (scrollTarget null) — os testes deste arquivo dependem desta forma
+// para exercitar o runtime de verdade, não apenas confirmar que nada tocou
+// num scrollTop que também nunca seria lido.
 export function buildPanelHtml({
   leadName = 'Cliente A',
   intentValue = '',
@@ -34,11 +46,22 @@ export function buildPanelHtml({
 } = {}) {
   return `
     <div class="yolen-lead-name">${leadName}</div>
-    <textarea data-yolen-seller-message-intent>${intentValue}</textarea>
-    <input data-yolen-field="name" value="${nameValue}" />
-    <button type="button" data-yolen-action="submit">Gerar mensagem</button>
-    <div class="yolen-filler" style="height:4000px"></div>
+    <div data-yolen-workspace-body>
+      <textarea data-yolen-seller-message-intent>${intentValue}</textarea>
+      <input data-yolen-field="name" value="${nameValue}" />
+      <button type="button" data-yolen-action="submit">Gerar mensagem</button>
+      <div class="yolen-filler" style="height:4000px"></div>
+    </div>
   `
+}
+
+// Único ponto de leitura do dono real do scroll seller-facing nos testes —
+// mesma resolução de getWorkspaceScrollContainer() em produção. NUNCA cachear
+// o retorno através de um `panel.innerHTML = ...`: cada rerender destrói o
+// node antigo e o runtime cria/reaproveita um novo; sempre consultar de novo
+// no ponto de uso.
+export function getWorkspaceBody(panel) {
+  return panel?.querySelector('[data-yolen-workspace-body]') || null
 }
 
 // `order` permite testar as duas ordens possíveis de patch (panel-stability

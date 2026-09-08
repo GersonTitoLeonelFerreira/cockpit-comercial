@@ -712,6 +712,20 @@ test(
       getSellerPanelText(document, 'client').includes('OBJECAO_PRECO_ALTO_DEMAIS'),
     )
 
+    // O card de relacionamento só carrega depois que a resolução do lead
+    // termina (encadeado após loadSavedAudioTranscriptionsForCurrentCycle(),
+    // que tem sua própria janela de espera por alvos de áudio visíveis) —
+    // um chain independente da inteligência comercial (objeção) verificada
+    // acima. Espera explicitamente o próprio erro aparecer em vez de
+    // assumir que já terminou só porque a objeção já apareceu.
+    await waitFor(
+      () =>
+        getSellerPanelText(document, 'client').includes(
+          'Falha simulada ao carregar relacionamento',
+        ),
+      { timeoutMs: 8000 },
+    )
+
     const clientText = getSellerPanelText(document, 'client')
     assert.match(
       clientText,

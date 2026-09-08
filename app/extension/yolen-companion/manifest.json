@@ -24,11 +24,22 @@
         "https://web.whatsapp.com/*"
       ],
       "js": [
+        "src/whatsapp-identity-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ],
+      "js": [
         "src/yolen-api.js",
         "src/lead-resolution-runtime-cache.js",
         "src/lead-summary-runtime-cache.js",
         "src/lead-method-guidance-runtime.js",
         "src/seller-message-runtime.js",
+        "src/ux8-interaction-consistency-runtime.js",
         "src/lead-summary-expand-state.js",
         "src/message-mutations.js",
         "src/conversation-registration-tools.js",

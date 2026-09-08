@@ -10,6 +10,11 @@
   const PANEL_COLLAPSED_STORAGE_KEY =
     'yolen_companion_panel_collapsed'
   const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 6000
+  // O bridge de identidade responde de forma essencialmente síncrona (lê
+  // um React Fiber já presente na página e responde no mesmo ciclo) — o
+  // timeout aqui só cobre o caso do bridge ainda não estar instalado ou a
+  // página não ter carregado o header ainda, nunca uma espera normal.
+  const IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS = 1200
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
   // Override só para teste: permite exercitar o debounce real da análise
   // automática (mesmo setTimeout, mesma lógica de reagendamento contra uma
@@ -133,6 +138,19 @@
   let panelCollapsed = false
   let activeSellerArea = 'now'
 
+  // UX8 FASE C: fonte canônica única das áreas seller-facing e sua ordem
+  // oficial (Agora, Mensagem, Análise, Cliente). setActiveSellerArea() e
+  // handleSellerAreaKeyboard() usavam cada um sua própria lista — se uma
+  // área nova fosse adicionada num lugar e esquecida no outro, a
+  // navegação por teclado e o valor aceito por setActiveSellerArea()
+  // divergiriam silenciosamente. Uma única lista, em ordem, evita isso.
+  const SELLER_AREAS = [
+    'now',
+    'message',
+    'analysis',
+    'client',
+  ]
+
   // Rendering por região: renderPanel() costumava fazer panel.innerHTML =
   // <painel inteiro> a cada mudança de estado (ver histórico em
   // renderPanelRegion() abaixo). panelRegionHtmlCache guarda o último HTML
@@ -143,6 +161,14 @@
   // vendedor está interagindo com aquela região especificamente.
   const panelRegionHtmlCache = new Map()
   const panelRegionPendingHtml = new Map()
+
+  // Fronteira de segurança de contexto (hardResetConversationWorkspace()):
+  // nenhum mecanismo de estabilidade visual (region-action-lock, foco em
+  // campo editável, HTML retido em panelRegionPendingHtml) pode impedir a
+  // troca de DOM quando a conversa mudou de verdade. Ligada só durante o
+  // único renderPanel() forçado disparado pela fronteira; qualquer outro
+  // render (mesma conversa) continua respeitando as proteções normais.
+  let forcingConversationBoundaryRender = false
 
   // Estado controlado dos accordions da Inteligência Comercial.
   // Não dependemos da ação nativa de <details> do navegador: quando o
@@ -220,9 +246,273 @@
   let captureIngestionRetryAttempt = 0
 
   const autoLookupAttemptedKeys = new Set()
+
+  // conversationKey -> epoch em que o identity bridge PROVOU
+  // afirmativamente (status 'resolved') que a conversa NÃO é grupo.
+  // getConversationPhone() só pode aceitar o título/cabeçalho como
+  // telefone (fonte fraca — ver 'Cabeçalho da conversa'/'Contato
+  // selecionado') quando esta entrada existir E bater com o epoch ATUAL:
+  // sem isso, um grupo recém-aberto cujo título por coincidência parece
+  // telefone seria resolvido como lead antes de qualquer chance do bridge
+  // dizer que é grupo — e a checagem por epoch (não só por conversationKey)
+  // impede que essa autorização vaze para um homônimo B (grupo) só porque
+  // a MESMA chave textual já foi liberada para A (1:1) num epoch anterior.
+  // NUNCA marcado em 'unavailable'/inconclusivo: um timeout do bridge não é
+  // prova de que a conversa não é grupo, só de que o bridge não respondeu a
+  // tempo — ver regressão AJ.
+  const nonGroupClassifiedEpochByConversationKey = new Map()
+
+  // Evidência forte do identity bridge para a conversa ATUAL.
+  // O título/header é informação de apresentação e pode mudar durante
+  // mutations da MESMA conversa. Por isso, quando disponível, a identidade
+  // estrutural da linha selecionada é a autoridade para manter ou descartar
+  // a classificação de grupo. conversationKey é apenas o fallback quando
+  // não existe uma identidade estrutural observável.
+  let bridgeConfirmedGroupContext = null
+
+  // Identidade a persistir para uma confirmação de grupo OU de contato
+  // resolvido pelo bridge. NUNCA usa getSelectedChatStableIdentity() aqui —
+  // essa função cai para `title:<nome>` quando a linha selecionada não
+  // expõe data-id/avatar, e título não é identidade única (dois chats
+  // homônimos sem data-id/avatar no momento da leitura produziriam o mesmo
+  // valor). Prioridade: 1) o chatId retornado pelo próprio identity bridge
+  // (JID real do chat, lido do Fiber — sempre presente numa resposta do
+  // bridge, seja grupo ou contato resolvido); 2) o data-id estrutural real
+  // da linha selecionada, só como defesa caso o bridge excepcionalmente
+  // não traga chatId. Sem nenhum dos dois, a confirmação fica sem
+  // stableIdentity e as comparações caem para o fallback conservador por
+  // conversationKey.
+  //
+  // Usa o mesmo prefixo `data:` de getSelectedChatStableIdentity() para o
+  // chatId do bridge: os dois representam o mesmo espaço de valores (o JID
+  // serializado do WhatsApp), e a linha selecionada do MESMO chat
+  // normalmente expõe esse JID como data-id assim que renderizada — sem
+  // essa unificação, a comparação veria `chat:<jid>` (persistido aqui) e
+  // `data:<jid>` (lido do DOM na mesma conversa) como identidades
+  // diferentes e derrubaria a classificação em qualquer mutation
+  // subsequente.
+  function getBridgeStrongIdentity(bridgeChatId) {
+    if (bridgeChatId) {
+      return `data:${bridgeChatId}`
+    }
+
+    return getSelectedChatStrongIdentity()
+  }
+
+  // Comparação por identidade FORTE apenas (chatId do bridge/data-id
+  // estrutural — nunca avatar/título, que getSelectedChatStableIdentity()
+  // aceitaria). Três resultados possíveis:
+  //   - stored e current fortes e IGUAIS      -> confirmado (true)
+  //   - stored e current fortes e DIFERENTES  -> prova real de troca (false)
+  //   - current ausente (DOM sem data-id agora, ex.: mutation/virtualização
+  //     temporária) -> AMBÍGUO: ausência de identidade forte não é prova de
+  //     troca, então fail-closed (true) — quem chama isto é responsável por
+  //     agendar uma revalidação via bridge para resolver a ambiguidade.
+  function isBridgeConfirmedGroupForConversation(
+    conversationKey,
+  ) {
+    if (!bridgeConfirmedGroupContext) {
+      return false
+    }
+
+    if (bridgeConfirmedGroupContext.stableIdentity) {
+      const currentStrongIdentity =
+        getSelectedChatStrongIdentity()
+
+      if (!currentStrongIdentity) {
+        return true
+      }
+
+      return (
+        bridgeConfirmedGroupContext.stableIdentity ===
+        currentStrongIdentity
+      )
+    }
+
+    return (
+      bridgeConfirmedGroupContext.conversationKey ===
+      conversationKey
+    )
+  }
+
+  // true quando a evidência de grupo persistida só continua valendo por
+  // fail-closed (identidade forte ausente no DOM agora), não porque foi
+  // reconfirmada. Sinal para agendar uma revalidação via identity bridge —
+  // sem ela, uma conversationKey coincidente (título homônimo) ficaria
+  // travada como grupo para sempre, e nenhum participante escapa pelo
+  // fallback de DOM enquanto isso (fail-closed continua bloqueando
+  // getConversationPhone/resolveCurrentLead até o bridge decidir).
+  function isBridgeConfirmedGroupContextAmbiguous() {
+    return Boolean(
+      bridgeConfirmedGroupContext?.stableIdentity &&
+        !getSelectedChatStrongIdentity(),
+    )
+  }
+
+  // Identidade forte (chatId do bridge) do último contato 1:1 RESOLVIDO
+  // PELO BRIDGE, associada à conversationKey visual em que ele foi obtido
+  // E ao "epoch" da instância estrutural da conversa naquele momento (ver
+  // ACTIVE CHAT EPOCH abaixo). Existe porque cachedPhonesByConversationKey/
+  // conversationKey visual podem colidir entre dois contatos homônimos sem
+  // data-id/avatar disponível — "João" com chatId 5511111111111@c.us e
+  // outro "João" com chatId 5511222222222@c.us produzem a MESMA
+  // conversationKey. Sem isto, o telefone resolvido para o primeiro "João"
+  // seria reaplicado ao segundo só porque a chave visual é igual:
+  // vazamento de identidade entre clientes. bridgeResult.chatId é a
+  // autoridade; título/avatar nunca provam que dois contatos resolvidos
+  // pelo bridge são o mesmo.
+  let bridgeResolvedContactContext = null
+
+  // ============================================================
+  // ACTIVE CHAT EPOCH
+  // ============================================================
+  // Contador monotônico de "instância estrutural" da conversa atual,
+  // independente de conversationKey/título/avatar (que podem colidir entre
+  // dois contatos homônimos). Incrementa quando o próprio nó do container
+  // da conversa (#main), do seu header ou da linha estrutural selecionada
+  // muda de referência — sem usar título/avatar como identidade. IDs fortes
+  // iguais preservam o epoch mesmo se React recriar a linha; IDs fortes
+  // diferentes (ou referências diferentes sem ID forte) provam a fronteira.
+  // distinto de uma mutation comum dentro da MESMA conversa (nova
+  // mensagem, header ganhando um span, data-id sumindo/voltando), que só
+  // adiciona/remove filhos sem substituir esses nós.
+  //
+  // Usado para duas coisas:
+  // 1) Qualquer bridgeResolvedContactContext/pedido ao bridge carrega o
+  //    epoch vigente no momento em que foi criado/enviado. Uma resposta
+  //    aplicada só quando o epoch da resposta bate com o epoch ATUAL —
+  //    isso descarta uma resposta atrasada que descreve a conversa
+  //    ANTERIOR mesmo quando a conversationKey textual colide com a nova
+  //    (o ponto cego que uma checagem só por conversationKey não cobre).
+  // 2) bridgeResolvedContactContext.epoch !== epoch atual já é, sozinho,
+  //    motivo para suspender o telefone/contexto cacheados (ver
+  //    refreshConversationSnapshot()) — nunca precisa esperar a
+  //    confirmação do bridge para deixar de mostrar o dado antigo.
+  //
+  // Chamado tanto direto no callback bruto do MutationObserver (antes de
+  // qualquer debounce/gate de "lookup em voo", para não perder uma troca
+  // estrutural que acontece enquanto um pedido anterior ainda está em voo)
+  // quanto no início de refreshConversationSnapshot() (garante o valor já
+  // estabelecido antes do primeiro lookup e mantém consistência).
+  let activeChatStructuralSignature = null
+  let activeChatEpoch = 0
+
+  function refreshActiveChatEpoch() {
+    const mainRoot = getMainConversationRoot()
+    const header = mainRoot
+      ? mainRoot.querySelector('header')
+      : null
+    const selectedChatRow =
+      getSelectedChatStructuralRow()
+    const selectedChatStrongIdentity =
+      getSelectedChatRowStrongIdentity(
+        selectedChatRow,
+      )
+
+    const previousSelectedChatRow =
+      activeChatStructuralSignature
+        ?.selectedChatRow || null
+    const previousSelectedChatStrongIdentity =
+      activeChatStructuralSignature
+        ?.selectedChatStrongIdentity || null
+
+    let selectedChatChanged = false
+
+    if (
+      selectedChatRow &&
+      previousSelectedChatRow
+    ) {
+      selectedChatChanged =
+        selectedChatStrongIdentity &&
+        previousSelectedChatStrongIdentity
+          ? selectedChatStrongIdentity !==
+            previousSelectedChatStrongIdentity
+          : selectedChatRow !==
+            previousSelectedChatRow
+    } else if (
+      selectedChatRow &&
+      activeChatStructuralSignature &&
+      !previousSelectedChatRow
+    ) {
+      selectedChatChanged = true
+    }
+
+    const changed =
+      !activeChatStructuralSignature ||
+      activeChatStructuralSignature.mainRoot !==
+        mainRoot ||
+      activeChatStructuralSignature.header !==
+        header ||
+      selectedChatChanged
+
+    activeChatStructuralSignature = {
+      mainRoot,
+      header,
+      // aria-selected pode desaparecer por alguns frames durante a
+      // reconciliação. Preserve a última linha nesse intervalo para
+      // não criar epoch/reset/request storm na mesma conversa.
+      selectedChatRow:
+        selectedChatRow ||
+        previousSelectedChatRow,
+      selectedChatStrongIdentity:
+        selectedChatRow
+          ? selectedChatStrongIdentity ||
+            (selectedChatRow ===
+            previousSelectedChatRow
+              ? previousSelectedChatStrongIdentity
+              : null)
+          : previousSelectedChatStrongIdentity,
+    }
+
+    if (changed) {
+      activeChatEpoch += 1
+    }
+
+    return activeChatEpoch
+  }
+
+  // true quando o telefone bridge-resolved cacheado para conversationKey
+  // pode continuar sendo mostrado: nenhum contexto ainda (ou o contexto é
+  // de outra chave visual), ou o contexto foi estabelecido na MESMA
+  // instância estrutural da conversa atual (epoch igual). NUNCA autoriza
+  // reuso só porque a identidade forte está ausente no DOM agora — essa
+  // ambiguidade era exatamente o que permitia o telefone de um contato
+  // vazar para outro homônimo antes desta correção. O epoch, não a
+  // presença/ausência de data-id/avatar, é quem decide "ainda é a mesma
+  // conversa": ausência de data-id sem nenhuma troca estrutural detectada
+  // continua autorizada (evita reset a cada mutation de uma conversa sem
+  // data-id persistente); qualquer troca estrutural detectada já suspende
+  // o reuso, mesmo sem nenhuma identidade forte disponível para provar
+  // quem é a conversa nova.
+  function isBridgeResolvedContactAuthorizedForConversation(
+    conversationKey,
+  ) {
+    if (
+      !bridgeResolvedContactContext ||
+      bridgeResolvedContactContext.conversationKey !==
+        conversationKey
+    ) {
+      return true
+    }
+
+    return (
+      bridgeResolvedContactContext.epoch ===
+      activeChatEpoch
+    )
+  }
+
   const cachedPhonesByConversationKey = new Map()
+  const cachedPhoneEpochByConversationKey = new Map()
   const cachedPhonesByLookupIdentity = new Map()
   const lastIngestedCaptureKeys = new Map()
+
+  // Identity bridge (page world): protocolo request/response por
+  // requestId, sem polling. Só um pedido pode estar em voo por vez porque
+  // só é disparado de dentro de runAutomaticContactLookup, que já é
+  // single-flight (autoContactLookupInFlight).
+  let identityBridgeInstalled = false
+  let identityRequestSequence = 0
+  const identityBridgeResponseWaiters = new Map()
 
   const confirmedCaptureVersionsByConversation =
     new Map()
@@ -357,6 +647,12 @@
     const panel = document.createElement('aside')
     panel.id = PANEL_ID
     panel.className = ROOT_CLASS
+    // Shell estrutural UX8 (workspace fixo: header/contato/abas/rodapé
+    // fora do scroll, corpo único rolável). O conteúdo interno das abas
+    // ainda é o UX7 (data-yolen-ux-build="UX7" em getSellerInformationArchitectureHtml)
+    // até a migração das FASES C/D — as duas convivem por camada, não por
+    // sobreposição de CSS.
+    panel.setAttribute('data-yolen-ux-build', 'UX8')
 
     document.body.appendChild(panel)
 
@@ -465,6 +761,57 @@
     )
   }
 
+  // UX8 (shell estável): único ponto de scroll seller-facing. Header,
+  // contato, barra de abas, pre-send-assessment e rodapé continuam
+  // filhos diretos do painel (flex: 0 0 auto, fora do scroll — ver
+  // styles.css). Somente a região 'seller-information-architecture'
+  // (o conteúdo das abas Agora/Análise/Cliente) mora dentro dele.
+  //
+  // getWorkspaceScrollContainer() é o helper canônico para achar o dono
+  // real do scroll seller-facing (FASE B.1). Antes da UX8,
+  // #yolen-companion-panel era, ele mesmo, o elemento rolável; agora quem
+  // rola é .yolen-workspace-body. Nunca ler/escrever
+  // panel.scrollTop/scrollHeight/clientHeight operacionalmente — sempre
+  // passar por aqui. Devolve null (nunca lança, nunca inventa scroll no
+  // painel) quando o workspace-body ainda não existe — modo colapsado, ou
+  // um instante antes do primeiro render expandido — e quem chama trata
+  // isso como fail-safe.
+  function getWorkspaceScrollContainer(
+    panel,
+  ) {
+    return (
+      panel?.querySelector(
+        '[data-yolen-workspace-body]',
+      ) || null
+    )
+  }
+
+  function getWorkspaceBodyContainer(
+    panel,
+  ) {
+    let container =
+      getWorkspaceScrollContainer(panel)
+
+    if (!container) {
+      container =
+        document.createElement('div')
+      container.className =
+        'yolen-workspace-body'
+      container.setAttribute(
+        'data-yolen-workspace-body',
+        'true',
+      )
+      panel.appendChild(container)
+    }
+
+    return container
+  }
+
+  const WORKSPACE_BODY_REGION_KEYS =
+    new Set([
+      'seller-information-architecture',
+    ])
+
   function getPanelRegionContainer(
     panel,
     regionKey,
@@ -482,7 +829,17 @@
         'data-yolen-region',
         regionKey,
       )
-      panel.appendChild(container)
+
+      const regionParent =
+        WORKSPACE_BODY_REGION_KEYS.has(
+          regionKey,
+        )
+          ? getWorkspaceBodyContainer(
+              panel,
+            )
+          : panel
+
+      regionParent.appendChild(container)
     }
 
     return container
@@ -549,6 +906,7 @@
     }
 
     if (
+      !forcingConversationBoundaryRender &&
       isRegionInteractionActive(
         container,
       )
@@ -609,6 +967,24 @@
     }
 
     wirePanelInteractions(panel)
+  }
+
+  // Libera qualquer lock de ação de região preso — usado tanto no
+  // fallback de pointerup/pointercancel/dragstart (a interação normal
+  // nunca deveria deixar um lock órfão, mas se o click esperado não
+  // chegar a disparar, o lock ficaria preso para sempre) quanto na troca
+  // real de conversa (hardResetConversationWorkspace()): nenhum lock
+  // visual pode sobreviver a uma invalidação de contexto e continuar
+  // impedindo renderPanelRegion() de substituir o HTML da conversa nova.
+  function clearPanelRegionActionLocks() {
+    document
+      .querySelectorAll(
+        '[data-yolen-region-action-lock="true"]',
+      )
+      .forEach((region) => {
+        delete region.dataset
+          .yolenRegionActionLock
+      })
   }
 
   // Trava mínima contra o botão "desclicar" — a versão por região do
@@ -736,20 +1112,49 @@
     document.addEventListener(
       eventName,
       () => {
-        document
-          .querySelectorAll(
-            '[data-yolen-region-action-lock="true"]',
-          )
-          .forEach((region) => {
-            delete region.dataset
-              .yolenRegionActionLock
-          })
-
+        clearPanelRegionActionLocks()
         flushPendingPanelRegions()
       },
       true,
     )
   }
+
+  // Fallback de liberação: o fluxo normal trava no pointerdown e libera
+  // no click da MESMA região (acima). Mas nem todo pointerdown é seguido
+  // de um click nessa região — o ponteiro pode soltar fora do elemento,
+  // ou a própria região pode ser substituída/desaparecer entre o
+  // pointerdown e o click esperado. Sem este fallback, o lock ficaria
+  // preso para sempre, e renderPanelRegion() nunca mais substituiria o
+  // HTML dessa região (o bug real de smoke: seller-information-architecture
+  // travada com conteúdo de uma conversa antiga).
+  //
+  // Agendado com setTimeout(..., 0) — nunca liberado sincronamente aqui —
+  // para rodar DEPOIS do click normal da mesma sequência de gesto
+  // (pointerdown -> pointerup -> click, nessa ordem, na mesma task; o
+  // release do click acima roda em microtask/setTimeout(0) já agendados
+  // antes deste). Se o click já liberou o lock, esta varredura não
+  // encontra nada e não faz nada; só age quando o click esperado nunca
+  // chega.
+  document.addEventListener(
+    'pointerup',
+    () => {
+      window.setTimeout(() => {
+        const hadLockedRegion = Boolean(
+          document.querySelector(
+            '[data-yolen-region-action-lock="true"]',
+          ),
+        )
+
+        if (!hadLockedRegion) {
+          return
+        }
+
+        clearPanelRegionActionLocks()
+        flushPendingPanelRegions()
+      }, 0)
+    },
+    true,
+  )
 
   document.addEventListener(
     'focusout',
@@ -951,6 +1356,99 @@
     })
   }
 
+  // src/whatsapp-identity-bridge.js roda no MAIN world por declaração
+  // nativa no manifest.json (content_scripts com "world": "MAIN",
+  // "run_at": "document_start") — não por injeção manual de <script src>.
+  // Isso é necessário porque um <script src> injetado via
+  // document.createElement (o padrão usado por whatsapp-audio-bridge.js)
+  // não conseguiu, na prática, executar a tempo/no contexto certo para
+  // enxergar as props do React da própria aplicação do WhatsApp
+  // (confirmado por diagnóstico real: bridgeInstalled permanecia false).
+  // O content script isolado só precisa escutar as respostas.
+  function listenToWhatsAppIdentityBridge() {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) {
+        return
+      }
+
+      if (event.origin !== window.location.origin) {
+        return
+      }
+
+      if (
+        event.data?.source !==
+        'YOLEN_COMPANION_WHATSAPP_IDENTITY_BRIDGE'
+      ) {
+        return
+      }
+
+      if (event.data?.action === 'BRIDGE_READY') {
+        identityBridgeInstalled = true
+        return
+      }
+
+      if (event.data?.action !== 'ACTIVE_CHAT_IDENTITY') {
+        return
+      }
+
+      const requestId = event.data?.requestId
+
+      if (typeof requestId !== 'string') {
+        return
+      }
+
+      const waiter =
+        identityBridgeResponseWaiters.get(requestId)
+
+      // Sem waiter conhecido: resposta de um requestId que já expirou (ou
+      // nunca foi nosso) — descarta silenciosamente, nunca aplica.
+      if (!waiter) {
+        return
+      }
+
+      waiter(event.data.identity || null)
+    })
+  }
+
+  // Dispara UM pedido (nunca polling) e devolve uma promise que resolve
+  // com a identidade recebida, ou null se o bridge não responder dentro
+  // do timeout (bridge ausente/ainda não instalado — o chamador cai no
+  // fallback existente sem quebrar).
+  function requestActiveChatIdentity(timeoutMs) {
+    const requestId = `yolen-identity-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    identityRequestSequence += 1
+    const sequence = identityRequestSequence
+
+    return new Promise((resolve) => {
+      let settled = false
+
+      const finish = (identity) => {
+        if (settled) {
+          return
+        }
+
+        settled = true
+        identityBridgeResponseWaiters.delete(requestId)
+        resolve(identity)
+      }
+
+      identityBridgeResponseWaiters.set(requestId, finish)
+
+      window.setTimeout(() => finish(null), timeoutMs)
+
+      window.postMessage(
+        {
+          source: 'YOLEN_COMPANION_CONTENT_SCRIPT',
+          action: 'GET_ACTIVE_CHAT_IDENTITY',
+          requestId,
+          sequence,
+        },
+        window.location.origin,
+      )
+    })
+  }
+
   function onlyDigits(value) {
     return String(value || '').replace(/\D/g, '')
   }
@@ -980,6 +1478,79 @@
     }
 
     return null
+  }
+
+  // JIDs do WhatsApp Web codificam identidades bem diferentes no mesmo
+  // formato "<id>@<domínio>": só "@c.us" e "@s.whatsapp.net" são o número
+  // de telefone real de uma pessoa. "@g.us" é grupo, "@lid" é um
+  // identificador opaco de privacidade (NÃO é o telefone) e
+  // "@broadcast"/"@newsletter" não são conversas individuais — por isso a
+  // allowlist explícita em vez de só validar o formato dos dígitos.
+  const PHONE_JID_DOMAINS = new Set(['c.us', 's.whatsapp.net'])
+
+  function extractPhoneFromJid(rawValue) {
+    const match = String(rawValue || '').match(/(\d{8,15})@([a-z0-9.]+)/i)
+
+    if (!match) {
+      return null
+    }
+
+    const [, digits, domain] = match
+
+    if (!PHONE_JID_DOMAINS.has(domain.toLowerCase())) {
+      return null
+    }
+
+    return isLikelyPhone(digits) ? onlyDigits(digits) : null
+  }
+
+  // Diferente de extractPhoneFromJid() rejeitar "@g.us" (não é telefone):
+  // esta função existe para o CHAMADOR distinguir "não é telefone porque
+  // não reconheço o formato" de "não é telefone porque É um grupo" — a
+  // segunda é prova estrutural definitiva de grupo, nunca motivo para
+  // continuar procurando telefone em outro lugar (ver
+  // resolvePassivePhoneForConversation()).
+  function isGroupJid(rawValue) {
+    return /@g\.us/i.test(
+      String(rawValue || ''),
+    )
+  }
+
+  // Valida a identidade recebida do whatsapp-identity-bridge (page world).
+  // Mesma allowlist de PHONE_JID_DOMAINS: LID nunca vira telefone, grupo
+  // nunca resolve, e qualquer inconsistência entre phoneJid e
+  // user@server é motivo de falha fechada — a evidência não é confiável.
+  function validateBridgeIdentityPhone(identity) {
+    if (!identity || typeof identity !== 'object' || identity.isGroup) {
+      return null
+    }
+
+    const phoneServer = String(identity.phoneServer || '').toLowerCase()
+
+    if (!PHONE_JID_DOMAINS.has(phoneServer)) {
+      return null
+    }
+
+    const phoneUser = String(identity.phone || '')
+
+    if (!isLikelyPhone(phoneUser)) {
+      return null
+    }
+
+    const digits = onlyDigits(phoneUser)
+
+    if (identity.phoneJid) {
+      const expectedSerialized = `${digits}@${phoneServer}`
+
+      if (
+        String(identity.phoneJid).toLowerCase() !==
+        expectedSerialized
+      ) {
+        return null
+      }
+    }
+
+    return digits
   }
 
   function isProfileOrContactPanelText(value) {
@@ -1100,6 +1671,45 @@
     )
   }
 
+  function getSelectedChatStructuralRow() {
+    const selectedElement = getSelectedChatElement()
+
+    if (!selectedElement) {
+      return null
+    }
+
+    const chatRowSelector =
+      '[data-testid="cell-frame-container"], [role="row"], [role="listitem"], [data-id]'
+
+    return selectedElement.matches?.(
+      chatRowSelector,
+    )
+      ? selectedElement
+      : selectedElement.closest?.(
+          chatRowSelector,
+        ) || null
+  }
+
+  function getSelectedChatRowStrongIdentity(
+    selectedChatRow,
+  ) {
+    if (!selectedChatRow) {
+      return null
+    }
+
+    const dataId =
+      selectedChatRow
+        .getAttribute?.('data-id')
+        ?.trim() ||
+      selectedChatRow
+        .querySelector?.('[data-id]')
+        ?.getAttribute?.('data-id')
+        ?.trim() ||
+      ''
+
+    return dataId ? `data:${dataId}` : null
+  }
+
   function getSelectedChatTitle() {
     const selectedElement = getSelectedChatElement()
 
@@ -1130,26 +1740,84 @@
     return null
   }
 
-  function getSelectedChatStableIdentity() {
-    const selectedElement = getSelectedChatElement()
-
+  // Sobe pela cadeia de ancestrais a partir do elemento marcado como
+  // selecionado até achar um que de fato carregue (direto ou num
+  // descendente) o data-id real — NUNCA para no primeiro ancestral que
+  // apenas combina com alguma alternativa ampla do seletor de row
+  // (ex.: [data-testid="cell-frame-container"], [role="row"] sem
+  // data-id). O próprio elemento aria-selected pode combinar com uma
+  // dessas alternativas amplas sem carregar o data-id — nesse caso o
+  // data-id real vive um nível (ou mais) acima, na row ancestral, e só
+  // continuar subindo enxerga essa row.
+  function getSelectedChatDataIdBearingRow(selectedElement) {
     if (!selectedElement) {
+      return null
+    }
+
+    const chatRowSelector =
+      '[data-testid="cell-frame-container"], [role="row"], [role="listitem"], [data-id]'
+
+    let candidate =
+      selectedElement.matches?.(
+        chatRowSelector,
+      )
+        ? selectedElement
+        : selectedElement.closest?.(
+            chatRowSelector,
+          )
+
+    while (candidate) {
+      const hasDataId =
+        Boolean(
+          candidate.getAttribute?.('data-id') ||
+          candidate.querySelector?.('[data-id]'),
+        )
+
+      if (hasDataId) {
+        return candidate
+      }
+
+      candidate =
+        candidate.parentElement?.closest?.(
+          chatRowSelector,
+        ) || null
+    }
+
+    return null
+  }
+
+  function getSelectedChatDataId() {
+    const dataIdBearingRow =
+      getSelectedChatDataIdBearingRow(
+        getSelectedChatElement(),
+      )
+
+    if (!dataIdBearingRow) {
       return ''
     }
 
     const directDataId =
-      selectedElement.getAttribute?.('data-id') || ''
+      dataIdBearingRow.getAttribute?.('data-id') || ''
 
     const nestedDataId =
-      selectedElement
+      dataIdBearingRow
         .querySelector?.('[data-id]')
         ?.getAttribute?.('data-id') || ''
 
-    const dataId =
-      directDataId || nestedDataId
+    return directDataId || nestedDataId
+  }
+
+  function getSelectedChatStableIdentity() {
+    const dataId = getSelectedChatDataId()
 
     if (dataId) {
       return `data:${dataId}`
+    }
+
+    const selectedElement = getSelectedChatElement()
+
+    if (!selectedElement) {
+      return ''
     }
 
     const avatarSource =
@@ -1167,6 +1835,18 @@
     return selectedTitle
       ? `title:${selectedTitle}`
       : ''
+  }
+
+  // Só data-id: nunca cai para avatar/título. Usada onde uma identidade
+  // FRACA (título, ou até avatar — WhatsApp reaproveita a mesma imagem
+  // padrão entre vários contatos/grupos sem foto) não pode ser aceita como
+  // prova de que a conversa mudou. Ausência de retorno aqui significa
+  // apenas "o DOM não expõe identidade estrutural agora" — nunca "é outra
+  // conversa".
+  function getSelectedChatStrongIdentity() {
+    return getSelectedChatRowStrongIdentity(
+      getSelectedChatStructuralRow(),
+    )
   }
 
   function getConversationKey(title) {
@@ -1290,6 +1970,63 @@
     }
 
     return null
+  }
+
+  let contactInfoPanelStructuralContext = null
+
+  // Vincula o painel ao epoch em que ele foi OBSERVADO por esta função pela
+  // primeira vez — nunca ao epoch de quem primeiro precisou consultá-lo.
+  // Chamada tanto no callback bruto do MutationObserver (a cada mutation
+  // relevante, para capturar o momento real em que o painel aparece,
+  // mesmo quando nenhum lookup automático chega a rodar — ex.: conversa já
+  // com conversationPhone resolvido) quanto por getContactInfoPanelForEpoch
+  // (fallback síncrono para quando um lookup consulta o painel antes do
+  // observer ter tido a chance de rodar). Um painel que sobrevive a uma
+  // troca estrutural (mesmo nó DOM, WhatsApp não o desmontou) mantém o
+  // epoch em que apareceu; só um nó novo pode ser vinculado ao epoch atual.
+  function refreshContactInfoPanelStructuralContext(
+    epoch,
+  ) {
+    const panel = findContactInfoPanel()
+
+    if (!panel) {
+      contactInfoPanelStructuralContext = null
+
+      return null
+    }
+
+    if (
+      !contactInfoPanelStructuralContext ||
+      contactInfoPanelStructuralContext.panel !== panel
+    ) {
+      contactInfoPanelStructuralContext = {
+        panel,
+        epoch,
+      }
+    }
+
+    return panel
+  }
+
+  function getContactInfoPanelForEpoch(epoch) {
+    const panel =
+      refreshContactInfoPanelStructuralContext(
+        epoch,
+      )
+
+    if (!panel) {
+      return {
+        panel: null,
+        authorized: false,
+      }
+    }
+
+    return {
+      panel,
+      authorized:
+        contactInfoPanelStructuralContext.epoch ===
+        epoch,
+    }
   }
 
   function collectContactPhoneCandidate(
@@ -1497,13 +2234,28 @@
   }
 
   function getConversationPhone(title, conversationKey) {
-    const headerCandidates = getMainHeaderTextCandidates()
+    // Título/cabeçalho é a fonte MAIS FRACA de telefone (contato 1:1 não
+    // salvo — WhatsApp mostra o número cru como título) e só pode
+    // autorizar resolução depois que o identity bridge já teve sua chance
+    // completa de classificar ESTE epoch como não-grupo (ver
+    // runAutomaticContactLookup() -> nonGroupClassifiedEpochByConversationKey).
+    // Sem este gate, um grupo recém-aberto cujo título por coincidência
+    // parece telefone seria resolvido como lead antes de qualquer chance do
+    // bridge dizer que é grupo.
+    const weakTitlePhoneAuthorized =
+      nonGroupClassifiedEpochByConversationKey.get(
+        conversationKey,
+      ) === activeChatEpoch
 
-    for (const candidate of headerCandidates) {
-      if (isLikelyPhone(candidate)) {
-        return {
-          phone: onlyDigits(candidate),
-          source: 'Cabeçalho da conversa',
+    if (weakTitlePhoneAuthorized) {
+      const headerCandidates = getMainHeaderTextCandidates()
+
+      for (const candidate of headerCandidates) {
+        if (isLikelyPhone(candidate)) {
+          return {
+            phone: onlyDigits(candidate),
+            source: 'Cabeçalho da conversa',
+          }
         }
       }
     }
@@ -1515,36 +2267,39 @@
       }
     }
 
-    const selectedTitle = getSelectedChatTitle()
+    if (weakTitlePhoneAuthorized) {
+      const selectedTitle = getSelectedChatTitle()
 
-    if (selectedTitle && isLikelyPhone(selectedTitle)) {
-      return {
-        phone: onlyDigits(selectedTitle),
-        source: 'Contato selecionado',
+      if (selectedTitle && isLikelyPhone(selectedTitle)) {
+        return {
+          phone: onlyDigits(selectedTitle),
+          source: 'Contato selecionado',
+        }
       }
     }
 
-    const lookupIdentity =
-      getAutomaticContactLookupIdentity(title)
-
-    const cachedPhoneByLookupIdentity =
-      cachedPhonesByLookupIdentity.get(
-        lookupIdentity,
-      )
-
-    if (cachedPhoneByLookupIdentity) {
-      return {
-        phone: cachedPhoneByLookupIdentity,
-        source: 'Dados do contato automático',
-      }
-    }
-
+    // cachedPhonesByLookupIdentity é indexado pelo NOME normalizado da
+    // conversa (getAutomaticContactLookupIdentity), não por uma identidade
+    // única — dois contatos homônimos colidiriam nessa chave. Por isso não
+    // é mais fonte autoritativa aqui: só cachedPhonesByConversationKey
+    // (chave única por conversa real) resolve automaticamente.
     const cachedPhone =
       cachedPhonesByConversationKey.get(
         conversationKey,
       )
 
-    if (cachedPhone) {
+    // A própria conversationKey visual também pode colidir (dois contatos
+    // 1:1 homônimos sem data-id/avatar disponível): um telefone cacheado
+    // aqui a partir de uma resolução do bridge só pode ser reutilizado
+    // enquanto a identidade forte (chatId) que o originou ainda é
+    // compatível com o que o DOM mostra agora — nunca por título/avatar
+    // coincidirem.
+    if (
+      cachedPhone &&
+      isBridgeResolvedContactAuthorizedForConversation(
+        conversationKey,
+      )
+    ) {
       return {
         phone: cachedPhone,
         source: 'Dados do contato automático',
@@ -1554,6 +2309,175 @@
     return {
       phone: null,
       source: null,
+    }
+  }
+
+  function collectPhoneJidCandidatesInMain() {
+    const main = getMainConversationRoot()
+
+    if (!main) {
+      return []
+    }
+
+    const phones = new Set()
+
+    main.querySelectorAll('[data-id]').forEach((element) => {
+      const phone = extractPhoneFromJid(
+        element.getAttribute('data-id'),
+      )
+
+      if (phone) {
+        phones.add(phone)
+      }
+    })
+
+    return Array.from(phones)
+  }
+
+  // Última etapa, estritamente passiva, da resolução automática de
+  // telefone: nenhuma navegação, nenhum clique, nenhuma abertura de
+  // painel — só leitura de atributos já presentes no DOM da conversa
+  // ATUAL. Grupo e auto-conversa nunca chegam a escanear JIDs de
+  // mensagens (evidência de "quem está na conversa" não se aplica a eles).
+  function resolvePassivePhoneForConversation({
+    conversationKey,
+    title,
+  }) {
+    if (
+      !conversationKey ||
+      isSelfConversationTitle(title) ||
+      isGroupConversationHeader()
+    ) {
+      return null
+    }
+
+    const selectedChatDataId =
+      getSelectedChatDataId()
+
+    // Um data-id "@g.us" na linha selecionada é prova estrutural
+    // definitiva de que esta conversa é um grupo — mesmo que
+    // extractPhoneFromJid() rejeite corretamente esse domínio (não é
+    // telefone), continuar para o scan de #main abaixo pegaria o JID de
+    // um PARTICIPANTE (@c.us) da mensagem e o trataria como se fosse o
+    // contato da conversa. Grupo aqui é terminal: nem tenta ler mensagens.
+    if (
+      isGroupJid(
+        selectedChatDataId,
+      )
+    ) {
+      return null
+    }
+
+    const selectedChatPhone =
+      extractPhoneFromJid(
+        selectedChatDataId,
+      )
+
+    if (selectedChatPhone) {
+      return {
+        phone: selectedChatPhone,
+        source: 'JID da conversa selecionada',
+      }
+    }
+
+    // Várias linhas de mensagem podem carregar `data-id`s diferentes
+    // (ex.: mensagens próprias vs. do contato). Sem uma linha selecionada
+    // confiável, um único telefone candidato ainda é seguro de usar — mas
+    // dois ou mais candidatos distintos são ambíguos: falha fechado em vez
+    // de escolher um arbitrariamente.
+    const mainPhones = collectPhoneJidCandidatesInMain()
+
+    if (mainPhones.length === 1) {
+      return {
+        phone: mainPhones[0],
+        source: 'JID das mensagens',
+      }
+    }
+
+    return null
+  }
+
+  // Fonte mais forte que o fallback passivo por JID de DOM (que só vê
+  // atributos, não o modelo real do WhatsApp): pede a identidade da
+  // conversa ativa ao whatsapp-identity-bridge (page world) e valida o
+  // resultado contra a conversa que originou o pedido antes de aplicar —
+  // o pedido é assíncrono (postMessage) e a conversa pode ter trocado
+  // enquanto ele estava em voo.
+  async function tryResolveViaIdentityBridge(
+    conversationKey,
+    expectedTitle,
+  ) {
+    if (!conversationKey) {
+      return {
+        status: 'unavailable',
+      }
+    }
+
+    const identity = await requestActiveChatIdentity(
+      IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS,
+    )
+
+    if (!identity) {
+      return {
+        status: 'unavailable',
+      }
+    }
+
+    const currentConversationKey =
+      getConversationKey(
+        getMainHeaderPrimaryTitle() ||
+        expectedTitle,
+      )
+
+    if (
+      state.conversationKey !==
+        conversationKey ||
+      currentConversationKey !==
+        conversationKey
+    ) {
+      return {
+        status: 'unavailable',
+      }
+    }
+
+    if (identity.isGroup === true) {
+      return {
+        status: 'group',
+        // chatId aqui é o JID real do grupo (identity.chatId, lido do
+        // Fiber do WhatsApp) — a única identidade estruturalmente única
+        // que este confirmação de grupo pode oferecer. Nunca cai para
+        // título: dois chats homônimos sem data-id/avatar no momento da
+        // leitura produziriam o mesmo título, mas nunca o mesmo chatId.
+        chatId:
+          typeof identity.chatId === 'string' &&
+          identity.chatId
+            ? identity.chatId
+            : null,
+      }
+    }
+
+    const phone = validateBridgeIdentityPhone(identity)
+
+    if (!phone) {
+      return {
+        status: 'unavailable',
+      }
+    }
+
+    return {
+      status: 'resolved',
+      phone,
+      // chatId aqui é o JID real do contato (identity.chatId, lido do
+      // Fiber) — a única identidade estruturalmente única que este
+      // resultado pode oferecer. Dois contatos 1:1 homônimos sem
+      // data-id/avatar no momento da leitura produzem o mesmo
+      // conversationKey visual, mas nunca o mesmo chatId.
+      chatId:
+        typeof identity.chatId === 'string' &&
+        identity.chatId
+          ? identity.chatId
+          : null,
+      source: 'Identidade ativa do WhatsApp',
     }
   }
 
@@ -4606,34 +5530,334 @@
         lookupTitle,
       )
 
+    // A tentativa só é válida para a conversa ATUAL: sem esta checagem, um
+    // lookup agendado 300ms atrás para a conversa A (setTimeout em
+    // refreshConversationSnapshot) continuaria executando mesmo depois do
+    // vendedor já ter trocado para B — aplicando dado de B sob a chave de
+    // A. state.conversationKey é sempre a conversa mais recente conhecida
+    // por refreshConversationSnapshot (síncrono, atualizado antes de
+    // qualquer agendamento).
     if (
       !conversationKey ||
-      !lookupIdentity ||
-      autoLookupAttemptedKeys.has(
-        lookupIdentity,
+      state.conversationKey !==
+        conversationKey
+    ) {
+      return
+    }
+
+    // Se essa conversationKey já foi tentada sem sucesso, só vale reentrar
+    // quando o vendedor abriu o painel de contato manualmente depois —
+    // nesse caso ainda há uma fonte nova e legítima de telefone a ler.
+    // Sem essa exceção, "attempted" travaria essa conversa para sempre.
+    const contactPanelAtLookupStart =
+      getContactInfoPanelForEpoch(
+        activeChatEpoch,
       )
+
+    if (
+      autoLookupAttemptedKeys.has(
+        conversationKey,
+      ) &&
+      !contactPanelAtLookupStart.authorized
     ) {
       return
     }
 
     autoContactLookupInFlight = true
 
-    const hadContactPanelOpen =
-      Boolean(findContactInfoPanel())
-
     state = {
       ...state,
-      autoLookupStatus: 'Abrindo dados do contato automaticamente...',
+      autoLookupStatus: 'Identificando contato...',
     }
 
     renderPanel()
 
     try {
+      // Capturado ANTES do pedido: se uma troca estrutural real acontecer
+      // enquanto o bridge está em voo (ver ACTIVE CHAT EPOCH), o epoch
+      // muda mesmo quando conversationKey textual colide com a conversa
+      // nova (homônimo) — condição que uma checagem só por conversationKey
+      // não detecta.
+      const requestEpoch = activeChatEpoch
+
+      // Fonte mais forte primeiro: identidade real do WhatsApp via
+      // whatsapp-identity-bridge.js (page world, React Fiber). Se o
+      // bridge não estiver instalado ou não responder a tempo, cai sem
+      // consumir a tentativa para as etapas seguintes (JID de DOM, depois
+      // painel de contato).
+      const bridgeResult =
+        await tryResolveViaIdentityBridge(
+          conversationKey,
+          lookupTitle,
+        )
+
+      if (activeChatEpoch !== requestEpoch) {
+        // A conversa mudou de instância estrutural enquanto o pedido
+        // estava em voo — esta resposta descreve a conversa ANTERIOR,
+        // mesmo que conversationKey (texto) continue igual (homônimo).
+        // Descarta sem marcar nada como tentado: a conversa REALMENTE
+        // atual continua livre para a própria tentativa (já disparada
+        // pelo ciclo normal de refreshConversationSnapshot assim que a
+        // troca estrutural foi detectada).
+        return
+      }
+
+      if (bridgeResult.status === 'group') {
+        bridgeConfirmedGroupContext = {
+          conversationKey,
+          stableIdentity:
+            getBridgeStrongIdentity(
+              bridgeResult.chatId,
+            ),
+        }
+
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
+        state = {
+          ...state,
+          conversationPhone: null,
+          phoneSource: null,
+          autoLookupStatus: null,
+          isGroupConversation: true,
+        }
+
+        // Uma classificação forte de grupo é também uma fronteira
+        // comercial: nenhum contexto seller-facing que tenha sido
+        // construído enquanto a conversa parecia 1:1 pode permanecer.
+        hardResetConversationWorkspace()
+        return
+      }
+
+      if (bridgeResult.status === 'resolved') {
+        const resolvedIdentity =
+          getBridgeStrongIdentity(
+            bridgeResult.chatId,
+          )
+
+        // Revalidação de corrida: tryResolveViaIdentityBridge() já
+        // rejeita uma resposta cuja conversationKey não bate mais com a
+        // conversa atual, mas conversationKey pode COLIDIR entre dois
+        // contatos 1:1 homônimos (mesmo texto, chats diferentes) — nesse
+        // caso aquela checagem não percebe nada de errado. Se o DOM já
+        // mostra uma identidade forte AGORA e ela diverge do chatId desta
+        // resposta, a resposta descreve outro chat (provavelmente
+        // atrasada de antes da troca): descarta sem aplicar phone/cache/
+        // contexto nenhum, e sem marcar a chave como tentada — a conversa
+        // REALMENTE atual ainda merece sua própria tentativa.
+        const currentStrongIdentityNow =
+          getSelectedChatStrongIdentity()
+
+        if (
+          currentStrongIdentityNow &&
+          resolvedIdentity &&
+          currentStrongIdentityNow !==
+            resolvedIdentity
+        ) {
+          return
+        }
+
+        // O bridge acabou de provar afirmativamente que esta conversa NÃO
+        // é grupo — só agora getConversationPhone() pode aceitar o título
+        // desta conversa, NESTE epoch, como fonte fraca de telefone.
+        // 'unavailable'/inconclusivo NUNCA libera esta autorização: um
+        // timeout não é prova de que a conversa não é grupo, só de que o
+        // bridge não respondeu a tempo (ver AJ).
+        nonGroupClassifiedEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
+        )
+
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
+        cachedPhonesByConversationKey.set(
+          conversationKey,
+          bridgeResult.phone,
+        )
+
+        cachedPhoneEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
+        )
+
+        // Ancora o telefone à identidade forte que o bridge acabou de
+        // provar para ESTA conversationKey e ao epoch estrutural vigente
+        // agora — sem isso, uma troca real para outro contato homônimo
+        // (mesma chave visual) reutilizaria este telefone só porque a
+        // chave bate (ver isBridgeResolvedContactAuthorizedForConversation()).
+        bridgeResolvedContactContext = {
+          conversationKey,
+          epoch: activeChatEpoch,
+          stableIdentity: resolvedIdentity,
+        }
+
+        state = {
+          ...state,
+          conversationPhone: bridgeResult.phone,
+          phoneSource: bridgeResult.source,
+          autoLookupStatus: null,
+        }
+
+        renderPanel()
+
+        if (state.connected) {
+          lastResolvedConversationKey =
+            conversationKey
+          lastResolvedContactLookupIdentity =
+            lookupIdentity
+
+          resolveCurrentLead()
+        }
+
+        return
+      }
+
+      // Etapa passiva: leitura de JIDs já presentes no DOM da conversa
+      // atual (linha selecionada, depois mensagens em #main). Nenhuma
+      // navegação, nenhum clique — se falhar, cai sem consumir a
+      // tentativa para o fluxo existente baseado no painel de contato.
+      const passiveResult =
+        resolvePassivePhoneForConversation({
+          conversationKey,
+          title: lookupTitle,
+        })
+
+      if (passiveResult) {
+        // Revalidação obrigatória: resolvePassivePhoneForConversation()
+        // acabou de ler o DOM ATUAL de forma síncrona, mas essa chamada
+        // já pode ter atravessado uma troca de conversa síncrona (A -> B)
+        // desde que este lookup foi agendado. Sem confirmar de novo que a
+        // conversa ainda é a mesma, o telefone de B poderia ser cacheado
+        // e aplicado sob a chave de A.
+        const currentConversationKeyForPassive =
+          getConversationKey(
+            getMainHeaderPrimaryTitle() ||
+            state.conversationTitle,
+          )
+
+        if (
+          state.conversationKey !==
+            conversationKey ||
+          currentConversationKeyForPassive !==
+            conversationKey
+        ) {
+          return
+        }
+
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
+        cachedPhonesByConversationKey.set(
+          conversationKey,
+          passiveResult.phone,
+        )
+
+        cachedPhoneEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
+        )
+
+        state = {
+          ...state,
+          conversationPhone: passiveResult.phone,
+          phoneSource: passiveResult.source,
+          autoLookupStatus: null,
+        }
+
+        renderPanel()
+
+        if (state.connected) {
+          lastResolvedConversationKey =
+            conversationKey
+          lastResolvedContactLookupIdentity =
+            lookupIdentity
+
+          resolveCurrentLead()
+        }
+
+        return
+      }
+
+      // Reconsulta getConversationPhone(): o bridge acabou de ter sua
+      // chance completa e não confirmou grupo (marcado acima em
+      // nonGroupClassifiedEpochByConversationKey), então a fonte mais
+      // fraca (título/cabeçalho parece telefone) agora está autorizada
+      // para ESTE epoch. Sem esta reconsulta explícita, marcar a
+      // autorização não teria efeito nenhum até um próximo refresh
+      // incidental do WhatsApp acontecer.
+      const titleResult =
+        getConversationPhone(
+          lookupTitle,
+          conversationKey,
+        )
+
+      if (titleResult.phone) {
+        const currentConversationKeyForTitle =
+          getConversationKey(
+            getMainHeaderPrimaryTitle() ||
+            state.conversationTitle,
+          )
+
+        if (
+          state.conversationKey !==
+            conversationKey ||
+          currentConversationKeyForTitle !==
+            conversationKey
+        ) {
+          return
+        }
+
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
+        state = {
+          ...state,
+          conversationPhone: titleResult.phone,
+          phoneSource: titleResult.source,
+          autoLookupStatus: null,
+        }
+
+        renderPanel()
+
+        if (state.connected) {
+          lastResolvedConversationKey =
+            conversationKey
+          lastResolvedContactLookupIdentity =
+            lookupIdentity
+
+          resolveCurrentLead()
+        }
+
+        return
+      }
+
+      const contactPanelForRequest =
+        getContactInfoPanelForEpoch(
+          requestEpoch,
+        )
+
+      const hadContactPanelOpen =
+        contactPanelForRequest.authorized
+
       if (!hadContactPanelOpen) {
+        // Marca como tentada para não reagendar a cada mutation do
+        // WhatsApp enquanto nada muda (retry ilimitado) — mas isso não
+        // tranca a conversa para sempre: o guard de reentrada acima
+        // libera uma nova tentativa assim que o vendedor abrir o painel
+        // de contato manualmente.
+        autoLookupAttemptedKeys.add(
+          conversationKey,
+        )
+
         state = {
           ...state,
           autoLookupStatus:
-            'Telefone ainda não disponível. A Yolen não altera a navegação do WhatsApp para buscar esse dado.',
+            'Telefone ainda não disponível para identificação automática. A Yolen não altera a navegação do WhatsApp para buscar esse dado.',
         }
 
         renderPanel()
@@ -4641,13 +5865,26 @@
       }
 
       autoLookupAttemptedKeys.add(
-        lookupIdentity,
+        conversationKey,
       )
 
       const phone =
         await waitForContactPanelPhone(
           AUTO_CONTACT_LOOKUP_TIMEOUT_MS,
         )
+
+      if (activeChatEpoch !== requestEpoch) {
+        // O painel começou a ser lido em outra instância estrutural da
+        // conversa. Mesmo que a conversationKey textual continue igual
+        // (homônimo), qualquer telefone que terminou de aparecer durante
+        // essa espera pertence ao epoch anterior e não pode ser cacheado
+        // nem aplicado na conversa atual.
+        autoLookupAttemptedKeys.delete(
+          conversationKey,
+        )
+
+        return
+      }
 
       if (!hadContactPanelOpen) {
         const panelClosed =
@@ -4665,15 +5902,17 @@
         }
       }
 
-      const currentLookupIdentity =
-        getAutomaticContactLookupIdentity(
+      const currentConversationKey =
+        getConversationKey(
           getMainHeaderPrimaryTitle() ||
           state.conversationTitle,
         )
 
       if (
-        currentLookupIdentity !==
-        lookupIdentity
+        state.conversationKey !==
+          conversationKey ||
+        currentConversationKey !==
+          conversationKey
       ) {
         return
       }
@@ -4692,6 +5931,11 @@
       cachedPhonesByConversationKey.set(
         conversationKey,
         phone,
+      )
+
+      cachedPhoneEpochByConversationKey.set(
+        conversationKey,
+        activeChatEpoch,
       )
 
       cachedPhonesByLookupIdentity.set(
@@ -4729,7 +5973,24 @@
     }
   }
 
-  function clearLeadStateForNewConversation() {
+  // Fronteira única entre conversas (regra de produto: troca de conversa
+  // no WhatsApp invalida IMEDIATAMENTE todo o contexto comercial visível
+  // da conversa anterior — nenhum dado de A pode sobreviver, nem durante
+  // o loading de B). Chamado pelo chamador DEPOIS de `state` já refletir
+  // a identidade da conversa NOVA (conversationKey/título/telefone/
+  // isGroupConversation/isSelfConversation) — é essa ordem que garante
+  // que o renderPanel() forçado abaixo já calcule o HTML da conversa
+  // nova, nunca da antiga.
+  //
+  // Preservação de foco/scroll/regionActionLock/pendingRegionHtml/drafts
+  // só vale DENTRO da mesma conversationKey. Numa troca real, nenhum
+  // desses mecanismos de estabilidade pode impedir o reset: por isso o
+  // renderPanel() aqui roda com forcingConversationBoundaryRender=true,
+  // que faz renderPanelRegion() ignorar isRegionInteractionActive() (lock
+  // OU foco em campo editável) e substituir o DOM de toda região na
+  // hora — nunca adiar para panelRegionPendingHtml esperando uma
+  // interação da conversa que já não existe mais.
+  function hardResetConversationWorkspace() {
     capturedAudioBlobEntries = []
     window.YolenCompanionSellerMessageRuntime
       ?.clear?.()
@@ -4740,13 +6001,12 @@
     clearCompanionClientContextRefreshTimer()
     activeSellerArea = 'now'
 
-    // Mudança REAL de conversa: diferente de uma atualização de estado em
-    // segundo plano (que só troca o conteúdo interno de uma região), aqui
-    // o vendedor trocou de contato de verdade — nenhum rascunho ou
-    // posição de leitura do lead anterior pode vazar para o novo. Limpa o
-    // cache de regiões (força todas a recalcular no próximo renderPanel())
-    // e qualquer render que tivesse ficado retido esperando uma interação
-    // do lead anterior, e volta o scroll ao topo.
+    // Limpa o lock de ação de região (não pode proteger DOM de uma
+    // conversa que já não existe mais), o cache de HTML por região
+    // (força todas a recalcular no próximo renderPanel()), qualquer
+    // render que tivesse ficado retido esperando uma interação do lead
+    // anterior, e o estado dos accordions da Inteligência Comercial.
+    clearPanelRegionActionLocks()
     panelRegionHtmlCache.clear()
     panelRegionPendingHtml.clear()
     controlledOpenClientIntelligenceGroups.clear()
@@ -4754,8 +6014,11 @@
     const panel =
       document.getElementById(PANEL_ID)
 
-    if (panel) {
-      panel.scrollTop = 0
+    const scrollContainer =
+      getWorkspaceScrollContainer(panel)
+
+    if (scrollContainer) {
+      scrollContainer.scrollTop = 0
     }
 
     lastSelectedChatActivitySnapshot =
@@ -4812,6 +6075,207 @@
       preSendGateOpen: false,
       preSendBypassKey: null,
     }
+
+    // Não basta zerar `state` e confiar que um renderPanel() futuro vai
+    // aplicar o resultado — o próprio renderer pode decidir preservar o
+    // DOM antigo (lock, foco, pending html). A fronteira precisa GARANTIR
+    // que nenhum DOM seller-facing da conversa anterior sobreviva: força
+    // um render imediato, ignorando toda proteção de estabilidade.
+    forcingConversationBoundaryRender = true
+
+    try {
+      renderPanel()
+    } finally {
+      forcingConversationBoundaryRender = false
+    }
+  }
+
+  // Revalidação via bridge para o caso ambíguo (identidade forte ausente
+  // no DOM, mas ainda sem prova de troca real): dispara UM pedido ao
+  // identity bridge para decidir a favor de "ainda é a mesma classificação
+  // guardada" ou "não é mais" — nunca decide isso só pela ausência de
+  // data-id/avatar no DOM (ver isBridgeConfirmedGroupContextAmbiguous() e
+  // isBridgeResolvedContactContextAmbiguous()). Atende os dois contextos
+  // guardados (grupo confirmado E contato resolvido) porque só existe UMA
+  // conversa visível por vez neste content script — nunca há ambiguidade
+  // de grupo e de contato para chaves diferentes disputando o mesmo
+  // pedido. Debounce (300ms) + cooldown (1s) evitam storm de pedidos
+  // enquanto a conversa permanece ambígua através de várias mutations
+  // seguidas.
+  let bridgeIdentityRevalidationPending = false
+  let lastBridgeIdentityRevalidationAt = 0
+  const BRIDGE_IDENTITY_REVALIDATION_COOLDOWN_MS = 1000
+
+  function scheduleBridgeIdentityRevalidation(
+    conversationKey,
+    title,
+  ) {
+    if (
+      !state.connected ||
+      !conversationKey ||
+      bridgeIdentityRevalidationPending ||
+      Date.now() -
+        lastBridgeIdentityRevalidationAt <
+        BRIDGE_IDENTITY_REVALIDATION_COOLDOWN_MS
+    ) {
+      return
+    }
+
+    bridgeIdentityRevalidationPending = true
+
+    window.setTimeout(() => {
+      void runBridgeIdentityRevalidation(
+        conversationKey,
+        title,
+      )
+    }, 300)
+  }
+
+  async function runBridgeIdentityRevalidation(
+    conversationKey,
+    title,
+  ) {
+    lastBridgeIdentityRevalidationAt = Date.now()
+
+    // Capturado ANTES do pedido — mesmo raciocínio de
+    // runAutomaticContactLookup(): uma troca estrutural real durante o
+    // voo deste pedido não pode ser mascarada por uma conversationKey
+    // textual coincidente.
+    const requestEpoch = activeChatEpoch
+
+    try {
+      const bridgeResult =
+        await tryResolveViaIdentityBridge(
+          conversationKey,
+          title,
+        )
+
+      // A conversa pode ter mudado de verdade enquanto o pedido estava em
+      // voo — nesse caso o ciclo normal de refreshConversationSnapshot já
+      // está cuidando da conversa nova; aplicar esta resposta aqui seria
+      // usar evidência da conversa ERRADA. activeChatEpoch cobre também o
+      // caso em que conversationKey textual colide (homônimo).
+      if (
+        state.conversationKey !== conversationKey ||
+        activeChatEpoch !== requestEpoch
+      ) {
+        return
+      }
+
+      const previousContactContext =
+        bridgeResolvedContactContext?.conversationKey ===
+        conversationKey
+          ? bridgeResolvedContactContext
+          : null
+
+      const hadGroupContextForKey = Boolean(
+        bridgeConfirmedGroupContext?.conversationKey ===
+          conversationKey,
+      )
+
+      if (bridgeResult.status === 'group') {
+        // Reconfirmado — mesmo grupo (ou outro, mas ainda grupo): guarda o
+        // chatId mais recente e mantém fail-closed até a próxima
+        // ambiguidade.
+        bridgeConfirmedGroupContext = {
+          conversationKey,
+          stableIdentity:
+            getBridgeStrongIdentity(
+              bridgeResult.chatId,
+            ),
+        }
+
+        // Havia um contato resolvido persistido para esta MESMA chave e o
+        // bridge acabou de provar que, na verdade, é um grupo — fronteira
+        // comercial real: nada do contato anterior pode sobreviver.
+        if (previousContactContext) {
+          bridgeResolvedContactContext = null
+          cachedPhonesByConversationKey.delete(
+            conversationKey,
+          )
+          lastResolvedConversationKey = null
+          autoLookupAttemptedKeys.delete(
+            conversationKey,
+          )
+          hardResetConversationWorkspace()
+          refreshConversationSnapshot()
+        }
+
+        return
+      }
+
+      if (bridgeResult.status === 'resolved') {
+        // Revalidação acabou de provar que esta conversa NÃO é grupo —
+        // libera getConversationPhone() para aceitar o título como fonte
+        // fraca de telefone neste epoch (ver
+        // nonGroupClassifiedEpochByConversationKey em
+        // runAutomaticContactLookup()). 'unavailable' aqui NÃO libera:
+        // ambíguo durante uma revalidação continua fail-closed como grupo.
+        nonGroupClassifiedEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
+        )
+
+        const resolvedIdentity =
+          getBridgeStrongIdentity(
+            bridgeResult.chatId,
+          )
+
+        // Só é uma fronteira REAL se havia uma classificação guardada
+        // para esta chave (grupo, ou contato com uma identidade forte
+        // DIFERENTE da agora provada) — uma simples reconfirmação (mesmo
+        // chatId de antes) não pode gerar reset nem nova chamada de
+        // resolveCurrentLead.
+        const isRealBoundary =
+          hadGroupContextForKey ||
+          (Boolean(
+            previousContactContext?.stableIdentity,
+          ) &&
+            Boolean(resolvedIdentity) &&
+            previousContactContext.stableIdentity !==
+              resolvedIdentity)
+
+        cachedPhonesByConversationKey.set(
+          conversationKey,
+          bridgeResult.phone,
+        )
+
+        cachedPhoneEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
+        )
+
+        // Âncora usada também em runAutomaticContactLookup(): sem isto,
+        // um homônimo 1:1 futuro sob a MESMA conversationKey reutilizaria
+        // este telefone só pela chave visual coincidir.
+        bridgeResolvedContactContext = {
+          conversationKey,
+          epoch: activeChatEpoch,
+          stableIdentity: resolvedIdentity,
+        }
+
+        bridgeConfirmedGroupContext = null
+        autoLookupAttemptedKeys.delete(
+          conversationKey,
+        )
+
+        if (isRealBoundary) {
+          // Nenhum dado comercial (leadResolution, resumo, etc.) do
+          // grupo/contato anterior sob esta chave pode sobreviver a uma
+          // fronteira provada pelo bridge — mesmo com a conversationKey
+          // textual inalterada.
+          lastResolvedConversationKey = null
+          hardResetConversationWorkspace()
+        }
+
+        refreshConversationSnapshot()
+      }
+
+      // status 'unavailable': inconclusivo — permanece fail-closed; uma
+      // mutation futura (depois do cooldown) tenta revalidar de novo.
+    } finally {
+      bridgeIdentityRevalidationPending = false
+    }
   }
 
   function refreshConversationSnapshot() {
@@ -4823,13 +6287,110 @@
         conversationTitle,
       )
 
+    // Reavalia o epoch estrutural (ver ACTIVE CHAT EPOCH) antes de
+    // qualquer decisão desta função — garante o valor já estabelecido
+    // mesmo quando refreshActiveChatEpoch() ainda não rodou pelo callback
+    // bruto do MutationObserver (ex.: primeiro snapshot da sessão).
+    refreshActiveChatEpoch()
+
     const isSelfConversation =
       isSelfConversationTitle(
         conversationTitle,
       )
 
+    // Calculado uma vez e reaproveitado abaixo: além de decidir
+    // isGroupConversation, também é o sinal de que uma evidência de grupo
+    // persistida (bridgeConfirmedGroupContext) já não corresponde à
+    // conversa que o DOM mostra agora — mesmo quando conversationKey não
+    // mudou (dois chats homônimos sem data-id/avatar no momento da leitura
+    // produzem a mesma conversationKey, mas o chatId/data-id estrutural
+    // continua distinguindo-os assim que fica disponível).
+    const bridgeSaysGroup =
+      isBridgeConfirmedGroupForConversation(
+        conversationKey,
+      )
+
     const isGroupConversation =
+      bridgeSaysGroup ||
       isGroupConversationHeader()
+
+    // Ausência de identidade forte no DOM (data-id/avatar temporariamente
+    // fora do ar) nunca prova troca de conversa — bridgeSaysGroup já fica
+    // fail-closed (true) nesse caso. Mas o fail-closed sozinho travaria uma
+    // conversationKey coincidente (título homônimo) como grupo para
+    // sempre; só o bridge pode desambiguar, então agenda uma revalidação
+    // dele quando a única razão de ainda confiarmos na classificação de
+    // grupo guardada é a ambiguidade, não uma reconfirmação real. (O
+    // telefone bridge-resolved de um contato NÃO usa este mecanismo — ver
+    // isBridgeResolvedContactAuthorizedForConversation()/bloco de fronteira
+    // estrutural logo abaixo, que já suspende o reuso de forma síncrona
+    // assim que uma troca estrutural é detectada, sem esperar o bridge.)
+    if (isBridgeConfirmedGroupContextAmbiguous()) {
+      scheduleBridgeIdentityRevalidation(
+        conversationKey,
+        conversationTitle,
+      )
+    }
+
+    // Fronteira estrutural para um telefone bridge-resolved cacheado: ao
+    // contrário do grupo (cujo fail-closed nunca expõe dado do cliente),
+    // aqui ausência de prova NÃO pode autorizar reuso — ver comentário de
+    // isBridgeResolvedContactAuthorizedForConversation(). O epoch (não a
+    // presença de data-id/avatar) decide sozinho, de forma síncrona e sem
+    // esperar o bridge, se a instância estrutural mudou desde que este
+    // telefone foi resolvido; se mudou, a associação stale é descartada
+    // AGORA (cache, contexto, chave tentada) — a conversa REALMENTE atual
+    // ganha, no mesmo ciclo, um phoneResult neutro e uma tentativa nova
+    // via bridge, e nenhum dado comercial do contato anterior sobrevive.
+    const bridgeResolvedContactStale =
+      Boolean(bridgeResolvedContactContext) &&
+      bridgeResolvedContactContext.conversationKey ===
+        conversationKey &&
+      !isBridgeResolvedContactAuthorizedForConversation(
+        conversationKey,
+      )
+
+    if (bridgeResolvedContactStale) {
+      cachedPhonesByConversationKey.delete(
+        conversationKey,
+      )
+      cachedPhoneEpochByConversationKey.delete(
+        conversationKey,
+      )
+      bridgeResolvedContactContext = null
+
+      if (conversationKey) {
+        autoLookupAttemptedKeys.delete(
+          conversationKey,
+        )
+      }
+    }
+
+    const cachedPhoneEpoch =
+      cachedPhoneEpochByConversationKey.get(
+        conversationKey,
+      )
+
+    const cachedPhoneStale =
+      cachedPhonesByConversationKey.has(
+        conversationKey,
+      ) &&
+      cachedPhoneEpoch !== activeChatEpoch
+
+    if (cachedPhoneStale) {
+      cachedPhonesByConversationKey.delete(
+        conversationKey,
+      )
+      cachedPhoneEpochByConversationKey.delete(
+        conversationKey,
+      )
+
+      if (conversationKey) {
+        autoLookupAttemptedKeys.delete(
+          conversationKey,
+        )
+      }
+    }
 
     const contactLookupIdentity =
       getAutomaticContactLookupIdentity(
@@ -4864,26 +6425,69 @@
       if (contactLookupChanged) {
         lastResolvedContactLookupIdentity =
           null
+      }
 
-        if (contactLookupIdentity) {
+      // A evidência de grupo vale apenas para a conversa em que o
+      // identity bridge a produziu. Isso vale tanto numa troca real
+      // (conversationKey muda) quanto no caso mais raro em que dois chats
+      // diferentes produzem a MESMA conversationKey (título homônimo sem
+      // data-id/avatar no momento em que cada um foi lido) — bridgeSaysGroup
+      // já reflete a identidade estrutural mais forte (chatId do
+      // bridge/data-id) e diverge mesmo com a chave igual. Sempre que a
+      // evidência guardada deixa de corresponder à conversa ATUAL, ela é
+      // descartada e a chave sai de "já tentada" — sem isso, uma
+      // conversationKey coincidente ficaria travada como grupo/sem nova
+      // tentativa para sempre, mesmo depois do bridge provar que é um chat
+      // diferente.
+      if (
+        bridgeConfirmedGroupContext &&
+        !bridgeSaysGroup
+      ) {
+        bridgeConfirmedGroupContext = null
+
+        if (conversationKey) {
           autoLookupAttemptedKeys.delete(
-            contactLookupIdentity,
+            conversationKey,
           )
         }
       }
 
-      if (conversationChanged) {
+      // bridgeResolvedContactStale entra na mesma fronteira que uma troca
+      // real de conversationKey: o epoch estrutural já provou que a
+      // instância da conversa mudou desde que aquele telefone foi
+      // resolvido, mesmo com a chave textual igual (homônimo) — nenhum
+      // estado de tentativa/ledger da associação antiga pode sobreviver.
+      if (
+        conversationChanged ||
+        bridgeResolvedContactStale ||
+        cachedPhoneStale
+      ) {
         rememberCurrentPreResolutionCapture()
 
         lastResolvedConversationKey = null
 
+        // conversationKey (não contactLookupIdentity, que é só o nome
+        // normalizado e colide entre contatos homônimos) é a identidade
+        // única de tentativa: entrar numa conversa dá a ela um novo ciclo
+        // de resolução automática, mesmo que outra conversa com o mesmo
+        // nome já tenha sido tentada antes.
+        if (conversationKey) {
+          autoLookupAttemptedKeys.delete(
+            conversationKey,
+          )
+        }
+
         resetConversationMessageLedger(
           conversationKey,
         )
-
-        clearLeadStateForNewConversation()
       }
 
+    // A identidade da conversa NOVA precisa estar em `state` ANTES de
+    // qualquer hardResetConversationWorkspace() abaixo — é o renderPanel()
+    // forçado dentro dela que decide o HTML de cada região, e ele lê
+    // state.conversationKey/isGroupConversation/isSelfConversation
+    // diretamente. Chamar a fronteira antes desta atribuição faria o
+    // render forçado ainda enxergar a conversa ANTERIOR.
     state = {
       ...state,
       conversationTitle,
@@ -4895,6 +6499,14 @@
       contactLookupIdentity,
       isSelfConversation,
       isGroupConversation,
+    }
+
+    if (
+      conversationChanged ||
+      bridgeResolvedContactStale ||
+      cachedPhoneStale
+    ) {
+      hardResetConversationWorkspace()
     }
 
     const messageMutationDetected =
@@ -4914,8 +6526,7 @@
       lastResolvedConversationKey = null
       lastResolvedContactLookupIdentity =
         null
-      clearLeadStateForNewConversation()
-      renderPanel()
+      hardResetConversationWorkspace()
       return messageMutationDetected
     }
 
@@ -4923,8 +6534,7 @@
       lastResolvedConversationKey = null
       lastResolvedContactLookupIdentity =
         null
-      clearLeadStateForNewConversation()
-      renderPanel()
+      hardResetConversationWorkspace()
       return messageMutationDetected
     }
 
@@ -4933,9 +6543,9 @@
     if (
       state.connected &&
       phoneResult.phone &&
-      contactLookupIdentity &&
-      lastResolvedContactLookupIdentity !==
-        contactLookupIdentity
+      conversationKey &&
+      lastResolvedConversationKey !==
+        conversationKey
     ) {
       lastResolvedConversationKey =
         conversationKey
@@ -4950,10 +6560,14 @@
       state.connected &&
       !phoneResult.phone &&
       conversationKey &&
-      contactLookupIdentity &&
-      !autoLookupAttemptedKeys.has(
-        contactLookupIdentity,
-      )
+      // Uma conversationKey já tentada não reagenda a cada mutation (o
+      // WhatsApp gera muitas) — mas isso não pode travar para sempre: se
+      // o vendedor abriu o painel de contato manualmente depois do
+      // fail-closed, há uma fonte nova e legítima de telefone a ler.
+      (!autoLookupAttemptedKeys.has(
+        conversationKey,
+      ) ||
+        findContactInfoPanel())
     ) {
       window.setTimeout(() => {
         runAutomaticContactLookup(
@@ -5173,7 +6787,7 @@
     // pode ser aplicado à região "Conversa" se ele pertencer à conversa
     // ATUAL — se o vendedor já trocou de conversa, leadCreationConversationKey
     // não bate mais com state.conversationKey e este bloco fica inerte
-    // (clearLeadStateForNewConversation() já zera os dois campos numa
+    // (hardResetConversationWorkspace() já zera os dois campos numa
     // troca real, isto aqui é uma segunda trava de segurança).
     const creationBelongsToCurrentConversation =
       Boolean(state.conversationKey) &&
@@ -5751,7 +7365,7 @@
   // identidade que originou aquele resultado (company/cycle/conversation)
   // ainda bate com o contexto atual — reavaliado a cada renderPanel(), sem
   // esperar uma análise nova terminar. Isto cobre um caso que
-  // clearLeadStateForNewConversation() (troca real de aba/conversa) não
+  // hardResetConversationWorkspace() (troca real de aba/conversa) não
   // cobre: a MESMA conversation_key ser resolvida para um cycle_id
   // diferente (ex.: resolveCurrentLead() encontrando um ciclo novo para o
   // mesmo lead), o que não é uma "troca de conversa" no sentido de DOM/
@@ -10027,6 +11641,9 @@
       getCaptureConversationKey()
 
     if (!cycleId || !conversationKey) {
+      window.YolenCompanionSellerMessageRuntime
+        ?.clear?.()
+
       state = {
         ...state,
         companionLeadSummary: {
@@ -10599,6 +12216,125 @@
     )
   }
 
+  // UX8 (shell estável): a barra de abas precisa viver FORA da região
+  // rolável (workspace-body) para não fazer scroll junto com o conteúdo.
+  // Ver renderPanel()/getPanelRegionContainer() — a barra é sua própria
+  // região top-level, renderizada antes de 'seller-information-architecture'.
+  function getSellerAreaTabsBarHtml() {
+    return `
+      <div
+        class="yolen-seller-tabs"
+        role="tablist"
+        aria-label="Áreas do Yolen Companion"
+      >
+        ${getSellerAreaTabHtml('now', 'Agora')}
+        ${getSellerAreaTabHtml('message', 'Mensagem')}
+        ${getSellerAreaTabHtml('analysis', 'Análise')}
+        ${getSellerAreaTabHtml('client', 'Cliente')}
+      </div>
+    `
+  }
+
+  // Elegibilidade "dura": esta conversa TEM, em tese, um contexto
+  // comercial (não é grupo/self, está conectada, e já existe um ciclo e
+  // uma conversationKey de captura resolvidos) — independente de o
+  // resumo já ter chegado ou não. Não confundir com isSellerMessageMountEligible():
+  // esta função sozinha não decide se o mount aparece, só se FAZ SENTIDO
+  // a conversa ter um composer seller em algum momento.
+  function hasSellerMessageCommercialContext() {
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    return Boolean(
+      state.connected &&
+      !state.isGroupConversation &&
+      !state.isSelfConversation &&
+      state.conversationKey &&
+      cycleId &&
+      conversationKey,
+    )
+  }
+
+  // Elegibilidade do MOUNT: além do contexto comercial existir, o resumo
+  // do lead precisa estar pronto E pertencer EXATAMENTE a este cycle e a
+  // esta conversationKey de captura — nunca a um cycle/conversationKey
+  // anterior ainda não invalidado. Não exige working_summary aqui: essa é
+  // uma decisão do próprio seller-message-runtime.js (via syncContext),
+  // não desta camada — esta é só isolamento/ownership de contexto, não
+  // regra de disponibilidade de conteúdo.
+  function isSellerMessageMountEligible() {
+    if (!hasSellerMessageCommercialContext()) {
+      return false
+    }
+
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    return Boolean(
+      state.companionLeadSummary?.status === 'ready' &&
+      state.companionLeadSummaryCycleId === cycleId &&
+      state.companionLeadSummaryConversationKey ===
+        conversationKey,
+    )
+  }
+
+  // UX8 FASE C: superfície própria do composer seller-facing. Nesta fase
+  // é só o mount estrutural — seller-message-runtime.js já procura o
+  // mount do composer em qualquer lugar do documento (e não se importa
+  // se o painel-pai está com [hidden]), então bastou mover este div para
+  // cá; o runtime não precisou mudar. O design fiel
+  // à imagem de referência (objetivo, presets, textarea, resultado) é
+  // FASE D — aqui o composer real já aparece dentro deste mount assim
+  // que o contexto da conversa atual for válido.
+  //
+  // Defesa em profundidade (P0 — stale seller message em contexto não
+  // elegível): o mount só existe no HTML quando isSellerMessageMountEligible()
+  // é verdadeiro. Isso é puramente de leitura de state — nenhum side
+  // effect aqui; a limpeza explícita do runtime continua acontecendo nos
+  // pontos reais de transição (hardResetConversationWorkspace(), branch
+  // de grupo, e o branch sem cycle/conversationKey de
+  // loadCompanionLeadSummaryForCurrentCycle()). Isso garante que, mesmo
+  // que algum chamador futuro esqueça de limpar o runtime explicitamente,
+  // o mount simplesmente não existe no DOM para um contexto inelegível —
+  // não há superfície para um composer antigo reaparecer.
+  function getSellerMessageAreaHtml() {
+    if (!isSellerMessageMountEligible()) {
+      return `
+        <div
+          class="yolen-seller-message-workspace"
+          data-yolen-seller-message-workspace
+        >
+          <div
+            class="yolen-card yolen-seller-area-card yolen-status-neutral"
+          >
+            <div class="yolen-section-label">
+              Mensagem
+            </div>
+
+            <div class="yolen-seller-empty-state">
+              A geração de mensagem fica disponível quando esta conversa possui um contexto comercial válido na Yolen.
+            </div>
+          </div>
+        </div>
+      `
+    }
+
+    return `
+      <div
+        class="yolen-seller-message-workspace"
+        data-yolen-seller-message-workspace
+      >
+        <div data-yolen-seller-message-mount></div>
+      </div>
+    `
+  }
+
   function getSellerInformationArchitectureHtml() {
     const nowHtml =
       getNowAttentionSnapshotHtml() +
@@ -10612,6 +12348,9 @@
         </div>
       `)
 
+    const messageHtml =
+      getSellerMessageAreaHtml()
+
     const analysisHtml =
       getDetailedAnalysisAreaHtml()
 
@@ -10623,19 +12362,14 @@
 
     return `
       <div class="yolen-seller-workspace yolen-seller-workspace--ux7" data-yolen-ux-build="UX7">
-        <div
-          class="yolen-seller-tabs"
-          role="tablist"
-          aria-label="Áreas do Yolen Companion"
-        >
-          ${getSellerAreaTabHtml('now', 'Agora')}
-          ${getSellerAreaTabHtml('analysis', 'Análise')}
-          ${getSellerAreaTabHtml('client', 'Cliente')}
-        </div>
-
         ${getSellerAreaPanelHtml(
           'now',
           nowHtml,
+        )}
+
+        ${getSellerAreaPanelHtml(
+          'message',
+          messageHtml,
         )}
 
         ${getSellerAreaPanelHtml(
@@ -10655,13 +12389,7 @@
     nextArea,
     options = {},
   ) {
-    const areas = [
-      'now',
-      'analysis',
-      'client',
-    ]
-
-    if (!areas.includes(nextArea)) {
+    if (!SELLER_AREAS.includes(nextArea)) {
       return
     }
 
@@ -10684,8 +12412,14 @@
             PANEL_ID,
           )
 
+        const scrollContainer =
+          getWorkspaceScrollContainer(
+            panel,
+          )
+
         const scrollTop =
-          panel?.scrollTop ?? null
+          scrollContainer?.scrollTop ??
+          null
 
         try {
           tab.focus({
@@ -10695,10 +12429,10 @@
           tab.focus()
 
           if (
-            panel &&
+            scrollContainer &&
             scrollTop !== null
           ) {
-            panel.scrollTop =
+            scrollContainer.scrollTop =
               scrollTop
           }
         }
@@ -10709,12 +12443,6 @@
   function handleSellerAreaKeyboard(
     event,
   ) {
-    const areas = [
-      'now',
-      'analysis',
-      'client',
-    ]
-
     const currentArea =
       event.currentTarget
         ?.getAttribute(
@@ -10722,7 +12450,7 @@
         )
 
     const currentIndex =
-      areas.indexOf(currentArea)
+      SELLER_AREAS.indexOf(currentArea)
 
     if (currentIndex < 0) {
       return
@@ -10736,18 +12464,18 @@
     ) {
       nextIndex =
         (currentIndex + 1) %
-        areas.length
+        SELLER_AREAS.length
     } else if (
       event.key === 'ArrowLeft' ||
       event.key === 'ArrowUp'
     ) {
       nextIndex =
-        (currentIndex - 1 + areas.length) %
-        areas.length
+        (currentIndex - 1 + SELLER_AREAS.length) %
+        SELLER_AREAS.length
     } else if (event.key === 'Home') {
       nextIndex = 0
     } else if (event.key === 'End') {
-      nextIndex = areas.length - 1
+      nextIndex = SELLER_AREAS.length - 1
     }
 
     if (nextIndex === null) {
@@ -10756,7 +12484,7 @@
 
     event.preventDefault()
     setActiveSellerArea(
-      areas[nextIndex],
+      SELLER_AREAS[nextIndex],
       { focus: true },
     )
   }
@@ -12561,6 +14289,12 @@
 
     renderPanelRegion(
       panel,
+      'seller-area-tabs',
+      getSellerAreaTabsBarHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
       'seller-information-architecture',
       getSellerInformationArchitectureHtml(),
     )
@@ -13906,7 +15640,7 @@
     // já começou?" — se não, a resposta é descartada silenciosamente e
     // NUNCA é aplicada a `state` (nunca sobrescreve a conversa/ciclo
     // atualmente visível, que já tem seu próprio estado zerado por
-    // clearLeadStateForNewConversation() na troca, ou preenchido por uma
+    // hardResetConversationWorkspace() na troca, ou preenchido por uma
     // análise mais recente). O resultado da conversa de origem não é
     // "destruído" por isso — ele simplesmente nunca chega a ser escrito
     // num `state` que já pertence a outra conversa.
@@ -15516,6 +17250,48 @@
         return
       }
 
+      // Antes de QUALQUER gate (debounce, lookup em voo): uma troca
+      // estrutural real (#main/header remontados) precisa ser detectada
+      // em tempo real, mesmo enquanto um pedido ao bridge da conversa
+      // ANTERIOR ainda está em voo — é exatamente esse pedido em voo que
+      // faz o restante deste callback (debounce de 600ms) não rodar até
+      // ele terminar. Sem isto, uma resposta atrasada não teria como
+      // saber que a conversa mudou quando a conversationKey textual
+      // colide com um homônimo (ver ACTIVE CHAT EPOCH).
+      const previousActiveChatEpoch =
+        activeChatEpoch
+      refreshActiveChatEpoch()
+
+      // Também antes de QUALQUER gate: registra o painel de contato pelo
+      // epoch em que ele é observado aqui, não pelo epoch de quem primeiro
+      // precisar lê-lo. Uma conversa cujo telefone já foi resolvido nunca
+      // aciona runAutomaticContactLookup() -> getContactInfoPanelForEpoch()
+      // (guard de state.conversationPhone), então um painel aberto
+      // manualmente DEPOIS dessa resolução só seria "visto" pela primeira
+      // vez quando um homônimo seguinte fizer seu próprio lookup — e nesse
+      // momento o epoch já seria do homônimo, fazendo o painel antigo
+      // (ainda montado pelo WhatsApp) parecer pertencente à conversa nova.
+      refreshContactInfoPanelStructuralContext(
+        activeChatEpoch,
+      )
+
+      if (
+        activeChatEpoch !== previousActiveChatEpoch
+      ) {
+        // Se A ainda estiver em voo, garanta que B seja reconsultado
+        // assim que o single-flight de A terminar, mesmo quando a
+        // conversationKey textual colide entre homônimos.
+        if (autoContactLookupInFlight) {
+          autoContactLookupConversationRefreshPending =
+            true
+        }
+
+        // Invalida telefone/workspace stale no callback bruto da
+        // boundary, antes do debounce e antes de uma resposta bridge
+        // atrasada poder ser aplicada.
+        refreshConversationSnapshot()
+      }
+
       const visibleConversationKey =
         getConversationKey(
           getConversationTitle(),
@@ -15569,6 +17345,11 @@
     })
 
     observer.observe(observedRoot, {
+      attributes: true,
+      attributeFilter: [
+        'aria-selected',
+        'data-id',
+      ],
       childList: true,
       subtree: true,
       characterData: true,
@@ -15707,6 +17488,7 @@
 
     listenToWhatsAppAudioBridge()
     injectWhatsAppAudioBridge()
+    listenToWhatsAppIdentityBridge()
     createPanel()
     renderPanel()
     await captureSessionFromHash()

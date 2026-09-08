@@ -16,7 +16,7 @@
 // independente do ciclo de vida por tentativa de conversationAnalysis — mas
 // ainda sujeita à mesma proteção contra desatualização por fingerprint que
 // o resultado ao vivo já tinha, e sempre zerada por
-// clearLeadStateForNewConversation() numa troca real de conversa. ANÁLISE/
+// hardResetConversationWorkspace() numa troca real de conversa. ANÁLISE/
 // AGORA continuam sem nenhuma mudança de comportamento (getActiveCommercialReading()
 // não foi alterado).
 //
@@ -514,7 +514,7 @@ test('CLIENTE deixa de apresentar a inteligência comercial como atual assim que
 
 // Reauditoria do Controle Mestre — BLOCKER: o snapshot era identificado só
 // por fingerprint, sem cycle_id/conversation_key/company_id. Isso resolve
-// A→B (troca real de conversa, via clearLeadStateForNewConversation), mas
+// A→B (troca real de conversa, via hardResetConversationWorkspace), mas
 // não cobre a MESMA conversation_key sendo resolvida para um cycle_id
 // diferente — cenário real via resolveCurrentLead() (ex.: botão global
 // "Atualizar", que rechama loadYolenSession()+resolveCurrentLead() para a

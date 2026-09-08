@@ -198,6 +198,8 @@ function createFakeBackground({
   saveLeadSummaryResult,
   createLeadResult,
   getMeResult,
+  methodGuidanceResult,
+  messageGenerationResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
@@ -248,6 +250,40 @@ function createFakeBackground({
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
+    // Uma única action real (LOAD_METHOD_GUIDANCE) atende dois runtimes
+    // diferentes (só relevantes com withSellerMessageRuntime: true):
+    // lead-method-guidance-runtime.js pede o próximo passo (sem
+    // `operation` no payload) e seller-message-runtime.js pede a geração
+    // da mensagem (`operation: 'generate_message'`) — distinguidos aqui
+    // como o próprio backend real distingue.
+    LOAD_METHOD_GUIDANCE: async (requestPayload) => {
+      if (requestPayload?.operation === 'generate_message') {
+        const data = await (
+          typeof messageGenerationResult === 'function'
+            ? messageGenerationResult(requestPayload)
+            : (messageGenerationResult ?? {
+                status: 'ready',
+                message: 'Mensagem gerada de teste.',
+                error: null,
+              })
+        )
+
+        return { ok: true, statusCode: 200, payload: { ok: true, data } }
+      }
+
+      const data = await (
+        typeof methodGuidanceResult === 'function'
+          ? methodGuidanceResult(requestPayload)
+          : (methodGuidanceResult ?? {
+              status: 'ready',
+              method_name: 'Método de teste',
+              stage_name: 'Contato',
+              next_step: 'Responder ao ponto levantado pelo cliente.',
+            })
+      )
+
+      return { ok: true, statusCode: 200, payload: { ok: true, data } }
+    },
     ANALYZE_CONVERSATION: async (requestPayload) => {
       const payload =
         typeof analysisResult === 'function'
@@ -375,6 +411,121 @@ const STABILITY_RUNTIME_FILES = [
   'lead-automation.js',
 ]
 
+// Carregados só quando `withSellerMessageRuntime: true` (UX8 FASE C) —
+// os dois runtimes que envolvem YolenCompanionApi.loadLeadSummary ANTES
+// de content-script.js chamá-lo pela primeira vez, na mesma ordem
+// relativa em que o manifest.json real os injeta (logo depois de
+// yolen-api.js, antes de qualquer outra dependência). Sem isso, o mount
+// do composer ([data-yolen-seller-message-mount], agora na aba MENSAGEM)
+// nunca teria seu conteúdo real montado nestes testes — só a estrutura
+// estática do painel seria exercitada.
+const SELLER_MESSAGE_RUNTIME_FILES = [
+  'lead-method-guidance-runtime.js',
+  'seller-message-runtime.js',
+]
+
+// getConversationPhone() só aceita título/cabeçalho como telefone (fonte
+// fraca) depois que o identity bridge PROVA afirmativamente que a conversa
+// não é grupo (ver nonGroupClassifiedEpochByConversationKey em
+// content-script.js) — nunca em 'unavailable'/timeout. A imensa maioria
+// dos fixtures e3-dom usa um título em formato de telefone (ex.:
+// '+55 11 98888-7777') como atalho de setup para "esta conversa é um
+// contato 1:1 resolvível" e nunca instala um bridge de verdade, contando
+// com o comportamento ANTIGO (síncrono, direto do título) para resolver.
+// Em vez de afrouxar a regra de produção — o próprio ponto da correção —
+// este responder simula aqui o que o bridge REAL faria para um contato 1:1
+// não salvo cujo título é o número cru: responde 'resolved' com esse
+// telefone. Fica em silêncio (nunca responde -> timeout real -> fallbacks
+// existentes) quando o título não parece telefone, então nunca interfere
+// com testes de grupo/self/homônimo cujo título não é um número. Um teste
+// que precisa exercitar o comportamento REAL do bridge (grupo confirmado,
+// resposta atrasada, timeout genuíno, etc.) instala seu próprio responder
+// via installFakeIdentityBridge() e desativa este chamando
+// disableDefaultIdentityBridgeResponder(window) primeiro.
+const IDENTITY_BRIDGE_CONTENT_SCRIPT_SOURCE = 'YOLEN_COMPANION_CONTENT_SCRIPT'
+const IDENTITY_BRIDGE_SOURCE = 'YOLEN_COMPANION_WHATSAPP_IDENTITY_BRIDGE'
+
+function isLikelyPhoneForDefaultIdentityBridge(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+
+  if (digits.length < 10 || digits.length > 13) {
+    return false
+  }
+
+  if (/^(\d)\1+$/.test(digits)) {
+    return false
+  }
+
+  return true
+}
+
+function getDefaultIdentityBridgeTitle(window) {
+  const header = window.document.querySelector('#main header')
+
+  if (!header) {
+    return ''
+  }
+
+  const titledElement = header.querySelector('[title]')
+
+  return (
+    titledElement?.getAttribute('title') ||
+    titledElement?.textContent ||
+    header.textContent ||
+    ''
+  ).trim()
+}
+
+export function disableDefaultIdentityBridgeResponder(window) {
+  window.__yolenTestDisableDefaultIdentityBridge = true
+}
+
+function installDefaultIdentityBridgeResponder(window) {
+  window.addEventListener('message', (event) => {
+    if (window.__yolenTestDisableDefaultIdentityBridge) {
+      return
+    }
+
+    if (event.data?.source !== IDENTITY_BRIDGE_CONTENT_SCRIPT_SOURCE) {
+      return
+    }
+
+    if (event.data?.action !== 'GET_ACTIVE_CHAT_IDENTITY') {
+      return
+    }
+
+    const title = getDefaultIdentityBridgeTitle(window)
+
+    if (!isLikelyPhoneForDefaultIdentityBridge(title)) {
+      return
+    }
+
+    const phone = title.replace(/\D/g, '')
+
+    const responseEvent = new window.MessageEvent('message', {
+      data: {
+        source: IDENTITY_BRIDGE_SOURCE,
+        action: 'ACTIVE_CHAT_IDENTITY',
+        requestId: event.data.requestId,
+        sequence: event.data.sequence,
+        observedAt: Date.now(),
+        identity: {
+          chatId: `${phone}@c.us`,
+          chatIdType: 'c.us',
+          phone,
+          phoneJid: `${phone}@c.us`,
+          phoneServer: 'c.us',
+          isGroup: false,
+        },
+      },
+      origin: window.location.origin,
+      source: window,
+    })
+
+    window.dispatchEvent(responseEvent)
+  })
+}
+
 export function loadContentScript({
   initialHtml,
   resolutionsByPhone,
@@ -385,9 +536,13 @@ export function loadContentScript({
   saveLeadSummaryResult,
   createLeadResult,
   getMeResult,
+  methodGuidanceResult,
+  messageGenerationResult,
   withStabilityRuntimes = false,
+  withSellerMessageRuntime = false,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
+  installDefaultIdentityBridgeResponder(dom.window)
   const background = createFakeBackground({
     resolutionsByPhone,
     clientContextResult,
@@ -397,6 +552,8 @@ export function loadContentScript({
     saveLeadSummaryResult,
     createLeadResult,
     getMeResult,
+    methodGuidanceResult,
+    messageGenerationResult,
   })
 
   const fakeChrome = {
@@ -453,6 +610,35 @@ export function loadContentScript({
 
   for (const dependency of DEPENDENCY_FILES) {
     vm.runInContext(readSource(dependency), sandbox, { filename: dependency })
+
+    if (withSellerMessageRuntime && dependency === 'yolen-api.js') {
+      // yolen-api.js expõe `window.YolenCompanionApi = {...}` (window
+      // literal). lead-method-guidance-runtime.js e seller-message-runtime.js
+      // leem `root.YolenCompanionApi`, onde `root` é
+      // `typeof globalThis !== 'undefined' ? globalThis : window` — dentro
+      // de um vm.createContext, `globalThis` É o próprio objeto do
+      // sandbox, um objeto DIFERENTE de `sandbox.window` (o Window real do
+      // jsdom). Num navegador de verdade `window === globalThis`, então
+      // essa distinção nunca existe; aqui, sem esta ponte, `root.YolenCompanionApi`
+      // seria `undefined` e os dois runtimes nunca instalariam seu wrap
+      // (early-return silencioso). Como é o MESMO objeto (não uma cópia),
+      // a mutação de `api.loadLeadSummary` feita pelos runtimes continua
+      // visível em `window.YolenCompanionApi.loadLeadSummary` — exatamente
+      // o que content-script.js chama.
+      sandbox.YolenCompanionApi = sandbox.window.YolenCompanionApi
+
+      for (const runtimeFile of SELLER_MESSAGE_RUNTIME_FILES) {
+        vm.runInContext(readSource(runtimeFile), sandbox, { filename: runtimeFile })
+      }
+
+      // seller-message-runtime.js expõe sua API pública via
+      // `root.YolenCompanionSellerMessageRuntime = Object.freeze({...})`
+      // (root-scoped); content-script.js lê essa mesma API via
+      // `window.YolenCompanionSellerMessageRuntime` — a ponte inversa da
+      // acima, pelo mesmo motivo.
+      sandbox.window.YolenCompanionSellerMessageRuntime =
+        sandbox.YolenCompanionSellerMessageRuntime
+    }
   }
   vm.runInContext(readSource('content-script.js'), sandbox, { filename: 'content-script.js' })
 

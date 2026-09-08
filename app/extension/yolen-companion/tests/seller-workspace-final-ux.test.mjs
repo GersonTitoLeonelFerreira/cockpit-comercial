@@ -190,9 +190,21 @@ test('abas seller-facing nunca usam focus que pode rolar o painel', () => {
     /preventScroll:\s*true/,
   )
 
+  // UX8 (FASE B.1): #yolen-companion-panel não é mais o elemento rolável
+  // (.yolen-workspace-body é) — a restauração de posição no fallback de
+  // foco precisa passar pelo helper canônico getWorkspaceScrollContainer,
+  // nunca escrever panel.scrollTop diretamente.
   assert.match(
     block,
-    /panel\.scrollTop\s*=\s*scrollTop/,
+    /getWorkspaceScrollContainer\(\s*panel,?\s*\)/,
+  )
+  assert.match(
+    block,
+    /scrollContainer\.scrollTop\s*=\s*scrollTop/,
+  )
+  assert.doesNotMatch(
+    block,
+    /panel\.scrollTop\s*=/,
   )
 
   const wiringStart =
@@ -236,12 +248,43 @@ test('painel desativa scroll anchoring automático do navegador', () => {
   )
 })
 
-test('AGORA não é escondido e possui composer contextual', () => {
+test('AGORA não é escondido, e o composer contextual pertence exclusivamente à aba MENSAGEM (UX8 FASE C)', () => {
   assert.doesNotMatch(
     summaryView,
     /yolen-seller-panel\[data-yolen-seller-panel="now"\]\{display:none!important;\}/,
   )
-  assert.match(summaryView, /data-yolen-seller-message-mount/)
+
+  // FASE C: companion-lead-summary-view.js (AGORA) não emite mais o
+  // mount do composer — só o input hidden do working summary, que
+  // seller-message-runtime.js continua validando de qualquer lugar do
+  // documento (inclusive dentro de um painel [hidden]).
+  assert.doesNotMatch(summaryView, /data-yolen-seller-message-mount/)
+  assert.match(summaryView, /data-yolen-textarea="lead-summary"/)
+
+  // O único mount agora nasce em getSellerMessageAreaHtml()
+  // (content-script.js), dentro da 4ª superfície ('message').
+  assert.match(
+    contentScript,
+    /function getSellerMessageAreaHtml\(\)/,
+  )
+
+  const messageAreaStart = contentScript.indexOf(
+    'function getSellerMessageAreaHtml()',
+  )
+  const messageAreaEnd = contentScript.indexOf(
+    'function getSellerInformationArchitectureHtml()',
+    messageAreaStart,
+  )
+  const messageAreaBlock = contentScript.slice(
+    messageAreaStart,
+    messageAreaEnd,
+  )
+
+  assert.match(
+    messageAreaBlock,
+    /data-yolen-seller-message-mount/,
+  )
+
   assert.match(sellerRuntime, /\[data-yolen-seller-message-mount\]/)
 })
 

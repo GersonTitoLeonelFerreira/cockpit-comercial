@@ -12,7 +12,7 @@ function getLookupBlock() {
     'async function runAutomaticContactLookup(conversationKey)',
   )
   const end = contentScript.indexOf(
-    'function clearLeadStateForNewConversation()',
+    'function hardResetConversationWorkspace()',
     start,
   )
 
@@ -26,7 +26,16 @@ function getLookupBlock() {
 }
 
 test(
-  'sem painel aberto lookup falha fechado sem navegar nem consumir tentativa',
+  // UX8 Automatic Passive Lead Resolution (harden): o fail-closed agora
+  // MARCA a tentativa (para não reagendar a cada mutation do WhatsApp
+  // enquanto nada muda — retry ilimitado) em vez de deixá-la em aberto
+  // para sempre. O invariante que este teste protege continua o mesmo:
+  // nenhuma navegação/clique acontece aqui — só a consequência de
+  // "consumir a tentativa" mudou intencionalmente. A garantia de que
+  // marcar não tranca a conversa para sempre (reentrada ao abrir o
+  // painel manualmente) é provada em
+  // tests/e3-dom/automatic-passive-lead-resolution-race.test.mjs.
+  'sem painel aberto lookup falha fechado sem navegar, e marca a tentativa para não reagendar indefinidamente',
   () => {
     const block = getLookupBlock()
 
@@ -34,17 +43,17 @@ test(
       'if (!hadContactPanelOpen) {',
     )
 
-    const successMarkIndex = block.indexOf(
-      'autoLookupAttemptedKeys.add(',
+    const failClosedEnd = block.indexOf(
+      '\n      }\n',
       failClosedIndex,
     )
 
     assert.ok(failClosedIndex >= 0)
-    assert.ok(successMarkIndex > failClosedIndex)
+    assert.ok(failClosedEnd > failClosedIndex)
 
     const failClosedBlock = block.slice(
       failClosedIndex,
-      successMarkIndex,
+      failClosedEnd,
     )
 
     assert.match(
@@ -62,9 +71,38 @@ test(
       /clickElement\(/,
     )
 
-    assert.doesNotMatch(
+    assert.match(
       failClosedBlock,
-      /autoLookupAttemptedKeys\.add\(/,
+      /autoLookupAttemptedKeys\.add\(\s*conversationKey/,
+    )
+
+    // Mas isso não pode travar a conversa para sempre: reentrar quando o
+    // vendedor abriu o painel manualmente precisa continuar possível.
+    const reentryGuardIndex = block.indexOf(
+      'autoLookupAttemptedKeys.has(',
+    )
+    const reentryGuardEnd = block.indexOf(
+      '\n    ) {\n      return\n    }',
+      reentryGuardIndex,
+    )
+    const reentryGuardBlock = block.slice(
+      reentryGuardIndex,
+      reentryGuardEnd,
+    )
+
+    assert.ok(reentryGuardIndex >= 0)
+    assert.ok(reentryGuardEnd > reentryGuardIndex)
+
+    // Contrato atual (epoch-aware): reentrada não é mais decidida por
+    // "o painel existe no DOM agora" (!findContactInfoPanel()), e sim por
+    // "o painel pertence ao epoch da conversa atual"
+    // (!contactPanelAtLookupStart.authorized) — ver
+    // getContactInfoPanelForEpoch()/refreshContactInfoPanelStructuralContext().
+    // Um painel stale de uma conversa anterior (mesmo nó DOM, epoch
+    // diferente) não pode mais liberar reentrada só por existir.
+    assert.match(
+      reentryGuardBlock,
+      /!contactPanelAtLookupStart\.authorized/,
     )
   },
 )

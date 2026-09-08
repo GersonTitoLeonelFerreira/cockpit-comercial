@@ -18,6 +18,7 @@ import {
   buildPanelHtml,
   dispatch,
   flushStabilityQueues,
+  getWorkspaceBody,
   loadStabilityRuntimes,
 } from './e3-test-support/load-stability-runtimes.mjs'
 
@@ -27,12 +28,49 @@ const ORDERS = [
 ]
 
 // jsdom não roda layout de verdade: scrollHeight/clientHeight ficam sempre 0.
-// Simulamos um painel realmente rolável fixando essas duas leituras, do
-// mesmo jeito que o WhatsApp Web real produziria (painel mais alto que a
-// viewport).
+// Simulamos um painel realmente rolável fixando essas duas leituras no dono
+// real do scroll seller-facing ([data-yolen-workspace-body], não mais no
+// painel externo — ver getWorkspaceBody()/getWorkspaceScrollContainer()), do
+// mesmo jeito que o WhatsApp Web real produziria (região de conteúdo mais
+// alta que a viewport).
+//
+// Patch no PROTÓTIPO (Element), não na instância: cada `panel.innerHTML =
+// ...` destrói o [data-yolen-workspace-body] antigo e cria um novo (é assim
+// que content-script.js e os dois runtimes de estabilidade tratam um
+// rerender de fundo não travado — só a versão travada/pendente restaura
+// scrollTop explicitamente ao reaplicar). Um patch preso à instância antiga
+// vira letra morta depois do primeiro rerender; no protótipo, qualquer
+// elemento com o atributo (a instância antiga OU a nova) sempre relata os
+// mesmos scrollHeight/clientHeight fixos, como o layout real faria.
 function makeScrollable(panel, { scrollHeight = 4000, clientHeight = 600 } = {}) {
-  Object.defineProperty(panel, 'scrollHeight', { get: () => scrollHeight, configurable: true })
-  Object.defineProperty(panel, 'clientHeight', { get: () => clientHeight, configurable: true })
+  const ElementPrototype = panel.ownerDocument.defaultView.Element.prototype
+
+  if (ElementPrototype.__yolenWorkspaceBodyScrollPatched) {
+    return
+  }
+
+  const originalScrollHeight = Object.getOwnPropertyDescriptor(ElementPrototype, 'scrollHeight')
+  const originalClientHeight = Object.getOwnPropertyDescriptor(ElementPrototype, 'clientHeight')
+
+  Object.defineProperty(ElementPrototype, 'scrollHeight', {
+    configurable: true,
+    get() {
+      return this.hasAttribute?.('data-yolen-workspace-body')
+        ? scrollHeight
+        : originalScrollHeight.get.call(this)
+    },
+  })
+
+  Object.defineProperty(ElementPrototype, 'clientHeight', {
+    configurable: true,
+    get() {
+      return this.hasAttribute?.('data-yolen-workspace-body')
+        ? clientHeight
+        : originalClientHeight.get.call(this)
+    },
+  })
+
+  ElementPrototype.__yolenWorkspaceBodyScrollPatched = true
 }
 
 for (const order of ORDERS) {
@@ -46,8 +84,8 @@ for (const order of ORDERS) {
     const panel = getPanel()
     makeScrollable(panel)
 
-    panel.scrollTop = 1200
-    dispatch(panel, 'scroll')
+    getWorkspaceBody(panel).scrollTop = 1200
+    dispatch(getWorkspaceBody(panel), 'scroll')
     await flushStabilityQueues()
 
     // Rerender de fundo: mesma identidade de lead, conteúdo novo.
@@ -59,7 +97,7 @@ for (const order of ORDERS) {
       'Novo valor vindo do estado',
       'o rerender de fundo deveria ter sido aplicado (nada estava travando)',
     )
-    assert.equal(panel.scrollTop, 1200, 'scroll não deveria voltar ao topo nem pular')
+    assert.equal(getWorkspaceBody(panel).scrollTop, 1200, 'scroll não deveria voltar ao topo nem pular')
   })
 
   test(`[${orderLabel}] input preservado durante rerender: valor não é destruído enquanto o campo tem foco`, async () => {
@@ -207,7 +245,7 @@ for (const order of ORDERS) {
       ) {
         const top =
           actionDocumentTop -
-          panel.scrollTop
+          getWorkspaceBody(panel).scrollTop
 
         return {
           x: 0,
@@ -230,8 +268,8 @@ for (const order of ORDERS) {
     }
 
     try {
-      panel.scrollTop = 1375
-      dispatch(panel, 'scroll')
+      getWorkspaceBody(panel).scrollTop = 1375
+      dispatch(getWorkspaceBody(panel), 'scroll')
       await flushStabilityQueues()
 
       const button = document.querySelector(
@@ -246,7 +284,7 @@ for (const order of ORDERS) {
       button.addEventListener('click', () => {
         // Simula o Firefox tentando levar o painel ao topo enquanto a ação
         // também provoca um rerender que substitui o node clicado.
-        panel.scrollTop = 0
+        getWorkspaceBody(panel).scrollTop = 0
 
         panel.innerHTML = buildPanelHtml({
           leadName: 'Cliente A',
@@ -273,7 +311,7 @@ for (const order of ORDERS) {
         'o controle clicado deve continuar na mesma altura da viewport',
       )
       assert.equal(
-        panel.scrollTop,
+        getWorkspaceBody(panel).scrollTop,
         1375,
       )
 
@@ -298,8 +336,8 @@ for (const order of ORDERS) {
 
       // Scroll tardio do navegador sem gesto real do vendedor também deve
       // voltar para a âncora visual.
-      panel.scrollTop = 0
-      dispatch(panel, 'scroll')
+      getWorkspaceBody(panel).scrollTop = 0
+      dispatch(getWorkspaceBody(panel), 'scroll')
       await flushStabilityQueues()
 
       assert.equal(
@@ -313,9 +351,9 @@ for (const order of ORDERS) {
       )
 
       // Navegação real libera a âncora.
-      dispatch(panel, 'wheel')
-      panel.scrollTop = 910
-      dispatch(panel, 'scroll')
+      dispatch(getWorkspaceBody(panel), 'wheel')
+      getWorkspaceBody(panel).scrollTop = 910
+      dispatch(getWorkspaceBody(panel), 'scroll')
 
       panel.innerHTML = buildPanelHtml({
         leadName: 'Cliente A',
@@ -326,7 +364,7 @@ for (const order of ORDERS) {
       await flushStabilityQueues()
 
       assert.equal(
-        panel.scrollTop,
+        getWorkspaceBody(panel).scrollTop,
         910,
         'wheel deve aceitar a nova posição escolhida pelo vendedor',
       )
@@ -339,17 +377,19 @@ for (const order of ORDERS) {
   test(`[${orderLabel}] enriquecimento ancora o candidato exato quando ações repetem o mesmo data-yolen-action`, async () => {
     const initialHtml = `
       <div class="yolen-lead-name">Cliente A</div>
-      <button
-        type="button"
-        data-yolen-action="confirm-lead-enrichment"
-        data-yolen-enrichment-key="candidate-1"
-      >Confirmar primeiro</button>
-      <button
-        type="button"
-        data-yolen-action="confirm-lead-enrichment"
-        data-yolen-enrichment-key="candidate-2"
-      >Confirmar segundo</button>
-      <div class="yolen-filler" style="height:4000px"></div>
+      <div data-yolen-workspace-body>
+        <button
+          type="button"
+          data-yolen-action="confirm-lead-enrichment"
+          data-yolen-enrichment-key="candidate-1"
+        >Confirmar primeiro</button>
+        <button
+          type="button"
+          data-yolen-action="confirm-lead-enrichment"
+          data-yolen-enrichment-key="candidate-2"
+        >Confirmar segundo</button>
+        <div class="yolen-filler" style="height:4000px"></div>
+      </div>
     `
 
     const { document, window, getPanel } =
@@ -382,7 +422,7 @@ for (const order of ORDERS) {
               : 1800
           const top =
             documentTop -
-            panel.scrollTop
+            getWorkspaceBody(panel).scrollTop
 
           return {
             x: 0,
@@ -405,8 +445,8 @@ for (const order of ORDERS) {
       }
 
     try {
-      panel.scrollTop = 1375
-      dispatch(panel, 'scroll')
+      getWorkspaceBody(panel).scrollTop = 1375
+      dispatch(getWorkspaceBody(panel), 'scroll')
       await flushStabilityQueues()
 
       const second =
@@ -424,7 +464,7 @@ for (const order of ORDERS) {
       second.addEventListener(
         'click',
         () => {
-          panel.scrollTop = 0
+          getWorkspaceBody(panel).scrollTop = 0
           panel.innerHTML =
             initialHtml.replace(
               'Confirmar segundo',
@@ -451,7 +491,7 @@ for (const order of ORDERS) {
         'a âncora precisa reencontrar o segundo candidato, não o primeiro botão com a mesma ação',
       )
       assert.equal(
-        panel.scrollTop,
+        getWorkspaceBody(panel).scrollTop,
         1375,
       )
     } finally {
@@ -464,18 +504,22 @@ for (const order of ORDERS) {
   test(`[${orderLabel}] ação que desaparece libera a âncora e volta ao fluxo normal de scroll`, async () => {
     const initialHtml = `
       <div class="yolen-lead-name">Cliente A</div>
-      <button
-        type="button"
-        data-yolen-action="ignore-lead-enrichment"
-        data-yolen-enrichment-key="candidate-2"
-      >Ignorar</button>
-      <div class="yolen-filler" style="height:4000px"></div>
+      <div data-yolen-workspace-body>
+        <button
+          type="button"
+          data-yolen-action="ignore-lead-enrichment"
+          data-yolen-enrichment-key="candidate-2"
+        >Ignorar</button>
+        <div class="yolen-filler" style="height:4000px"></div>
+      </div>
     `
 
     const htmlAfterIgnore = `
       <div class="yolen-lead-name">Cliente A</div>
-      <div data-yolen-enrichment-empty>Nenhum enriquecimento pendente</div>
-      <div class="yolen-filler" style="height:4000px"></div>
+      <div data-yolen-workspace-body>
+        <div data-yolen-enrichment-empty>Nenhum enriquecimento pendente</div>
+        <div class="yolen-filler" style="height:4000px"></div>
+      </div>
     `
 
     const {
@@ -490,8 +534,8 @@ for (const order of ORDERS) {
     const panel = getPanel()
     makeScrollable(panel)
 
-    panel.scrollTop = 1375
-    dispatch(panel, 'scroll')
+    getWorkspaceBody(panel).scrollTop = 1375
+    dispatch(getWorkspaceBody(panel), 'scroll')
     await flushStabilityQueues()
 
     const ignore =
@@ -522,8 +566,8 @@ for (const order of ORDERS) {
 
     // Depois que a ação some, a âncora não pode continuar presa. Um scroll
     // real posterior precisa atualizar o snapshot normal do painel.
-    panel.scrollTop = 910
-    dispatch(panel, 'scroll')
+    getWorkspaceBody(panel).scrollTop = 910
+    dispatch(getWorkspaceBody(panel), 'scroll')
     await flushStabilityQueues()
 
     sandbox
@@ -533,7 +577,7 @@ for (const order of ORDERS) {
     await flushStabilityQueues()
 
     assert.equal(
-      panel.scrollTop,
+      getWorkspaceBody(panel).scrollTop,
       910,
       'a ação removida deve liberar a âncora; o restore normal precisa respeitar o scroll posterior do vendedor',
     )
@@ -555,8 +599,8 @@ for (const order of ORDERS) {
     const panel = getPanel()
     makeScrollable(panel)
 
-    panel.scrollTop = 1375
-    dispatch(panel, 'scroll')
+    getWorkspaceBody(panel).scrollTop = 1375
+    dispatch(getWorkspaceBody(panel), 'scroll')
     await flushStabilityQueues()
 
     const button =
@@ -579,8 +623,8 @@ for (const order of ORDERS) {
       ),
     )
 
-    panel.scrollTop = 910
-    dispatch(panel, 'scroll')
+    getWorkspaceBody(panel).scrollTop = 910
+    dispatch(getWorkspaceBody(panel), 'scroll')
 
     panel.innerHTML =
       buildPanelHtml({
@@ -592,7 +636,7 @@ for (const order of ORDERS) {
     await flushStabilityQueues()
 
     assert.equal(
-      panel.scrollTop,
+      getWorkspaceBody(panel).scrollTop,
       910,
       'Tab deve liberar a âncora anterior e permitir o novo foco/scroll do navegador',
     )
@@ -605,8 +649,8 @@ for (const order of ORDERS) {
     })
     const panel = getPanel()
     makeScrollable(panel)
-    panel.scrollTop = 900
-    dispatch(panel, 'scroll')
+    getWorkspaceBody(panel).scrollTop = 900
+    dispatch(getWorkspaceBody(panel), 'scroll')
     await flushStabilityQueues()
 
     // Simula o WhatsApp Web abrindo o painel lateral "Dados do contato":
@@ -619,7 +663,7 @@ for (const order of ORDERS) {
     await flushStabilityQueues()
 
     assert.equal(
-      panel.scrollTop,
+      getWorkspaceBody(panel).scrollTop,
       900,
       'uma mutação fora do painel não pode mexer no scroll do Companion',
     )
@@ -639,8 +683,8 @@ for (const order of ORDERS) {
     })
     const panel = getPanel()
     makeScrollable(panel)
-    panel.scrollTop = 500
-    dispatch(panel, 'scroll')
+    getWorkspaceBody(panel).scrollTop = 500
+    dispatch(getWorkspaceBody(panel), 'scroll')
     await flushStabilityQueues()
 
     // Volta de aba: visibilitychange para 'visible' liga o resume guard.
@@ -670,7 +714,7 @@ for (const order of ORDERS) {
       'Reresolvido no retorno',
       'depois do guard expirar, o rerender retido deveria ter sido aplicado',
     )
-    assert.equal(panel.scrollTop, 500, 'a posição de scroll não pode ter sido perdida no retorno de aba')
+    assert.equal(getWorkspaceBody(panel).scrollTop, 500, 'a posição de scroll não pode ter sido perdida no retorno de aba')
   })
 
   test(`[${orderLabel}] mudança real de conversa reseta scroll e destrava o painel`, async () => {
@@ -686,8 +730,8 @@ for (const order of ORDERS) {
     dispatch(nameField, 'focusin')
     nameField.value = 'Rascunho do Cliente A'
     dispatch(nameField, 'input')
-    panel.scrollTop = 1500
-    dispatch(panel, 'scroll')
+    getWorkspaceBody(panel).scrollTop = 1500
+    dispatch(getWorkspaceBody(panel), 'scroll')
     await flushStabilityQueues()
 
     // O usuário troca de conversa de verdade no WhatsApp: content-script.js
@@ -710,6 +754,6 @@ for (const order of ORDERS) {
       '',
       'o rascunho do Cliente A não pode vazar para o painel do Cliente B',
     )
-    assert.equal(panel.scrollTop, 0, 'uma mudança real de conversa deve resetar o scroll para o topo')
+    assert.equal(getWorkspaceBody(panel).scrollTop, 0, 'uma mudança real de conversa deve resetar o scroll para o topo')
   })
 }

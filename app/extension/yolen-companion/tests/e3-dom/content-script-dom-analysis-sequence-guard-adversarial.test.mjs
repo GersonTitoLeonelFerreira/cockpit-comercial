@@ -25,7 +25,7 @@
 // Ambos os testes usam o mesmo padrão real de UI que o PR #208 já usa para
 // conseguir duas requisições em voo na MESMA conversa (o botão "Analisar
 // agora" some enquanto `conversationAnalysisLoading` é true; sair da
-// conversa e voltar zera esse estado via `clearLeadStateForNewConversation`
+// conversa e voltar zera esse estado via `hardResetConversationWorkspace`
 // e reexibe o botão, permitindo uma segunda análise real enquanto a
 // primeira ainda não respondeu).
 
@@ -130,7 +130,7 @@ async function switchConversationAndWait({ document, calls, title, messageId, pr
 }
 
 // Sai para B e volta para A — zera `conversationAnalysisLoading` (via
-// `clearLeadStateForNewConversation`) sem esperar a análise pendente de A
+// `hardResetConversationWorkspace`) sem esperar a análise pendente de A
 // resolver, permitindo uma segunda análise real da mesma conversa A. Espera
 // resolveLeadCalls e ingestCalls confirmarem CADA troca antes de seguir
 // para a próxima (mesmo padrão usado por goToConversationB em

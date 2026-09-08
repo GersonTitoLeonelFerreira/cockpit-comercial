@@ -22,7 +22,7 @@ test('grupo e bloqueado antes da busca automatica de telefone', () => {
     'async function runAutomaticContactLookup(conversationKey)',
   )
   const lookupEnd = contentScript.indexOf(
-    'function clearLeadStateForNewConversation()',
+    'function hardResetConversationWorkspace()',
     lookupStart,
   )
 
@@ -36,14 +36,17 @@ test('grupo e bloqueado antes da busca automatica de telefone', () => {
     /state\.isGroupConversation/,
   )
 
+  // conversationKey (não lookupIdentity, o nome normalizado — colide
+  // entre contatos homônimos) é a chave de tentativa desde a UX8
+  // Automatic Passive Lead Resolution.
   assert.match(
     lookupBlock,
-    /autoLookupAttemptedKeys\.has\(\s*lookupIdentity/,
+    /autoLookupAttemptedKeys\.has\(\s*conversationKey/,
   )
 
   assert.match(
     lookupBlock,
-    /autoLookupAttemptedKeys\.add\(\s*lookupIdentity/,
+    /autoLookupAttemptedKeys\.add\(\s*conversationKey/,
   )
 
   assert.match(
@@ -151,19 +154,27 @@ test('resolucao do lead usa identidade estavel da consulta e nao repete por muta
     refreshEnd,
   )
 
+  // Contrato atual: isGroupConversation também considera a classificação
+  // persistida do bridge (bridgeSaysGroup) além do header — ver
+  // "Persist bridge-confirmed group classification" — mas continua
+  // incluindo isGroupConversationHeader() como uma das fontes.
   assert.match(
     refreshBlock,
-    /const isGroupConversation =\s*isGroupConversationHeader\(\)/,
+    /const isGroupConversation =\s*bridgeSaysGroup \|\|\s*isGroupConversationHeader\(\)/,
+  )
+
+  // O gate de deduplicação usa conversationKey (identidade única por
+  // conversa) desde a UX8 Automatic Passive Lead Resolution —
+  // contactLookupIdentity (nome normalizado) colide entre contatos
+  // homônimos e não pode mais governar sozinho essa decisão.
+  assert.match(
+    refreshBlock,
+    /lastResolvedConversationKey !==\s*conversationKey/,
   )
 
   assert.match(
     refreshBlock,
-    /lastResolvedContactLookupIdentity !==\s*contactLookupIdentity/,
-  )
-
-  assert.match(
-    refreshBlock,
-    /!autoLookupAttemptedKeys\.has\(\s*contactLookupIdentity/,
+    /!autoLookupAttemptedKeys\.has\(\s*conversationKey/,
   )
 
   const groupBranchIndex = refreshBlock.indexOf(
@@ -193,7 +204,7 @@ test(
 
     const lookupEnd =
       contentScript.indexOf(
-        'function clearLeadStateForNewConversation()',
+        'function hardResetConversationWorkspace()',
         lookupStart,
       )
 
