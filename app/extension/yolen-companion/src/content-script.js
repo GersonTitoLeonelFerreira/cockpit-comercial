@@ -487,6 +487,7 @@
   }
 
   const cachedPhonesByConversationKey = new Map()
+  const cachedPhoneEpochByConversationKey = new Map()
   const cachedPhonesByLookupIdentity = new Map()
   const lastIngestedCaptureKeys = new Map()
 
@@ -5494,6 +5495,11 @@
           bridgeResult.phone,
         )
 
+        cachedPhoneEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
+        )
+
         // Ancora o telefone à identidade forte que o bridge acabou de
         // provar para ESTA conversationKey e ao epoch estrutural vigente
         // agora — sem isso, uma troca real para outro contato homônimo
@@ -5565,6 +5571,11 @@
         cachedPhonesByConversationKey.set(
           conversationKey,
           passiveResult.phone,
+        )
+
+        cachedPhoneEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
         )
 
         state = {
@@ -5665,6 +5676,11 @@
       cachedPhonesByConversationKey.set(
         conversationKey,
         phone,
+      )
+
+      cachedPhoneEpochByConversationKey.set(
+        conversationKey,
+        activeChatEpoch,
       )
 
       cachedPhonesByLookupIdentity.set(
@@ -5958,6 +5974,11 @@
           bridgeResult.phone,
         )
 
+        cachedPhoneEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
+        )
+
         // Âncora usada também em runAutomaticContactLookup(): sem isto,
         // um homônimo 1:1 futuro sob a MESMA conversationKey reutilizaria
         // este telefone só pela chave visual coincidir.
@@ -6067,7 +6088,36 @@
       cachedPhonesByConversationKey.delete(
         conversationKey,
       )
+      cachedPhoneEpochByConversationKey.delete(
+        conversationKey,
+      )
       bridgeResolvedContactContext = null
+
+      if (conversationKey) {
+        autoLookupAttemptedKeys.delete(
+          conversationKey,
+        )
+      }
+    }
+
+    const cachedPhoneEpoch =
+      cachedPhoneEpochByConversationKey.get(
+        conversationKey,
+      )
+
+    const cachedPhoneStale =
+      cachedPhonesByConversationKey.has(
+        conversationKey,
+      ) &&
+      cachedPhoneEpoch !== activeChatEpoch
+
+    if (cachedPhoneStale) {
+      cachedPhonesByConversationKey.delete(
+        conversationKey,
+      )
+      cachedPhoneEpochByConversationKey.delete(
+        conversationKey,
+      )
 
       if (conversationKey) {
         autoLookupAttemptedKeys.delete(
@@ -6143,7 +6193,8 @@
       // estado de tentativa/ledger da associação antiga pode sobreviver.
       if (
         conversationChanged ||
-        bridgeResolvedContactStale
+        bridgeResolvedContactStale ||
+        cachedPhoneStale
       ) {
         rememberCurrentPreResolutionCapture()
 
@@ -6186,7 +6237,8 @@
 
     if (
       conversationChanged ||
-      bridgeResolvedContactStale
+      bridgeResolvedContactStale ||
+      cachedPhoneStale
     ) {
       hardResetConversationWorkspace()
     }

@@ -1627,3 +1627,109 @@ test('AE) mesma row preserva data-id forte através de gap temporário e separa 
     'A->gap->B não pode produzir request storm',
   )
 })
+
+
+test('AF) telefone do fallback passivo não pode sobreviver a troca estrutural para homônimo', async () => {
+  const TITLE = 'Mesmo Nome AF'
+  const PHONE_A = '5511912345001'
+  const PHONE_B = '5511912345002'
+  const MARKER_A = 'MARCADOR_PASSIVO_A_AF'
+  const MARKER_B = 'MARCADOR_PASSIVO_B_AF'
+
+  const { calls, document } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: TITLE,
+      mainDataIds: [
+        `true_${PHONE_A}@c.us_A`,
+      ],
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: defaultLeadResolution({
+        phone: PHONE_A,
+        lead: {
+          id: 'passive-a-af',
+          name: MARKER_A,
+          phone: PHONE_A,
+        },
+      }),
+      [PHONE_B]: defaultLeadResolution({
+        phone: PHONE_B,
+        lead: {
+          id: 'passive-b-af',
+          name: MARKER_B,
+          phone: PHONE_B,
+        },
+      }),
+    },
+  })
+
+  const panelText = () =>
+    document
+      .getElementById('yolen-companion-panel')
+      ?.textContent || ''
+
+  const resolvedA = await waitFor(() =>
+    resolveLeadCalls(calls).at(-1),
+  )
+
+  assert.equal(
+    resolvedA.payload.phone,
+    PHONE_A,
+    'A precisa resolver inicialmente pelo fallback passivo',
+  )
+
+  await waitFor(() =>
+    panelText().includes(MARKER_A),
+  )
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    1,
+  )
+
+  const app = document.getElementById('app')
+
+  app.innerHTML = buildAppInnerHtml({
+    headerTitle: TITLE,
+    mainDataIds: [
+      `true_${PHONE_B}@c.us_B`,
+    ],
+  })
+
+  await sleep(900)
+
+  assert.ok(
+    !panelText().includes(MARKER_A),
+    'após a troca estrutural para B, o workspace stale de A deve desaparecer antes de qualquer nova resolução',
+  )
+
+  assert.ok(
+    !panelText().includes(PHONE_A),
+    'o telefone passivamente cacheado de A não pode permanecer autorizado em B',
+  )
+
+  const resolvedB = await waitFor(() => {
+    const list = resolveLeadCalls(calls)
+
+    return list.length === 2
+      ? list.at(-1)
+      : null
+  })
+
+  assert.equal(
+    resolvedB.payload.phone,
+    PHONE_B,
+    'B precisa resolver usando o próprio JID passivo',
+  )
+
+  assert.deepEqual(
+    resolveLeadCalls(calls).map(
+      (call) => call.payload.phone,
+    ),
+    [PHONE_A, PHONE_B],
+  )
+
+  await waitFor(() =>
+    panelText().includes(MARKER_B),
+  )
+})
