@@ -18,6 +18,7 @@ import {
   loadContentScript,
   resolveLeadCalls,
   defaultLeadResolution,
+  disableDefaultIdentityBridgeResponder,
 } from '../e3-test-support/load-content-script.mjs'
 
 function sleep(ms) {
@@ -79,6 +80,13 @@ const CONTENT_SCRIPT_SOURCE = 'YOLEN_COMPANION_CONTENT_SCRIPT'
 // não responde" (timeout), um objeto para simular uma leitura real de
 // Fiber. `delayMs` simula o atraso real de um postMessage entre worlds.
 function installFakeIdentityBridge(window, resolveIdentity, { delayMs = 0 } = {}) {
+  // Este arquivo testa o comportamento REAL do bridge (grupo, timeout,
+  // resposta atrasada, etc.) — o responder padrão do harness (que
+  // resolveria sozinho qualquer título em formato de telefone) precisa
+  // ficar fora do caminho para não competir com o comportamento exato que
+  // cada teste está simulando aqui.
+  disableDefaultIdentityBridgeResponder(window)
+
   const requests = []
 
   // jsdom não popula event.source/event.origin corretamente para
@@ -2003,5 +2011,33 @@ test('AI) grupo com título em formato de telefone não resolve lead antes do br
     resolveLeadCalls(calls).length,
     0,
     'um grupo cujo título parece telefone nunca pode ser resolvido como lead antes (ou depois) do bridge confirmar que é grupo',
+  )
+})
+
+test('AJ) grupo com título em formato de telefone não resolve lead quando o bridge fica indisponível (nunca responde)', async () => {
+  const GROUP_TITLE = '5511999997777'
+
+  const { calls, window } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: GROUP_TITLE,
+    }),
+  })
+
+  // Bridge instalado mas NUNCA responde (undefined) — timeout real, não
+  // uma confirmação de nada. 'unavailable'/inconclusivo não é prova de
+  // que a conversa NÃO é grupo; sem uma resposta afirmativa do bridge, o
+  // título continua sem autoridade nenhuma para resolver lead.
+  installFakeIdentityBridge(window, () => undefined)
+
+  // Folga generosa: timeout do bridge (1200ms) + agendamento (300ms) +
+  // qualquer poll de painel — tempo suficiente para a implementação
+  // buscar (incorretamente) cair no fallback de título se o gate
+  // estivesse liberando por indisponibilidade.
+  await sleep(3000)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'um grupo cujo título parece telefone nunca pode ser resolvido como lead quando o bridge está indisponível — indisponibilidade não é prova de que não é grupo',
   )
 })

@@ -247,17 +247,19 @@
 
   const autoLookupAttemptedKeys = new Set()
 
-  // conversationKey -> epoch em que o identity bridge teve sua chance
-  // completa de classificar a conversa e NÃO a confirmou como grupo
-  // (resolveu 1:1, ou ficou indisponível/inconclusivo). getConversationPhone()
-  // só pode aceitar o título/cabeçalho como telefone (fonte fraca — ver
-  // 'Cabeçalho da conversa'/'Contato selecionado') quando esta entrada
-  // existir E bater com o epoch ATUAL: sem isso, um grupo recém-aberto cujo
-  // título por coincidência parece telefone seria resolvido como lead antes
-  // de qualquer chance do bridge dizer que é grupo — e a checagem por epoch
-  // (não só por conversationKey) impede que essa autorização vaze para um
-  // homônimo B (grupo) só porque a MESMA chave textual já foi liberada para
-  // A (1:1) num epoch anterior.
+  // conversationKey -> epoch em que o identity bridge PROVOU
+  // afirmativamente (status 'resolved') que a conversa NÃO é grupo.
+  // getConversationPhone() só pode aceitar o título/cabeçalho como
+  // telefone (fonte fraca — ver 'Cabeçalho da conversa'/'Contato
+  // selecionado') quando esta entrada existir E bater com o epoch ATUAL:
+  // sem isso, um grupo recém-aberto cujo título por coincidência parece
+  // telefone seria resolvido como lead antes de qualquer chance do bridge
+  // dizer que é grupo — e a checagem por epoch (não só por conversationKey)
+  // impede que essa autorização vaze para um homônimo B (grupo) só porque
+  // a MESMA chave textual já foi liberada para A (1:1) num epoch anterior.
+  // NUNCA marcado em 'unavailable'/inconclusivo: um timeout do bridge não é
+  // prova de que a conversa não é grupo, só de que o bridge não respondeu a
+  // tempo — ver regressão AJ.
   const nonGroupClassifiedEpochByConversationKey = new Map()
 
   // Evidência forte do identity bridge para a conversa ATUAL.
@@ -5550,16 +5552,6 @@
         return
       }
 
-      // O bridge teve sua chance completa e NÃO confirmou grupo (resolveu
-      // 1:1, ou ficou indisponível/inconclusivo) — a partir de agora,
-      // getConversationPhone() pode aceitar o título desta conversa, NESTE
-      // epoch, como fonte fraca de telefone sem risco de autorizar um
-      // grupo como lead antes da classificação.
-      nonGroupClassifiedEpochByConversationKey.set(
-        conversationKey,
-        activeChatEpoch,
-      )
-
       if (bridgeResult.status === 'resolved') {
         const resolvedIdentity =
           getBridgeStrongIdentity(
@@ -5587,6 +5579,17 @@
         ) {
           return
         }
+
+        // O bridge acabou de provar afirmativamente que esta conversa NÃO
+        // é grupo — só agora getConversationPhone() pode aceitar o título
+        // desta conversa, NESTE epoch, como fonte fraca de telefone.
+        // 'unavailable'/inconclusivo NUNCA libera esta autorização: um
+        // timeout não é prova de que a conversa não é grupo, só de que o
+        // bridge não respondeu a tempo (ver AJ).
+        nonGroupClassifiedEpochByConversationKey.set(
+          conversationKey,
+          activeChatEpoch,
+        )
 
         autoLookupAttemptedKeys.add(
           conversationKey,

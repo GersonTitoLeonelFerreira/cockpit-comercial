@@ -424,6 +424,108 @@ const SELLER_MESSAGE_RUNTIME_FILES = [
   'seller-message-runtime.js',
 ]
 
+// getConversationPhone() só aceita título/cabeçalho como telefone (fonte
+// fraca) depois que o identity bridge PROVA afirmativamente que a conversa
+// não é grupo (ver nonGroupClassifiedEpochByConversationKey em
+// content-script.js) — nunca em 'unavailable'/timeout. A imensa maioria
+// dos fixtures e3-dom usa um título em formato de telefone (ex.:
+// '+55 11 98888-7777') como atalho de setup para "esta conversa é um
+// contato 1:1 resolvível" e nunca instala um bridge de verdade, contando
+// com o comportamento ANTIGO (síncrono, direto do título) para resolver.
+// Em vez de afrouxar a regra de produção — o próprio ponto da correção —
+// este responder simula aqui o que o bridge REAL faria para um contato 1:1
+// não salvo cujo título é o número cru: responde 'resolved' com esse
+// telefone. Fica em silêncio (nunca responde -> timeout real -> fallbacks
+// existentes) quando o título não parece telefone, então nunca interfere
+// com testes de grupo/self/homônimo cujo título não é um número. Um teste
+// que precisa exercitar o comportamento REAL do bridge (grupo confirmado,
+// resposta atrasada, timeout genuíno, etc.) instala seu próprio responder
+// via installFakeIdentityBridge() e desativa este chamando
+// disableDefaultIdentityBridgeResponder(window) primeiro.
+const IDENTITY_BRIDGE_CONTENT_SCRIPT_SOURCE = 'YOLEN_COMPANION_CONTENT_SCRIPT'
+const IDENTITY_BRIDGE_SOURCE = 'YOLEN_COMPANION_WHATSAPP_IDENTITY_BRIDGE'
+
+function isLikelyPhoneForDefaultIdentityBridge(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+
+  if (digits.length < 10 || digits.length > 13) {
+    return false
+  }
+
+  if (/^(\d)\1+$/.test(digits)) {
+    return false
+  }
+
+  return true
+}
+
+function getDefaultIdentityBridgeTitle(window) {
+  const header = window.document.querySelector('#main header')
+
+  if (!header) {
+    return ''
+  }
+
+  const titledElement = header.querySelector('[title]')
+
+  return (
+    titledElement?.getAttribute('title') ||
+    titledElement?.textContent ||
+    header.textContent ||
+    ''
+  ).trim()
+}
+
+export function disableDefaultIdentityBridgeResponder(window) {
+  window.__yolenTestDisableDefaultIdentityBridge = true
+}
+
+function installDefaultIdentityBridgeResponder(window) {
+  window.addEventListener('message', (event) => {
+    if (window.__yolenTestDisableDefaultIdentityBridge) {
+      return
+    }
+
+    if (event.data?.source !== IDENTITY_BRIDGE_CONTENT_SCRIPT_SOURCE) {
+      return
+    }
+
+    if (event.data?.action !== 'GET_ACTIVE_CHAT_IDENTITY') {
+      return
+    }
+
+    const title = getDefaultIdentityBridgeTitle(window)
+
+    if (!isLikelyPhoneForDefaultIdentityBridge(title)) {
+      return
+    }
+
+    const phone = title.replace(/\D/g, '')
+
+    const responseEvent = new window.MessageEvent('message', {
+      data: {
+        source: IDENTITY_BRIDGE_SOURCE,
+        action: 'ACTIVE_CHAT_IDENTITY',
+        requestId: event.data.requestId,
+        sequence: event.data.sequence,
+        observedAt: Date.now(),
+        identity: {
+          chatId: `${phone}@c.us`,
+          chatIdType: 'c.us',
+          phone,
+          phoneJid: `${phone}@c.us`,
+          phoneServer: 'c.us',
+          isGroup: false,
+        },
+      },
+      origin: window.location.origin,
+      source: window,
+    })
+
+    window.dispatchEvent(responseEvent)
+  })
+}
+
 export function loadContentScript({
   initialHtml,
   resolutionsByPhone,
@@ -440,6 +542,7 @@ export function loadContentScript({
   withSellerMessageRuntime = false,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
+  installDefaultIdentityBridgeResponder(dom.window)
   const background = createFakeBackground({
     resolutionsByPhone,
     clientContextResult,
