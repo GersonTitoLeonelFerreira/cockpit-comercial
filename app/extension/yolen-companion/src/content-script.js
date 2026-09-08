@@ -1504,6 +1504,18 @@
     return isLikelyPhone(digits) ? onlyDigits(digits) : null
   }
 
+  // Diferente de extractPhoneFromJid() rejeitar "@g.us" (não é telefone):
+  // esta função existe para o CHAMADOR distinguir "não é telefone porque
+  // não reconheço o formato" de "não é telefone porque É um grupo" — a
+  // segunda é prova estrutural definitiva de grupo, nunca motivo para
+  // continuar procurando telefone em outro lugar (ver
+  // resolvePassivePhoneForConversation()).
+  function isGroupJid(rawValue) {
+    return /@g\.us/i.test(
+      String(rawValue || ''),
+    )
+  }
+
   // Valida a identidade recebida do whatsapp-identity-bridge (page world).
   // Mesma allowlist de PHONE_JID_DOMAINS: LID nunca vira telefone, grupo
   // nunca resolve, e qualquer inconsistência entre phoneJid e
@@ -2290,9 +2302,26 @@
       return null
     }
 
+    const selectedChatDataId =
+      getSelectedChatDataId()
+
+    // Um data-id "@g.us" na linha selecionada é prova estrutural
+    // definitiva de que esta conversa é um grupo — mesmo que
+    // extractPhoneFromJid() rejeite corretamente esse domínio (não é
+    // telefone), continuar para o scan de #main abaixo pegaria o JID de
+    // um PARTICIPANTE (@c.us) da mensagem e o trataria como se fosse o
+    // contato da conversa. Grupo aqui é terminal: nem tenta ler mensagens.
+    if (
+      isGroupJid(
+        selectedChatDataId,
+      )
+    ) {
+      return null
+    }
+
     const selectedChatPhone =
       extractPhoneFromJid(
-        getSelectedChatDataId(),
+        selectedChatDataId,
       )
 
     if (selectedChatPhone) {

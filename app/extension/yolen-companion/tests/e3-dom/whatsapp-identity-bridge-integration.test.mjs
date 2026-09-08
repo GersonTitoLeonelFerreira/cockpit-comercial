@@ -2041,3 +2041,33 @@ test('AJ) grupo com título em formato de telefone não resolve lead quando o br
     'um grupo cujo título parece telefone nunca pode ser resolvido como lead quando o bridge está indisponível — indisponibilidade não é prova de que não é grupo',
   )
 })
+
+test('AK) linha selecionada com data-id @g.us é prova terminal de grupo — não cai para JID de participante em #main', async () => {
+  const GROUP_TITLE = 'Grupo Suporte ES'
+  const GROUP_JID = '120363099998887776@g.us'
+  const PARTICIPANT_PHONE = '5511999996666'
+
+  const { calls, window } = loadContentScript({
+    initialHtml: buildPageHtml({
+      headerTitle: GROUP_TITLE,
+      sidebarDataId: GROUP_JID,
+      mainDataIds: [
+        `true_${PARTICIPANT_PHONE}@c.us_msg1`,
+      ],
+    }),
+  })
+
+  // Locale não reconhecido por isGroupConversationHeader() (sem aria-label
+  // "em grupo"/"group call") e bridge nunca responde (indisponível/
+  // inconclusivo) — a ÚNICA evidência de que isto é grupo é o data-id
+  // @g.us da própria linha selecionada.
+  installFakeIdentityBridge(window, () => undefined)
+
+  await sleep(3000)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'um data-id @g.us na linha selecionada prova que é grupo — extractPhoneFromJid() rejeitar esse domínio não pode abrir caminho para aceitar o JID de um PARTICIPANTE lido em #main como se fosse o contato',
+  )
+})
