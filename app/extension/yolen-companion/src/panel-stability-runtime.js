@@ -851,6 +851,33 @@
       bindPanel(currentPanel)
     }
 
+    // UX8 (FASE B.1): reconecta os listeners de scroll/wheel/touchmove no
+    // dono ATUAL do scroll incondicionalmente, não só quando o painel TROCA
+    // de identidade. #yolen-companion-panel nunca é destruído (é sempre o
+    // mesmo node ao longo da vida da extensão) — quem É destruído e
+    // recriado a cada rerender de fundo não travado é o FILHO
+    // [data-yolen-workspace-body] (o setter interceptado aplica direto pelo
+    // descriptor nativo quando não há trava própria ativa no momento —
+    // inclusive quando é OUTRO runtime independente, como
+    // editable-field-stability-runtime.js, quem acaba efetivamente
+    // decidindo aplicar o HTML pendente dele). Um rebind condicionado a
+    // "painel mudou" nunca reconectaria os listeners no NOVO
+    // workspace-body nesse caminho, deixando esse elemento sem reagir a um
+    // scroll real do vendedor. Chama só bindWorkspaceScrollTarget() aqui —
+    // não o bindPanel() completo — porque bindPanel() também dispara
+    // captureScroll(), e capturar o scrollTop do node RECÉM-CRIADO (0,
+    // antes de qualquer restauração) sobrescreveria o snapshot que
+    // restorePanelInteraction()/restoreActionVisualAnchor() ainda vão usar
+    // para restaurar a posição real. bindWorkspaceScrollTarget() já é
+    // idempotente (guardado por __yolenScrollBound no node específico),
+    // então chamá-la aqui sempre é barata e segura.
+    bindWorkspaceScrollTarget(
+      currentPanel,
+      getWorkspaceScrollContainer(
+        currentPanel,
+      ),
+    )
+
     const nextConversationLabel =
       getConversationLabel(currentPanel)
 
