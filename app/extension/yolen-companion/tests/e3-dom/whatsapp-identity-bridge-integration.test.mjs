@@ -17,6 +17,7 @@ import test from 'node:test'
 import {
   loadContentScript,
   resolveLeadCalls,
+  defaultLeadResolution,
 } from '../e3-test-support/load-content-script.mjs'
 
 function sleep(ms) {
@@ -835,19 +836,48 @@ test('AA) grupo ambíguo (sem data-id/avatar) fica fail-closed até o bridge rev
 // conversationKey — o telefone do primeiro vazava para o segundo assim
 // que o vendedor trocasse de conversa, porque cachedPhonesByConversationKey
 // nunca sabia que o chatId por trás da chave tinha mudado.
-// bridgeResolvedContactContext ancora o telefone cacheado ao chatId que o
-// bridge realmente provou; uma conversationKey coincidente só continua
-// autorizada enquanto o bridge não provar (via revalidação) que agora é
-// outro chat — e essa prova é o que gera a fronteira comercial real
-// (leadResolution/telefone anteriores somem), mesmo sem a conversationKey
-// textual mudar.
-test('AB) contato 1:1 resolvido pelo bridge não gruda em um homônimo diferente sob a MESMA conversationKey visual', async () => {
+//
+// A correção usa um ACTIVE CHAT EPOCH: um contador estrutural (referência
+// de #main/header, nunca título/avatar) que muda quando o WhatsApp
+// remonta a área da conversa — sinal independente de conversationKey, que
+// pode colidir. bridgeResolvedContactContext ancora o telefone cacheado
+// ao chatId do bridge E ao epoch vigente quando foi resolvido; qualquer
+// troca estrutural detectada (epoch diferente) já suspende o reuso de
+// forma SÍNCRONA, sem esperar o bridge confirmar nada — ausência de
+// identidade forte no DOM nunca autoriza reuso.
+test('AB) contato 1:1 resolvido pelo bridge não gruda em um homônimo diferente sob a MESMA conversationKey visual — leadResolution/telefone de A somem ANTES de qualquer resposta do bridge para B', async () => {
   const HOMONYM_TITLE = 'Mesmo Nome AB'
   const PHONE_A = '5511911111111'
   const PHONE_B = '5511922222222'
+  const MARKER_A = 'MARCADOR_LEAD_A_AB'
+  const MARKER_B = 'MARCADOR_LEAD_B_AB'
 
   const { calls, window, document } = loadContentScript({
     initialHtml: buildPageHtml({ headerTitle: HOMONYM_TITLE }),
+    resolutionsByPhone: {
+      [PHONE_A]: defaultLeadResolution({
+        phone: PHONE_A,
+        lead: {
+          id: 'lead-a',
+          name: MARKER_A,
+          phone: PHONE_A,
+          email: null,
+          cpf_cnpj: null,
+          deleted_at: null,
+        },
+      }),
+      [PHONE_B]: defaultLeadResolution({
+        phone: PHONE_B,
+        lead: {
+          id: 'lead-b',
+          name: MARKER_B,
+          phone: PHONE_B,
+          email: null,
+          cpf_cnpj: null,
+          deleted_at: null,
+        },
+      }),
+    },
   })
 
   let bridgeMode = 'A'
@@ -875,25 +905,43 @@ test('AB) contato 1:1 resolvido pelo bridge não gruda em um homônimo diferente
         isGroup: false,
       }
     },
+    // Atraso proposital só na resposta de B: abre uma janela clara e
+    // confortável (~800ms de folga) para observar o estado neutro ANTES
+    // de qualquer resposta do bridge chegar.
+    { delayMs: 500 },
   )
 
+  function panelText() {
+    return (
+      document.getElementById(
+        'yolen-companion-panel',
+      )?.textContent || ''
+    )
+  }
+
   // A) contato 1:1 sem data-id/avatar disponível resolve normalmente pelo
-  // bridge.
+  // bridge: telefone, leadResolution e workspace seller-facing de A
+  // visíveis.
   const resolvedA = await waitFor(
     () => resolveLeadCalls(calls).at(-1),
   )
 
   assert.equal(resolvedA.payload.phone, PHONE_A)
-  assert.equal(
-    resolveLeadCalls(calls).length,
-    1,
+  assert.equal(resolveLeadCalls(calls).length, 1)
+
+  await waitFor(() => panelText().includes(MARKER_A))
+  assert.ok(
+    panelText().includes(MARKER_A),
+    'o lead de A precisa estar visível no painel antes da troca (senão o teste não provaria nada ao checar a ausência depois)',
   )
 
   const requestsAfterA = requests.length
 
   // B) troca REAL para outro contato 1:1 com o MESMO título — o DOM
   // continua sem data-id/avatar, então a conversationKey visual
-  // permanece IDÊNTICA à de A.
+  // permanece IDÊNTICA à de A. Só uma identidade estrutural realmente
+  // diferente (o epoch de #main/header remontado) ou o próprio bridge
+  // podem provar a troca.
   bridgeMode = 'B'
 
   const app = document.getElementById('app')
@@ -901,17 +949,34 @@ test('AB) contato 1:1 resolvido pelo bridge não gruda em um homônimo diferente
     headerTitle: HOMONYM_TITLE,
   })
 
-  // Nenhuma mutation imediatamente após a troca pode reaplicar o telefone
-  // de A como uma nova resolução seria; o bridge ainda precisa ser
-  // consultado de novo.
-  await sleep(200)
+  // ANTES de qualquer resposta do bridge para B (que só chega depois de
+  // ~1400ms: debounce de 600ms + agendamento de 300ms + atraso proposital
+  // de 500ms do bridge) — folga generosa —, o workspace de A precisa ter
+  // desaparecido por completo, e nada de B pode ter aparecido ainda.
+  await sleep(750)
 
   assert.equal(
     resolveLeadCalls(calls).length,
     1,
-    'a troca para B não pode, sozinha, gerar uma segunda resolução com o telefone de A',
+    'nenhuma nova resolução pode ter acontecido antes do bridge confirmar B',
   )
 
+  assert.ok(
+    !panelText().includes(MARKER_A),
+    'o lead de A não pode continuar visível no painel depois da troca estrutural para B — mesmo sem o bridge ainda ter respondido',
+  )
+
+  assert.ok(
+    !panelText().includes(PHONE_A),
+    'o telefone de A não pode continuar visível no painel depois da troca estrutural para B',
+  )
+
+  assert.ok(
+    !panelText().includes(MARKER_B),
+    'o lead de B ainda não pode aparecer — o bridge para B ainda não respondeu (estado deve ser neutro/identificando, não B adiantado)',
+  )
+
+  // Depois que o bridge confirma B...
   const resolvedB = await waitFor(() => {
     const list = resolveLeadCalls(calls)
     return list.length >= 2 && list.at(-1)
@@ -935,6 +1000,13 @@ test('AB) contato 1:1 resolvido pelo bridge não gruda em um homônimo diferente
     'B só pode resolver com o próprio telefone — nunca com o de A, mesmo com a conversationKey visual igual',
   )
 
+  await waitFor(() => panelText().includes(MARKER_B))
+
+  assert.ok(
+    !panelText().includes(MARKER_A),
+    'A não pode reaparecer no painel depois que B resolve',
+  )
+
   assert.ok(
     requests.length > requestsAfterA,
     'o bridge precisa ter sido consultado de novo para B, mesmo com a conversationKey visual igual à de A (chatId é a autoridade, não o texto)',
@@ -949,18 +1021,16 @@ test('AB) contato 1:1 resolvido pelo bridge não gruda em um homônimo diferente
 // descarta uma resposta cuja conversationKey não bate mais com a atual
 // (ver teste L/M) — mas isso não protege o caso em que a própria
 // conversationKey COLIDE (mesmo título, nenhum data-id/avatar em nenhum
-// dos dois lados): nesse ponto cego, nem o texto nem o DOM têm qualquer
-// sinal para provar a troca no instante em que a resposta chega, e a
-// resposta contaminada pode ser aplicada uma vez — limitação inerente de
-// verificação só por DOM, não deste achado especificamente. O que esta
-// correção garante é a AUTOCORREÇÃO: assim que a próxima atividade real do
-// WhatsApp (uma mensagem nova, por exemplo — o caso comum, já que a
-// página nunca fica parada) dá ao bridge a chance de revalidar a
-// conversationKey coincidente, o chatId comprovado substitui a associação
-// contaminada e QUALQUER contexto comercial da resposta atrasada
-// desaparece — a conversa nunca fica permanentemente presa ao telefone
-// errado.
-test('race) resposta atrasada e contaminada durante a troca para um homônimo sob a MESMA conversationKey se autocorrige na atividade seguinte do WhatsApp', async () => {
+// dos dois lados). O ACTIVE CHAT EPOCH fecha exatamente esse ponto cego:
+// o epoch muda de forma SÍNCRONA (no callback bruto do MutationObserver,
+// antes de qualquer debounce ou gate de "lookup em voo") assim que
+// #main/header são remontados pela troca — a resposta atrasada, capturada
+// com o epoch ANTIGO, é descartada por completo quando finalmente chega,
+// SEM aplicar telefone/cache/contexto algum. Nenhuma atividade adicional
+// do vendedor é necessária: a conversa realmente atual (B) resolve pelo
+// próprio ciclo automático, exatamente como se a resposta contaminada
+// nunca tivesse existido.
+test('race) resposta em voo durante a troca para um homônimo sob a MESMA conversationKey NUNCA aplica o telefone anterior — nem uma vez', async () => {
   const HOMONYM_TITLE = 'Mesmo Nome Corrida'
   const STALE_PHONE = '5511900003333'
   const PHONE_B = '5511900004444'
@@ -979,8 +1049,9 @@ test('race) resposta atrasada e contaminada durante a troca para um homônimo so
       // A PRIMEIRA resposta é sempre a "contaminada" (dados de antes da
       // troca), não importa quando ela realmente chega — modela o pior
       // caso de um bridge que capturou a identidade no momento do envio,
-      // não do processamento. Qualquer chamada seguinte (a revalidação
-      // desta correção) já reflete a conversa realmente atual.
+      // não do processamento. Qualquer chamada seguinte (o ciclo natural
+      // de retentativa desta correção) já reflete a conversa realmente
+      // atual.
       if (invocationCount === 1) {
         return {
           chatId: `${STALE_PHONE}@c.us`,
@@ -1007,7 +1078,9 @@ test('race) resposta atrasada e contaminada durante a troca para um homônimo so
   // O primeiro lookup (para a conversa carregada) ainda está em voo
   // (atraso de 400ms) quando o vendedor já troca para um homônimo — mesmo
   // título, mesma conversationKey visual (nenhum dos dois expõe
-  // data-id/avatar).
+  // data-id/avatar). A troca por si só (childList em #app) já remonta
+  // #main/header e incrementa o epoch, de forma síncrona, muito antes da
+  // resposta atrasada chegar.
   await sleep(150)
 
   const app = document.getElementById('app')
@@ -1015,31 +1088,99 @@ test('race) resposta atrasada e contaminada durante a troca para um homônimo so
     headerTitle: HOMONYM_TITLE,
   })
 
-  // A resposta contaminada chega (~400ms) e, sem nenhum sinal de DOM para
-  // provar a troca, pode aplicar o telefone errado uma vez — o ponto cego
-  // reconhecido acima.
+  // A resposta contaminada chega ~250ms depois da troca (400ms desde o
+  // envio original, contra 150ms já decorridos) — tempo de sobra para o
+  // epoch já ter mudado antes dela ser processada. Descartada por
+  // completo: nenhuma resolução pode ter acontecido, nem com o telefone
+  // certo nem com o errado, só pela resposta contaminada.
   await sleep(500)
 
-  // Atividade real do WhatsApp (uma mensagem chegando) dá ao bridge a
-  // chance de revalidar a conversationKey coincidente.
-  const conversationBody = document.getElementById(
-    'conversation-body',
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'a resposta contaminada não pode ter resolvido NADA — nem uma vez — mesmo com a conversationKey visual coincidente com a conversa anterior',
   )
-  const newMessage = document.createElement('div')
-  newMessage.textContent = 'mensagem nova depois da troca'
-  conversationBody.appendChild(newMessage)
 
-  // A conversa exibida agora precisa terminar resolvida com o PRÓPRIO
-  // telefone — a autocorreção via bridge vence a contaminação anterior.
-  const resolved = await waitFor(() => {
-    const list = resolveLeadCalls(calls)
-    const last = list.at(-1)
-    return last?.payload?.phone === PHONE_B && last
-  })
+  // A conversa REALMENTE atual (B) resolve pelo próprio ciclo automático
+  // de tentativa — sem depender de nenhuma atividade adicional do
+  // vendedor além da troca em si.
+  const resolved = await waitFor(
+    () => resolveLeadCalls(calls).at(-1),
+  )
 
   assert.equal(
     resolved.payload.phone,
     PHONE_B,
-    'a conversa atual precisa terminar resolvida com o próprio telefone, mesmo depois de uma resposta atrasada e contaminada ter chegado durante a troca',
+    'a conversa atual só pode resolver com o próprio telefone',
+  )
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    1,
+    'só pode existir UMA resolução no total — a de B; a resposta contaminada nunca contou',
+  )
+})
+
+// Seção 3/8 da missão: a correção do epoch estrutural não pode reintroduzir
+// o loop resolve→reset→resolve que existia numa versão anterior desta
+// mesma correção (ambiguidade de identidade forte, sozinha, disparando
+// reset a cada mutation). Um contato sem data-id/avatar persistente no DOM
+// — o caso comum, não a exceção — precisa continuar resolvido
+// indefinidamente enquanto a conversa não muda de instância estrutural:
+// nenhuma resolução repetida, nenhuma consulta repetida ao bridge, mesmo
+// depois de várias mutations reais da MESMA conversa (novas mensagens).
+test('AC) contato 1:1 resolvido sem data-id/avatar sobrevive a várias mutations da MESMA conversa sem resolução repetida nem storm de requests', async () => {
+  const TITLE = 'Contato Sem DataId AC'
+  const PHONE = '5511900007777'
+
+  const { calls, window, document } = loadContentScript({
+    initialHtml: buildPageHtml({ headerTitle: TITLE }),
+  })
+
+  const requests = installFakeIdentityBridge(
+    window,
+    () => ({
+      chatId: `${PHONE}@c.us`,
+      chatIdType: 'c.us',
+      phone: PHONE,
+      phoneJid: `${PHONE}@c.us`,
+      phoneServer: 'c.us',
+      isGroup: false,
+    }),
+  )
+
+  const resolved = await waitFor(
+    () => resolveLeadCalls(calls).at(-1),
+  )
+
+  assert.equal(resolved.payload.phone, PHONE)
+  assert.equal(resolveLeadCalls(calls).length, 1)
+
+  const requestsAfterResolve = requests.length
+
+  // Seis mutations reais e sucessivas na MESMA conversa (mensagens
+  // chegando) — nenhuma delas remonta #main/header, então o epoch
+  // estrutural não muda.
+  const conversationBody = document.getElementById(
+    'conversation-body',
+  )
+
+  for (let index = 0; index < 6; index += 1) {
+    const marker = document.createElement('div')
+    marker.textContent = `mensagem irrelevante ${index}`
+    conversationBody.appendChild(marker)
+    await sleep(700)
+  }
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    1,
+    'nenhuma mutation da MESMA conversa pode reacender uma resolução repetida — isso seria o loop resolve→reset→resolve, não a correção',
+  )
+
+  assert.equal(
+    requests.length,
+    requestsAfterResolve,
+    'nenhuma mutation da MESMA conversa pode gerar uma nova consulta ao bridge — a instância estrutural da conversa não mudou',
   )
 })

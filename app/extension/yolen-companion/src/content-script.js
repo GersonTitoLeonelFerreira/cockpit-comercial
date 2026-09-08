@@ -335,34 +335,90 @@
   }
 
   // Identidade forte (chatId do bridge) do último contato 1:1 RESOLVIDO
-  // PELO BRIDGE, associada à conversationKey visual em que ele foi obtido.
-  // Existe porque cachedPhonesByConversationKey/conversationKey visual
-  // podem colidir entre dois contatos homônimos sem data-id/avatar
-  // disponível — "João" com chatId 5511111111111@c.us e outro "João" com
-  // chatId 5511222222222@c.us produzem a MESMA conversationKey. Sem isto,
-  // o telefone resolvido para o primeiro "João" seria reaplicado ao
-  // segundo só porque a chave visual é igual: vazamento de identidade
-  // entre clientes. bridgeResult.chatId é a autoridade; título/avatar
-  // nunca provam que dois contatos resolvidos pelo bridge são o mesmo.
+  // PELO BRIDGE, associada à conversationKey visual em que ele foi obtido
+  // E ao "epoch" da instância estrutural da conversa naquele momento (ver
+  // ACTIVE CHAT EPOCH abaixo). Existe porque cachedPhonesByConversationKey/
+  // conversationKey visual podem colidir entre dois contatos homônimos sem
+  // data-id/avatar disponível — "João" com chatId 5511111111111@c.us e
+  // outro "João" com chatId 5511222222222@c.us produzem a MESMA
+  // conversationKey. Sem isto, o telefone resolvido para o primeiro "João"
+  // seria reaplicado ao segundo só porque a chave visual é igual:
+  // vazamento de identidade entre clientes. bridgeResult.chatId é a
+  // autoridade; título/avatar nunca provam que dois contatos resolvidos
+  // pelo bridge são o mesmo.
   let bridgeResolvedContactContext = null
+
+  // ============================================================
+  // ACTIVE CHAT EPOCH
+  // ============================================================
+  // Contador monotônico de "instância estrutural" da conversa atual,
+  // independente de conversationKey/título/avatar (que podem colidir entre
+  // dois contatos homônimos). Incrementa quando o próprio nó do container
+  // da conversa (#main) ou do seu header muda de referência — o sinal mais
+  // barato e confiável de que o WhatsApp trocou de conversa de verdade
+  // (troca real normalmente desmonta/remonta essa parte da árvore),
+  // distinto de uma mutation comum dentro da MESMA conversa (nova
+  // mensagem, header ganhando um span, data-id sumindo/voltando), que só
+  // adiciona/remove filhos sem substituir esses nós.
+  //
+  // Usado para duas coisas:
+  // 1) Qualquer bridgeResolvedContactContext/pedido ao bridge carrega o
+  //    epoch vigente no momento em que foi criado/enviado. Uma resposta
+  //    aplicada só quando o epoch da resposta bate com o epoch ATUAL —
+  //    isso descarta uma resposta atrasada que descreve a conversa
+  //    ANTERIOR mesmo quando a conversationKey textual colide com a nova
+  //    (o ponto cego que uma checagem só por conversationKey não cobre).
+  // 2) bridgeResolvedContactContext.epoch !== epoch atual já é, sozinho,
+  //    motivo para suspender o telefone/contexto cacheados (ver
+  //    refreshConversationSnapshot()) — nunca precisa esperar a
+  //    confirmação do bridge para deixar de mostrar o dado antigo.
+  //
+  // Chamado tanto direto no callback bruto do MutationObserver (antes de
+  // qualquer debounce/gate de "lookup em voo", para não perder uma troca
+  // estrutural que acontece enquanto um pedido anterior ainda está em voo)
+  // quanto no início de refreshConversationSnapshot() (garante o valor já
+  // estabelecido antes do primeiro lookup e mantém consistência).
+  let activeChatStructuralSignature = null
+  let activeChatEpoch = 0
+
+  function refreshActiveChatEpoch() {
+    const mainRoot = getMainConversationRoot()
+    const header = mainRoot
+      ? mainRoot.querySelector('header')
+      : null
+
+    const changed =
+      !activeChatStructuralSignature ||
+      activeChatStructuralSignature.mainRoot !==
+        mainRoot ||
+      activeChatStructuralSignature.header !==
+        header
+
+    activeChatStructuralSignature = {
+      mainRoot,
+      header,
+    }
+
+    if (changed) {
+      activeChatEpoch += 1
+    }
+
+    return activeChatEpoch
+  }
 
   // true quando o telefone bridge-resolved cacheado para conversationKey
   // pode continuar sendo mostrado: nenhum contexto ainda (ou o contexto é
-  // de outra chave visual), identidade forte atual CONFIRMA a mesma
-  // conversa, ou identidade forte está ausente no DOM agora (mutation/
-  // virtualização temporária — não é prova de troca, ver comentário de
-  // isBridgeConfirmedGroupForConversation()). Só retorna false quando o
-  // DOM mostra uma identidade forte que CONTRADIZ a guardada — prova real
-  // de que a conversationKey visual colidiu com outro contato.
-  //
-  // A ambiguidade sozinha NÃO pode disparar reset a cada mutation (isso
-  // criava um loop resolve→reset→resolve para QUALQUER contato sem
-  // data-id/avatar persistente no DOM, o caso comum). Em vez disso,
-  // isBridgeResolvedContactContextAmbiguous() sinaliza a mesma ambiguidade
-  // para agendar uma revalidação única (debounce+cooldown) via
-  // scheduleBridgeIdentityRevalidation() — só uma resposta do bridge que
-  // prova um chatId diferente é que descarta esta associação (ver
-  // runBridgeIdentityRevalidation()).
+  // de outra chave visual), ou o contexto foi estabelecido na MESMA
+  // instância estrutural da conversa atual (epoch igual). NUNCA autoriza
+  // reuso só porque a identidade forte está ausente no DOM agora — essa
+  // ambiguidade era exatamente o que permitia o telefone de um contato
+  // vazar para outro homônimo antes desta correção. O epoch, não a
+  // presença/ausência de data-id/avatar, é quem decide "ainda é a mesma
+  // conversa": ausência de data-id sem nenhuma troca estrutural detectada
+  // continua autorizada (evita reset a cada mutation de uma conversa sem
+  // data-id persistente); qualquer troca estrutural detectada já suspende
+  // o reuso, mesmo sem nenhuma identidade forte disponível para provar
+  // quem é a conversa nova.
   function isBridgeResolvedContactAuthorizedForConversation(
     conversationKey,
   ) {
@@ -374,38 +430,9 @@
       return true
     }
 
-    if (!bridgeResolvedContactContext.stableIdentity) {
-      return true
-    }
-
-    const currentStrongIdentity =
-      getSelectedChatStrongIdentity()
-
-    if (!currentStrongIdentity) {
-      return true
-    }
-
     return (
-      bridgeResolvedContactContext.stableIdentity ===
-      currentStrongIdentity
-    )
-  }
-
-  // true quando a evidência de contato resolvido persistida para esta
-  // conversationKey só continua valendo por fail-closed (identidade forte
-  // ausente no DOM agora), não porque foi reconfirmada. Sinal para
-  // agendar uma revalidação via identity bridge — sem ela, uma
-  // conversationKey coincidente (homônimo 1:1) ficaria com o telefone do
-  // contato anterior indefinidamente, sem nunca dar ao bridge a chance de
-  // provar que agora é outro chat.
-  function isBridgeResolvedContactContextAmbiguous(
-    conversationKey,
-  ) {
-    return Boolean(
-      bridgeResolvedContactContext?.stableIdentity &&
-        bridgeResolvedContactContext.conversationKey ===
-          conversationKey &&
-        !getSelectedChatStrongIdentity(),
+      bridgeResolvedContactContext.epoch ===
+      activeChatEpoch
     )
   }
 
@@ -5284,6 +5311,13 @@
     renderPanel()
 
     try {
+      // Capturado ANTES do pedido: se uma troca estrutural real acontecer
+      // enquanto o bridge está em voo (ver ACTIVE CHAT EPOCH), o epoch
+      // muda mesmo quando conversationKey textual colide com a conversa
+      // nova (homônimo) — condição que uma checagem só por conversationKey
+      // não detecta.
+      const requestEpoch = activeChatEpoch
+
       // Fonte mais forte primeiro: identidade real do WhatsApp via
       // whatsapp-identity-bridge.js (page world, React Fiber). Se o
       // bridge não estiver instalado ou não responder a tempo, cai sem
@@ -5294,6 +5328,17 @@
           conversationKey,
           lookupTitle,
         )
+
+      if (activeChatEpoch !== requestEpoch) {
+        // A conversa mudou de instância estrutural enquanto o pedido
+        // estava em voo — esta resposta descreve a conversa ANTERIOR,
+        // mesmo que conversationKey (texto) continue igual (homônimo).
+        // Descarta sem marcar nada como tentado: a conversa REALMENTE
+        // atual continua livre para a própria tentativa (já disparada
+        // pelo ciclo normal de refreshConversationSnapshot assim que a
+        // troca estrutural foi detectada).
+        return
+      }
 
       if (bridgeResult.status === 'group') {
         bridgeConfirmedGroupContext = {
@@ -5361,12 +5406,13 @@
         )
 
         // Ancora o telefone à identidade forte que o bridge acabou de
-        // provar para ESTA conversationKey — sem isso, uma troca real
-        // para outro contato homônimo (mesma chave visual) reutilizaria
-        // este telefone só porque a chave bate (ver
-        // isBridgeResolvedContactAuthorizedForConversation()).
+        // provar para ESTA conversationKey e ao epoch estrutural vigente
+        // agora — sem isso, uma troca real para outro contato homônimo
+        // (mesma chave visual) reutilizaria este telefone só porque a
+        // chave bate (ver isBridgeResolvedContactAuthorizedForConversation()).
         bridgeResolvedContactContext = {
           conversationKey,
+          epoch: activeChatEpoch,
           stableIdentity: resolvedIdentity,
         }
 
@@ -5731,6 +5777,12 @@
   ) {
     lastBridgeIdentityRevalidationAt = Date.now()
 
+    // Capturado ANTES do pedido — mesmo raciocínio de
+    // runAutomaticContactLookup(): uma troca estrutural real durante o
+    // voo deste pedido não pode ser mascarada por uma conversationKey
+    // textual coincidente.
+    const requestEpoch = activeChatEpoch
+
     try {
       const bridgeResult =
         await tryResolveViaIdentityBridge(
@@ -5741,9 +5793,11 @@
       // A conversa pode ter mudado de verdade enquanto o pedido estava em
       // voo — nesse caso o ciclo normal de refreshConversationSnapshot já
       // está cuidando da conversa nova; aplicar esta resposta aqui seria
-      // usar evidência da conversa ERRADA.
+      // usar evidência da conversa ERRADA. activeChatEpoch cobre também o
+      // caso em que conversationKey textual colide (homônimo).
       if (
-        state.conversationKey !== conversationKey
+        state.conversationKey !== conversationKey ||
+        activeChatEpoch !== requestEpoch
       ) {
         return
       }
@@ -5820,6 +5874,7 @@
         // este telefone só pela chave visual coincidir.
         bridgeResolvedContactContext = {
           conversationKey,
+          epoch: activeChatEpoch,
           stableIdentity: resolvedIdentity,
         }
 
@@ -5856,6 +5911,12 @@
         conversationTitle,
       )
 
+    // Reavalia o epoch estrutural (ver ACTIVE CHAT EPOCH) antes de
+    // qualquer decisão desta função — garante o valor já estabelecido
+    // mesmo quando refreshActiveChatEpoch() ainda não rodou pelo callback
+    // bruto do MutationObserver (ex.: primeiro snapshot da sessão).
+    refreshActiveChatEpoch()
+
     const isSelfConversation =
       isSelfConversationTitle(
         conversationTitle,
@@ -5879,23 +5940,51 @@
 
     // Ausência de identidade forte no DOM (data-id/avatar temporariamente
     // fora do ar) nunca prova troca de conversa — bridgeSaysGroup já fica
-    // fail-closed (true) nesse caso, e o mesmo vale para um telefone
-    // bridge-resolved já cacheado (ver isBridgeResolvedContactAuthorizedForConversation()).
-    // Mas o fail-closed sozinho travaria uma conversationKey coincidente
-    // (grupo OU homônimo 1:1) para sempre; só o bridge pode desambiguar,
-    // então agenda uma revalidação dele quando a única razão de ainda
-    // confiarmos na classificação/telefone guardado é a ambiguidade, não
-    // uma reconfirmação real.
-    if (
-      isBridgeConfirmedGroupContextAmbiguous() ||
-      isBridgeResolvedContactContextAmbiguous(
-        conversationKey,
-      )
-    ) {
+    // fail-closed (true) nesse caso. Mas o fail-closed sozinho travaria uma
+    // conversationKey coincidente (título homônimo) como grupo para
+    // sempre; só o bridge pode desambiguar, então agenda uma revalidação
+    // dele quando a única razão de ainda confiarmos na classificação de
+    // grupo guardada é a ambiguidade, não uma reconfirmação real. (O
+    // telefone bridge-resolved de um contato NÃO usa este mecanismo — ver
+    // isBridgeResolvedContactAuthorizedForConversation()/bloco de fronteira
+    // estrutural logo abaixo, que já suspende o reuso de forma síncrona
+    // assim que uma troca estrutural é detectada, sem esperar o bridge.)
+    if (isBridgeConfirmedGroupContextAmbiguous()) {
       scheduleBridgeIdentityRevalidation(
         conversationKey,
         conversationTitle,
       )
+    }
+
+    // Fronteira estrutural para um telefone bridge-resolved cacheado: ao
+    // contrário do grupo (cujo fail-closed nunca expõe dado do cliente),
+    // aqui ausência de prova NÃO pode autorizar reuso — ver comentário de
+    // isBridgeResolvedContactAuthorizedForConversation(). O epoch (não a
+    // presença de data-id/avatar) decide sozinho, de forma síncrona e sem
+    // esperar o bridge, se a instância estrutural mudou desde que este
+    // telefone foi resolvido; se mudou, a associação stale é descartada
+    // AGORA (cache, contexto, chave tentada) — a conversa REALMENTE atual
+    // ganha, no mesmo ciclo, um phoneResult neutro e uma tentativa nova
+    // via bridge, e nenhum dado comercial do contato anterior sobrevive.
+    const bridgeResolvedContactStale =
+      Boolean(bridgeResolvedContactContext) &&
+      bridgeResolvedContactContext.conversationKey ===
+        conversationKey &&
+      !isBridgeResolvedContactAuthorizedForConversation(
+        conversationKey,
+      )
+
+    if (bridgeResolvedContactStale) {
+      cachedPhonesByConversationKey.delete(
+        conversationKey,
+      )
+      bridgeResolvedContactContext = null
+
+      if (conversationKey) {
+        autoLookupAttemptedKeys.delete(
+          conversationKey,
+        )
+      }
     }
 
     const contactLookupIdentity =
@@ -5958,7 +6047,15 @@
         }
       }
 
-      if (conversationChanged) {
+      // bridgeResolvedContactStale entra na mesma fronteira que uma troca
+      // real de conversationKey: o epoch estrutural já provou que a
+      // instância da conversa mudou desde que aquele telefone foi
+      // resolvido, mesmo com a chave textual igual (homônimo) — nenhum
+      // estado de tentativa/ledger da associação antiga pode sobreviver.
+      if (
+        conversationChanged ||
+        bridgeResolvedContactStale
+      ) {
         rememberCurrentPreResolutionCapture()
 
         lastResolvedConversationKey = null
@@ -5998,7 +6095,10 @@
       isGroupConversation,
     }
 
-    if (conversationChanged) {
+    if (
+      conversationChanged ||
+      bridgeResolvedContactStale
+    ) {
       hardResetConversationWorkspace()
     }
 
@@ -16742,6 +16842,16 @@
       if (!hasRelevantMutation) {
         return
       }
+
+      // Antes de QUALQUER gate (debounce, lookup em voo): uma troca
+      // estrutural real (#main/header remontados) precisa ser detectada
+      // em tempo real, mesmo enquanto um pedido ao bridge da conversa
+      // ANTERIOR ainda está em voo — é exatamente esse pedido em voo que
+      // faz o restante deste callback (debounce de 600ms) não rodar até
+      // ele terminar. Sem isto, uma resposta atrasada não teria como
+      // saber que a conversa mudou quando a conversationKey textual
+      // colide com um homônimo (ver ACTIVE CHAT EPOCH).
+      refreshActiveChatEpoch()
 
       const visibleConversationKey =
         getConversationKey(
