@@ -2116,3 +2116,51 @@ test('AL) data-id @g.us na linha estrutural ANCESTRAL (aria-selected num filho) 
     'data-id @g.us na row ancestral (aria-selected num filho) prova que é grupo tanto quanto quando co-localizados — getSelectedChatDataId() precisa subir até a row estrutural para enxergar isso',
   )
 })
+
+test('AM) aria-selected num elemento que ELE MESMO combina com o seletor de row (cell-frame-container) não pode parar a busca antes da row ancestral com o data-id', async () => {
+  const GROUP_TITLE = 'Grupo Suporte ES'
+  const GROUP_JID = '120363099998887772@g.us'
+  const PARTICIPANT_PHONE = '5511999994444'
+
+  // Forma de DOM real e suportada: o elemento aria-selected="true" ELE
+  // PRÓPRIO combina com uma das alternativas amplas do seletor de row
+  // (data-testid="cell-frame-container"), então `.matches(chatRowSelector)`
+  // retorna true IMEDIATAMENTE e a busca para nesse elemento — que não tem
+  // data-id nem descendente com data-id. O data-id @g.us real vive um
+  // nível acima, na row [role="row"] ancestral. Subir só até o PRIMEIRO
+  // elemento que combina com qualquer alternativa do seletor (sem
+  // continuar subindo até achar de fato um data-id) nunca enxergaria essa
+  // row ancestral.
+  const initialHtml = `<!doctype html><html><body>
+    <div id="app">
+      <div id="pane-side">
+        <div role="row" data-id="${GROUP_JID}">
+          <div data-testid="cell-frame-container" aria-selected="true">
+            <span title="${GROUP_TITLE}">${GROUP_TITLE}</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="main">
+        <header><span title="${GROUP_TITLE}">${GROUP_TITLE}</span></header>
+        <div id="conversation-body">
+          <div data-id="true_${PARTICIPANT_PHONE}@c.us_msg1"></div>
+        </div>
+      </div>
+    </div>
+  </body></html>`
+
+  const { calls, window } = loadContentScript({
+    initialHtml,
+  })
+
+  installFakeIdentityBridge(window, () => undefined)
+
+  await sleep(3000)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'aria-selected num elemento que já combina com uma alternativa ampla do seletor de row (cell-frame-container) não pode impedir a busca de continuar subindo até a row ancestral que carrega o data-id @g.us real',
+  )
+})

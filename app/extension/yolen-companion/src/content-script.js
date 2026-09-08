@@ -1740,26 +1740,67 @@
     return null
   }
 
-  function getSelectedChatDataId() {
-    // Usa a ROW ESTRUTURAL (mesma resolução de getSelectedChatStructuralRow():
-    // o próprio elemento marcado como selecionado, ou o ancestral mais
-    // próximo que combina com o seletor de row), não só esse elemento e
-    // seus descendentes. O WhatsApp pode marcar como selecionado um FILHO
-    // da row que carrega o data-id real (ex.: role=row + data-id na row,
-    // marcação de seleção num div interno dela); olhar só descendentes do
-    // elemento marcado nunca encontraria esse data-id na row ancestral.
-    const selectedChatRow =
-      getSelectedChatStructuralRow()
+  // Sobe pela cadeia de ancestrais a partir do elemento marcado como
+  // selecionado até achar um que de fato carregue (direto ou num
+  // descendente) o data-id real — NUNCA para no primeiro ancestral que
+  // apenas combina com alguma alternativa ampla do seletor de row
+  // (ex.: [data-testid="cell-frame-container"], [role="row"] sem
+  // data-id). O próprio elemento aria-selected pode combinar com uma
+  // dessas alternativas amplas sem carregar o data-id — nesse caso o
+  // data-id real vive um nível (ou mais) acima, na row ancestral, e só
+  // continuar subindo enxerga essa row.
+  function getSelectedChatDataIdBearingRow(selectedElement) {
+    if (!selectedElement) {
+      return null
+    }
 
-    if (!selectedChatRow) {
+    const chatRowSelector =
+      '[data-testid="cell-frame-container"], [role="row"], [role="listitem"], [data-id]'
+
+    let candidate =
+      selectedElement.matches?.(
+        chatRowSelector,
+      )
+        ? selectedElement
+        : selectedElement.closest?.(
+            chatRowSelector,
+          )
+
+    while (candidate) {
+      const hasDataId =
+        Boolean(
+          candidate.getAttribute?.('data-id') ||
+          candidate.querySelector?.('[data-id]'),
+        )
+
+      if (hasDataId) {
+        return candidate
+      }
+
+      candidate =
+        candidate.parentElement?.closest?.(
+          chatRowSelector,
+        ) || null
+    }
+
+    return null
+  }
+
+  function getSelectedChatDataId() {
+    const dataIdBearingRow =
+      getSelectedChatDataIdBearingRow(
+        getSelectedChatElement(),
+      )
+
+    if (!dataIdBearingRow) {
       return ''
     }
 
     const directDataId =
-      selectedChatRow.getAttribute?.('data-id') || ''
+      dataIdBearingRow.getAttribute?.('data-id') || ''
 
     const nestedDataId =
-      selectedChatRow
+      dataIdBearingRow
         .querySelector?.('[data-id]')
         ?.getAttribute?.('data-id') || ''
 
