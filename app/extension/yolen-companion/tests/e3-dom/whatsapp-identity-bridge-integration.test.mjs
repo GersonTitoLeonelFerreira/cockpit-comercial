@@ -1184,3 +1184,265 @@ test('AC) contato 1:1 resolvido sem data-id/avatar sobrevive a várias mutations
     'nenhuma mutation da MESMA conversa pode gerar uma nova consulta ao bridge — a instância estrutural da conversa não mudou',
   )
 })
+
+test('AD) linha selecionada separa homônimos com #main/header reutilizados, limpa A e recupera B após A em voo', async () => {
+  const TITLE = 'Mesmo Nome AD'
+  const PHONE_A = '5511900008881'
+  const PHONE_B = '5511900008882'
+  const MARKER_A = 'MARCADOR_LEAD_A_AD'
+  const MARKER_B = 'MARCADOR_LEAD_B_AD'
+
+  const initialHtml = `<!doctype html><html><body><div id="app">
+    <div id="pane-side">
+      <div id="row-a" role="row" aria-selected="true"><span title="${TITLE}">${TITLE}</span></div>
+      <div id="row-b" role="row" aria-selected="false"><span title="${TITLE}">${TITLE}</span></div>
+    </div>
+    <div id="main">
+      <header><span title="${TITLE}">${TITLE}</span></header>
+      <div id="conversation-body"></div>
+    </div>
+  </div></body></html>`
+
+  // Parte 1 — A já resolvido: mudar SOMENTE aria-selected precisa formar
+  // uma boundary real mesmo com #main/header exatamente iguais, limpar A
+  // imediatamente e reconstruir B do zero.
+  const first = loadContentScript({
+    initialHtml,
+    resolutionsByPhone: {
+      [PHONE_A]: defaultLeadResolution({
+        phone: PHONE_A,
+        lead: {
+          id: 'ad-a',
+          name: MARKER_A,
+          phone: PHONE_A,
+        },
+      }),
+      [PHONE_B]: defaultLeadResolution({
+        phone: PHONE_B,
+        lead: {
+          id: 'ad-b',
+          name: MARKER_B,
+          phone: PHONE_B,
+        },
+      }),
+    },
+  })
+
+  let firstBridgeMode = 'A'
+  const firstRequests = installFakeIdentityBridge(
+    first.window,
+    () => {
+      const phone =
+        firstBridgeMode === 'A'
+          ? PHONE_A
+          : PHONE_B
+
+      return {
+        chatId: `${phone}@c.us`,
+        chatIdType: 'c.us',
+        phone,
+        phoneJid: `${phone}@c.us`,
+        phoneServer: 'c.us',
+        isGroup: false,
+      }
+    },
+    { delayMs: 100 },
+  )
+
+  const firstPanelText = () =>
+    first.document
+      .getElementById('yolen-companion-panel')
+      ?.textContent || ''
+
+  const resolvedA = await waitFor(() =>
+    resolveLeadCalls(first.calls).at(-1),
+  )
+  assert.equal(resolvedA.payload.phone, PHONE_A)
+  await waitFor(() =>
+    firstPanelText().includes(MARKER_A),
+  )
+
+  const main =
+    first.document.getElementById('main')
+  const header = main.querySelector('header')
+  const requestsAfterA = firstRequests.length
+
+  firstBridgeMode = 'B'
+  first.document
+    .getElementById('row-a')
+    .setAttribute('aria-selected', 'false')
+  first.document
+    .getElementById('row-b')
+    .setAttribute('aria-selected', 'true')
+
+  await sleep(100)
+
+  assert.strictEqual(
+    first.document.getElementById('main'),
+    main,
+  )
+  assert.strictEqual(
+    main.querySelector('header'),
+    header,
+  )
+  assert.ok(
+    !firstPanelText().includes(MARKER_A),
+    'A deve desaparecer imediatamente quando só a linha selecionada muda',
+  )
+  assert.ok(
+    !firstPanelText().includes(PHONE_A),
+    'o telefone stale de A deve desaparecer na mesma boundary',
+  )
+
+  const resolvedB = await waitFor(() => {
+    const list = resolveLeadCalls(first.calls)
+    return list.length === 2
+      ? list.at(-1)
+      : null
+  })
+
+  assert.equal(resolvedB.payload.phone, PHONE_B)
+  assert.deepEqual(
+    resolveLeadCalls(first.calls).map(
+      (call) => call.payload.phone,
+    ),
+    [PHONE_A, PHONE_B],
+  )
+  assert.ok(
+    firstRequests.length > requestsAfterA,
+    'B precisa receber uma consulta própria ao bridge',
+  )
+  await waitFor(() =>
+    firstPanelText().includes(MARKER_B),
+  )
+
+  // Parte 2 — corrida determinística: o request de A deve estar
+  // comprovadamente RECEBIDO enquanto row-a ainda está selecionada e
+  // continuar em voo quando row-b assume. Nenhuma mutation extra é feita
+  // depois da troca; o pending do single-flight deve abrir B sozinho.
+  const race = loadContentScript({
+    initialHtml,
+  })
+
+  const requestSnapshots = []
+
+  race.window.addEventListener(
+    'message',
+    (event) => {
+      if (
+        event.data?.source !==
+          CONTENT_SCRIPT_SOURCE ||
+        event.data?.action !==
+          'GET_ACTIVE_CHAT_IDENTITY'
+      ) {
+        return
+      }
+
+      requestSnapshots.push(
+        race.document
+          .querySelector(
+            '#pane-side [aria-selected="true"]',
+          )
+          ?.getAttribute('id') || null,
+      )
+    },
+  )
+
+  let raceBridgeInvocationCount = 0
+
+  const raceRequests =
+    installFakeIdentityBridge(
+      race.window,
+      () => {
+        raceBridgeInvocationCount += 1
+        const phone =
+          raceBridgeInvocationCount === 1
+            ? PHONE_A
+            : PHONE_B
+
+        return {
+          chatId: `${phone}@c.us`,
+          chatIdType: 'c.us',
+          phone,
+          phoneJid: `${phone}@c.us`,
+          phoneServer: 'c.us',
+          isGroup: false,
+        }
+      },
+      { delayMs: 500 },
+    )
+
+  const raceMain =
+    race.document.getElementById('main')
+  const raceHeader =
+    raceMain.querySelector('header')
+
+  await waitFor(() =>
+    raceRequests.length === 1,
+  )
+
+  assert.deepEqual(
+    requestSnapshots,
+    ['row-a'],
+    'o request stale deve ter sido efetivamente recebido enquanto A era a linha selecionada',
+  )
+  assert.equal(
+    resolveLeadCalls(race.calls).length,
+    0,
+    'A precisa continuar em voo antes da troca',
+  )
+
+  race.document
+    .getElementById('row-a')
+    .setAttribute('aria-selected', 'false')
+  race.document
+    .getElementById('row-b')
+    .setAttribute('aria-selected', 'true')
+
+  assert.strictEqual(
+    race.document.getElementById('main'),
+    raceMain,
+  )
+  assert.strictEqual(
+    raceMain.querySelector('header'),
+    raceHeader,
+  )
+
+  await waitFor(() =>
+    raceRequests.length === 2,
+  )
+
+  assert.deepEqual(
+    requestSnapshots,
+    ['row-a', 'row-b'],
+    'depois que A stale termina, B deve receber automaticamente o próprio request',
+  )
+  assert.equal(
+    resolveLeadCalls(race.calls).length,
+    0,
+    'a resposta atrasada de A nunca pode resolver um lead',
+  )
+
+  const raceResolvedB = await waitFor(() =>
+    resolveLeadCalls(race.calls).at(-1),
+  )
+
+  assert.equal(
+    raceResolvedB.payload.phone,
+    PHONE_B,
+  )
+  assert.deepEqual(
+    resolveLeadCalls(race.calls).map(
+      (call) => call.payload.phone,
+    ),
+    [PHONE_B],
+    'a corrida A→B só pode resolver o telefone de B',
+  )
+
+  await sleep(700)
+  assert.equal(
+    raceRequests.length,
+    2,
+    'a boundary deve produzir exatamente um retry para B, sem request storm',
+  )
+})

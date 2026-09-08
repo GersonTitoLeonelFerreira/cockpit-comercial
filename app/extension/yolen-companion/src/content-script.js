@@ -354,9 +354,10 @@
   // Contador monotônico de "instância estrutural" da conversa atual,
   // independente de conversationKey/título/avatar (que podem colidir entre
   // dois contatos homônimos). Incrementa quando o próprio nó do container
-  // da conversa (#main) ou do seu header muda de referência — o sinal mais
-  // barato e confiável de que o WhatsApp trocou de conversa de verdade
-  // (troca real normalmente desmonta/remonta essa parte da árvore),
+  // da conversa (#main), do seu header ou da linha estrutural selecionada
+  // muda de referência — sem usar título/avatar como identidade. IDs fortes
+  // iguais preservam o epoch mesmo se React recriar a linha; IDs fortes
+  // diferentes (ou referências diferentes sem ID forte) provam a fronteira.
   // distinto de uma mutation comum dentro da MESMA conversa (nova
   // mensagem, header ganhando um span, data-id sumindo/voltando), que só
   // adiciona/remove filhos sem substituir esses nós.
@@ -386,17 +387,62 @@
     const header = mainRoot
       ? mainRoot.querySelector('header')
       : null
+    const selectedChatRow =
+      getSelectedChatStructuralRow()
+    const selectedChatStrongIdentity =
+      getSelectedChatRowStrongIdentity(
+        selectedChatRow,
+      )
+
+    const previousSelectedChatRow =
+      activeChatStructuralSignature
+        ?.selectedChatRow || null
+    const previousSelectedChatStrongIdentity =
+      activeChatStructuralSignature
+        ?.selectedChatStrongIdentity || null
+
+    let selectedChatChanged = false
+
+    if (
+      selectedChatRow &&
+      previousSelectedChatRow
+    ) {
+      selectedChatChanged =
+        selectedChatStrongIdentity &&
+        previousSelectedChatStrongIdentity
+          ? selectedChatStrongIdentity !==
+            previousSelectedChatStrongIdentity
+          : selectedChatRow !==
+            previousSelectedChatRow
+    } else if (
+      selectedChatRow &&
+      activeChatStructuralSignature &&
+      !previousSelectedChatRow
+    ) {
+      selectedChatChanged = true
+    }
 
     const changed =
       !activeChatStructuralSignature ||
       activeChatStructuralSignature.mainRoot !==
         mainRoot ||
       activeChatStructuralSignature.header !==
-        header
+        header ||
+      selectedChatChanged
 
     activeChatStructuralSignature = {
       mainRoot,
       header,
+      // aria-selected pode desaparecer por alguns frames durante a
+      // reconciliação. Preserve a última linha nesse intervalo para
+      // não criar epoch/reset/request storm na mesma conversa.
+      selectedChatRow:
+        selectedChatRow ||
+        previousSelectedChatRow,
+      selectedChatStrongIdentity:
+        selectedChatRow
+          ? selectedChatStrongIdentity
+          : previousSelectedChatStrongIdentity,
     }
 
     if (changed) {
@@ -1593,6 +1639,45 @@
     )
   }
 
+  function getSelectedChatStructuralRow() {
+    const selectedElement = getSelectedChatElement()
+
+    if (!selectedElement) {
+      return null
+    }
+
+    const chatRowSelector =
+      '[data-testid="cell-frame-container"], [role="row"], [role="listitem"], [data-id]'
+
+    return selectedElement.matches?.(
+      chatRowSelector,
+    )
+      ? selectedElement
+      : selectedElement.closest?.(
+          chatRowSelector,
+        ) || null
+  }
+
+  function getSelectedChatRowStrongIdentity(
+    selectedChatRow,
+  ) {
+    if (!selectedChatRow) {
+      return null
+    }
+
+    const dataId =
+      selectedChatRow
+        .getAttribute?.('data-id')
+        ?.trim() ||
+      selectedChatRow
+        .querySelector?.('[data-id]')
+        ?.getAttribute?.('data-id')
+        ?.trim() ||
+      ''
+
+    return dataId ? `data:${dataId}` : null
+  }
+
   function getSelectedChatTitle() {
     const selectedElement = getSelectedChatElement()
 
@@ -1678,9 +1763,9 @@
   // apenas "o DOM não expõe identidade estrutural agora" — nunca "é outra
   // conversa".
   function getSelectedChatStrongIdentity() {
-    const dataId = getSelectedChatDataId()
-
-    return dataId ? `data:${dataId}` : null
+    return getSelectedChatRowStrongIdentity(
+      getSelectedChatStructuralRow(),
+    )
   }
 
   function getConversationKey(title) {
@@ -16851,7 +16936,26 @@
       // ele terminar. Sem isto, uma resposta atrasada não teria como
       // saber que a conversa mudou quando a conversationKey textual
       // colide com um homônimo (ver ACTIVE CHAT EPOCH).
+      const previousActiveChatEpoch =
+        activeChatEpoch
       refreshActiveChatEpoch()
+
+      if (
+        activeChatEpoch !== previousActiveChatEpoch
+      ) {
+        // Se A ainda estiver em voo, garanta que B seja reconsultado
+        // assim que o single-flight de A terminar, mesmo quando a
+        // conversationKey textual colide entre homônimos.
+        if (autoContactLookupInFlight) {
+          autoContactLookupConversationRefreshPending =
+            true
+        }
+
+        // Invalida telefone/workspace stale no callback bruto da
+        // boundary, antes do debounce e antes de uma resposta bridge
+        // atrasada poder ser aplicada.
+        refreshConversationSnapshot()
+      }
 
       const visibleConversationKey =
         getConversationKey(
@@ -16906,6 +17010,8 @@
     })
 
     observer.observe(observedRoot, {
+      attributes: true,
+      attributeFilter: ['aria-selected'],
       childList: true,
       subtree: true,
       characterData: true,
