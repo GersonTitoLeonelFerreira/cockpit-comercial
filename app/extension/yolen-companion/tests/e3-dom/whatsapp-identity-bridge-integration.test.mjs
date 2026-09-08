@@ -1531,8 +1531,6 @@ test('AE) mesma row preserva data-id forte através de gap temporário e separa 
 
   const row =
     env.document.getElementById('row-shared')
-  const selected =
-    env.document.getElementById('selected-shared')
   const main =
     env.document.getElementById('main')
   const header =
@@ -1540,13 +1538,9 @@ test('AE) mesma row preserva data-id forte através de gap temporário e separa 
   const requestsAfterA = requests.length
 
   // Fase gap: a mesma row perde temporariamente o strong data-id.
-  // A childList mutation força o observer real a reavaliar a assinatura.
+  // A mudança de data-id sozinha precisa acordar o observer real.
   // Isso NÃO é uma troca de conversa e não pode gerar reset/request storm.
   row.removeAttribute('data-id')
-  const gapMutation =
-    env.document.createElement('span')
-  gapMutation.textContent = 'gap'
-  selected.appendChild(gapMutation)
 
   await sleep(150)
 
@@ -1577,10 +1571,6 @@ test('AE) mesma row preserva data-id forte através de gap temporário e separa 
   // boundary mesmo com conversationKey/#main/header inalterados.
   bridgeMode = 'B'
   row.setAttribute('data-id', `${PHONE_B}@c.us`)
-  const bMutation =
-    env.document.createElement('span')
-  bMutation.textContent = 'b'
-  selected.appendChild(bMutation)
 
   await sleep(150)
 

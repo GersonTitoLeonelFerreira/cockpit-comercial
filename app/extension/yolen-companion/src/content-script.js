@@ -17015,7 +17015,10 @@
 
     observer.observe(observedRoot, {
       attributes: true,
-      attributeFilter: ['aria-selected'],
+      attributeFilter: [
+        'aria-selected',
+        'data-id',
+      ],
       childList: true,
       subtree: true,
       characterData: true,
