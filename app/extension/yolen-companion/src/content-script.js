@@ -1896,6 +1896,38 @@
     return null
   }
 
+  let contactInfoPanelStructuralContext = null
+
+  function getContactInfoPanelForEpoch(epoch) {
+    const panel = findContactInfoPanel()
+
+    if (!panel) {
+      contactInfoPanelStructuralContext = null
+
+      return {
+        panel: null,
+        authorized: false,
+      }
+    }
+
+    if (
+      !contactInfoPanelStructuralContext ||
+      contactInfoPanelStructuralContext.panel !== panel
+    ) {
+      contactInfoPanelStructuralContext = {
+        panel,
+        epoch,
+      }
+    }
+
+    return {
+      panel,
+      authorized:
+        contactInfoPanelStructuralContext.epoch ===
+        epoch,
+    }
+  }
+
   function collectContactPhoneCandidate(
     candidates,
     element,
@@ -5382,11 +5414,16 @@
     // quando o vendedor abriu o painel de contato manualmente depois —
     // nesse caso ainda há uma fonte nova e legítima de telefone a ler.
     // Sem essa exceção, "attempted" travaria essa conversa para sempre.
+    const contactPanelAtLookupStart =
+      getContactInfoPanelForEpoch(
+        activeChatEpoch,
+      )
+
     if (
       autoLookupAttemptedKeys.has(
         conversationKey,
       ) &&
-      !findContactInfoPanel()
+      !contactPanelAtLookupStart.authorized
     ) {
       return
     }
@@ -5599,8 +5636,13 @@
         return
       }
 
+      const contactPanelForRequest =
+        getContactInfoPanelForEpoch(
+          requestEpoch,
+        )
+
       const hadContactPanelOpen =
-        Boolean(findContactInfoPanel())
+        contactPanelForRequest.authorized
 
       if (!hadContactPanelOpen) {
         // Marca como tentada para não reagendar a cada mutation do
@@ -5630,6 +5672,19 @@
         await waitForContactPanelPhone(
           AUTO_CONTACT_LOOKUP_TIMEOUT_MS,
         )
+
+      if (activeChatEpoch !== requestEpoch) {
+        // O painel começou a ser lido em outra instância estrutural da
+        // conversa. Mesmo que a conversationKey textual continue igual
+        // (homônimo), qualquer telefone que terminou de aparecer durante
+        // essa espera pertence ao epoch anterior e não pode ser cacheado
+        // nem aplicado na conversa atual.
+        autoLookupAttemptedKeys.delete(
+          conversationKey,
+        )
+
+        return
+      }
 
       if (!hadContactPanelOpen) {
         const panelClosed =

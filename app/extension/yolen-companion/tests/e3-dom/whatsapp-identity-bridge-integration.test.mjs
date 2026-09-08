@@ -1733,3 +1733,92 @@ test('AF) telefone do fallback passivo não pode sobreviver a troca estrutural p
     panelText().includes(MARKER_B),
   )
 })
+
+
+test('AG) resultado atrasado do painel de A não pode ser cacheado no epoch de B homônimo', async () => {
+  const TITLE = 'Mesmo Nome AG'
+  const PHONE_A = '5511912346001'
+
+  const initialHtml = `<!doctype html><html><body>
+    <div id="app">
+      ${buildAppInnerHtml({
+        headerTitle: TITLE,
+      })}
+    </div>
+
+    <div id="stale-contact-panel">
+      <header>
+        <span>Dados do contato</span>
+      </header>
+
+      <div>
+        Informações comerciais e detalhes do contato ainda estão carregando neste painel.
+      </div>
+
+      <div id="late-phone-slot"></div>
+    </div>
+  </body></html>`
+
+  const {
+    calls,
+    window,
+    document,
+  } = loadContentScript({
+    initialHtml,
+    resolutionsByPhone: {
+      [PHONE_A]: defaultLeadResolution({
+        phone: PHONE_A,
+        lead: {
+          id: 'stale-panel-a-ag',
+          name: 'MARCADOR_STALE_PANEL_A_AG',
+          phone: PHONE_A,
+        },
+      }),
+    },
+  })
+
+  const requests = installFakeIdentityBridge(
+    window,
+    () => null,
+  )
+
+  await waitFor(() => requests.length >= 1)
+  await sleep(300)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'A ainda não possui telefone; nenhuma resolução deve ter ocorrido',
+  )
+
+  const app = document.getElementById('app')
+
+  app.innerHTML = buildAppInnerHtml({
+    headerTitle: TITLE,
+  })
+
+  await sleep(700)
+
+  const latePhoneSlot =
+    document.getElementById('late-phone-slot')
+
+  const phone = document.createElement('span')
+
+  phone.setAttribute(
+    'title',
+    '+55 11 91234-6001',
+  )
+
+  phone.textContent =
+    '+55 11 91234-6001'
+
+  latePhoneSlot.appendChild(phone)
+
+  await sleep(900)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    0,
+    'resultado tardio do painel iniciado em A deve ser descartado depois que activeChatEpoch mudou para B',
+  )
+})
