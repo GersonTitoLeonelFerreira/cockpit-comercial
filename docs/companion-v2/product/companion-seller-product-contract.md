@@ -820,6 +820,21 @@ direção do contrato já tem precedente técnico; a extensão desse modelo para
 cobrir todas as camadas do Commercial Brain (não só a memória de
 oportunidade) é trabalho de subfase futura.
 
+`scope` é o campo que decide se um fato atravessa ciclo (ver seção 11,
+itens 7-8) — sem ele, "vai decidir sexta" (específico do ciclo) e "prefere
+mensagens curtas" (sobre a pessoa) ficam indistinguíveis no armazenamento.
+Taxonomia normativa mínima, suficiente para a validação determinística da
+FASE 16.1 (`phase16-seller-information-architecture-contract.test.mjs`):
+
+| Valor de `scope` | Significado | Atravessa ciclo? |
+|---|---|---|
+| `person` | Fato sobre a pessoa (preferência de comunicação, canal, sensibilidade a preço quando realmente evidenciada e persistente). | Sim, enquanto semanticamente válido (seção 11, item 8). |
+| `cycle` | Fato específico da oportunidade atual (timing, agenda, descoberta pendente, objeção ligada à proposta em curso). | Não, automaticamente (seção 11, item 7). |
+
+Um fato `cycle`-scoped nunca é promovido silenciosamente a `person`-scoped
+só porque aparece em CLIENTE — a promoção exigiria nova evidência
+semântica, não a mera passagem do tempo.
+
 ---
 
 ## 10. Temporalidade

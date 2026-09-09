@@ -18,12 +18,28 @@
 /**
  * @typedef {Object} ScenarioArea
  * @property {string|null} primaryDecision - AGORA: no máximo uma decisão principal (nunca array).
- * @property {Array<{source: string, priority: 'critical'|'high'|'medium'|'low', reason: string, recommendedAction: string, expiresAt: string|null, resolveCondition: string|null, evidenceRefs: string[], createdAt: string, relatedLead: string, relatedCycle: string}>} interventionCards - AGORA: no máximo 2. Contrato, seção 4.3: todo card precisa de `expiresAt` (timestamp válido) OU `resolveCondition` (string não vazia), `evidenceRefs` não vazio (seção 12 item 5), `createdAt` (timestamp válido), `relatedLead` e `relatedCycle` (identidade do card, protege o escopo de isolamento A→B).
+ * @property {Array<{source: string, priority: 'critical'|'high'|'medium'|'low', reason: string, recommendedAction: string, expiresAt: string|null, resolveCondition: string|null, evidenceRefs: string[], createdAt: string, relatedLead: string, relatedCycle: string}>} interventionCards - AGORA: no máximo 2. Contrato, seção 4.3: todo card precisa de `expiresAt` (timestamp válido) OU `resolveCondition` (string não vazia), `evidenceRefs` não vazio (seção 12 item 5), `createdAt` (timestamp válido), `relatedLead` e `relatedCycle` — que precisam ser exatamente o `leadId`/`cycleId` do próprio cenário (achado do Codex, 8ª revisão): uma string não vazia qualquer não prova isolamento, só a identidade correta prova.
+ *
+ * Todo cenário tem `leadId`/`cycleId` de nível superior representando o
+ * lead/ciclo ATUAL da sessão (`null` quando o cenário não tem identidade
+ * individual, como o cenário 9 — grupo). `relatedLead`/`relatedCycle` de
+ * qualquer card precisam ser idênticos a esses valores; um cenário com
+ * cards mas sem `leadId`/`cycleId` próprios não tem como provar a quem os
+ * cards pertencem.
+ *
+ * Todo item de `cliente.memoryItems` também tem `scope`: `'person'`
+ * (sobrevive entre ciclos — preferências, sensibilidade a preço realmente
+ * evidenciada, canal preferido) ou `'cycle'` (pertence só à oportunidade
+ * atual — timing, agenda, descoberta pendente desta negociação; contrato,
+ * seção 9/11 item 8). Um fato `cycle`-scoped nunca deve ser promovido
+ * silenciosamente a `person`-scoped.
  */
 
 export const PHASE16_SCENARIOS = [
   {
     id: 'scenario-1-active-sale-price-objection',
+    leadId: 'lead-scenario-1',
+    cycleId: 'cycle-scenario-1',
     title: 'Venda ativa / pergunta de preço',
     session: { commercial: true, isGroup: false },
     operationalSignal: { present: false, type: null },
@@ -51,6 +67,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'current_conversation',
           observedAt: '2026-08-21T10:15:00-03:00',
           status: 'active',
+          scope: 'person',
           evidenceRefs: ['message-1'],
         },
       ],
@@ -65,6 +82,8 @@ export const PHASE16_SCENARIOS = [
   },
   {
     id: 'scenario-2-personal-conversation-active-opportunity',
+    leadId: 'lead-scenario-2',
+    cycleId: 'cycle-scenario-2',
     title: 'Conversa pessoal + oportunidade ativa',
     session: { commercial: false, isGroup: false },
     operationalSignal: { present: false, type: null },
@@ -97,6 +116,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'opportunity_history',
           observedAt: '2026-08-18T14:00:00-03:00',
           status: 'active',
+          scope: 'person',
           evidenceRefs: ['message-scenario-2-1'],
         },
       ],
@@ -111,6 +131,8 @@ export const PHASE16_SCENARIOS = [
   },
   {
     id: 'scenario-3-personal-conversation-upcoming-commercial-agenda',
+    leadId: 'lead-scenario-3',
+    cycleId: 'cycle-scenario-3',
     title: 'Conversa pessoal + agenda comercial próxima',
     session: { commercial: false, isGroup: false },
     operationalSignal: { present: true, type: 'agenda' },
@@ -151,6 +173,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'agenda',
           observedAt: '2026-08-22T09:00:00-03:00',
           status: 'active',
+          scope: 'cycle',
           evidenceRefs: ['agenda-event-2026-08-22-1600'],
         },
       ],
@@ -165,6 +188,8 @@ export const PHASE16_SCENARIOS = [
   },
   {
     id: 'scenario-4-priority-inbound-without-new-message',
+    leadId: 'lead-scenario-4',
+    cycleId: 'cycle-scenario-4',
     title: 'Inbound prioritário sem mensagem',
     session: { commercial: false, isGroup: false },
     operationalSignal: { present: true, type: 'inbound' },
@@ -211,6 +236,8 @@ export const PHASE16_SCENARIOS = [
   },
   {
     id: 'scenario-5-seller-off-method',
+    leadId: 'lead-scenario-5',
+    cycleId: 'cycle-scenario-5',
     title: 'Vendedor saindo do método',
     session: { commercial: true, isGroup: false },
     operationalSignal: { present: false, type: null },
@@ -251,6 +278,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'current_conversation',
           observedAt: '2026-08-21T10:16:00-03:00',
           status: 'active',
+          scope: 'cycle',
           evidenceRefs: ['message-2'],
         },
       ],
@@ -265,6 +293,8 @@ export const PHASE16_SCENARIOS = [
   },
   {
     id: 'scenario-6-support-administrative-active-opportunity',
+    leadId: 'lead-scenario-6',
+    cycleId: 'cycle-scenario-6',
     title: 'Suporte/administrativo + oportunidade ativa',
     session: { commercial: false, isGroup: false },
     operationalSignal: { present: true, type: 'support' },
@@ -310,6 +340,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'current_conversation',
           observedAt: '2026-08-15T11:00:00-03:00',
           status: 'active',
+          scope: 'person',
           evidenceRefs: ['message-support-1'],
         },
       ],
@@ -324,6 +355,8 @@ export const PHASE16_SCENARIOS = [
   },
   {
     id: 'scenario-7-contradicted-old-memory',
+    leadId: 'lead-scenario-7',
+    cycleId: 'cycle-scenario-7',
     title: 'Memória antiga contradita',
     session: { commercial: true, isGroup: false },
     operationalSignal: { present: false, type: null },
@@ -351,6 +384,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'opportunity_history',
           observedAt: '2026-08-14T09:00:00-03:00',
           status: 'superseded',
+          scope: 'cycle',
           evidenceRefs: ['memory-scenario-7-old'],
         },
         {
@@ -358,6 +392,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'current_conversation',
           observedAt: '2026-08-21T10:20:00-03:00',
           status: 'active',
+          scope: 'cycle',
           evidenceRefs: ['message-scenario-7-new'],
         },
       ],
@@ -372,6 +407,8 @@ export const PHASE16_SCENARIOS = [
   },
   {
     id: 'scenario-8-lead-isolation-a-to-b',
+    leadId: 'lead-b',
+    cycleId: 'cycle-b',
     title: 'Isolamento A → B',
     session: { commercial: true, isGroup: false },
     operationalSignal: { present: false, type: null },
@@ -409,6 +446,8 @@ export const PHASE16_SCENARIOS = [
   },
   {
     id: 'scenario-9-group-conversation',
+    leadId: null,
+    cycleId: null,
     title: 'Grupo',
     session: { commercial: false, isGroup: true },
     operationalSignal: { present: false, type: null },
@@ -443,6 +482,8 @@ export const PHASE16_SCENARIOS = [
   },
   {
     id: 'scenario-10-nothing-to-do',
+    leadId: 'lead-scenario-10',
+    cycleId: 'cycle-scenario-10',
     title: 'Nada para fazer',
     session: { commercial: false, isGroup: false },
     operationalSignal: { present: false, type: null },

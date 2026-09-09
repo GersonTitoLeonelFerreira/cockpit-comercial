@@ -144,6 +144,37 @@ function validateScenario(scenario) {
     violations.push('agora_card_with_invalid_priority')
   }
 
+  // Regra adicional (contrato, seção 4.3 + seção 12 item 4): `relatedLead`/
+  // `relatedCycle` precisam ser exatamente o lead/ciclo ATUAL do cenário
+  // (`scenario.leadId`/`scenario.cycleId`), não qualquer string não vazia.
+  // Achado do Codex (8ª revisão): a checagem anterior só exigia que fossem
+  // strings — um card carregando a identidade de OUTRO lead/ciclo (ex.: o
+  // lead que o vendedor acabou de sair, no cenário de isolamento) ainda
+  // passava, destruindo exatamente o isolamento que o card deveria provar.
+  const hasCardWithWrongLead = (cards || []).some(
+    (card) => card && isNonEmptyString(card.relatedLead) && card.relatedLead !== scenario.leadId,
+  )
+  if (hasCardWithWrongLead) {
+    violations.push('intervention_card_lead_mismatch')
+  }
+
+  const hasCardWithWrongCycle = (cards || []).some(
+    (card) => card && isNonEmptyString(card.relatedCycle) && card.relatedCycle !== scenario.cycleId,
+  )
+  if (hasCardWithWrongCycle) {
+    violations.push('intervention_card_cycle_mismatch')
+  }
+
+  // Regra adicional: um cenário só pode ter cards de intervenção se ele
+  // mesmo declarar a identidade (`leadId`/`cycleId`) contra a qual esses
+  // cards são verificados — identidade ausente/inválida não é permissão
+  // implícita, é falha (ex.: o cenário de grupo, que nunca tem `leadId`,
+  // não pode ganhar cards individuais só porque a comparação acima nunca
+  // bateria com `null`).
+  if (cards.length > 0 && (!isNonEmptyString(scenario.leadId) || !isNonEmptyString(scenario.cycleId))) {
+    violations.push('scenario_missing_identity_for_cards')
+  }
+
   // Regra 4 — MENSAGEM contendo fatos próprios não fornecidos pelas
   // camadas anteriores.
   if (scenario.mensagem.ownFactsIntroduced !== false) {
@@ -241,6 +272,21 @@ function validateScenario(scenario) {
     violations.push('memory_without_provenance')
   }
 
+  // Regra adicional (contrato, seção 9/11 item 8): todo item de memória
+  // precisa declarar `scope` — `'person'` (sobrevive entre ciclos) ou
+  // `'cycle'` (pertence só à oportunidade atual, não é promovido
+  // silenciosamente a fato eterno sobre a pessoa). Achado do Codex (8ª
+  // revisão): sem essa checagem, um fato como "pretende decidir sexta"
+  // (válido só neste ciclo) e um fato como "prefere confirmação por
+  // escrito" (válido sobre a pessoa) ficavam indistinguíveis na fixture.
+  const ALLOWED_MEMORY_SCOPES = new Set(['person', 'cycle'])
+  const hasMemoryWithInvalidScope = memoryItems.some(
+    (item) => !item || !ALLOWED_MEMORY_SCOPES.has(item.scope),
+  )
+  if (hasMemoryWithInvalidScope) {
+    violations.push('memory_item_invalid_scope')
+  }
+
   // Regra 10 — isolamento A→B permitindo cross-lead state. Gatilho pelo
   // `id` canônico do cenário, não por um campo de dentro do próprio
   // cenário (`isolation`, `isolationRequired`, `session.isGroup`) — qualquer
@@ -250,8 +296,26 @@ function validateScenario(scenario) {
   // pode desaparecer sem quebrar aquele outro teste primeiro. Achado do
   // Codex (2ª revisão): a versão anterior, gatilhada por
   // `scenario.isolationRequired`, ainda dependia de um campo removível.
+  // Achado do Codex (8ª revisão): confiar só em `isolation.crossLeadLeak`
+  // era fail-open — alguém podia injetar dado real de A em AGORA/CLIENTE/
+  // ANÁLISE e manter o marcador em `false`. A regra agora audita o
+  // conteúdo real: o Lead B (canonicamente) ainda não tem decisão, card,
+  // memória ou leitura de oportunidade herdada de nenhum outro ciclo.
   if (scenario.id === 'scenario-8-lead-isolation-a-to-b') {
-    if (!scenario.isolation || scenario.isolation.crossLeadLeak !== false) {
+    const hasCrossLeadLeak =
+      !scenario.isolation ||
+      scenario.isolation.crossLeadLeak !== false ||
+      scenario.agora.primaryDecision !== null ||
+      !Array.isArray(scenario.agora.interventionCards) ||
+      scenario.agora.interventionCards.length > 0 ||
+      !Array.isArray(scenario.cliente.memoryItems) ||
+      scenario.cliente.memoryItems.length > 0 ||
+      (Array.isArray(scenario.analise.basedOn) &&
+        scenario.analise.basedOn.some(
+          (source) => source === 'opportunity_history' || source === 'persisted_state',
+        ))
+
+    if (hasCrossLeadLeak) {
       violations.push('cross_lead_state_leak')
     }
   }
@@ -263,12 +327,19 @@ function validateScenario(scenario) {
   // do Codex (7ª revisão): checar só o marcador `group.individualContextRendered`
   // não bastava — alguém podia preencher `cliente.memoryItems`, ligar
   // `cliente.customerMemoryPresent`, ou marcar `analise.opportunityReadingPresent`
-  // com o marcador ainda em `false`, e nada disso quebrava o gate. A regra
-  // agora valida o estado neutro das quatro perspectivas, não só o marcador.
+  // com o marcador ainda em `false`, e nada disso quebrava o gate. Achado
+  // do Codex (8ª revisão): a regra ainda não auditava AGORA — uma
+  // `primaryDecision` ou um `interventionCard` individual (ex.: "responder
+  // o Lead A agora") podia aparecer no cenário de grupo sem quebrar o
+  // gate. A regra agora valida o estado neutro das quatro perspectivas,
+  // não só o marcador.
   if (scenario.id === 'scenario-9-group-conversation') {
     const hasIndividualLeak =
       !scenario.group ||
       scenario.group.individualContextRendered !== false ||
+      scenario.agora.primaryDecision !== null ||
+      !Array.isArray(scenario.agora.interventionCards) ||
+      scenario.agora.interventionCards.length > 0 ||
       scenario.cliente.customerMemoryPresent !== false ||
       !Array.isArray(scenario.cliente.memoryItems) ||
       scenario.cliente.memoryItems.length > 0 ||
@@ -290,7 +361,7 @@ function validateScenario(scenario) {
   return violations
 }
 
-test('todo cenário canônico da FASE 16.1 passa nas 11 regras estruturais por cenário', () => {
+test('todo cenário canônico da FASE 16.1 passa em todas as regras estruturais por cenário', () => {
   for (const scenario of PHASE16_SCENARIOS) {
     const violations = validateScenario(scenario)
     assert.deepEqual(
@@ -701,6 +772,148 @@ test('regra 11 (mutante): vazamento de contexto individual no cenário de grupo 
   const leakedDecisionState = clone(groupScenario)
   leakedDecisionState.mensagem.decisionStateConsumed = true
   assert.ok(validateScenario(leakedDecisionState).includes('group_receives_individual_context'))
+})
+
+test('regra 11 (mutante): AGORA vazando decisão ou card individual no cenário de grupo é detectado (achado do Codex, 8ª revisão)', () => {
+  const groupScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-9-group-conversation')
+  assert.ok(groupScenario, 'cenário de grupo precisa existir na fixture')
+
+  const leakedPrimaryDecision = clone(groupScenario)
+  leakedPrimaryDecision.agora.primaryDecision = 'Responder o Lead A agora.'
+  assert.ok(validateScenario(leakedPrimaryDecision).includes('group_receives_individual_context'))
+
+  const leakedCard = clone(groupScenario)
+  leakedCard.agora.interventionCards = [
+    {
+      source: 'agenda',
+      priority: 'high',
+      reason: 'Retorno do participante A',
+      recommendedAction: 'Responder participante A',
+      expiresAt: null,
+      resolveCondition: 'respondido',
+      evidenceRefs: ['message-a'],
+      createdAt: '2026-08-22T09:00:00-03:00',
+      relatedLead: 'lead-a',
+      relatedCycle: 'cycle-a',
+    },
+  ]
+  const cardViolations = validateScenario(leakedCard)
+  assert.ok(cardViolations.includes('group_receives_individual_context'))
+  // Defesa em profundidade: mesmo sem a checagem específica do cenário 9,
+  // a regra genérica de identidade de card (seção seguinte) já rejeitaria
+  // este card, porque o cenário de grupo não tem `leadId`/`cycleId`.
+  assert.ok(cardViolations.includes('scenario_missing_identity_for_cards'))
+})
+
+test('regra adicional (mutante): card com relatedLead/relatedCycle de outro lead é detectado (achado do Codex, 8ª revisão)', () => {
+  // `relatedLead`/`relatedCycle` serem strings não vazias não bastava — um
+  // card carregando a identidade de outro lead/ciclo ainda passava.
+  const wrongLead = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
+  wrongLead.agora.interventionCards[0].relatedLead = 'lead-errado'
+  assert.ok(validateScenario(wrongLead).includes('intervention_card_lead_mismatch'))
+
+  const wrongCycle = clone(PHASE16_SCENARIOS[2])
+  wrongCycle.agora.interventionCards[0].relatedCycle = 'cycle-errado'
+  assert.ok(validateScenario(wrongCycle).includes('intervention_card_cycle_mismatch'))
+})
+
+test('regra adicional (mutante): cenário com card mas sem leadId/cycleId próprios é detectado (achado do Codex, 8ª revisão)', () => {
+  // Um cenário sem identidade própria não tem contra o que comparar os
+  // cards que carrega — identidade ausente é falha, não permissão
+  // implícita.
+  const missingLeadId = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
+  delete missingLeadId.leadId
+  assert.ok(validateScenario(missingLeadId).includes('scenario_missing_identity_for_cards'))
+
+  const missingCycleId = clone(PHASE16_SCENARIOS[2])
+  delete missingCycleId.cycleId
+  assert.ok(validateScenario(missingCycleId).includes('scenario_missing_identity_for_cards'))
+})
+
+test('regra 10 (mutante): isolamento A→B com AGORA/CLIENTE/ANÁLISE herdados de A é detectado pelo conteúdo real, não só pelo marcador (achado do Codex, 8ª revisão)', () => {
+  const isolationScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-8-lead-isolation-a-to-b')
+  assert.ok(isolationScenario, 'cenário de isolamento precisa existir na fixture')
+
+  const leakedPrimaryDecision = clone(isolationScenario)
+  leakedPrimaryDecision.isolation.crossLeadLeak = false
+  leakedPrimaryDecision.agora.primaryDecision = 'Retomar proposta do Lead A.'
+  assert.ok(validateScenario(leakedPrimaryDecision).includes('cross_lead_state_leak'))
+
+  const leakedMemory = clone(isolationScenario)
+  leakedMemory.isolation.crossLeadLeak = false
+  leakedMemory.cliente.memoryItems = [
+    {
+      fact: 'Fato herdado do Lead A.',
+      origin: 'opportunity_history',
+      observedAt: '2026-08-10T09:00:00-03:00',
+      status: 'active',
+      scope: 'person',
+      evidenceRefs: ['memory-lead-a'],
+    },
+  ]
+  assert.ok(validateScenario(leakedMemory).includes('cross_lead_state_leak'))
+
+  const leakedCard = clone(isolationScenario)
+  leakedCard.isolation.crossLeadLeak = false
+  leakedCard.agora.interventionCards = [
+    {
+      source: 'off_method',
+      priority: 'high',
+      reason: 'Herdado do Lead A.',
+      recommendedAction: 'Retomar descoberta do Lead A.',
+      expiresAt: null,
+      resolveCondition: 'x',
+      evidenceRefs: ['message-a'],
+      createdAt: '2026-08-10T09:00:00-03:00',
+      relatedLead: 'lead-a',
+      relatedCycle: 'cycle-a',
+    },
+  ]
+  const cardViolations = validateScenario(leakedCard)
+  assert.ok(cardViolations.includes('cross_lead_state_leak'))
+  assert.ok(cardViolations.includes('intervention_card_lead_mismatch'))
+  assert.ok(cardViolations.includes('intervention_card_cycle_mismatch'))
+
+  const leakedOpportunityHistory = clone(isolationScenario)
+  leakedOpportunityHistory.isolation.crossLeadLeak = false
+  leakedOpportunityHistory.analise.basedOn = ['current_conversation', 'opportunity_history']
+  assert.ok(validateScenario(leakedOpportunityHistory).includes('cross_lead_state_leak'))
+
+  const leakedPersistedState = clone(isolationScenario)
+  leakedPersistedState.isolation.crossLeadLeak = false
+  leakedPersistedState.analise.basedOn = ['current_conversation', 'persisted_state']
+  assert.ok(validateScenario(leakedPersistedState).includes('cross_lead_state_leak'))
+})
+
+test('regra 9 (mutante): memoryItem sem scope válido é detectado (achado do Codex, 8ª revisão)', () => {
+  const missingScope = clone(PHASE16_SCENARIOS[6]) // cenário 7: memória contradita
+  delete missingScope.cliente.memoryItems[0].scope
+  assert.ok(validateScenario(missingScope).includes('memory_item_invalid_scope'))
+
+  const blankScope = clone(PHASE16_SCENARIOS[6])
+  blankScope.cliente.memoryItems[0].scope = '   '
+  assert.ok(validateScenario(blankScope).includes('memory_item_invalid_scope'))
+
+  const invalidScope = clone(PHASE16_SCENARIOS[6])
+  invalidScope.cliente.memoryItems[0].scope = 'invalid-scope'
+  assert.ok(validateScenario(invalidScope).includes('memory_item_invalid_scope'))
+})
+
+test('cenário 7: fato de timing da negociação é cycle-scoped, não promovido a fato eterno sobre a pessoa', () => {
+  const scenario = PHASE16_SCENARIOS.find((item) => item.id === 'scenario-7-contradicted-old-memory')
+  assert.ok(scenario)
+
+  for (const item of scenario.cliente.memoryItems) {
+    assert.equal(item.scope, 'cycle', `fato "${item.fact}" deveria ser cycle-scoped`)
+  }
+})
+
+test('cenário 2: preferência de comunicação da pessoa é person-scoped, sobrevive entre ciclos', () => {
+  const scenario = PHASE16_SCENARIOS.find(
+    (item) => item.id === 'scenario-2-personal-conversation-active-opportunity',
+  )
+  assert.ok(scenario)
+  assert.equal(scenario.cliente.memoryItems[0].scope, 'person')
 })
 
 test('regra 12: ausência de silêncio como resultado válido é impossível — o conjunto de cenários sempre representa silêncio', () => {
