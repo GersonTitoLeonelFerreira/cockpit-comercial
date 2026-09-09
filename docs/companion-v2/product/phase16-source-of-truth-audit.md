@@ -55,12 +55,14 @@ anti-regressão_ (`companion_method_stage_state`), **estruturalmente
 diferente e não coordenado** com o de ANÁLISE — o próprio código documenta
 essa divergência.
 
-Quarto achado (achado do Codex, 1ª revisão do PR #274): a regra de SLA tem
-a mesma classe de divergência — o caminho real do Companion
-(`companion-client-context-loader.ts::loadSlaRule()`) lê a tabela
-`sla_rules`, enquanto o admin e os relatórios (`report_sla_risk`) usam
-`company_sla_rules`. Não são uma tabela "atual" e uma "legada": são duas
-fontes ativas e potencialmente divergentes hoje.
+Quarto achado (achados do Codex nas rodadas 1 e 5 do PR #274, a versão
+final corrigindo as intermediárias): a regra de SLA tem duas tabelas
+ativas (`sla_rules`, `company_sla_rules`), mas **não** entre admin e
+Companion — ambos, junto com o Kanban/relatórios "for company", leem e
+escrevem `sla_rules` (apesar dos nomes de RPC como
+`rpc_get_company_sla_rules` sugerirem o contrário). A única função que
+realmente lê `company_sla_rules` é `report_sla_risk()`; nenhum writer de
+aplicação foi encontrado para essa tabela, que parece órfã.
 
 ---
 
@@ -166,7 +168,7 @@ Taxonomia usada nas seções seguintes (definida na missão, seção 8):
 | 3 | current moment summary | Current Moment | sessão | `current_moment.summary`. **Ressalva (achado do Codex, 1ª revisão do PR #274):** `stateful-copilot-engine.ts::preservePreviousCommercialStateWhenClosed()` substitui o `current_moment`/`current_priority` candidatos pelos do estado anterior sempre que `output.commercial_role !== 'buyer'` ou a relevância comercial não é acionável (`isCommerciallyActionable`) — ou seja, **não é recalculado a cada turno**; após uma interação não comercial, pode continuar descrevendo um momento comercial antigo. | OPPORTUNITY_STATE | `companion_commercial_states.state_snapshot` | `stateful-copilot-engine.ts` | AGORA | company_id+cycle_id+conversation_key | `evidence_message_ids` | **preservado (não atualizado) quando o contato não é comercialmente acionável** | **MEDIUM** (não LOW) | LOW | não | AGORA | Decision State | reutilizar, mas expor o momento em que foi preservado (não recalculado) |
 | 4 | pending customer question | Current Moment/Opportunity | ciclo | `open_loops[]` | OPPORTUNITY_STATE | idem | reducer (append) | AGORA/ANÁLISE | idem | `evidence_message_ids` | até `resolve`/`supersede` | MEDIUM | LOW | não | — | ANÁLISE/AGORA | reutilizar |
 | 5 | customer waiting | Operational Signal | mensagem | `computeCompanionClientWaiting()` (`companion-client-relationship.ts`) | DERIVED | nenhuma (calculado a cada render) | n/a | AGORA/UI | conversation_key | nenhuma (heurística de timestamp) | recalculado a cada leitura | LOW | LOW | não | UI cliente | AGORA (seção 4.7) | reutilizar |
-| 6 | SLA (pipeline stage) | Operational/CRM | cycle | **Correção (achado do Codex, 4ª revisão do PR #274) — a premissa das rodadas 1-3 estava incompleta.** `app/admin/configuracoes/sla/page.tsx` chama as RPCs `rpc_get_company_sla_rules()`/`rpc_upsert_company_sla_rules()`, mas essas RPCs (apesar do nome) fazem `SELECT`/`INSERT` diretamente em `public.sla_rules` (`20260629040658_restore_simulator_metrics_rpc_shell.sql:4843-4862`) — a mesma tabela que `companion-client-context-loader.ts::loadSlaRule()` lê no caminho real do Companion. **Admin e Companion compartilham `sla_rules`; uma regra salva pelo admin chega ao Companion normalmente.** A divergência real é entre {admin+Companion, via `sla_rules`} e {`report_sla_risk`/relatórios, via `company_sla_rules` — tabela distinta, com sua própria RPC `rpc_get_company_sla_rules_for_company`}. | CONFIG_SOURCE (regra) / DERIVED (risco), mas **DUPLICATED** | `sla_rules` (admin + Companion) + `company_sla_rules` (relatórios) — duas tabelas ativas | admin, via RPCs nomeadas "company_sla_rules" que na verdade escrevem `sla_rules` | Companion (`sla_rules`) e admin (`sla_rules`, mesma fonte); `report_sla_risk`/relatórios (`company_sla_rules`, fonte separada) | company_id+status | nenhuma | regra: até reconfigurar; risco: por request | LOW (regra) / MEDIUM (risco) | **MEDIUM — relatórios podem mostrar uma regra diferente da que o Companion aplica, mas admin e Companion não divergem entre si** | **sim, DUPLICATED** (nomes de RPC enganosos mascaram qual tabela é realmente usada) | Companion + admin (`sla_rules`), relatórios (`company_sla_rules`) | AGORA (seção 4.7) | **unificar `company_sla_rules` em `sla_rules` (ou vice-versa) para que relatórios reflitam a regra real** |
+| 6 | SLA (pipeline stage) | Operational/CRM | cycle | **Correção (achado do Codex, 5ª revisão do PR #274) — a premissa das rodadas 1-4 ainda estava incompleta.** `app/admin/configuracoes/sla/page.tsx` chama `rpc_get_company_sla_rules()`/`rpc_upsert_company_sla_rules()`, que (apesar do nome) fazem `SELECT`/`INSERT` em `public.sla_rules`. **`rpc_get_company_sla_rules_for_company()` — usada pelo Kanban/relatórios "for company" — também lê `public.sla_rules`** (`20260629040658_restore_simulator_metrics_rpc_shell.sql:11019`), não `company_sla_rules` como a rodada 4 ainda presumia. O único leitor confirmado de `company_sla_rules` é a função SQL `report_sla_risk()` (linha 5375, CTE `sla_lookup`); nenhum writer de aplicação foi encontrado para essa tabela — parece órfã. | CONFIG_SOURCE (regra) / DERIVED (risco), mas **DUPLICATED** | `sla_rules` (admin, Companion, e a RPC "for company" do Kanban/relatórios) + `company_sla_rules` (só `report_sla_risk`, sem writer conhecido) | admin, via RPCs nomeadas "company_sla_rules" que na verdade escrevem `sla_rules`; `company_sla_rules` sem writer de aplicação identificado | Companion (`sla_rules`), admin (`sla_rules`), Kanban/relatórios "for company" (`sla_rules` via `rpc_get_company_sla_rules_for_company`); só `report_sla_risk()` lê `company_sla_rules` | company_id+status | nenhuma | regra: até reconfigurar; risco: por request | LOW (regra) / MEDIUM (risco) | **MEDIUM — só `report_sla_risk()` pode divergir do resto; todo o restante (admin, Companion, Kanban) já usa `sla_rules`** | **sim, DUPLICATED** — `company_sla_rules` parece uma tabela órfã/vestigial lida por uma única função | Companion + admin + Kanban (`sla_rules`); `report_sla_risk()` (`company_sla_rules`) | AGORA (seção 4.7) | **confirmar se `company_sla_rules` ainda tem dado relevante; migrar `report_sla_risk()` para `sla_rules` e aposentar a tabela órfã** |
 | 7 | Agenda commitment | Opportunity | cycle | `StatefulCommercialState.commitments[]` | OPPORTUNITY_STATE | `companion_commercial_states.state_snapshot` | reducer (`applyCommitmentPatches`) | ANÁLISE/CLIENTE | company_id+cycle_id | `evidence_message_ids` | até status terminal | MEDIUM | **HIGH** (vs. CRM `next_action`, ver §12) | sim — 3 fontes de "agenda" (ver §12) | ANÁLISE | AGORA proativo (16.3) | decidir ownership |
 | 8 | priority inbound | Operational | lead | `leads.entry_mode`/`source` + `SiteLeadPriorityDecorator.tsx` | OPERATIONAL_SOURCE (site) / MISSING (WhatsApp) | `leads` table | pipeline de captura de site leads | dashboard | company_id+lead_id | nenhuma | até mudança de status | LOW | LOW | não | dashboard | AGORA (cenário 4, FASE 16.1) | **MISSING para WhatsApp inbound** |
 | 9 | pipeline | CRM | lead | `leads.current_pipeline_id` | CANONICAL | `leads`/`pipelines` tables | dashboard (`app/leads/*`) | dashboard, Companion (contexto) | company_id+lead_id | n/a (CRM truth) | até edição humana | LOW | LOW | não | dashboard | ANÁLISE (leitura) | reutilizar |
@@ -176,8 +178,8 @@ Taxonomia usada nas seções seguintes (definida na missão, seção 8):
 | 13 | next step | Opportunity/Method | cycle | `current_priority` (`StatefulCommercialState`) via `output.strategy.next_move`. **Mesma ressalva da linha #3 (achado do Codex, 2ª revisão do PR #274):** `preservePreviousCommercialStateWhenClosed()` também preserva `current_priority` do estado anterior fora de interação comercial acionável — não é recalculado incondicionalmente a cada turno. | OPPORTUNITY_STATE | `companion_commercial_states` | reducer | AGORA | company_id+cycle_id | `evidence_message_ids` | **preservado (não recalculado) quando o contato não é comercialmente acionável** | **MEDIUM** (não LOW) | LOW | não | AGORA | Decision State | reutilizar, expondo o momento em que foi preservado |
 | 14 | commercial commitment | Opportunity | cycle | `commitments[]` | OPPORTUNITY_STATE | idem #7 | idem | idem | idem | idem | idem | MEDIUM | HIGH (ver #7) | sim | ANÁLISE | AGORA proativo | decidir ownership |
 | 15 | method current stage (AGORA) | Method State | cycle | `companion_method_stage_state` | OPPORTUNITY_STATE | tabela dedicada (`companion-method-stage-store.ts`) | `saveCompanionMethodStage` | AGORA | company_id+cycle_id+conversation_key | nenhuma (gate determinístico) | último valor, sem histórico | LOW | **HIGH** (vs #16) | sim — divergência documentada no próprio código | AGORA | Method State (16.3) | consolidar |
-| 16 | method current stage (ANÁLISE) | Method State | cycle | **Correção (achado do Codex, 4ª revisão do PR #274):** `CommercialReading.method.current_stage` (`commercial-reading-contract.ts:481`), preenchido por `deriveCurrentMethodStage()` (linha 2244) dentro de `normalizeCommercialReadingModelOutput()` — **não** `method.adherence` (esse é o campo da linha #17, com status/resumo de aderência, um conceito distinto de identidade do estágio como `step_order`/`stage_key`/`name`). | DERIVED (não persistido) | não persistido (só audit log) | modelo, por turno (`stateful-communication-executor.ts`) | ANÁLISE | company_id+cycle_id | `evidence_message_ids` (no output) | recalculado a cada turno, sem continuidade | **HIGH** | **HIGH** (vs #15) | sim | ANÁLISE | Method State (16.3) | consolidar, preservando `current_stage` e `adherence` como campos distintos |
-| 17 | method adherence | Method State | cycle | idem #16 | DERIVED | idem | idem | ANÁLISE | idem | idem | idem | HIGH | — | não | ANÁLISE | Method State | consolidar |
+| 16 | method current stage (ANÁLISE) | Method State | cycle | `CommercialReading.method.current_stage` (`commercial-reading-contract.ts:425-429`, `{step_order, stage_key, name}`). **Correção (achado do Codex, 5ª revisão do PR #274):** este campo **não** tem `evidence_message_ids` próprio — é derivado deterministicamente por `deriveCurrentMethodStage(stages, adherenceStatus)` (linha 2244) dentro de `normalizeMethodModelOutput()`, a partir dos `stages` e do `adherenceStatus` já normalizados, não escrito diretamente pelo modelo com evidência própria. Distinto de `method.adherence` (linha #17). | DERIVED (não persistido) | não persistido (só audit log) | **normalizador** (`normalizeMethodModelOutput`/`deriveCurrentMethodStage`), não o modelo diretamente | ANÁLISE | company_id+cycle_id | **indireta** — recuperável do item correspondente em `method.stages`, não um campo próprio | recalculado a cada turno, sem continuidade | **HIGH** | **HIGH** (vs #15) | sim | ANÁLISE | Method State (16.3) | consolidar, preservando `current_stage` e `adherence` como campos distintos |
+| 17 | method adherence | Method State | cycle | `CommercialReading.method.adherence` (`commercial-reading-contract.ts:431-454`, `{status, summary, deviation_stage_order, evidence_message_ids, memory_ids, ...}`) — campo distinto de `method.current_stage` (linha #16). | DERIVED (não persistido) | não persistido (só audit log) | modelo, por turno (`stateful-communication-executor.ts`) | ANÁLISE | company_id+cycle_id | `evidence_message_ids`/`memory_ids` (campos próprios do tipo) | recalculado a cada turno, sem continuidade | HIGH | HIGH (vs #16) | não | ANÁLISE | Method State | consolidar |
 | 18 | method deviation | Method State | cycle | `deviation_stage_order` (`CommercialReadingMethodAdherence`) | DERIVED | idem | idem | ANÁLISE | idem | idem | idem | HIGH | — | não | ANÁLISE | Method State | consolidar |
 | 19 | method recovery | Method State | cycle | `CommercialReadingRecoveryGuidance` | DERIVED | idem (só audit log) | idem | ANÁLISE | idem | idem | idem | HIGH | — | não | ANÁLISE | Method State | consolidar |
 | 20 | customer objective | Customer Memory | cycle (ver §12) | `facts[]` kind `client.objective` | OPPORTUNITY_STATE (persistência) / Customer Memory (semântica) | `companion_commercial_states` | reducer | CLIENTE | company_id+**cycle_id** | `evidence_message_ids` | até `resolve`/`supersede`; herdado 1x entre ciclos via seed | MEDIUM | LOW | não | CLIENTE | Customer Memory (16.3) | **decidir escopo (cycle vs lead)** |
@@ -199,7 +201,7 @@ Taxonomia usada nas seções seguintes (definida na missão, seção 8):
 | 36 | communication preference / observed behavior | Customer Memory | cycle (com herança 1x entre ciclos) | `client.communication.{event,explicit_preference,pattern}` | idem #20 | idem | idem, validado por `validateClientCommercialState`/anti-perfil-psicológico | CLIENTE | idem | idem | idem | MEDIUM | LOW | não | CLIENTE | Customer Memory | idem #20 |
 | 37 | historical customer facts | Customer Memory | **lead** (única exceção cross-cycle real) | `durable-memory-seed.ts` (seed do ciclo anterior) | DURABLE_MEMORY | derivado de `companion_commercial_states` do ciclo anterior — não é tabela própria | `stateful-copilot-engine.ts` (aplica 1x, primeiro turno) | CLIENTE (novo ciclo) | company_id+lead_id (busca) | `evidence_message_ids: []` (perdida na herança) | 1 cópia degradada por ciclo novo; não se atualiza depois | **HIGH** | LOW | **sim, é a própria duplicação estrutural** | CLIENTE | Customer Memory canônica (16.3) | **consolidar — hoje é cópia, não perfil vivo** |
 | 38 | relationship history (primeiro contato, duração, timeline H2) | Customer Memory | cycle/conversa carregada (não lead inteiro) | **Correção (achado do Codex, 3ª e 4ª revisões do PR #274) — não é MISSING/[Unverified].** `app/lib/server/companion-client-context-loader.ts::loadCompanionClientContext()` já lê mensagens (filtradas por conversa) + `loadCycleEvents()` (eventos do ciclo inteiro, ex.: mudança de etapa/próxima ação/fechamento/registro de conversa) + `loadActionEvents()` (`companion_action_events`, ver linha #39, também por ciclo inteiro) + status do ciclo para o escopo atual; `computeCompanionClientRelationship()` produz `first_known_interaction_at`, duração, últimas interações e contagem; `buildCompanionClientTimeline()` monta a timeline a partir de **três** fontes — mensagens, `cycle_events` e `companion_action_events` — não duas. | DERIVED (read-model, não tabela própria) | nenhuma (recalculado a cada request) | n/a (leitura) | `loadCompanionClientContext()` → CLIENTE | company_id+cycle_id | herda evidência do Message Ledger (mensagens reais, escopo conversa) + `cycle_events`/`companion_action_events` (eventos reais, escopo ciclo inteiro) | recalculado por request | LOW | LOW | não | CLIENTE | Customer Memory/telemetria | **reutilizar — já existe; limitação real: cobre só o ciclo/conversa carregado, não agrega histórico entre múltiplos ciclos do mesmo lead; mensagens e eventos de ciclo têm escopos de filtro diferentes (conversa vs. ciclo inteiro)** |
-| 39 | Yolen action history (sugestão mostrada/copiada/enviada) | Operational | cycle | **Correção (achado do Codex, 1ª revisão do PR #274) — NÃO é MISSING.** Tabela `companion_action_events` (migrations `20260818140000_create_companion_action_events.sql`, `..._refine_companion_action_events.sql` ×2). Escrita via `app/lib/companion/action-events-route-handler.ts` → RPC `rpc_record_companion_action_event` (eventos como `suggestion_shown`/`suggestion_copied`/`suggestion_sent`). Lida via `app/lib/server/companion-client-context-loader.ts::loadActionEvents()` → RPC `rpc_list_companion_action_events`, por ciclo, para a timeline de CLIENTE. | CANONICAL | `companion_action_events` | `action-events-route-handler.ts` (`rpc_record_companion_action_event`) | `companion-client-context-loader.ts::loadActionEvents()` (`rpc_list_companion_action_events`) | company_id+cycle_id | `[Unverified]` (nível de evidência por evento não confirmado nesta rodada) | append-only por evento | LOW | LOW | não | CLIENTE (timeline) | Customer Memory/telemetria | **reutilizar — já existe, não recriar** |
+| 39 | Yolen action history (sugestão mostrada/copiada/enviada) | Operational | cycle (consulta) / **company (idempotência real)** | **Correção (achado do Codex, 1ª e 5ª revisões do PR #274) — NÃO é MISSING.** Tabela `companion_action_events` (migrations `20260818140000_create_companion_action_events.sql`, `..._refine_companion_action_events.sql` ×2). Escrita via `app/lib/companion/action-events-route-handler.ts` → RPC `rpc_record_companion_action_event` (eventos como `suggestion_shown`/`suggestion_copied`/`suggestion_sent`). Lida via `app/lib/server/companion-client-context-loader.ts::loadActionEvents()` → RPC `rpc_list_companion_action_events`, por ciclo, para a timeline de CLIENTE. | CANONICAL | `companion_action_events` | `action-events-route-handler.ts` (`rpc_record_companion_action_event`) | `companion-client-context-loader.ts::loadActionEvents()` (`rpc_list_companion_action_events`) | **`company_id+cycle_id` é só o escopo de consulta; a chave idempotente real é `(company_id, idempotency_key)`** (índice `companion_action_events_idempotency_uidx`, `ON CONFLICT` de `rpc_record_companion_action_event`) — vale **entre ciclos**, não só dentro de um; `cycle_id` é atributo/FK, não parte da identidade do evento | `[Unverified]` (nível de evidência por evento não confirmado nesta rodada) | append-only por evento | LOW | **MEDIUM** — reusar `company_id+cycle_id` como chave de dedup/migração trataria dois eventos do mesmo ciclo como equivalentes ou ignoraria colisões cross-cycle | não | CLIENTE (timeline) | Customer Memory/telemetria | **reutilizar — já existe, não recriar; usar `(company_id, idempotency_key)` para dedup/migração, não `(company_id, cycle_id)`** |
 | 40 | products | Commercial Config | company | `products` table + `company_commercial_product_profiles` | CONFIG_SOURCE | Supabase | admin UI | diagnostic-input, prompts | company_id | n/a | até edição admin | LOW | LOW | não | Companion, dashboard | idem | reutilizar |
 | 41 | commercial facts (config) | Commercial Config | company | `company_commercial_facts` (v1 legado + v2 `commercial_fact_contract_version`/`commercial_fact_definition`) | CONFIG_SOURCE | Supabase | admin UI | diagnostic-input | company_id | n/a | até edição | LOW | LOW | **sim — v1 e v2 coexistem sem migração** | Companion | idem | **consolidar v1→v2** |
 | 42 | allowed claims | Commercial Config | company/produto | `company_commercial_product_profiles.allowed_claims`/`forbidden_claims` | CONFIG_SOURCE | Supabase | admin UI | prompts | company_id+product_id | n/a | até edição | LOW | LOW | não | Companion | idem | reutilizar |
@@ -291,10 +293,10 @@ leads / sales_cycles (CRM, canônico)
 | Estágio de método (AGORA) | `companion_method_stage_state` | `company_id, cycle_id, conversation_key` | ciclo | `companion-method-stage-store.ts` | AGORA | 1 linha viva (upsert, sem histórico) |
 | Resumo canônico do lead | `companion_lead_conversation_summaries` | `company_id, lead_id` | **lead** (única tabela realmente lead-scoped para memória de cliente) | ação explícita do vendedor | `lead-summary/route.ts` | versionado, sem expiração automática |
 | Commercial Config | `company_commercial_config_versions` (+ filhas) | `company_id`, versão | company | admin UI | Companion (config), dashboard | versionado (draft/published/archived) |
-| SLA rules | `sla_rules` **e** `company_sla_rules` (duas tabelas ativas — ver §11; correção achado do Codex 4ª revisão: admin e Companion **compartilham** `sla_rules`, apesar dos nomes das RPCs) | `company_id, status` | company | admin UI, via `rpc_upsert_company_sla_rules()` — que apesar do nome escreve em `sla_rules` | Companion (`loadSlaRule()`) e admin (mesma tabela `sla_rules`); `report_sla_risk`/relatórios (tabela separada `company_sla_rules`, via `rpc_get_company_sla_rules_for_company`) | até reconfiguração |
+| SLA rules | `sla_rules` (admin, Companion, Kanban/relatórios "for company") **e** `company_sla_rules` (só `report_sla_risk()`, sem writer conhecido — ver §11) | `company_id, status` | company | admin UI, via `rpc_upsert_company_sla_rules()` — que apesar do nome escreve em `sla_rules` | Companion (`loadSlaRule()`), admin, e `rpc_get_company_sla_rules_for_company()` — todos leem `sla_rules`, apesar dos nomes; só `report_sla_risk()` lê `company_sla_rules` | até reconfiguração |
 | CRM | `leads`, `sales_cycles`, `pipelines`, `pipeline_stages` | `company_id, lead_id`/`cycle_id` | lead/cycle | dashboard | Companion (leitura), dashboard | indefinida |
 | Inbound (site) | `company_lead_api_keys`, `company_site_lead_distribution` | `company_id` | company | integração de site | dashboard | indefinida |
-| Ações da Yolen (telemetria) | `companion_action_events` | `company_id, cycle_id` | ciclo | `action-events-route-handler.ts` (`rpc_record_companion_action_event`) | `companion-client-context-loader.ts::loadActionEvents()` (CLIENTE) | append-only por evento |
+| Ações da Yolen (telemetria) | `companion_action_events` | idempotência real: `(company_id, idempotency_key)` — `cycle_id` é só filtro/FK de consulta, não parte da chave | company (idempotência) / cycle (consulta) | `action-events-route-handler.ts` (`rpc_record_companion_action_event`) | `companion-client-context-loader.ts::loadActionEvents()` (CLIENTE) | append-only por evento |
 
 ---
 
@@ -327,7 +329,8 @@ a um JID/telefone/lead — sua correção depende inteiramente do cliente
 
 | Fonte | Nível de evidência | Detalhe |
 |---|---|---|
-| `StatefulCommercialState` (facts/needs/objections/signals/uncertainties/open_loops/commitments) | **FULL** | todo item carrega `evidence_message_ids: string[]`, verificado contra o ledger real na validação do reducer |
+| `StatefulCommercialState` (facts/needs/objections/signals/uncertainties/open_loops/commitments) — **itens nativos do ciclo atual** | **FULL** | todo item carrega `evidence_message_ids: string[]`, verificado contra o ledger real na validação do reducer |
+| `StatefulCommercialState` — **itens herdados via `durable-memory-seed.ts`** (subconjunto de `facts`/`objections` no primeiro turno de um novo ciclo) | **NONE (degradado)** — correção (achado do Codex, 5ª revisão do PR #274): esta linha do mapa não excluía essa exceção, embora as linhas #37 e §24 já a reconheçam | `applyDurableMemorySeedToCandidateState()` insere esses itens com `evidence_message_ids: []` — não têm evidência real, apenas herança degradada (mesma linha da tabela logo abaixo) |
 | `current_moment`/`current_priority` | **FULL** | `evidence_message_ids` obrigatório na própria forma do tipo |
 | `CommercialReading` (seller coaching, method adherence, crm/agenda suggestions) | **PARTIAL** — `[Unverified]` a extensão exata de `evidence_message_ids` em cada subtipo não foi 100% confirmada campo a campo nesta rodada, mas o contrato (`commercial-reading-contract.ts`) exige `evidence_message_ids`/`memory_ids` em claims normalizados | ver `normalizeCommercialReading` |
 | `durable-memory-seed.ts` (fatos herdados) | **NONE (degradado)** | itens herdados recebem `evidence_message_ids: []` deliberadamente — mensagens antigas não existem no novo ledger; confiança é rebaixada (`degradeConfidenceForInheritance`) |
@@ -374,7 +377,7 @@ antes, porque não há um objeto persistido único que ambos leiam.
 | "Próxima ação"/agenda | (1) `sales_cycles.next_action`/`next_action_date` (CRM); (2) `StatefulCommercialState.commitments[]` (memória, cycle-scoped); (3) `CommercialReadingAgendaSuggestion` (sugestão de IA, não persistida) | **DANGEROUS DUPLICATION** — três fontes, nenhuma deriva automaticamente da outra, nenhuma sincroniza com as demais |
 | "Estágio atual" da oportunidade | (1) `sales_cycles.status`/`leads.current_stage_id` (CRM); (2) `companion_method_stage_state` (AGORA, persistido, anti-regressão); (3) `method.adherence` (ANÁLISE, não persistido, recalculado por turno) | **DANGEROUS DUPLICATION** — o próprio código documenta que (2) e (3) são "mecanismos diferentes, não coordenados" |
 | Sensibilidade a preço / fatos de cliente | `facts[]` dentro de `companion_commercial_states` (cycle-scoped) vs. a intenção conceitual de CLIENTE=PESSOA (deveria ser lead-scoped) | **DANGEROUS DUPLICATION estrutural** — não é duplicação de tabela, é conflação de escopo: o mesmo dado de pessoa é reiniciado por ciclo, com uma cópia degradada (`durable-memory-seed.ts`) tentando compensar |
-| Regras de SLA | `company_sla_rules` (escrita pelo admin, lida por `report_sla_risk`/relatórios) vs. `sla_rules` (lida pelo **caminho real do Companion**, via `companion-client-context-loader.ts::loadSlaRule()`) | **DANGEROUS DUPLICATION confirmada e ativa (achado do Codex, 1ª revisão do PR #274)** — não é uma tabela viva e uma morta: o Companion lê de uma tabela e o admin/relatórios escrevem/leem outra. Uma regra configurada pelo admin pode nunca chegar ao Companion. `[Unverified]` se algo escreve em `sla_rules`. |
+| Regras de SLA | `sla_rules` (admin, Companion, Kanban/relatórios "for company" — apesar dos nomes de RPC sugerirem `company_sla_rules`) vs. `company_sla_rules` (só `report_sla_risk()`, sem writer de aplicação encontrado) | **Correção final (achado do Codex, 5ª revisão do PR #274):** não há divergência entre admin e Companion — ambos usam `sla_rules`. A única fonte potencialmente desalinhada é `report_sla_risk()`, que lê a tabela separada `company_sla_rules`, aparentemente órfã (sem writer). Classificação: **DUPLICATED**, não mais "DANGEROUS" no sentido de admin vs. Companion — o risco real é `report_sla_risk()` mostrar dados de uma tabela que ninguém mais escreve. |
 | Fatos comerciais de config | `company_commercial_facts` v1 (genérico `category`/`fact_key`/`fact_value`) vs. v2 (`commercial_fact_definition jsonb`) coexistindo sem migração automática | **SAFE PROJECTION, mas requer decisão** — não é perigosa hoje (ambas são lidas), mas é dívida técnica explícita |
 | Resumo do cliente | `companion_lead_conversation_summaries` (canônico, lead-scoped, manual) vs. `working_summary` (efêmero, misto, automático) | **SAFE PROJECTION** — o efêmero é claramente derivado/temporário e nunca se apresenta como substituto do canônico, mas ambos podem divergir na tela em momentos diferentes |
 | "Commercial Reading" | tipo/contrato elaborado (`commercial-reading-contract.ts`) vs. ausência de fonte real (`loadCommercialReading()` sempre `null`) | não é duplicação — é o oposto: **MISSING** apesar do contrato existir |
@@ -472,12 +475,16 @@ company-scoped, versionada.
 derivado de timestamp+direção da última mensagem, sem persistência) e
 `assessCompanionClientSla()` (risco de SLA, derivado de
 `stage_entered_at`+regra configurada, sem persistência do resultado).
-**Achado do Codex (1ª revisão do PR #274):** a regra que alimenta
-`assessCompanionClientSla()` no caminho real do Companion vem de
+**Correção (achado do Codex, 1ª e 5ª revisões do PR #274):** a regra que
+alimenta `assessCompanionClientSla()` no caminho real do Companion vem de
 `app/lib/server/companion-client-context-loader.ts::loadSlaRule()`, que lê
-`sla_rules` — não `company_sla_rules` (usada pelo admin/relatórios). Ver
-§11 (duplicação perigosa ativa, não legada). Nenhum dos dois cálculos
-grava resultado de volta ao banco — são puramente de leitura/exibição.
+`sla_rules` — a mesma tabela que o admin escreve (via
+`rpc_upsert_company_sla_rules()`, que apesar do nome grava em `sla_rules`)
+e que o Kanban/relatórios "for company" também leem
+(`rpc_get_company_sla_rules_for_company()`). `company_sla_rules` é uma
+tabela separada, lida só por `report_sla_risk()`, sem writer de aplicação
+conhecido. Ver §11. Nenhum dos dois cálculos grava resultado de volta ao
+banco — são puramente de leitura/exibição.
 
 ## 19. Commercial Config sources
 
@@ -492,13 +499,15 @@ Ver §11/§12 para as duplicações. CRM (`leads`/`sales_cycles`) é canônico e
 nunca escrito automaticamente por IA (confirmado — nenhum write path
 encontrado a partir de `CommercialReadingCrmSuggestion`/
 `AgendaSuggestion`). Agenda tem 3 fontes não sincronizadas. **SLA tem 2
-tabelas de regra ativas e divergentes, não uma canônica e uma legada**
-(achado do Codex, 1ª revisão do PR #274, reforçado na 2ª): o caminho real
-do Companion (`companion-client-context-loader.ts::loadSlaRule()`) lê
-`sla_rules`, enquanto admin/relatórios (`report_sla_risk`) leem/escrevem
-`company_sla_rules` — mais 2 eixos de cálculo independentes (SLA de etapa
-vs. espera por mensagem). Inbound real existe só para captura de site;
-**inbound via WhatsApp está `MISSING`** como fonte operacional própria.
+tabelas, mas não uma divergência admin-vs-Companion** (correção final,
+achado do Codex, 5ª revisão do PR #274): admin, Companion e o Kanban/
+relatórios "for company" leem/escrevem `sla_rules` (apesar dos nomes de
+RPC sugerirem `company_sla_rules`); só a função SQL `report_sla_risk()`
+lê a tabela separada `company_sla_rules`, que parece órfã (sem writer de
+aplicação encontrado) — mais 2 eixos de cálculo independentes (SLA de
+etapa vs. espera por mensagem). Inbound real existe só para captura de
+site; **inbound via WhatsApp está `MISSING`** como fonte operacional
+própria.
 
 ## 21. Commercial Reading audit
 
@@ -630,11 +639,11 @@ rejeitar (exige `evidence_message_ids`/`memory_ids` em cada claim).
   um motor decidir fatos.
 - Qualquer leitura de `conversation_key` sem `company_id`+`cycle_id`
   acompanhando — não é uma chave de isolamento segura sozinha.
-- Qualquer uma das duas tabelas de regra de SLA (`sla_rules`,
-  `company_sla_rules`) isoladamente, sem antes confirmar qual o Companion
-  realmente lê em runtime — **não presuma que `company_sla_rules` é "a
-  atual"**: hoje é `sla_rules` que o Companion consulta
-  (`loadSlaRule()`), enquanto o admin edita `company_sla_rules` (§11).
+- `company_sla_rules` como fonte de regra de SLA para qualquer coisa além
+  de `report_sla_risk()` — correção final (achado do Codex, 5ª revisão do
+  PR #274): admin, Companion e Kanban/relatórios "for company" **já usam
+  `sla_rules`** (apesar dos nomes de RPC); `company_sla_rules` parece
+  órfã, sem writer de aplicação conhecido (§11).
 - `method.adherence` isolado, sem reconciliação com
   `companion_method_stage_state`, como única fonte de "estágio atual".
 
@@ -674,9 +683,10 @@ rejeitar (exige `evidence_message_ids`/`memory_ids` em cada claim).
    respeitando a proibição atual de fontes client-side não seguras.
 6. Definir Decision State e Communication Context como objetos
    compartilhados reais, não implícitos.
-7. Migrar/aposentar `company_commercial_facts` v1 em favor de v2; **unificar
-   `sla_rules`/`company_sla_rules` em uma única tabela** — hoje são duas
-   fontes ativas e divergentes, não uma atual e uma legada (§11).
+7. Migrar/aposentar `company_commercial_facts` v1 em favor de v2; **migrar
+   `report_sla_risk()` para ler `sla_rules`** (não `company_sla_rules`) e
+   confirmar/aposentar a tabela `company_sla_rules`, aparentemente órfã
+   (§11) — admin, Companion e Kanban já convergem em `sla_rules`.
 8. Decidir fonte de verdade para inbound via WhatsApp (hoje inexistente).
 9. Ao desenhar Decision State, decidir onde `commercial_relevance`
    (hoje só em `companion_commercial_state_events.normalized_output`,
