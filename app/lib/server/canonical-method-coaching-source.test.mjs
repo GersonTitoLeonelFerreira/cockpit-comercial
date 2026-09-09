@@ -761,6 +761,67 @@ test('evento cross-conversation malformado (contract_version incompatível) é i
   assert.deepEqual(source.cross_conversation_coaching, [])
 })
 
+test('evento cross-conversation com item malformado em seller_strengths é ignorado sem derrubar a leitura', async () => {
+  // Achado do Codex (PR #278, rodada 4): a restrição do banco valida
+  // apenas a versão do contrato de saída, não o formato dos arrays
+  // aninhados de coaching — um evento com contract_version correto
+  // ainda pode carregar itens malformados (ex.: `[null]`, ou objetos
+  // sem os campos obrigatórios).
+  const admin = createAdmin({
+    agoraRows: [],
+    stateRows: [
+      buildStateRow({ id: 'row-current', conversation_key: CONVERSATION_KEY }),
+      buildStateRow({ id: 'row-other', conversation_key: OTHER_CONVERSATION_KEY }),
+    ],
+    eventRows: [
+      buildEventRow({
+        id: 'event-malformed-strength',
+        conversation_key: OTHER_CONVERSATION_KEY,
+        state_record_id: 'row-other',
+        commercialReading: buildCommercialReadingPayload({
+          seller_strengths: [null],
+        }),
+      }),
+    ],
+  })
+
+  const source = await load({ admin })
+
+  assert.deepEqual(source.cross_conversation_coaching, [])
+})
+
+test('evento cross-conversation com item malformado em improvement_points (faltando campo obrigatório) é ignorado sem derrubar a leitura', async () => {
+  const admin = createAdmin({
+    agoraRows: [],
+    stateRows: [
+      buildStateRow({ id: 'row-current', conversation_key: CONVERSATION_KEY }),
+      buildStateRow({ id: 'row-other', conversation_key: OTHER_CONVERSATION_KEY }),
+    ],
+    eventRows: [
+      buildEventRow({
+        id: 'event-malformed-improvement',
+        conversation_key: OTHER_CONVERSATION_KEY,
+        state_record_id: 'row-other',
+        commercialReading: buildCommercialReadingPayload({
+          improvement_points: [
+            {
+              kind: 'premature_price',
+              summary: 'Sem os demais campos obrigatórios.',
+              // why_it_matters/impact/how_to_improve ausentes de propósito.
+              evidence_message_ids: [],
+              memory_ids: [],
+            },
+          ],
+        }),
+      }),
+    ],
+  })
+
+  const source = await load({ admin })
+
+  assert.deepEqual(source.cross_conversation_coaching, [])
+})
+
 test('evento cross-conversation com state_snapshot.updated_at no futuro é excluído', async () => {
   const admin = createAdmin({
     agoraRows: [],

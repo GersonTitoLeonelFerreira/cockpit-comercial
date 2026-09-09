@@ -6,6 +6,8 @@ import type {
 
 import {
   COMMERCIAL_READING_CONTRACT_VERSION,
+  COMMERCIAL_READING_IMPROVEMENT_KINDS,
+  COMMERCIAL_READING_SELLER_STRENGTH_KINDS,
   type CommercialReadingImprovementPoint,
   type CommercialReadingMethod,
   type CommercialReadingRecoveryGuidance,
@@ -190,6 +192,80 @@ function readNonEmptyString(
     value.trim()
 
   return normalized || null
+}
+
+const VALID_SELLER_STRENGTH_KINDS =
+  new Set<string>(
+    COMMERCIAL_READING_SELLER_STRENGTH_KINDS,
+  )
+
+const VALID_IMPROVEMENT_KINDS =
+  new Set<string>(
+    COMMERCIAL_READING_IMPROVEMENT_KINDS,
+  )
+
+function isStringArray(
+  value: unknown,
+): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      item => typeof item === 'string',
+    )
+  )
+}
+
+// A restrição do banco valida apenas a versão do contrato de saída, não
+// o formato dos arrays aninhados de coaching — um evento persistido por
+// um writer antigo/quebrado pode ter contract_version correto e ainda
+// assim carregar `[null]` ou objetos sem os campos obrigatórios (achado
+// do Codex, PR #278, rodada 4). Validar item a item antes de expor como
+// CommercialReadingSellerStrength/CommercialReadingImprovementPoint.
+function isValidSellerStrength(
+  value: unknown,
+): value is CommercialReadingSellerStrength {
+  return (
+    isRecord(value) &&
+    typeof value.kind === 'string' &&
+    VALID_SELLER_STRENGTH_KINDS.has(
+      value.kind,
+    ) &&
+    readNonEmptyString(value.summary) !==
+      null &&
+    readNonEmptyString(
+      value.why_it_matters,
+    ) !== null &&
+    isStringArray(
+      value.evidence_message_ids,
+    ) &&
+    isStringArray(value.memory_ids)
+  )
+}
+
+function isValidImprovementPoint(
+  value: unknown,
+): value is CommercialReadingImprovementPoint {
+  return (
+    isRecord(value) &&
+    typeof value.kind === 'string' &&
+    VALID_IMPROVEMENT_KINDS.has(
+      value.kind,
+    ) &&
+    readNonEmptyString(value.summary) !==
+      null &&
+    readNonEmptyString(
+      value.why_it_matters,
+    ) !== null &&
+    readNonEmptyString(value.impact) !==
+      null &&
+    readNonEmptyString(
+      value.how_to_improve,
+    ) !== null &&
+    isStringArray(
+      value.evidence_message_ids,
+    ) &&
+    isStringArray(value.memory_ids)
+  )
 }
 
 function normalizeDateOrNull(
@@ -619,23 +695,37 @@ function parseCrossConversationEvent({
       )
       : null
 
-  const sellerStrengths =
-    Array.isArray(
-      commercialReading.seller_strengths,
+  const sellerStrengthsRaw =
+    commercialReading.seller_strengths
+
+  if (
+    !Array.isArray(sellerStrengthsRaw) ||
+    !sellerStrengthsRaw.every(
+      isValidSellerStrength,
     )
-      ? (
-        commercialReading.seller_strengths as unknown as CommercialReadingSellerStrength[]
-      )
-      : []
+  ) {
+    return null
+  }
+
+  const sellerStrengths =
+    sellerStrengthsRaw
+
+  const improvementPointsRaw =
+    commercialReading.improvement_points
+
+  if (
+    !Array.isArray(
+      improvementPointsRaw,
+    ) ||
+    !improvementPointsRaw.every(
+      isValidImprovementPoint,
+    )
+  ) {
+    return null
+  }
 
   const improvementPoints =
-    Array.isArray(
-      commercialReading.improvement_points,
-    )
-      ? (
-        commercialReading.improvement_points as unknown as CommercialReadingImprovementPoint[]
-      )
-      : []
+    improvementPointsRaw
 
   return {
     conversationKey,
