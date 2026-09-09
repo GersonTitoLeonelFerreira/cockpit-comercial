@@ -201,6 +201,20 @@ function buildAgoraRow({
   }
 }
 
+function buildPublishedMethodConfigRow({
+  company_id = COMPANY_ID,
+  id = 'method-config-1',
+  status = 'published',
+  published_at = '2026-09-09T10:00:00.000Z',
+} = {}) {
+  return {
+    company_id,
+    id,
+    status,
+    published_at,
+  }
+}
+
 function createQueryClass({ rows, error, bypassFilters }) {
   return class Query {
     constructor() {
@@ -277,20 +291,32 @@ function createAdmin({
   agoraRows = [],
   stateRows = [],
   eventRows = [],
+  // Por padrão, exatamente a versão de método "atualmente publicada"
+  // que os testes de concordância/divergência já esperam — a maioria
+  // dos testes não se importa com a prova temporal em si, só quer que
+  // ela passe com os defaults de buildAgoraRow/buildCurrentReading.
+  publishedMethodRows = [buildPublishedMethodConfigRow()],
   agoraError = null,
   stateError = null,
   eventError = null,
+  publishedMethodError = null,
   bypassFilters = false,
 } = {}) {
   const AgoraQuery = createQueryClass({ rows: agoraRows, error: agoraError, bypassFilters })
   const StateQuery = createQueryClass({ rows: stateRows, error: stateError, bypassFilters })
   const EventQuery = createQueryClass({ rows: eventRows, error: eventError, bypassFilters })
+  const PublishedMethodQuery = createQueryClass({
+    rows: publishedMethodRows,
+    error: publishedMethodError,
+    bypassFilters,
+  })
 
   return {
     from(table) {
       if (table === 'companion_method_stage_state') return new AgoraQuery()
       if (table === 'companion_commercial_states') return new StateQuery()
       if (table === 'companion_commercial_state_events') return new EventQuery()
+      if (table === 'company_commercial_config_versions') return new PublishedMethodQuery()
       assert.fail(`tabela inesperada: ${table}`)
       return null
     },
@@ -304,7 +330,6 @@ function load({
   conversation_key = CONVERSATION_KEY,
   reference_time = REFERENCE_TIME,
   current_reading = buildCurrentReading(),
-  current_method_config_version_id = 'method-config-1',
 }) {
   return loadCanonicalMethodCoachingSource({
     admin,
@@ -313,7 +338,6 @@ function load({
     conversation_key,
     reference_time,
     current_reading,
-    current_method_config_version_id,
   })
 }
 
@@ -439,11 +463,13 @@ test('AGORA de versão de método diferente da atual: comparação não confiáv
       }),
     ],
     stateRows: [buildStateRow({})],
+    publishedMethodRows: [
+      buildPublishedMethodConfigRow({ id: 'method-config-NEW' }),
+    ],
   })
 
   const source = await load({
     admin,
-    current_method_config_version_id: 'method-config-NEW',
     current_reading: buildCurrentReading({
       method: buildMethod({
         current_stage: {
@@ -461,18 +487,92 @@ test('AGORA de versão de método diferente da atual: comparação não confiáv
   assert.equal(source.method.stage_divergence, false)
 })
 
-test('current_method_config_version_id desconhecido (null): comparação nunca é confiável', async () => {
+test('sem método publicado (nenhuma linha company_commercial_config_versions): comparação nunca é confiável', async () => {
   const admin = createAdmin({
     agoraRows: [buildAgoraRow({ stage_key: 'diagnostico' })],
     stateRows: [buildStateRow({})],
+    publishedMethodRows: [],
+  })
+
+  const source = await load({ admin })
+
+  assert.equal(source.method.stage_comparison_reliable, false)
+  assert.equal(source.method.stage_divergence, false)
+})
+
+test('current_reading antigo (generated_at anterior à publicação atual do método): comparação não confiável', async () => {
+  // Achado do Codex (PR #278, rodada 2, refinando a rodada 1):
+  // CanonicalCommercialReadingSource não expõe qual revisão do método
+  // gerou a leitura persistida. Um id "atual" fornecido pelo chamador
+  // poderia bater com agora_stage por coincidência sem provar que
+  // analise_stage veio da mesma revisão. A prova precisa ser temporal:
+  // current_reading.generated_at também precisa ser >= published_at
+  // da versão atualmente publicada — aqui ele é ANTERIOR, então a
+  // leitura pode ter sido gerada sob uma versão já substituída.
+  const admin = createAdmin({
+    agoraRows: [
+      buildAgoraRow({
+        stage_key: 'diagnostico',
+        updated_at: '2026-09-09T12:00:00.000Z',
+      }),
+    ],
+    stateRows: [buildStateRow({})],
+    publishedMethodRows: [
+      buildPublishedMethodConfigRow({
+        published_at: '2026-09-09T11:00:00.000Z',
+      }),
+    ],
   })
 
   const source = await load({
     admin,
-    current_method_config_version_id: null,
+    current_reading: buildCurrentReading({
+      generated_at: '2026-09-09T10:00:00.000Z',
+      method: buildMethod({
+        current_stage: {
+          step_order: 1,
+          stage_key: 'diagnostico',
+          name: 'Diagnóstico',
+        },
+      }),
+    }),
   })
 
   assert.equal(source.method.stage_comparison_reliable, false)
+  assert.equal(source.method.stage_divergence, false)
+})
+
+test('AGORA e ANÁLISE ambos posteriores à publicação atual do método: comparação confiável (prova temporal)', async () => {
+  const admin = createAdmin({
+    agoraRows: [
+      buildAgoraRow({
+        stage_key: 'diagnostico',
+        updated_at: '2026-09-09T12:00:00.000Z',
+      }),
+    ],
+    stateRows: [buildStateRow({})],
+    publishedMethodRows: [
+      buildPublishedMethodConfigRow({
+        published_at: '2026-09-09T11:00:00.000Z',
+      }),
+    ],
+  })
+
+  const source = await load({
+    admin,
+    current_reading: buildCurrentReading({
+      generated_at: '2026-09-09T16:59:00.000Z',
+      method: buildMethod({
+        current_stage: {
+          step_order: 1,
+          stage_key: 'diagnostico',
+          name: 'Diagnóstico',
+        },
+      }),
+    }),
+  })
+
+  assert.equal(source.method.stage_comparison_reliable, true)
   assert.equal(source.method.stage_divergence, false)
 })
 
@@ -794,6 +894,28 @@ test('reference_time inválido retorna null sem consultar o banco', async () => 
   assert.equal(calledFrom, false)
 })
 
+test('AGORA com updated_at posterior a reference_time é tratado como indisponível, não como atual', async () => {
+  // Achado do Codex (PR #278, rodada 2): companion_method_stage_state
+  // é uma linha viva (upsert, sem histórico) — ao contrário de
+  // Commercial Reading, não existe um evento passado para "voltar no
+  // tempo". Se ela já avançou para depois de reference_time, expor
+  // esse valor promoveria um estágio do futuro.
+  const admin = createAdmin({
+    agoraRows: [
+      buildAgoraRow({
+        stage_key: 'proposta',
+        updated_at: '2026-09-09T17:00:00.001Z',
+      }),
+    ],
+    stateRows: [buildStateRow({})],
+  })
+
+  const source = await load({ admin })
+
+  assert.equal(source.method.agora_stage, null)
+  assert.equal(source.method.stage_comparison_reliable, false)
+})
+
 test('erro na leitura do estágio AGORA não derruba a leitura combinada (best-effort)', async () => {
   const admin = createAdmin({
     agoraError: { message: 'boom' },
@@ -818,6 +940,33 @@ test('erro na descoberta de conversation_keys do ciclo degrada para lista vazia 
   assert.deepEqual(source.cross_conversation_coaching, [])
   assert.notEqual(source.method.agora_stage, null)
   assert.equal(source.method.configured, true)
+})
+
+test('erro na leitura da versão publicada do método torna a comparação não confiável, sem derrubar o restante (best-effort)', async () => {
+  const admin = createAdmin({
+    agoraRows: [buildAgoraRow({ stage_key: 'diagnostico' })],
+    stateRows: [buildStateRow({})],
+    publishedMethodError: { message: 'boom' },
+  })
+
+  const source = await load({
+    admin,
+    current_reading: buildCurrentReading({
+      method: buildMethod({
+        current_stage: {
+          step_order: 1,
+          stage_key: 'diagnostico',
+          name: 'Diagnóstico',
+        },
+      }),
+    }),
+  })
+
+  assert.notEqual(source, null)
+  assert.notEqual(source.method.agora_stage, null)
+  assert.notEqual(source.method.analise_stage, null)
+  assert.equal(source.method.stage_comparison_reliable, false)
+  assert.equal(source.method.stage_divergence, false)
 })
 
 test('erro na leitura de eventos cross-conversation degrada para lista vazia sem derrubar o restante (best-effort)', async () => {

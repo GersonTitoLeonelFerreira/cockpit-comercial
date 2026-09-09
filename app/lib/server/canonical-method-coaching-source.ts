@@ -65,6 +65,11 @@ type SupabasePageResult = {
   error: unknown
 }
 
+type CurrentPublishedMethodConfig = {
+  id: string
+  published_at: string
+}
+
 export type CanonicalMethodCoachingAgoraStage = {
   source: 'agora_persisted'
 
@@ -255,6 +260,66 @@ async function readAllPages({
   return rows
 }
 
+/**
+ * Carrega a versão do método atualmente `published` para a empresa
+ * (no máximo uma, garantida por
+ * `company_commercial_config_one_published_uidx`), com seu
+ * `published_at` — a base da prova temporal em
+ * computeStageComparison. `null` quando não há método publicado ou a
+ * leitura falha (best-effort: uma falha aqui só torna a comparação
+ * AGORA×ANÁLISE não confiável, nunca derruba o restante da leitura).
+ */
+async function loadCurrentPublishedMethodConfig({
+  admin,
+  companyId,
+}: {
+  admin: SupabaseClient
+  companyId: string
+}): Promise<CurrentPublishedMethodConfig | null> {
+  const {
+    data,
+    error,
+  } =
+    await admin
+      .from(
+        'company_commercial_config_versions',
+      )
+      .select('id, published_at')
+      .eq('company_id', companyId)
+      .eq('status', 'published')
+      .maybeSingle()
+
+  if (
+    error ||
+    !isRecord(data)
+  ) {
+    return null
+  }
+
+  const id =
+    readNonEmptyString(data.id)
+
+  const publishedAt =
+    readNonEmptyString(
+      data.published_at,
+    )
+
+  if (
+    !id ||
+    !publishedAt ||
+    !Number.isFinite(
+      Date.parse(publishedAt),
+    )
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    published_at: publishedAt,
+  }
+}
+
 function buildAgoraStage(
   record: CompanionMethodStageRecord | null,
 ): CanonicalMethodCoachingAgoraStage | null {
@@ -290,29 +355,43 @@ function buildAnaliseStage(
 }
 
 /**
- * Compara AGORA e ANÁLISE só quando ambos vêm da MESMA versão
- * publicada do método (`method_config_version_id`). Quando a empresa
- * republica o método, `companion_method_stage_state` pode ainda
- * referenciar a versão anterior até a próxima persistência — o
- * próprio caminho AGORA já trata esse caso como "sem etapa anterior
- * confiável" (`lead-seller-guidance.ts`, `activePreviousStage`:
- * `previousStage.method_config_version_id === method.id ? previousStage
- * : null`). Comparar `stage_key` entre revisões diferentes do método
- * pode reportar divergência falsa, ou concordância falsa se a chave
- * for reaproveitada com outro significado na nova versão — achado do
- * Codex, PR #278, rodada 1.
+ * Compara AGORA e ANÁLISE só quando é PROVÁVEL que os dois foram
+ * computados sob a MESMA versão publicada do método — não apenas
+ * quando `agora_stage.method_config_version_id` bate com algum id
+ * fornecido pelo chamador. `CanonicalCommercialReadingSource` (FASE
+ * 16.3B) não seleciona nem expõe qual revisão do método gerou a
+ * leitura persistida (`canonical-commercial-reading-source.ts`), e
+ * `current_reading` pode ser uma leitura antiga cujo `generated_at`
+ * antecede uma republicação do método — nesse caso, um id "atual"
+ * fornecido pelo chamador bateria com `agora_stage` por coincidência,
+ * sem provar que `analise_stage` veio da mesma revisão (achado do
+ * Codex, PR #278, rodada 2, refinando a rodada 1).
+ *
+ * Prova temporal, não invenção de mapeamento: `company_commercial_-
+ * config_one_published_uidx` garante no máximo UMA versão `published`
+ * por empresa a qualquer instante. Se `agora_stage.updated_at` E
+ * `current_reading.generated_at` são ambos `>= currentPublishedMethod.
+ * published_at`, nenhum dos dois pôde ter sido computado sob uma
+ * versão anterior — a versão atual é a única que esteve "published"
+ * durante toda essa janela. Isso é comparável a
+ * `previousStage.method_config_version_id === method.id` em
+ * `lead-seller-guidance.ts`, só que provado pelo tempo em vez de por
+ * um id que `current_reading` não carrega.
  */
 function computeStageComparison({
   agoraStage,
   analiseStage,
-  currentMethodConfigVersionId,
+  currentReadingGeneratedAt,
+  currentPublishedMethod,
 }: {
   agoraStage:
     CanonicalMethodCoachingAgoraStage | null
   analiseStage:
     CanonicalMethodCoachingAnaliseStage | null
-  currentMethodConfigVersionId:
+  currentReadingGeneratedAt:
     string | null
+  currentPublishedMethod:
+    CurrentPublishedMethodConfig | null
 }): {
   reliable: boolean
   divergence: boolean
@@ -331,10 +410,41 @@ function computeStageComparison({
     }
   }
 
+  if (
+    !currentPublishedMethod ||
+    !currentReadingGeneratedAt ||
+    agoraStage.method_config_version_id !==
+      currentPublishedMethod.id
+  ) {
+    return {
+      reliable: false,
+      divergence: false,
+    }
+  }
+
+  const publishedAtInstant =
+    Date.parse(
+      currentPublishedMethod.published_at,
+    )
+
+  const agoraUpdatedAtInstant =
+    Date.parse(agoraStage.updated_at)
+
+  const readingGeneratedAtInstant =
+    Date.parse(currentReadingGeneratedAt)
+
   const reliable =
-    currentMethodConfigVersionId !== null &&
-    agoraStage.method_config_version_id ===
-      currentMethodConfigVersionId
+    Number.isFinite(publishedAtInstant) &&
+    Number.isFinite(
+      agoraUpdatedAtInstant,
+    ) &&
+    Number.isFinite(
+      readingGeneratedAtInstant,
+    ) &&
+    agoraUpdatedAtInstant >=
+      publishedAtInstant &&
+    readingGeneratedAtInstant >=
+      publishedAtInstant
 
   if (!reliable) {
     return {
@@ -788,17 +898,19 @@ async function loadCrossConversationCoaching({
  * ver loadCrossConversationCoaching para o contrato de validação
  * estrutural (não revalidação completa por ledger).
  *
- * Best-effort: `agora_stage` e `cross_conversation_coaching` são
- * enriquecimentos, não a entrega principal — uma falha isolada em
- * qualquer um deles (leitura de `companion_method_stage_state`,
- * descoberta de conversation_keys via loadCanonicalCycleCommercialMemory,
- * ou a consulta de eventos cross-conversation) degrada para
- * `agora_stage: null`/`cross_conversation_coaching: []`, sem derrubar
- * a leitura de method/coaching da conversa atual (que já veio pronta
- * em `current_reading`). A função só retorna `null` por completo para
- * seus próprios problemas estruturais: `reference_time` inválido,
- * `current_reading` de outro escopo (company/cycle/conversation), ou
- * uma exceção genuinamente inesperada.
+ * Best-effort: `agora_stage`, `stage_comparison_reliable` e
+ * `cross_conversation_coaching` são enriquecimentos, não a entrega
+ * principal — uma falha isolada em qualquer leitura auxiliar (
+ * `companion_method_stage_state`, a versão publicada do método via
+ * loadCurrentPublishedMethodConfig, descoberta de conversation_keys
+ * via loadCanonicalCycleCommercialMemory, ou a consulta de eventos
+ * cross-conversation) degrada para `agora_stage: null`/
+ * `stage_comparison_reliable: false`/`cross_conversation_coaching: []`,
+ * sem derrubar a leitura de method/coaching da conversa atual (que já
+ * veio pronta em `current_reading`). A função só retorna `null` por
+ * completo para seus próprios problemas estruturais: `reference_time`
+ * inválido, `current_reading` de outro escopo (company/cycle/
+ * conversation), ou uma exceção genuinamente inesperada.
  */
 export async function loadCanonicalMethodCoachingSource({
   admin,
@@ -807,7 +919,6 @@ export async function loadCanonicalMethodCoachingSource({
   conversation_key,
   reference_time,
   current_reading,
-  current_method_config_version_id,
 }: {
   admin: SupabaseClient
   company_id: string
@@ -817,16 +928,6 @@ export async function loadCanonicalMethodCoachingSource({
 
   current_reading:
     CanonicalCommercialReadingSource | null
-
-  // Identidade da versão publicada do método (`company_commercial_-
-  // config_versions.id`) usada para gerar `current_reading` — mesma
-  // fonte que `PublishedCommercialMethod.id` em lead-seller-
-  // guidance.ts. Necessária para decidir se `agora_stage` (que carrega
-  // sua própria `method_config_version_id`) pode ser comparado com
-  // segurança a `analise_stage`. `null` quando desconhecida — nesse
-  // caso a comparação nunca é considerada confiável (fail-closed).
-  current_method_config_version_id:
-    string | null
 }): Promise<CanonicalMethodCoachingSource | null> {
   const referenceTime =
     normalizeDateOrNull(reference_time)
@@ -862,6 +963,23 @@ export async function loadCanonicalMethodCoachingSource({
           conversationKey:
             conversation_key,
         })
+
+      // companion_method_stage_state é uma linha viva (upsert, sem
+      // histórico) — ao contrário de Commercial Reading, não existe
+      // um evento passado para "voltar no tempo". Se ela já avançou
+      // para depois de reference_time, expor esse valor seria
+      // promover um estado do futuro (achado do Codex, PR #278,
+      // rodada 2) — o único comportamento seguro é tratá-la como
+      // indisponível para este reference_time, não como "atual".
+      if (
+        agoraRecord &&
+        Date.parse(
+          agoraRecord.updated_at,
+        ) >
+          Date.parse(referenceTime)
+      ) {
+        agoraRecord = null
+      }
     } catch (error) {
       console.error(
         '[CANONICAL_METHOD_COACHING] agora stage lookup failed, continuing without it',
@@ -874,6 +992,29 @@ export async function loadCanonicalMethodCoachingSource({
       )
 
       agoraRecord = null
+    }
+
+    let currentPublishedMethod:
+      CurrentPublishedMethodConfig | null
+
+    try {
+      currentPublishedMethod =
+        await loadCurrentPublishedMethodConfig(
+          {
+            admin,
+            companyId: company_id,
+          },
+        )
+    } catch (error) {
+      console.error(
+        '[CANONICAL_METHOD_COACHING] published method config lookup failed, stage comparison will be unreliable',
+        {
+          company_id,
+          error,
+        },
+      )
+
+      currentPublishedMethod = null
     }
 
     const cycleMemory =
@@ -925,8 +1066,10 @@ export async function loadCanonicalMethodCoachingSource({
       computeStageComparison({
         agoraStage,
         analiseStage,
-        currentMethodConfigVersionId:
-          current_method_config_version_id,
+        currentReadingGeneratedAt:
+          current_reading?.generated_at ??
+          null,
+        currentPublishedMethod,
       })
 
     return {
