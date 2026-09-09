@@ -23,27 +23,20 @@ const IDS = {
   event: '80000000-0000-4000-8000-000000000001',
 }
 
-const CONVERSATION_KEY =
-  'whatsapp:+5547999990001'
-const REFERENCE_TIME =
-  '2026-09-09T17:00:00.000Z'
+const CONVERSATION_KEY = 'whatsapp:+5547999990001'
+const REFERENCE_TIME = '2026-09-09T17:00:00.000Z'
 
-function evidence(
-  summary,
-  messageIds = ['1'],
-  memoryIds = [],
-) {
+function evidence(summary, ids = ['1']) {
   return {
     summary,
-    evidence_message_ids: messageIds,
-    memory_ids: memoryIds,
+    evidence_message_ids: ids,
+    memory_ids: [],
   }
 }
 
 function buildValidReading(overrides = {}) {
   return {
-    contract_version:
-      COMMERCIAL_READING_CONTRACT_VERSION,
+    contract_version: COMMERCIAL_READING_CONTRACT_VERSION,
     analysis_status: 'complete',
     analysis_limitations: [],
     commercial_role: 'buyer',
@@ -52,12 +45,8 @@ function buildValidReading(overrides = {}) {
       initial_context: null,
       evolution: null,
       important_events: [],
-      current_state:
-        evidence(
-          'A conversa está aberta e sem intervenção útil neste instante.',
-        ),
-      last_customer_request_or_decision:
-        null,
+      current_state: evidence('Conversa aberta sem intervenção útil agora.'),
+      last_customer_request_or_decision: null,
     },
     customer: {
       objectives: [],
@@ -83,7 +72,23 @@ function buildValidReading(overrides = {}) {
       },
     },
     commercial_evolution: [],
-    method: null,
+    method: {
+      configured: false,
+      name: null,
+      stages: [],
+      current_stage: null,
+      adherence: {
+        status: 'not_configured',
+        summary: 'Método comercial não configurado.',
+        deviation_stage_order: null,
+        what_happened: null,
+        missing_information: [],
+        why_it_matters: null,
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+      recovery_guidance: null,
+    },
     seller_strengths: [],
     improvement_points: [],
     risks: {
@@ -92,8 +97,7 @@ function buildValidReading(overrides = {}) {
     },
     best_approach: {
       decision: 'no_intervention',
-      reason:
-        'Não há ação nova sustentada pelo contexto atual.',
+      reason: 'Não há ação nova sustentada pelo contexto atual.',
       channel: 'none',
       evidence_message_ids: ['1'],
       memory_ids: [],
@@ -125,16 +129,13 @@ function buildValidReading(overrides = {}) {
 
 function buildRequest() {
   return {
-    contract_version:
-      'message-intelligence-request-v1',
-    request_id:
-      '60000000-0000-4000-8000-000000000001',
+    contract_version: 'message-intelligence-request-v1',
+    request_id: '60000000-0000-4000-8000-000000000001',
     company_id: IDS.company,
     seller_user_id: IDS.seller,
     cycle_id: IDS.cycle,
     conversation_key: CONVERSATION_KEY,
-    seller_intent:
-      'Quero confirmar o próximo passo com o cliente.',
+    seller_intent: 'Quero confirmar o próximo passo com o cliente.',
     reference_time: REFERENCE_TIME,
   }
 }
@@ -157,8 +158,7 @@ function buildBaseRows() {
         phone: '+5547999990001',
         email: null,
         deleted_at: null,
-        updated_at:
-          '2026-09-09T16:50:00.000Z',
+        updated_at: '2026-09-09T16:50:00.000Z',
       },
     ],
     cycles: [
@@ -170,10 +170,8 @@ function buildBaseRows() {
         status: 'respondeu',
         next_action: null,
         next_action_date: null,
-        updated_at:
-          '2026-09-09T16:50:00.000Z',
-        created_at:
-          '2026-09-01T10:00:00.000Z',
+        updated_at: '2026-09-09T16:50:00.000Z',
+        created_at: '2026-09-01T10:00:00.000Z',
         origin_cycle_id: null,
       },
     ],
@@ -194,13 +192,10 @@ function buildBaseRows() {
         message_key: 'm1',
         version: 1,
         direction: 'incoming',
-        occurred_at:
-          '2026-09-09T16:45:00.000Z',
-        observed_at:
-          '2026-09-09T16:45:01.000Z',
+        occurred_at: '2026-09-09T16:45:00.000Z',
+        observed_at: '2026-09-09T16:45:01.000Z',
         content_type: 'text',
-        text_content:
-          'Quero entender a condição comercial.',
+        text_content: 'Quero entender a condição comercial.',
         audio_transcription: null,
         is_deleted: false,
       },
@@ -216,18 +211,14 @@ function buildCurrentState() {
     cycle_id: IDS.cycle,
     conversation_key: CONVERSATION_KEY,
     state_version: 3,
-    state_contract_version:
-      'phase-5.1-commercial-state-v1',
-    state_updated_at:
-      '2026-09-09T16:50:00.000Z',
-    state_snapshot:
-      buildTestCommercialState({
-        cycleId: IDS.cycle,
-        version: 3,
-        evidenceMessageIds: ['1'],
-      }),
-    persisted_at:
-      '2026-09-09T16:50:05.000Z',
+    state_contract_version: 'phase-5.1-commercial-state-v1',
+    state_updated_at: '2026-09-09T16:50:00.000Z',
+    state_snapshot: buildTestCommercialState({
+      cycleId: IDS.cycle,
+      version: 3,
+      evidenceMessageIds: ['1'],
+    }),
+    persisted_at: '2026-09-09T16:50:05.000Z',
   }
 }
 
@@ -239,198 +230,107 @@ function buildEvent(overrides = {}) {
     cycle_id: IDS.cycle,
     conversation_key: CONVERSATION_KEY,
     candidate_state_version: 3,
-    output_contract_version:
-      'phase-5.2-stateful-copilot-v4',
+    output_contract_version: 'phase-5.2-stateful-copilot-v4',
     normalized_output: {
-      contract_version:
-        'phase-5.2-stateful-copilot-v4',
+      contract_version: 'phase-5.2-stateful-copilot-v4',
       communication: {
-        contract_version:
-          'phase-5.2-communication-v5',
-        commercial_reading:
-          buildValidReading(),
+        contract_version: 'phase-5.2-communication-v5',
+        commercial_reading: buildValidReading(),
       },
     },
-    generated_at:
-      '2026-09-09T16:49:00.000Z',
+    generated_at: '2026-09-09T16:49:00.000Z',
     ...overrides,
   }
 }
 
-test(
-  'MIE recebe a Commercial Reading persistida da versão exata do estado atual, com provenance do evento',
-  async () => {
-    const { admin } =
-      createMessageIntelligenceFakeAdmin({
-        ...buildBaseRows(),
-        commercialStates: [
-          buildCurrentState(),
-        ],
-        commercialStateEvents: [
-          buildEvent(),
-        ],
-      })
+test('MIE recebe a leitura persistida da versão exata com provenance do evento', async () => {
+  const { admin } = createMessageIntelligenceFakeAdmin({
+    ...buildBaseRows(),
+    commercialStates: [buildCurrentState()],
+    commercialStateEvents: [buildEvent()],
+  })
 
-    const loadSources =
-      createMessageIntelligenceSourceLoaderV1({
-        admin,
-      })
+  const sources =
+    await createMessageIntelligenceSourceLoaderV1({ admin })(buildRequest())
 
+  assert.equal(sources.real_context.state_read.mode, 'found')
+  assert.notEqual(sources.commercial_reading, null)
+  assert.equal(sources.commercial_reading.source_id, IDS.event)
+  assert.equal(
+    sources.commercial_reading.observed_at,
+    '2026-09-09T16:49:00.000Z',
+  )
+  assert.equal(
+    sources.commercial_reading.reading.contract_version,
+    COMMERCIAL_READING_CONTRACT_VERSION,
+  )
+})
+
+test('MIE não promove leitura stale de versão anterior', async () => {
+  const { admin } = createMessageIntelligenceFakeAdmin({
+    ...buildBaseRows(),
+    commercialStates: [buildCurrentState()],
+    commercialStateEvents: [
+      buildEvent({ candidate_state_version: 2 }),
+    ],
+  })
+
+  const sources =
+    await createMessageIntelligenceSourceLoaderV1({ admin })(buildRequest())
+
+  assert.equal(sources.real_context.state_read.state_version, 3)
+  assert.equal(sources.commercial_reading, null)
+})
+
+test('MIE mantém leitura ausente quando não existe estado atual', async () => {
+  const { admin } = createMessageIntelligenceFakeAdmin({
+    ...buildBaseRows(),
+    commercialStates: [],
+    commercialStateEvents: [buildEvent()],
+  })
+
+  const sources =
+    await createMessageIntelligenceSourceLoaderV1({ admin })(buildRequest())
+
+  assert.equal(sources.real_context.state_read.mode, 'missing')
+  assert.equal(sources.commercial_reading, null)
+})
+
+test('MIE rejeita leitura cuja provenance aponta para mensagem não ativa', async () => {
+  const invalidReading = buildValidReading({
+    evidence_message_ids: ['removed-message'],
+  })
+  invalidReading.conversation_summary.current_state =
+    evidence('Leitura usa evidência removida.', ['removed-message'])
+  invalidReading.best_approach = {
+    ...invalidReading.best_approach,
+    evidence_message_ids: ['removed-message'],
+  }
+
+  const { admin } = createMessageIntelligenceFakeAdmin({
+    ...buildBaseRows(),
+    commercialStates: [buildCurrentState()],
+    commercialStateEvents: [
+      buildEvent({
+        normalized_output: {
+          contract_version: 'phase-5.2-stateful-copilot-v4',
+          communication: {
+            contract_version: 'phase-5.2-communication-v5',
+            commercial_reading: invalidReading,
+          },
+        },
+      }),
+    ],
+  })
+
+  const originalError = console.error
+  console.error = () => {}
+  try {
     const sources =
-      await loadSources(buildRequest())
+      await createMessageIntelligenceSourceLoaderV1({ admin })(buildRequest())
 
-    assert.equal(
-      sources.real_context.state_read.mode,
-      'found',
-    )
-    assert.notEqual(
-      sources.commercial_reading,
-      null,
-    )
-    assert.equal(
-      sources.commercial_reading.source_id,
-      IDS.event,
-    )
-    assert.equal(
-      sources.commercial_reading.observed_at,
-      '2026-09-09T16:49:00.000Z',
-    )
-    assert.equal(
-      sources.commercial_reading.reading
-        .contract_version,
-      COMMERCIAL_READING_CONTRACT_VERSION,
-    )
-  },
-)
-
-test(
-  'MIE não promove Commercial Reading stale de uma versão anterior do estado',
-  async () => {
-    const { admin } =
-      createMessageIntelligenceFakeAdmin({
-        ...buildBaseRows(),
-        commercialStates: [
-          buildCurrentState(),
-        ],
-        commercialStateEvents: [
-          buildEvent({
-            candidate_state_version: 2,
-          }),
-        ],
-      })
-
-    const loadSources =
-      createMessageIntelligenceSourceLoaderV1({
-        admin,
-      })
-
-    const sources =
-      await loadSources(buildRequest())
-
-    assert.equal(
-      sources.real_context.state_read.state_version,
-      3,
-    )
-    assert.equal(
-      sources.commercial_reading,
-      null,
-    )
-  },
-)
-
-test(
-  'MIE mantém Commercial Reading ausente quando não existe estado atual persistido',
-  async () => {
-    const { admin } =
-      createMessageIntelligenceFakeAdmin({
-        ...buildBaseRows(),
-        commercialStates: [],
-        commercialStateEvents: [
-          buildEvent(),
-        ],
-      })
-
-    const loadSources =
-      createMessageIntelligenceSourceLoaderV1({
-        admin,
-      })
-
-    const sources =
-      await loadSources(buildRequest())
-
-    assert.equal(
-      sources.real_context.state_read.mode,
-      'missing',
-    )
-    assert.equal(
-      sources.commercial_reading,
-      null,
-    )
-  },
-)
-
-test(
-  'MIE rejeita leitura cuja provenance aponta para mensagem que deixou de ser ativa',
-  async () => {
-    const invalidReading =
-      buildValidReading({
-        evidence_message_ids: [
-          'removed-message',
-        ],
-      })
-
-    invalidReading.conversation_summary.current_state =
-      evidence(
-        'Leitura usa evidência removida.',
-        ['removed-message'],
-      )
-    invalidReading.best_approach = {
-      ...invalidReading.best_approach,
-      evidence_message_ids: [
-        'removed-message',
-      ],
-    }
-
-    const { admin } =
-      createMessageIntelligenceFakeAdmin({
-        ...buildBaseRows(),
-        commercialStates: [
-          buildCurrentState(),
-        ],
-        commercialStateEvents: [
-          buildEvent({
-            normalized_output: {
-              contract_version:
-                'phase-5.2-stateful-copilot-v4',
-              communication: {
-                contract_version:
-                  'phase-5.2-communication-v5',
-                commercial_reading:
-                  invalidReading,
-              },
-            },
-          }),
-        ],
-      })
-
-    const loadSources =
-      createMessageIntelligenceSourceLoaderV1({
-        admin,
-      })
-
-    const originalError = console.error
-    console.error = () => {}
-
-    try {
-      const sources =
-        await loadSources(buildRequest())
-
-      assert.equal(
-        sources.commercial_reading,
-        null,
-      )
-    } finally {
-      console.error = originalError
-    }
-  },
-)
+    assert.equal(sources.commercial_reading, null)
+  } finally {
+    console.error = originalError
+  }
+})
