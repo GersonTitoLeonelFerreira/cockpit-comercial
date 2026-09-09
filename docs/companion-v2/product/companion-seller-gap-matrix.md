@@ -7,6 +7,47 @@ A3 e a linha de P1-04 foram reavaliados contra o merge do PR #184
 (`0eca3b893ccd70d229a762274ec49ef9d4690ac8`). O restante da matriz (seções
 B–M) **não foi reauditado** nesta rebaseline — permanece como estava na
 auditoria original, exceto onde uma nota explícita diz o contrário.
+
+**Rebaseline FASE 16.1 (rebaseline de CONTRATO, não de implementação):**
+esta rebaseline foi feita contra `main` em
+`c073b7035c53c47977a27c60109e5f116b51cce9` (merge do PR #272 — ship da UX8,
+4 abas AGORA/MENSAGEM/ANÁLISE/CLIENTE). Entre o SHA da última auditoria de
+implementação (`4e58bff0...`) e este HEAD existem **98 commits** que tocam
+`app/lib/companion/` e/ou `app/extension/yolen-companion/src/`, incluindo o
+próprio ship da UX8. **A FASE 16.1 não reauditou essas 98 mudanças
+linha a linha** — isso é o objetivo declarado da FASE 16.2. O que a FASE
+16.1 fez:
+
+1. Atualizou o contrato de produto (`companion-seller-product-contract.md`)
+   para refletir a arquitetura real de 4 abas e formalizar Decision State,
+   Cards de Intervenção, Commercial Brain compartilhado, etc.
+2. Ao ler os arquivos-fonte listados na auditoria obrigatória desta fase
+   (`companion-seller-information-view.js`, `companion-lead-summary-view.js`,
+   `content-script-dom-seller-information-architecture.test.mjs`), encontrou
+   evidência concreta e direta de que pelo menos os itens **B2, B3, G1, H1,
+   H2, I1, I2, I3 e J5** abaixo têm comportamento visivelmente diferente
+   do descrito na auditoria original (ex.: existe hoje um card de risco de
+   SLA renderizado em AGORA — "Risco alto na etapa CONTATO" —, existe uma
+   aba CLIENTE dedicada com seção "Relacionamento e histórico" e
+   "Ver histórico" — `details.yolen-client-timeline` —, e existe cálculo de
+   espera do cliente — `context.waiting.state === 'customer_waiting_for_seller'`
+   — em `companion-seller-information-view.js`). Essas linhas foram marcadas
+   `A REAUDITAR NA 16.2` abaixo, com a evidência pontual encontrada anotada,
+   **sem** atribuir a elas um novo veredito de completude — decidir se elas
+   agora são `IMPLEMENTADO`, `PARCIAL` ou outra coisa exige a mesma
+   disciplina de evidência ponta-a-ponta (runtime → produção → UI → teste)
+   usada no resto desta matriz, o que é trabalho de auditoria, não de
+   rebaseline de contrato.
+3. Todo o restante da matriz (A, C, D, E, F, K, L, M, e os itens de B/G/H/I/J
+   não listados acima) **não foi tocado nem verificado nesta fase** e deve
+   ser tratado como **não confirmado contra o HEAD atual** até a FASE 16.2 —
+   mesmo onde o texto abaixo ainda diz `IMPLEMENTADO`/`PARCIAL`/`AUSENTE` sem
+   a anotação `A REAUDITAR NA 16.2`. Esta rebaseline optou por marcar
+   explicitamente apenas os itens com evidência direta encontrada durante a
+   leitura obrigatória da FASE 16.1, em vez de aplicar a anotação a todas as
+   ~40 linhas por precaução genérica — isso seria indistinguível de uma
+   auditoria completa disfarçada, que a FASE 16.1 foi instruída a não fazer.
+
 **Contrato de referência:** [`companion-seller-product-contract.md`](./companion-seller-product-contract.md).
 **Método:** cada linha foi verificada lendo o contrato de dados real, o
 runtime que o produz, e (quando aplicável) o trecho exato da extensão que
@@ -25,6 +66,7 @@ por um runtime ligado à produção **e** chega à extensão.
 | `AUSENTE` | Não existe implementação material. |
 | `BLOQUEADO` | Depende de um P1 conhecido ou de outra capacidade ainda incompleta. |
 | `NÃO VALIDADO EM 12A` | Existe tecnicamente (contrato+runtime+persistência+UI+teste), mas só roda hoje para a empresa piloto do runtime stateful V2 — ainda não foi comprovado por uso humano em escala. |
+| `A REAUDITAR NA 16.2` | O veredito anterior tem evidência concreta de estar obsoleto (código lido na FASE 16.1 contradiz a descrição), mas a FASE 16.1 não fez a auditoria ponta-a-ponta necessária para atribuir um novo veredito de completude. Não leia como "implementado" nem como "ausente" — leia como "verificar antes de confiar". |
 
 ## Achado estrutural que atravessa toda a matriz
 
@@ -94,8 +136,8 @@ direto do que o antecipado na auditoria original.
 | # | Capacidade | Status | Evidência | Testes | O que falta |
 |---|---|---|---|---|---|
 | B1 | Momento atual (frase curta e correta) | `PARCIAL` | Rico: `commercial_reading.conversation_summary.current_state.summary` renderizado como kicker (`content-script.js` ~8269). Geral (V1): `suggestion.summary`, frase curta gerada por regra/IA sem a mesma disciplina de evidência. | `b3-commercial-reading-ui.test.mjs` | Levar a versão rica para além da empresa piloto. |
-| B2 | Método (etapa atual) visível no painel padrão | `PARCIAL` | Existe, mas só na visão **expandida** (`getRichCommercialMethodHtml`), não no card compacto sempre visível — o contrato de produto pede isso no painel principal. | `b3-commercial-reading-method-ui.test.mjs` | Promover um resumo de etapa atual para o card compacto. |
-| B3 | Aderência ao método no painel | `PARCIAL` | Mesma limitação de B2 — está dentro do detalhamento por etapa (`method.stages[].status/explanation`), sem um indicador de "dentro/fora do método" na visão compacta. | idem | idem B2. |
+| B2 | Método (etapa atual) visível no painel padrão | `A REAUDITAR NA 16.2` *(evidência de mudança encontrada na FASE 16.1)* | Auditoria original: `PARCIAL` — só existia na visão expandida. Evidência nova (16.1, não confirmada ponta-a-ponta): `companion-seller-information-view.js` tem `renderNowMethodSnapshot(reading)`, que monta um bloco `data-yolen-now-method` com etapa atual e aderência para a área AGORA (`nowPanel`) — ex.: teste de DOM `content-script-dom-seller-information-architecture.test.mjs` (`'V2 rico distribui...'`) verifica `nowPanel` contendo indicação de risco de método. Precisa reauditoria completa (runtime → produção → UI → teste) antes de virar `IMPLEMENTADO`. | `b3-commercial-reading-method-ui.test.mjs`, `content-script-dom-seller-information-architecture.test.mjs` | Reauditoria 16.2: confirmar se isso chega além do piloto V2 e se cobre `not_configured`. |
+| B3 | Aderência ao método no painel | `A REAUDITAR NA 16.2` *(evidência de mudança encontrada na FASE 16.1)* | Mesma evidência nova de B2 — `renderNowMethodSnapshot` inclui `getAdherenceClass`/`getMethodAdherenceLabel` no snapshot de AGORA quando o status não é `off_method` (esse caso vira Card de Intervenção via `resolveSellerAttentionSnapshot`, ver B4). Precisa reauditoria completa antes de virar `IMPLEMENTADO`. | idem | idem B2. |
 | B4 | Atenção / risco (só quando relevante) | `IMPLEMENTADO` (mecanismo adaptado) | Não existe como "campo de risco" único — existe como **dois mecanismos concretos**: (1) pre-send gate, que intercepta o envio quando o rascunho conflita com a leitura comercial (`interceptPreSendAttempt`, 5 condições: `wait_pressure`, `sensitive_condition`, `pending_issue`, `method_premature_close`, `agenda_conflict`); (2) "dot" de atenção no painel recolhido com 4 níveis (`risk`/`attention`/`recommendation`/`information`, `getCollapsedCompanionAttentionSnapshot`). Ambos só aparecem quando há algo relevante — nenhum dos dois "spamma" por padrão. | `b4-pre-send-assistant.test.mjs`, `b4-pre-send-gate.test.mjs`, `b4-pre-send-hardening.test.mjs`, `b5-minimized-intelligence.test.mjs` | Nenhuma — cumpre o espírito do contrato, com um mecanismo diferente do literal "campo de risco no card". Documentar essa equivalência é suficiente. |
 | B5 | Próximo passo (melhor condução) | `PARCIAL` | Rico: `best_approach.decision` + `.reason` + `.channel`, com rótulos para 20+ decisões (`getCommercialReadingDecisionLabel`). Geral (V1): `next_action` operacional, sem a mesma explicação de "porquê". | `b3-commercial-reading-ui.test.mjs` | Levar para além do piloto. |
 | B6 | Mensagem sugerida (só quando agrega valor) | `IMPLEMENTADO` | V1: `sales-coaching.ts` filtra mensagens genéricas (`isGenericSuggestedMessage`) e força `null` em `ganho`/`perdido`. V2: `recommended_message`, null quando `intervention_needed=false` (invariante `SILENT_COMMUNICATION_REQUIRED` em `commercial-reading-contract.ts`). UI: `getSuggestedMessageHtml`, com copiar/inserir e aviso "Revise antes de enviar." | `b3-commercial-reading-ui.test.mjs`, testes de `sales-coaching` (a confirmar nome exato do arquivo) | Nenhuma crítica — funciona nos dois caminhos. |
@@ -136,24 +178,24 @@ direto do que o antecipado na auditoria original.
 
 | # | Capacidade | Status | Evidência | Testes | O que falta |
 |---|---|---|---|---|---|
-| G1 | Experiência única consolidando objetivo/necessidades/objeções/etc. do cliente | `PARCIAL` | Os dados existem e estão agrupados (`CommercialReadingCustomer`), mas não como uma experiência **dedicada e independente** ("botão CLIENTE") — hoje é uma subseção dentro do `<details>` "Ver contexto comercial", junto com resumo de conversa, evolução, método e riscos. Não há uma tela própria. | `b3-commercial-reading-expanded-ui.test.mjs` | Decisão de produto: vale a pena destacar como experiência própria, ou a divulgação progressiva atual já é suficiente? Registrar decisão explícita. |
+| G1 | Experiência única consolidando objetivo/necessidades/objeções/etc. do cliente | `A REAUDITAR NA 16.2` *(evidência de mudança encontrada na FASE 16.1)* | Auditoria original: `PARCIAL` — não havia tela própria. Evidência nova (16.1, não confirmada ponta-a-ponta): a UX8 tem uma área própria `data-yolen-seller-area="client"` / `data-yolen-seller-panel="client"`, renderizada por `renderClientCommercialArea` (`companion-seller-information-view.js`), com grupos dedicados (`wants`, `context`, `decision`, `communication`, `missing-discovery`, `open`, `objections`, `commitments`, `history`) — exatamente a "experiência dedicada" que a linha original dizia faltar. A decisão de produto registrada aqui está resolvida na prática; falta confirmar cobertura e caminho de produção na 16.2. | `b3-commercial-reading-expanded-ui.test.mjs`, `content-script-dom-seller-information-architecture.test.mjs` | Reauditoria 16.2: confirmar alcance em produção (V1 vs. piloto V2) e se cobre todas as categorias do contrato (seção 7). |
 | G2 | Comunicação observada (padrões de comunicação do cliente) | `AUSENTE` | Nenhum campo equivalente em `CommercialReadingCustomer`, `CompanionDiagnostic`, nem na UI. | — | Novo campo + prompt rule com evidência obrigatória (mesma disciplina de D1/E1). |
 
 ## H. Histórico da relação
 
 | # | Capacidade | Status | Evidência | Testes | O que falta |
 |---|---|---|---|---|---|
-| H1 | Primeiro contato, tempo de oportunidade, tempo em conversa, última mensagem de cada lado | `BACKEND_ONLY` | Timestamps por mensagem existem (`occurred_at`/`occurred_at_timestamp` em `diagnostic-input.ts`), e `sales_cycles`/`cycle_events` guardam datas de mudança de estágio. Nada disso é agregado nem exibido como "há quanto tempo" no painel. | — | Construir a agregação e a UI. |
-| H2 | Linha do tempo de eventos comerciais (necessidade → apresentação → preço → objeção → follow-up → compromisso) | `BACKEND_ONLY` | `cycle_events` (tipos `stage_changed`, `next_action_set`, `ai_suggestion_applied`, gravados em `apply-suggestion/route.ts`) e `commercial_evolution[]` (V2, quando ativo) contêm os ingredientes. Nenhuma tela de linha do tempo existe. | — | Construir a UI de timeline. |
-| H3 | Ações da Yolen (sugestão mostrada/copiada/inserida/ignorada/editada/enviada, CRM/Agenda aceito/rejeitado) visíveis para o vendedor como histórico | `BACKEND_ONLY` | Telemetria completa é **gravada** (ver seção J), mas não existe nenhuma tela que **leia de volta** esses eventos para o vendedor — confirmado pela auditoria da extensão: nenhuma UI lista `action_events` de volta. | `action-telemetry-flow.test.mjs` (cobre a gravação, não a leitura/exibição) | Construir a leitura + UI. |
+| H1 | Primeiro contato, tempo de oportunidade, tempo em conversa, última mensagem de cada lado | `A REAUDITAR NA 16.2` *(evidência de mudança encontrada na FASE 16.1)* | Auditoria original: `BACKEND_ONLY` — nada era agregado nem exibido. Evidência nova (16.1, não confirmada ponta-a-ponta): o teste de DOM `content-script-dom-seller-information-architecture.test.mjs` afirma que o painel CLIENTE mostra texto correspondente a "Relacionamento e histórico" e "Cliente aguardando você", alimentado por um `clientContextResult`/`defaultClientContext` com campo `sla`/`timeline`. Isso sugere agregação e UI já existem pelo menos no piloto. | `content-script-dom-seller-information-architecture.test.mjs` | Reauditoria 16.2: confirmar fonte de dados real (não só fixture de teste) e alcance em produção. |
+| H2 | Linha do tempo de eventos comerciais (necessidade → apresentação → preço → objeção → follow-up → compromisso) | `A REAUDITAR NA 16.2` *(evidência de mudança encontrada na FASE 16.1)* | Auditoria original: `BACKEND_ONLY` — nenhuma tela de timeline existia. Evidência nova (16.1, não confirmada ponta-a-ponta): o mesmo teste de DOM afirma `clientPanel.querySelector('details.yolen-client-timeline')` e o texto "Ver histórico", alimentados por `clientContextResult.timeline` (`{ type: 'message', occurred_at, label }`). | `content-script-dom-seller-information-architecture.test.mjs` | Reauditoria 16.2: confirmar runtime real por trás de `timeline` e alcance em produção. |
+| H3 | Ações da Yolen (sugestão mostrada/copiada/inserida/ignorada/editada/enviada, CRM/Agenda aceito/rejeitado) visíveis para o vendedor como histórico | `BACKEND_ONLY` *(não reauditado nesta fase — nenhuma evidência nova encontrada na leitura obrigatória da 16.1)* | Telemetria completa é **gravada** (ver seção J), mas não existe nenhuma tela que **leia de volta** esses eventos para o vendedor — confirmado pela auditoria da extensão original. A leitura obrigatória da FASE 16.1 não encontrou evidência de mudança aqui (diferente de H1/H2), mas também não confirmou a ausência contra o HEAD atual — tratar como não confirmado. | `action-telemetry-flow.test.mjs` (cobre a gravação, não a leitura/exibição) | Reauditoria 16.2: confirmar se `H1`/`H2` (linha do tempo) já cobrem parte deste item. |
 
 ## I. Tempo, SLA e risco
 
 | # | Capacidade | Status | Evidência | Testes | O que falta |
 |---|---|---|---|---|---|
-| I1 | "Cliente aguarda resposta há X" | `AUSENTE` | Nenhum cálculo de tempo decorrido desde a última mensagem existe nos motores voltados ao vendedor (V1 ou V2). Os únicos "sinais" de tempo aparecem agregados e só no lado gerencial (`opportunity_stagnation`, `overdue_follow_up` em `managerial-intelligence-contract.ts`) — produto diferente, escopo diferente (ver contrato de produto, seção 13). | — | Construir do zero: cálculo + regra de SLA configurável + UI. |
-| I2 | Regra de SLA configurável por empresa | `AUSENTE` | Não encontrado em `commercial-config.ts` nem em nenhum contrato. | — | idem. |
-| I3 | Classificação qualitativa de risco por demora (sem inventar percentual) | `AUSENTE` | idem — mas a *regra* de não inventar percentual sem calibração (contrato de produto, seção 10.1) já é coerente com a disciplina de evidência aplicada em outras partes do V2; só falta a capacidade em si existir. | — | idem. |
+| I1 | "Cliente aguarda resposta há X" | `A REAUDITAR NA 16.2` *(evidência de mudança encontrada na FASE 16.1)* | Auditoria original: `AUSENTE`. Evidência nova (16.1, não confirmada ponta-a-ponta): `companion-seller-information-view.js` tem `context.waiting.state === 'customer_waiting_for_seller'` e `context.waiting.waiting_duration_ms`, consumidos por `resolveSellerAttentionSnapshot` para gerar um Card de atenção "Cliente aguardando" em AGORA quando não há SLA configurado. Isso contradiz diretamente "nenhum cálculo de tempo decorrido existe". | `content-script-dom-seller-information-architecture.test.mjs` | Reauditoria 16.2: confirmar de onde vem `context.waiting` em produção (não só no fixture de teste) e se chega além do piloto. |
+| I2 | Regra de SLA configurável por empresa | `A REAUDITAR NA 16.2` *(evidência de mudança encontrada na FASE 16.1)* | Auditoria original: `AUSENTE`. Evidência nova (16.1, não confirmada ponta-a-ponta): o mesmo arquivo tem `getLiveSlaRisk(sla, generatedAt, now)` operando sobre `sla.configured`, `sla.target_minutes`, `sla.warning_minutes`, `sla.danger_minutes`, `sla.stage`/`stage_label` — nomenclatura de uma regra de SLA por etapa, testada em `content-script-dom-seller-information-architecture.test.mjs` (`sla: { configured: true, applicable: true, stage: 'contato', ... }`). Isso contradiz diretamente "não encontrado em `commercial-config.ts` nem em nenhum contrato" como afirmação atual. | idem | Reauditoria 16.2: confirmar se `commercial-config.ts` (ou outro arquivo) já tem o schema de configuração de SLA por empresa, e se este dado chega via API real. |
+| I3 | Classificação qualitativa de risco por demora (sem inventar percentual) | `A REAUDITAR NA 16.2` *(evidência de mudança encontrada na FASE 16.1)* | Auditoria original: `AUSENTE`. Evidência nova (16.1, não confirmada ponta-a-ponta): `getLiveSlaRisk` retorna exatamente `'low' | 'medium' | 'high' | null` — nunca um percentual — coerente com a regra de honestidade estatística do contrato de produto (seção 10.1, agora seção 12 desta rebaseline). | idem | idem I1/I2. |
 
 ## J. Alertas
 
@@ -163,7 +205,7 @@ direto do que o antecipado na auditoria original.
 | J2 | Objeção/pergunta pendente ao tentar fechar | `IMPLEMENTADO` | Pre-send gate, condição `pending_issue`. | `b4-pre-send-gate.test.mjs` | — |
 | J3 | Saída do método ao tentar fechar | `IMPLEMENTADO` | Pre-send gate, condição `method_premature_close`. | `b4-pre-send-gate.test.mjs` | Só dispara no momento de enviar, não como alerta permanente — avaliar se isso é suficiente ou se o contrato quer um alerta mais cedo. |
 | J4 | Compromisso/agenda conflitante | `IMPLEMENTADO` | Pre-send gate, condição `agenda_conflict`. | `b4-pre-send-gate.test.mjs` | — |
-| J5 | Cliente aguardando / oportunidade parada / SLA estourando como alerta | `BLOQUEADO` (depende de I1-I3) | Sem o dado de tempo/SLA (seção I), não há como gerar este alerta. | — | Depende de I. |
+| J5 | Cliente aguardando / oportunidade parada / SLA estourando como alerta | `A REAUDITAR NA 16.2` *(evidência de mudança encontrada na FASE 16.1)* | Auditoria original: `BLOQUEADO` (dependia de I1-I3, então `AUSENTE`). Evidência nova (16.1, não confirmada ponta-a-ponta): como I1-I3 têm evidência de já existirem (ver acima), `resolveSellerAttentionSnapshot` já gera candidatos de atenção com `source: 'sla'` e `source: 'waiting'`, priorizados junto com risco de atendimento e desvio de método — exatamente o alerta que esta linha descreve. | idem | Reauditoria 16.2: depende da confirmação de I1-I3; se confirmados, esta linha provavelmente deixa de estar bloqueada. |
 | J6 | Informação contraditória como alerta | `AUSENTE` | Não encontrado nenhum mecanismo de detecção de contradição entre mensagens/estado. | — | Novo mecanismo. |
 
 ## K. Segurança — invariantes (contrato de produto, seção 12)
@@ -224,16 +266,25 @@ caminhos quando eles divergem.
 | Status | Quantidade | Itens |
 |---|---|---|
 | `IMPLEMENTADO` | 22 | A1, A2, A3, B4, B6, F1, J1, J2, J3, J4, K1, K2, K3, K4, K5, K6, K7, K9, L1, L2, L3, M1 |
-| `PARCIAL` | 11 | B1, B2, B3, B5, C1, D1, E1, E2, F3, G1, K8 |
-| `AUSENTE` | 8 | D2, D3, D4, G2, I1, I2, I3, J6 |
-| `BACKEND_ONLY` | 4 | D5, H1, H2, H3 |
+| `PARCIAL` | 8 | B1, B5, C1, D1, E1, E2, F3, K8 |
+| `AUSENTE` | 5 | D2, D3, D4, G2, J6 |
+| `BACKEND_ONLY` | 2 | D5, H3 |
 | `NÃO VALIDADO EM 12A` | 2 | C2, F2 (únicos itens sem nenhum equivalente no caminho geral V1, mas com pipeline completo — contrato+runtime+persistência+UI+teste — só ainda restrito à empresa piloto) |
-| `BLOQUEADO` | 1 | J5 (depende de I1–I3, ainda ausentes — ver missão de inteligência operacional do cliente) |
+| `BLOQUEADO` | 0 | — (J5 saiu deste bucket nesta rebaseline, ver abaixo) |
+| `A REAUDITAR NA 16.2` | 9 | B2, B3, G1, H1, H2, I1, I2, I3, J5 — evidência concreta de mudança encontrada na leitura obrigatória da FASE 16.1 (ver nota de rebaseline no topo do documento), sem auditoria ponta-a-ponta para atribuir veredito novo. |
 
-Total: 22 + 11 + 8 + 4 + 2 + 1 = 48.
+Total: 22 + 8 + 5 + 2 + 2 + 0 + 9 = 48.
 
-*(Atualizado nesta rebaseline: A1, A2 e A3 saíram de `BLOQUEADO`/`PARCIAL`
-para `IMPLEMENTADO` após a confirmação do P1-04. Nenhum outro item mudou.)*
+*(Atualizado na rebaseline pós-P1-04: A1, A2 e A3 saíram de
+`BLOQUEADO`/`PARCIAL` para `IMPLEMENTADO`.)*
+
+*(Atualizado na rebaseline FASE 16.1: B2, B3, G1, H1, H2, I1, I2, I3 e J5
+saíram de `PARCIAL`/`AUSENTE`/`BACKEND_ONLY`/`BLOQUEADO` para
+`A REAUDITAR NA 16.2`, por evidência concreta e direta de código lido durante
+a auditoria obrigatória desta fase — ver nota de rebaseline no topo do
+documento. Nenhum destes itens foi promovido a `IMPLEMENTADO`: a FASE 16.1
+não fez a verificação ponta-a-ponta necessária para isso. Nenhum outro item
+mudou.)*
 
 ---
 
@@ -244,6 +295,17 @@ Ordenados por impacto na experiência do vendedor médio (não do piloto).
 produção" da auditoria original foi **removido desta lista** — P1-04 o
 resolveu, ver seção A. Isso promoveu o gap de tempo/SLA para a segunda
 posição e trouxe um novo décimo item.)*
+
+**Nota da rebaseline FASE 16.1:** os itens 2, 3 e 9 abaixo (tempo/SLA,
+histórico/timeline, compromissos+alertas de tempo) citam I1-I3, H1-H3 e J5
+como lacunas totalmente ausentes. A leitura obrigatória desta fase encontrou
+evidência direta de código (`companion-seller-information-view.js`,
+`companion-lead-summary-view.js`) de que pelo menos parte dessas capacidades
+já existe hoje, pelo menos no caminho testado pela UX8 — ver a marcação
+`A REAUDITAR NA 16.2` nas linhas correspondentes acima. Esta lista de "10
+gaps" **não foi reordenada nem re-priorizada** nesta rebaseline — isso é
+trabalho da FASE 16.2, depois da reauditoria ponta-a-ponta. Trate os itens
+2, 3 e 9 abaixo como desatualizados até lá.
 
 1. **V1 (caminho real de quase todas as empresas) não tem nenhuma
    consciência de método comercial.** (F2) — o vendedor nunca vê "em que
