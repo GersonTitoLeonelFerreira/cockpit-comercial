@@ -307,8 +307,15 @@ function validateScenario(scenario) {
   // outro identificador do ciclo anterior passava sem violação. Como o Lead
   // B canonicamente só tem a conversa atual como origem, a regra agora
   // exige a composição exata `['current_conversation']` (whitelist), não a
-  // ausência de dois marcadores conhecidos.
+  // ausência de dois marcadores conhecidos. Achado do Codex (10ª revisão):
+  // `agora.momentoAtual` também não era auditado — trocá-lo por
+  // `'Lead A questionou o preço.'` mantinha todas as outras condições
+  // falsas e passava sem violação, o mesmo gap já fechado no cenário de
+  // grupo. O Current Moment do Lead B precisa ser recalculado do zero, não
+  // herdado de A.
   if (scenario.id === 'scenario-8-lead-isolation-a-to-b') {
+    const ISOLATION_NEUTRAL_MOMENTO_ATUAL = 'Sessão do Lead B, recalculada do zero.'
+
     const basedOnIsExactlyCurrentConversation =
       Array.isArray(scenario.analise.basedOn) &&
       scenario.analise.basedOn.length === 1 &&
@@ -317,6 +324,7 @@ function validateScenario(scenario) {
     const hasCrossLeadLeak =
       !scenario.isolation ||
       scenario.isolation.crossLeadLeak !== false ||
+      scenario.agora.momentoAtual !== ISOLATION_NEUTRAL_MOMENTO_ATUAL ||
       scenario.agora.primaryDecision !== null ||
       !Array.isArray(scenario.agora.interventionCards) ||
       scenario.agora.interventionCards.length > 0 ||
@@ -859,6 +867,20 @@ test('regra 10 (mutante): basedOn com identificador de outro ciclo no isolamento
   assert.ok(validateScenario(emptyBasedOn).includes('cross_lead_state_leak'))
 })
 
+test('regra 10 (mutante): momentoAtual individual no cenário de isolamento é detectado (achado do Codex, 10ª revisão)', () => {
+  // Mesmo com a whitelist de `basedOn` e as outras checagens de conteúdo,
+  // `agora.momentoAtual` ficou fora da auditoria — o mesmo gap já fechado
+  // no cenário de grupo (regra 11). O Current Moment do Lead B precisa ser
+  // recalculado do zero, não herdado de A.
+  const isolationScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-8-lead-isolation-a-to-b')
+  assert.ok(isolationScenario, 'cenário de isolamento precisa existir na fixture')
+
+  const leakedMomentoAtual = clone(isolationScenario)
+  leakedMomentoAtual.isolation.crossLeadLeak = false
+  leakedMomentoAtual.agora.momentoAtual = 'Lead A questionou o preço.'
+  assert.ok(validateScenario(leakedMomentoAtual).includes('cross_lead_state_leak'))
+})
+
 test('regra adicional (mutante): card com relatedLead/relatedCycle de outro lead é detectado (achado do Codex, 8ª revisão)', () => {
   // `relatedLead`/`relatedCycle` serem strings não vazias não bastava — um
   // card carregando a identidade de outro lead/ciclo ainda passava.
@@ -953,7 +975,7 @@ test('regra 9 (mutante): memoryItem sem scope válido é detectado (achado do Co
   assert.ok(validateScenario(invalidScope).includes('memory_item_invalid_scope'))
 })
 
-test('classificação semântica de scope é fixada para todo memoryItem canônico da fixture (transversal, achado do Codex, 9ª revisão)', () => {
+test('classificação semântica de scope é fixada para todo memoryItem canônico da fixture, em todos os 10 cenários (transversal, achado do Codex, 9ª/10ª revisão)', () => {
   // A validação estrutural (`memory_item_invalid_scope`) só exige que
   // `scope` esteja em `{'person', 'cycle'}` — ela não sabe, e não pode
   // saber genericamente, qual dos dois é semanticamente correto para um
@@ -961,10 +983,15 @@ test('classificação semântica de scope é fixada para todo memoryItem canôni
   // possível trocar `scope: 'cycle'` por `'person'` em qualquer memoryItem
   // (não só no cenário 7, mas também nos cenários 3 e 5) e os 43 testes
   // continuavam verdes — a promoção silenciosa que a seção 9 do contrato
-  // proíbe não tinha nenhum teste fixando o valor esperado. Este teste
-  // ancora a classificação correta de cada fato canônico da fixture,
-  // pessoa por pessoa, ciclo por ciclo — trocar qualquer um destes valores
-  // quebra o teste.
+  // proíbe não tinha nenhum teste fixando o valor esperado. Achado do Codex
+  // (10ª revisão): o mapa cobria só os 6 cenários que já tinham memória —
+  // adicionar um memoryItem estruturalmente válido a um dos 4 cenários
+  // ausentes do mapa (4, 8, 9, 10) não quebrava nada, porque o teste nunca
+  // olhava para eles. Este teste agora itera sobre `PHASE16_SCENARIOS`
+  // inteiro (não sobre uma lista fixa de ids) e exige que o próprio mapa
+  // cubra exatamente os 10 ids canônicos, então qualquer fato novo em
+  // qualquer cenário — mesmo um hoje vazio — força uma decisão explícita
+  // entre `person` e `cycle` aqui.
   const expectedMemoryScopes = {
     // Fala única ("está caro") sem evidência de persistência entre
     // oportunidades — objeção ligada à proposta em curso, não traço da
@@ -975,6 +1002,8 @@ test('classificação semântica de scope é fixada para todo memoryItem canôni
     'scenario-2-personal-conversation-active-opportunity': ['person'],
     // Compromisso de agenda específico desta oportunidade.
     'scenario-3-personal-conversation-upcoming-commercial-agenda': ['cycle'],
+    // Sem memória canônica ainda (lead inbound sem primeiro contato).
+    'scenario-4-priority-inbound-without-new-message': [],
     // Lacuna de descoberta desta negociação, não traço da pessoa.
     'scenario-5-seller-off-method': ['cycle'],
     // Preferência de canal — mesma categoria do cenário 2.
@@ -983,17 +1012,53 @@ test('classificação semântica de scope é fixada para todo memoryItem canôni
     // ambos timing específico deste ciclo, o exemplo que a própria seção
     // 11 item 8 do contrato usa para "não deveria atravessar ciclo".
     'scenario-7-contradicted-old-memory': ['cycle', 'cycle'],
+    // Isolamento: o Lead B começa sem memória herdada de A.
+    'scenario-8-lead-isolation-a-to-b': [],
+    // Grupo: nunca tem memória individual.
+    'scenario-9-group-conversation': [],
+    // Nada para fazer: sem memória canônica neste cenário.
+    'scenario-10-nothing-to-do': [],
   }
 
-  for (const [id, expectedScopes] of Object.entries(expectedMemoryScopes)) {
-    const scenario = PHASE16_SCENARIOS.find((item) => item.id === id)
-    assert.ok(scenario, `cenário ${id} precisa existir`)
+  assert.deepEqual(
+    Object.keys(expectedMemoryScopes).sort(),
+    PHASE16_SCENARIOS.map((scenario) => scenario.id).sort(),
+    'o mapa de scope esperado precisa cobrir exatamente os 10 cenários canônicos da fixture',
+  )
+
+  for (const scenario of PHASE16_SCENARIOS) {
     assert.deepEqual(
       scenario.cliente.memoryItems.map((item) => item.scope),
-      expectedScopes,
-      `cenário ${id} tem classificação de scope diferente do esperado`,
+      expectedMemoryScopes[scenario.id],
+      `cenário ${scenario.id} tem classificação de scope diferente do esperado`,
     )
   }
+})
+
+test('regra adicional (mutante): novo memoryItem num cenário hoje sem memória é detectado pela classificação transversal (achado do Codex, 10ª revisão)', () => {
+  // Antes da 10ª revisão, o mapa de scopes esperados só cobria os 6
+  // cenários que já tinham memória — um fato novo em qualquer um dos
+  // outros 4 (cenários 4, 8, 9, 10) não era comparado a nada, e a suíte
+  // continuava verde. O teste transversal acima agora cobre os 10 ids;
+  // este mutante prova que a comparação por cenário realmente muda de
+  // resultado quando um desses cenários deixa de estar vazio.
+  const scenarioWithoutMemory = PHASE16_SCENARIOS.find(
+    (scenario) => scenario.id === 'scenario-4-priority-inbound-without-new-message',
+  )
+  assert.deepEqual(scenarioWithoutMemory.cliente.memoryItems.map((item) => item.scope), [])
+
+  const mutated = clone(scenarioWithoutMemory)
+  mutated.cliente.memoryItems = [
+    {
+      fact: 'Fato novo introduzido sem classificação de scope revisada.',
+      origin: 'current_conversation',
+      observedAt: '2026-08-20T08:00:00-03:00',
+      status: 'active',
+      scope: 'person',
+      evidenceRefs: ['message-x'],
+    },
+  ]
+  assert.notDeepEqual(mutated.cliente.memoryItems.map((item) => item.scope), [])
 })
 
 test('regra 12: ausência de silêncio como resultado válido é impossível — o conjunto de cenários sempre representa silêncio', () => {
