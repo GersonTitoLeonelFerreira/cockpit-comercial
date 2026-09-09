@@ -6,7 +6,9 @@ import type {
 
 import {
   COMMERCIAL_READING_CONTRACT_VERSION,
+  normalizeCommercialReading,
   type CommercialReading,
+  type CommercialReadingNormalizationContext,
 } from '@/app/lib/companion/commercial-reading-contract'
 
 import {
@@ -86,10 +88,16 @@ function normalizeDateOrNull(
  * leitura e não escolhe simplesmente o evento "mais recente": ele exige
  * state_record_id + candidate_state_version iguais ao state_read atual.
  *
- * Ausência, ambiguidade, contrato incompatível ou erro de leitura falham
- * fechado para null. O restante do MIE já possui fallback para o estado
- * comercial persistido, então uma leitura canônica indisponível não deve
- * derrubar o fluxo seller-facing.
+ * Antes de promover o payload persistido, o reader também reaplica o
+ * normalizador canônico de Commercial Reading contra a fotografia atual
+ * de mensagens, memórias, CRM e reference_time. Isso impede que payload
+ * corrompido ou provenance que deixou de pertencer ao contexto atual seja
+ * tratado como leitura canônica apenas por possuir contract_version válido.
+ *
+ * Ausência, ambiguidade, contrato incompatível, provenance inválida ou erro
+ * de leitura falham fechado para null. O restante do MIE já possui fallback
+ * para o estado comercial persistido, então uma leitura indisponível não
+ * deve derrubar o fluxo seller-facing.
  */
 export async function loadCanonicalCommercialReadingSource({
   admin,
@@ -98,6 +106,7 @@ export async function loadCanonicalCommercialReadingSource({
   conversation_key,
   reference_time,
   state_read,
+  validation_context,
 }: {
   admin: SupabaseClient
   company_id: string
@@ -105,6 +114,8 @@ export async function loadCanonicalCommercialReadingSource({
   conversation_key: string
   reference_time: string
   state_read: StatefulCopilotStateReadResult
+  validation_context:
+    CommercialReadingNormalizationContext
 }): Promise<CanonicalCommercialReadingSource | null> {
   if (state_read.mode !== 'found') {
     return null
@@ -114,6 +125,14 @@ export async function loadCanonicalCommercialReadingSource({
     normalizeDateOrNull(reference_time)
 
   if (!referenceTime) {
+    return null
+  }
+
+  if (
+    normalizeDateOrNull(
+      validation_context.reference_time,
+    ) !== referenceTime
+  ) {
     return null
   }
 
@@ -237,6 +256,12 @@ export async function loadCanonicalCommercialReadingSource({
       return null
     }
 
+    const reading =
+      normalizeCommercialReading(
+        commercialReading,
+        validation_context,
+      )
+
     return {
       company_id,
       cycle_id,
@@ -245,9 +270,7 @@ export async function loadCanonicalCommercialReadingSource({
         state_read.state_record_id,
       state_version:
         state_read.state_version,
-      reading:
-        commercialReading as unknown as
-          CommercialReading,
+      reading,
       source_event_id:
         event.id,
       generated_at:
@@ -255,7 +278,7 @@ export async function loadCanonicalCommercialReadingSource({
     }
   } catch (error) {
     console.error(
-      '[CANONICAL_COMMERCIAL_READING] lookup failed, continuing without canonical reading',
+      '[CANONICAL_COMMERCIAL_READING] lookup or validation failed, continuing without canonical reading',
       {
         company_id,
         cycle_id,
