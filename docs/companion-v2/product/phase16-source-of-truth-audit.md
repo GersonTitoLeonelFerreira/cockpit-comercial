@@ -300,7 +300,7 @@ leads / sales_cycles (CRM, canônico)
 | Cursor de ingestão | `conversation_capture_state` | `company_id, conversation_key, device_key` | dispositivo | rota de captura | rota de captura | até novo cursor |
 | StatefulCommercialState | `companion_commercial_states` | `company_id, cycle_id, conversation_key` (unique) | **ciclo + conversation_key** — correção (achado do Codex, 21ª revisão do PR #274): a própria chave desta linha já mostra `conversation_key`; "ciclo" isolado contradizia a matriz | `rpc_persist_stateful_copilot_state` | vários (ver §6) | 1 linha viva por escopo (upsert) |
 | Audit log de estado | `companion_commercial_state_events` | idem `companion_commercial_states` + `candidate_state_version`/`previous_state_version`/`operation_key` — **correção (achado do Codex, 21ª revisão do PR #274): a tabela não tem coluna `state_version`; o schema expõe `previous_state_version` e `candidate_state_version`** (`20260806193000_create_stateful_copilot_storage.sql:130-131`); unicidade real por `operation_key` | **ciclo + conversation_key + turno** (`candidate_state_version`) — correção (achado do Codex, 21ª revisão do PR #274): cada linha é o resultado de uma conversa/turno específico, não do ciclo inteiro | mesma RPC (atômico com acima) | `companion-analysis-job-reader.ts` (só por job_id exato) | append-only, RLS `service_role` only |
-| Job de análise em background | `companion_background_analysis_jobs` | `company_id, cycle_id, conversation_key, message_watermark` (unique) | **ciclo + conversation_key + turno** (`message_watermark`) — correção (achado do Codex, 21ª revisão do PR #274): representa um job de uma conversa/turno específico | `route.ts` (analyze-conversation) | worker de background | até processado |
+| Job de análise em background | `companion_background_analysis_jobs` | `company_id, cycle_id, conversation_key, message_watermark` (unique) | **ciclo + conversation_key + turno** (`message_watermark`) — correção (achado do Codex, 21ª revisão do PR #274): representa um job de uma conversa/turno específico | `route.ts` (analyze-conversation) | worker de background; **também `analysis-job-status/route.ts` (rota seller-facing de status) e `companion-analysis-job-retry.ts` (fluxo de retry) — correção (achado do Codex, 22ª revisão do PR #274): ambos leem via `loadCompanionAnalysisJobStatus()`, não é só o worker** | **indefinida, sem purge conhecido — correção (achado do Codex, 22ª revisão do PR #274): "até processado" subestimava a retenção; a linha não é removida após terminar — `loadCompanionAnalysisJobStatus()` continua consultando estados terminais e o resultado associado, e nenhum delete/purge foi encontrado no repositório** |
 | Estágio de método (AGORA) | `companion_method_stage_state` | `company_id, cycle_id, conversation_key` | **ciclo + conversation_key** — correção (achado do Codex, 21ª revisão do PR #274, idem linha #15 da matriz) | `companion-method-stage-store.ts` | AGORA | 1 linha viva (upsert, sem histórico) |
 | Resumo canônico do lead | `companion_lead_conversation_summaries` | `company_id, lead_id` | **lead** (única tabela realmente lead-scoped para memória de cliente) | ação explícita do vendedor | `lead-summary/route.ts` | versionado, sem expiração automática |
 | Commercial Config | `company_commercial_config_versions` (+ filhas) | `company_id`, versão | company | admin UI | Companion (config), dashboard | versionado (draft/published/archived) |
@@ -652,7 +652,17 @@ rejeitar (exige `evidence_message_ids`/`memory_ids` em cada claim).
   seed do ciclo anterior, ver linha #37) têm `evidence_message_ids: []`
   deliberadamente. Reutilizar o estado inteiro como "fundamentado em
   evidência" sem excluir/qualificar esses itens herdados promoveria
-  memória sem referência real a uma leitura canônica.
+  memória sem referência real a uma leitura canônica. **Ressalva mais
+  grave (achado do Codex, 22ª revisão do PR #274):** não é só falta de
+  evidência — quando `origin_cycle_id` aponta para um ciclo de **outro
+  lead** da mesma empresa (gap de validação já documentado em §8/linha
+  #37, achado da 10ª revisão), os itens herdados podem pertencer a um
+  cliente diferente, mesmo que o `StatefulCommercialState` resultante
+  esteja corretamente isolado pela chave tripla `company_id+cycle_id+
+  conversation_key`. Promover esse conteúdo herdado a Customer Memory
+  canônica na FASE 16.3 exige primeiro validar a origem por `lead_id` e
+  ordem cronológica (ver decisão #10 em §27) — não apenas qualificar a
+  ausência de evidência.
 - Message Ledger (`conversation_messages`) e sua cadeia de leitura
   (`loadCanonicalLedgerAtReferenceTime`/`buildCanonicalLedger`) — robusto,
   já reutilizado por dois consumidores sem duplicar lógica.
