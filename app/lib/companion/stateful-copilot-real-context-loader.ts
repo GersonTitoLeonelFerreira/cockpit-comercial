@@ -2240,6 +2240,19 @@ export async function loadDurableMemorySeedForMissingState({
               'id',
               originCycleId,
             )
+            // Correção (achado do Codex, PR #275): a ordem cronológica
+            // precisa ser decidida pelo Postgres (comparação real de
+            // instante no tipo timestamptz), não por comparação lexical
+            // de string em JS — o timestamp bruto devolvido pelo banco
+            // pode vir serializado num formato diferente do que
+            // currentCycleCreatedAt (normalizado via
+            // Date.prototype.toISOString() em normalizeDate()), fazendo
+            // uma string comparison aceitar incorretamente um ciclo
+            // empatado ou até futuro.
+            .lt(
+              'created_at',
+              currentCycleCreatedAt,
+            )
             .limit(
               1,
             ),
@@ -2254,16 +2267,15 @@ export async function loadDurableMemorySeedForMissingState({
             )
           : null
 
-      // Nunca confiar em origin_cycle_id só por existir: precisa
-      // pertencer ao mesmo lead (a query já restringe company_id, mas
-      // lead_id só é confirmável em memória) e ser estritamente
-      // anterior ao ciclo atual. Qualquer falha aqui não é erro — cai
-      // para a heurística de fallback abaixo, como se fosse nulo.
+      // Nunca confiar em origin_cycle_id só por existir: a query já
+      // exige company_id igual e created_at estritamente anterior ao
+      // ciclo atual (comparação de instante feita pelo banco). Só falta
+      // confirmar lead_id, que só é validável em memória. Qualquer
+      // falha aqui não é erro — cai para a heurística de fallback
+      // abaixo, como se fosse nulo.
       if (
         originRecord &&
-        originRecord.lead_id === leadId &&
-        typeof originRecord.created_at === 'string' &&
-        originRecord.created_at < currentCycleCreatedAt
+        originRecord.lead_id === leadId
       ) {
         priorCycleId =
           originCycleId

@@ -472,6 +472,12 @@ function createMockClient(
           )
       }
 
+      // Fase 16.3A (achado do Codex, PR #275): compara como instante
+      // (Date.parse), não como string — o Postgres real compara
+      // timestamptz por instante, então o fake precisa fazer o mesmo
+      // para não deixar passar um bug de formato de serialização
+      // (ex.: "...+00:00" vs "...000Z" para o mesmo instante) que uma
+      // comparação lexical de string esconderia.
       for (
         const upperBound of
         this.upperBounds
@@ -479,10 +485,12 @@ function createMockClient(
         rows =
           rows.filter(
             row =>
-              row[
-                upperBound.column
-              ] <=
-              upperBound.value,
+              Date.parse(
+                row[upperBound.column],
+              ) <=
+              Date.parse(
+                upperBound.value,
+              ),
           )
       }
 
@@ -493,10 +501,12 @@ function createMockClient(
         rows =
           rows.filter(
             row =>
-              row[
-                strictUpperBound.column
-              ] <
-              strictUpperBound.value,
+              Date.parse(
+                row[strictUpperBound.column],
+              ) <
+              Date.parse(
+                strictUpperBound.value,
+              ),
           )
       }
 
@@ -3152,6 +3162,72 @@ test(
       result.durable_memory_seed,
       null,
       'created_at empatado não é um predecessor cronológico seguro — nem via origin_cycle_id, nem via fallback',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A (achado do Codex, PR #275): empate de instante com formato ISO diferente também é recusado',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    // Mesmo instante do ciclo atual (2026-08-06T09:00:00.000Z), mas
+    // serializado como o Postgres/PostgREST real faria para
+    // timestamptz sem frações de segundo: "+00:00" em vez de ".000Z".
+    // Uma comparação lexical de string ("...+00:00" < "...000Z", já
+    // que "+" < "." em ASCII) aceitaria isto incorretamente como
+    // anterior — a correção precisa comparar como instante (delegado
+    // ao Postgres via `.lt()` na query), não como texto.
+    const tiedInstantDifferentFormat =
+      '2026-08-06T09:00:00+00:00'
+
+    fixtures.sales_cycles[0].origin_cycle_id =
+      priorCycleId
+
+    fixtures.sales_cycles.push({
+      id: priorCycleId,
+      company_id: companyId,
+      lead_id: leadId,
+      owner_user_id: ownerId,
+      status: 'perdido',
+      next_action: null,
+      next_action_date: null,
+      updated_at: tiedInstantDifferentFormat,
+      created_at: tiedInstantDifferentFormat,
+    })
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: companyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: tiedInstantDifferentFormat,
+        persisted_at: tiedInstantDifferentFormat,
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.equal(
+      result.durable_memory_seed,
+      null,
+      'um instante empatado com o ciclo atual não pode ser aceito só porque o banco serializou o timestamp num formato ISO diferente',
     )
   },
 )
