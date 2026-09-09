@@ -205,6 +205,13 @@ test('todo cenário canônico da FASE 16.1 passa nas 11 regras estruturais por c
   }
 })
 
+test('regra 1 (mutante): apagar analise do cenário 2 já quebra o gate — sem necessidade de checagem duplicada na regra 5', () => {
+  const broken = clone(PHASE16_SCENARIOS[1]) // cenário 2
+  delete broken.analise
+
+  assert.ok(validateScenario(broken).includes('missing_four_perspectives'))
+})
+
 test('existem exatamente os 10 cenários canônicos esperados, sem duplicação de id', () => {
   const expectedIds = [
     'scenario-1-active-sale-price-objection',
@@ -312,6 +319,19 @@ test('regra 6 (mutante): apagar operationalSignal ou session dos cenários 3/6 �
   const brokenSession = clone(PHASE16_SCENARIOS[5]) // cenário 6
   delete brokenSession.session
   assert.ok(validateScenario(brokenSession).includes('missing_core_scenario_fields'))
+})
+
+test('regra 6 (mutante): as duas combinações restantes (session no cenário 3, operationalSignal no cenário 6) também são detectadas', () => {
+  // Cobertura explícita das combinações D e F pedidas na auditoria do
+  // Controle Mestre sobre a 3ª rodada — complementa o teste acima, que já
+  // cobre `operationalSignal` (cenário 3) e `session` (cenário 6).
+  const brokenSessionScenario3 = clone(PHASE16_SCENARIOS[2]) // cenário 3
+  delete brokenSessionScenario3.session
+  assert.ok(validateScenario(brokenSessionScenario3).includes('missing_core_scenario_fields'))
+
+  const brokenSignalScenario6 = clone(PHASE16_SCENARIOS[5]) // cenário 6
+  delete brokenSignalScenario6.operationalSignal
+  assert.ok(validateScenario(brokenSignalScenario6).includes('missing_core_scenario_fields'))
 })
 
 test('regra 7 (mutante): CLIENTE contendo avaliação do vendedor é detectado', () => {
