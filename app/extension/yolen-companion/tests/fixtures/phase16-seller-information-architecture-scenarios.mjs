@@ -346,11 +346,6 @@ export const PHASE16_SCENARIOS = [
     id: 'scenario-8-lead-isolation-a-to-b',
     title: 'Isolamento A → B',
     session: { commercial: true, isGroup: false },
-    // Campo de topo (fora do bloco opcional `isolation`) para que a
-    // validação exija o bloco de isolamento em vez de só verificar seu
-    // conteúdo quando ele existe — remover o bloco `isolation` inteiro
-    // deve quebrar o gate, não passar silenciosamente.
-    isolationRequired: true,
     operationalSignal: { present: false, type: null },
     // O Lead B começa sem histórico de oportunidade próprio nesta projeção
     // — o ponto do cenário é que nada de A atravessa para B, não que B já

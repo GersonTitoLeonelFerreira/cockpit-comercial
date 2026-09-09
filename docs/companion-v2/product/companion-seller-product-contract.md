@@ -89,7 +89,7 @@ As quatro áreas **não são quatro cérebros independentes**. Elas são quatro
 perspectivas sobre a mesma inteligência comercial — o **Commercial Brain**.
 Um mesmo fato (ex.: "preço é uma preocupação para este cliente") tem uma
 única origem canônica e pode ser consumido por várias perspectivas; ele
-nunca deve existir como quatro verdades divergentes, uma por aba. A seção 8
+nunca deve existir como quatro verdades divergentes, uma por aba. A seção 9
 formaliza a regra "um fato, uma origem, vários consumidores".
 
 Modelo conceitual desta fase (contrato de produto — a materialização técnica

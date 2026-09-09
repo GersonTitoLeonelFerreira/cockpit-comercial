@@ -75,6 +75,14 @@ function validateScenario(scenario) {
     violations.push('intervention_card_without_lifecycle')
   }
 
+  // Regra adicional (contrato, seção 4.4): prioridade BAIXA nunca ocupa
+  // AGORA — permanece em ANÁLISE/CLIENTE. Um card canônico com
+  // `priority: 'low'` reintroduziria exatamente o layout proibido.
+  const hasLowPriorityCard = (cards || []).some((card) => card?.priority === 'low')
+  if (hasLowPriorityCard) {
+    violations.push('agora_card_with_low_priority')
+  }
+
   // Regra 4 — MENSAGEM contendo fatos próprios não fornecidos pelas
   // camadas anteriores.
   if (scenario.mensagem.ownFactsIntroduced !== false) {
@@ -127,23 +135,26 @@ function validateScenario(scenario) {
     violations.push('memory_without_provenance')
   }
 
-  // Regra 10 — isolamento A→B permitindo cross-lead state. `isolationRequired`
-  // é um campo de topo independente do bloco `isolation` em si, para que
-  // apagar o bloco inteiro (não só zerar seu valor) também quebre o gate —
-  // achado do Codex na revisão desta PR: a versão anterior só checava
-  // `scenario.isolation` quando ele existia, então removê-lo por completo
-  // passava silenciosamente.
-  if (scenario.isolationRequired === true) {
+  // Regra 10 — isolamento A→B permitindo cross-lead state. Gatilho pelo
+  // `id` canônico do cenário, não por um campo de dentro do próprio
+  // cenário (`isolation`, `isolationRequired`, `session.isGroup`) — qualquer
+  // um desses pode ser apagado junto com o bloco que deveriam proteger.
+  // `id` é o único discriminador que a suíte já protege separadamente (ver
+  // teste "existem exatamente os 10 cenários canônicos"), então ele não
+  // pode desaparecer sem quebrar aquele outro teste primeiro. Achado do
+  // Codex (2ª revisão): a versão anterior, gatilhada por
+  // `scenario.isolationRequired`, ainda dependia de um campo removível.
+  if (scenario.id === 'scenario-8-lead-isolation-a-to-b') {
     if (!scenario.isolation || scenario.isolation.crossLeadLeak !== false) {
       violations.push('cross_lead_state_leak')
     }
   }
 
-  // Regra 11 — grupo recebendo contexto individual. `session.isGroup` é um
-  // campo core (parte da identidade do cenário, coberto pela regra 1) — usá-lo
-  // como gatilho em vez de `scenario.group &&...` garante que apagar o bloco
-  // `group` inteiro de um cenário de grupo também quebre o gate.
-  if (scenario.session?.isGroup === true) {
+  // Regra 11 — grupo recebendo contexto individual. Mesmo princípio: gatilho
+  // pelo `id` canônico, não por `session.isGroup` (apagar `session` inteiro
+  // do cenário também apagaria esse sinal, e a regra 1 não valida a
+  // presença de `session` — só de agora/analise/cliente/mensagem).
+  if (scenario.id === 'scenario-9-group-conversation') {
     if (!scenario.group || scenario.group.individualContextRendered !== false) {
       violations.push('group_receives_individual_context')
     }
@@ -213,6 +224,13 @@ test('regra adicional (mutante): card de intervenção sem ciclo de vida é dete
   assert.ok(validateScenario(broken).includes('intervention_card_without_lifecycle'))
 })
 
+test('regra adicional (mutante): card de intervenção com prioridade BAIXA em AGORA é detectado', () => {
+  const broken = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
+  broken.agora.interventionCards[0].priority = 'low'
+
+  assert.ok(validateScenario(broken).includes('agora_card_with_low_priority'))
+})
+
 test('regra 4 (mutante): MENSAGEM introduzindo fato próprio é detectado', () => {
   const broken = clone(PHASE16_SCENARIOS[0])
   broken.mensagem.ownFactsIntroduced = true
@@ -272,10 +290,9 @@ test('regra 10 (mutante): cross-lead leak no cenário de isolamento é detectado
 })
 
 test('regra 10 (mutante): apagar o bloco isolation inteiro do cenário de isolamento é detectado', () => {
-  // Achado do Codex na revisão desta PR: a checagem original só avaliava
-  // `scenario.isolation` quando ele existia — remover o bloco inteiro
-  // passava silenciosamente. `isolationRequired` (campo de topo,
-  // independente do bloco) fecha esse buraco.
+  // O gatilho é `scenario.id` (protegido pelo teste "existem exatamente os
+  // 10 cenários canônicos"), não um campo de dentro do próprio cenário —
+  // por isso apagar `isolation` sozinho ainda quebra o gate.
   const isolationScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-8-lead-isolation-a-to-b')
   assert.ok(isolationScenario, 'cenário de isolamento precisa existir na fixture')
 
@@ -296,12 +313,29 @@ test('regra 11 (mutante): grupo recebendo contexto individual é detectado', () 
 })
 
 test('regra 11 (mutante): apagar o bloco group inteiro do cenário de grupo é detectado', () => {
-  // Mesmo achado do Codex aplicado ao cenário de grupo: `session.isGroup`
-  // (campo core, não o bloco opcional `group`) é o gatilho da checagem.
+  // O gatilho é `scenario.id` (protegido pelo teste "existem exatamente os
+  // 10 cenários canônicos"), não um campo de dentro do próprio cenário —
+  // por isso apagar `group` sozinho ainda quebra o gate.
   const groupScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-9-group-conversation')
   assert.ok(groupScenario, 'cenário de grupo precisa existir na fixture')
 
   const broken = clone(groupScenario)
+  delete broken.group
+
+  assert.ok(validateScenario(broken).includes('group_receives_individual_context'))
+})
+
+test('regra 11 (mutante): apagar session inteiro do cenário de grupo ainda é detectado (achado do Codex, 2ª revisão)', () => {
+  // O Codex apontou que a versão anterior gatilhava pela regra 11 por
+  // `scenario.session?.isGroup === true` — apagar `session` inteiro do
+  // cenário 9 (junto com `group`) faria essa leitura virar `undefined` e a
+  // regra nunca disparar. Gatilhando por `scenario.id` em vez disso, esta
+  // combinação continua sendo pega.
+  const groupScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-9-group-conversation')
+  assert.ok(groupScenario, 'cenário de grupo precisa existir na fixture')
+
+  const broken = clone(groupScenario)
+  delete broken.session
   delete broken.group
 
   assert.ok(validateScenario(broken).includes('group_receives_individual_context'))

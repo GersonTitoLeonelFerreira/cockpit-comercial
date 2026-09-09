@@ -154,7 +154,7 @@ Isolamento por `company_id`/lead é invariante de segurança permanente
 | MENSAGEM | Nunca produz Decision State de um lead individual dentro do grupo. |
 
 Preserva todos os gates de identidade N→AM já existentes (contrato, seção
-12, item 13).
+12, item 14).
 
 ---
 
