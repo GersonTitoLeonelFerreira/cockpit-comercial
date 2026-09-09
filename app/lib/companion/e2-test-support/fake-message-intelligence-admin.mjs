@@ -119,11 +119,19 @@ function buildQueryClass(tables, writeLog, resolveInterceptor) {
               .map(String)
               .includes(String(row[filter.column])),
           ) &&
+          // Fase 16.3A (achado do Codex, PR #275): compara como
+          // instante (Date.parse), não como string — o mesmo motivo do
+          // fake de stateful-copilot-real-context-loader.test.mjs. Sem
+          // isso, este harness não consegue reproduzir uma regressão de
+          // formato de serialização (ex.: "...+00:00" vs "...000Z" para
+          // o mesmo instante) no caminho compartilhado do MIE.
           this.upperBounds.every((filter) =>
-            row[filter.column] <= filter.value,
+            Date.parse(row[filter.column]) <=
+              Date.parse(filter.value),
           ) &&
           this.strictUpperBounds.every((filter) =>
-            row[filter.column] < filter.value,
+            Date.parse(row[filter.column]) <
+              Date.parse(filter.value),
           ),
       )
 
