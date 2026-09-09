@@ -822,6 +822,45 @@ test('evento cross-conversation com item malformado em improvement_points (falta
   assert.deepEqual(source.cross_conversation_coaching, [])
 })
 
+test('evento cross-conversation com evidence_message_ids vazio (mesmo com memory_ids preenchido) é ignorado sem derrubar a leitura', async () => {
+  // Achado do Codex (PR #278, rodada 5): as duas normalizações
+  // canônicas de coaching chamam normalizeReferences(..., true, true) —
+  // requireDirectMessage exige pelo menos uma evidence_message_ids não
+  // vazia mesmo quando memory_ids está populado. Um item sem evidência
+  // direta é ungrounded pelo próprio contrato canônico; a validação
+  // estrutural das rodadas anteriores só checava "é array de strings",
+  // aceitando um array vazio.
+  const admin = createAdmin({
+    agoraRows: [],
+    stateRows: [
+      buildStateRow({ id: 'row-current', conversation_key: CONVERSATION_KEY }),
+      buildStateRow({ id: 'row-other', conversation_key: OTHER_CONVERSATION_KEY }),
+    ],
+    eventRows: [
+      buildEventRow({
+        id: 'event-no-direct-evidence',
+        conversation_key: OTHER_CONVERSATION_KEY,
+        state_record_id: 'row-other',
+        commercialReading: buildCommercialReadingPayload({
+          seller_strengths: [
+            {
+              kind: 'good_discovery',
+              summary: 'Sem evidência direta.',
+              why_it_matters: 'Só tem memória, não mensagem.',
+              evidence_message_ids: [],
+              memory_ids: ['mem-1'],
+            },
+          ],
+        }),
+      }),
+    ],
+  })
+
+  const source = await load({ admin })
+
+  assert.deepEqual(source.cross_conversation_coaching, [])
+})
+
 test('evento cross-conversation com state_snapshot.updated_at no futuro é excluído', async () => {
   const admin = createAdmin({
     agoraRows: [],

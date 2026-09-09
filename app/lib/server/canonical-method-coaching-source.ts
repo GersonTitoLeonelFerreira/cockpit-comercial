@@ -215,6 +215,26 @@ function isStringArray(
   )
 }
 
+// As duas normalizações canônicas de coaching chamam
+// normalizeReferences(..., true, true) (commercial-reading-contract.ts,
+// normalizeSellerStrengths/normalizeImprovementPoints) — o segundo
+// `true` é requireDirectMessage, que exige pelo menos uma
+// evidence_message_ids não vazia mesmo quando memory_ids está
+// populado (achado do Codex, PR #278, rodada 5). Um item sem evidência
+// direta é ungrounded pelo próprio contrato canônico, então esta
+// validação estrutural precisa da mesma exigência.
+function hasDirectEvidence(
+  value: unknown,
+): value is string[] {
+  return (
+    isStringArray(value) &&
+    value.length > 0 &&
+    value.every(
+      id => id.trim() !== '',
+    )
+  )
+}
+
 // A restrição do banco valida apenas a versão do contrato de saída, não
 // o formato dos arrays aninhados de coaching — um evento persistido por
 // um writer antigo/quebrado pode ter contract_version correto e ainda
@@ -235,7 +255,7 @@ function isValidSellerStrength(
     readNonEmptyString(
       value.why_it_matters,
     ) !== null &&
-    isStringArray(
+    hasDirectEvidence(
       value.evidence_message_ids,
     ) &&
     isStringArray(value.memory_ids)
@@ -261,7 +281,7 @@ function isValidImprovementPoint(
     readNonEmptyString(
       value.how_to_improve,
     ) !== null &&
-    isStringArray(
+    hasDirectEvidence(
       value.evidence_message_ids,
     ) &&
     isStringArray(value.memory_ids)
