@@ -125,6 +125,14 @@ Confirmado pelo próprio comentário do código (`route.ts`, linhas ~442-450):
 - Confirmado via grep: `content-script.js` e `background.js` da extensão
   **não referenciam** `sales-copilot`/`sales-coaching`/`/api/ai/analyze-
   conversation`.
+- **Correção (achado do Codex, 36ª revisão do PR #274):** faltava
+  `app/api/companion/v2/diagnostic-preview/route.ts` — endpoint
+  autenticado por token Companion (`verifyCompanionRequestToken`) que
+  chama `runCompanionDiagnosticPreview()` → `runCompanionDiagnosticEngine()`
+  e produz um `CompanionDiagnostic` estruturado (`diagnostic-contract.ts`).
+  Read-only/preview (nenhum `insert`/`update`/`upsert` no módulo) — não
+  persiste nada, e nada no runtime seller-facing (V2 stateful) o consome;
+  ver linha #1 para a implicação sobre `customer_intent`.
 
 `[Inference]` V1 é alcançável apenas pelo dashboard web (painel de coaching
 do lead), não pela extensão do Companion — é legado para o Companion, mas
@@ -171,7 +179,7 @@ Taxonomia usada nas seções seguintes (definida na missão, seção 8):
 
 | # | Campo / conceito | Domínio | Escopo | Fonte atual | Classificação | Persistência | Writer(s) | Reader(s) | Identity key | Evidence/provenance | Freshness/lifetime | Stale risk | Conflict risk | Duplicação | Consumidor atual | Consumidor futuro | Ação 16.3 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | current message intent | Current Moment | sessão | **MISSING como campo estruturado.** `current_moment` (`StatefulCopilotEvidence`, `stateful-copilot-contract.ts:49`) só tem `{summary: string, evidence_message_ids: string[]}` — sem um campo de "intent" separado. `summary` é texto livre que pode descrever a intenção, mas não é um valor estruturado/classificável. Achado do Codex (1ª revisão do PR #274). | **MISSING** (estruturado) / OPPORTUNITY_STATE (como texto livre em `summary`) | `companion_commercial_states.state_snapshot` | `stateful-copilot-engine.ts` | AGORA (via reader) | company_id+cycle_id+conversation_key | `evidence_message_ids` | ver linha 3 (nem sempre atualizado a cada turno) | MEDIUM | LOW | não | Companion AGORA | Decision State (16.3) | **decidir se cria campo estruturado** |
+| 1 | current message intent | Current Moment | sessão | **MISSING como campo estruturado no motor seller-facing (V2 stateful).** `current_moment` (`StatefulCopilotEvidence`, `stateful-copilot-contract.ts:49`) só tem `{summary: string, evidence_message_ids: string[]}` — sem um campo de "intent" separado. `summary` é texto livre que pode descrever a intenção, mas não é um valor estruturado/classificável. Achado do Codex (1ª revisão do PR #274). **Ressalva (achado do Codex, 36ª revisão do PR #274):** existe implementação equivalente em outro caminho — `CompanionDiagnostic.customer_intent` (`diagnostic-contract.ts:95-97`, também `{summary, evidence_message_ids}`), produzida pelo endpoint read-only/preview `app/api/companion/v2/diagnostic-preview/route.ts` (ver §3). Não é mais "estruturado/classificável" do que `current_moment` (mesma forma livre), mas é uma implementação reutilizável já existente — a FASE 16.3 não deveria recriar esse contrato do zero sem primeiro avaliar se dá para reaproveitar/conectar este preview ao motor seller-facing | **MISSING** (estruturado, no motor V2) / OPPORTUNITY_STATE (como texto livre em `summary`) / preview-only não conectado (`CompanionDiagnostic.customer_intent`) | `companion_commercial_states.state_snapshot` | `stateful-copilot-engine.ts` | AGORA (via reader) | company_id+cycle_id+conversation_key | `evidence_message_ids` | ver linha 3 (nem sempre atualizado a cada turno) | MEDIUM | LOW | não | Companion AGORA | Decision State (16.3) | **decidir se cria campo estruturado — ou se reaproveita/conecta `CompanionDiagnostic.customer_intent`** |
 | 2 | current commercial relevance | Current Moment | sessão | **`StatefulCopilotOutput.commercial_relevance`** (`stateful-copilot-contract.ts:211`), NÃO `current_moment.summary`. Persistido só dentro de `companion_commercial_state_events.normalized_output` (log de auditoria do turno) — não faz parte de `StatefulCommercialState`/`state_snapshot`. Achado do Codex (1ª revisão do PR #274): mapear para `current_moment` atribui fonte/persistência erradas. | DERIVED (não persistido em read-model, só audit log) | `companion_commercial_state_events.normalized_output` | `stateful-copilot-normalizer.ts` (`buildStatefulCopilotOutput`) | ANÁLISE/AGORA (via job status), não o `state_snapshot` | **`company_id+cycle_id+conversation_key+candidate_state_version`** (correção, achado do Codex, 8ª revisão do PR #274: `companion-analysis-job-reader.ts::loadCompanionAnalysisJobStatus()` exige as 4 chaves para obter exatamente 1 evento; unicidade real por `operation_key`. `company_id+cycle_id` sozinho não identifica este valor quando há mais de uma conversa/versão no ciclo) | `[Unverified]` | recalculado por turno, sem leitura de "valor atual" fora do log do job | **HIGH** | LOW | não | AGORA/ANÁLISE (por job) | Decision State | **decidir persistência em read-model** |
 | 3 | current moment summary | Current Moment | sessão | `current_moment.summary`. **Ressalva (achado do Codex, 1ª revisão do PR #274):** `stateful-copilot-engine.ts::preservePreviousCommercialStateWhenClosed()` substitui o `current_moment`/`current_priority` candidatos pelos do estado anterior sempre que `output.commercial_role !== 'buyer'` ou a relevância comercial não é acionável (`isCommerciallyActionable`) — ou seja, **não é recalculado a cada turno**; após uma interação não comercial, pode continuar descrevendo um momento comercial antigo. | OPPORTUNITY_STATE | `companion_commercial_states.state_snapshot` | `stateful-copilot-engine.ts` | AGORA | company_id+cycle_id+conversation_key | `evidence_message_ids` | **preservado (não atualizado) quando o contato não é comercialmente acionável** | **MEDIUM** (não LOW) | LOW | não | AGORA | Decision State | reutilizar, mas expor o momento em que foi preservado (não recalculado) |
 | 4 | pending customer question | Current Moment/Opportunity | **cycle + conversation_key** (idem #20 — correção, achado do Codex, 15ª revisão do PR #274: mesmo array `open_loops[]` da linha #31, isolado pela mesma chave tripla de `StatefulCommercialState`; esta linha ainda dizia `ciclo` puro, contradizendo #31) | `open_loops[]` | OPPORTUNITY_STATE | idem | reducer (append) | AGORA/ANÁLISE | **company_id+cycle_id+conversation_key+`open_loops[].id`** — correção (achado do Codex, 18ª revisão do PR #274, mesmo princípio já aplicado às linhas #20/#45): `closeMemoryItems()` resolve/supersede por `id` de item individual, não pela chave do estado inteiro | `evidence_message_ids` | até `resolve`/`supersede` | MEDIUM | LOW | não | — | ANÁLISE/AGORA | reutilizar |
@@ -367,7 +375,7 @@ têm o mesmo padrão.
 | `companion_commercial_states` | `state_version` (CAS), `updated_in_state_version`/`closed_in_state_version` por item | conflito detectado em duas camadas: reducer (`STALE_STATE_VERSION`) e RPC (`'conflict'` se a linha mudou entre leitura e escrita) |
 | `conversation_messages` | `occurred_at` vs. `observed_at`, `version` por edição | dedup por conteúdo inalterado; leitura colapsa para a versão mais recente por `message_key` |
 | `companion_method_stage_state` | `updated_at`, mas **sem histórico** | só o último valor — não é possível reconstruir a trajetória do estágio a partir desta tabela |
-| `method.adherence` (ANÁLISE) | **`generated_at`+`candidate_state_version` do evento — correção (achado do Codex, 27ª revisão do PR #274): NÃO é "nenhum"; `companion_commercial_state_events.generated_at` (`20260806193000_create_stateful_copilot_storage.sql:142`) e `candidate_state_version` são devolvidos por `loadCompanionAnalysisJobStatus()` como `result_generated_at`/`candidate_state_version`** | recalculado do zero a cada turno, sem estado anterior — falta é um read-model de valor atual/histórico agregado (não um sinal de freshness por evento), então não há "tendência de aderência" reconstruível sem consultar múltiplos eventos manualmente |
+| `method.adherence` (ANÁLISE) | **`generated_at`+`candidate_state_version` do evento — correção (achado do Codex, 27ª revisão do PR #274): NÃO é "nenhum"; `companion_commercial_state_events.generated_at` (`20260806193000_create_stateful_copilot_storage.sql:142`) e `candidate_state_version` são devolvidos por `loadCompanionAnalysisJobStatus()` como `result_generated_at`/`candidate_state_version`** | recalculado do zero a cada turno, sem estado anterior — falta é um read-model de valor atual/histórico agregado **conectado a produção** (não um sinal de freshness por evento, nem a ausência de código de agregação reutilizável — ver §16, achado do Codex, 36ª revisão do PR #274: `managerial-evidence-extractor.ts`/`managerial-evidence-aggregator.ts` já implementam extração/agregação entre múltiplos eventos, apenas sem caller de produção nem persistência) |
 | Seller Coaching | **`generated_at`+`candidate_state_version` do evento (idem `method.adherence`) — correção (achado do Codex, 27ª revisão do PR #274)** | mesmo padrão — cada evento tem freshness própria, mas falta agregação/histórico entre turnos |
 | `durable-memory-seed.ts` | seed aplicado **uma vez** (gate `previousState === null`) | nunca reaplicado nos turnos seguintes do mesmo ciclo; se o ciclo 2 resolver um fato, isso não propaga de volta a lugar nenhum. **Correção (achado do Codex, 14ª revisão do PR #274):** um ciclo 3 futuro **herda transitivamente o acumulado 1+2**, não só o ciclo 2 isolado — `applyDurableMemorySeedToFreshState()` incorpora os facts/objeções herdados do ciclo 1 ao snapshot persistido do ciclo 2 (com o mesmo `memory_status`), e `buildDurableMemorySeedFromPriorState()` não distingue itens nativos de itens já herdados ao montar o seed do ciclo 3 — qualquer item ainda `active` (não resolvido/superseded) em qualquer elo da cadeia continua sendo propagado adiante, sujeito à mesma fragmentação por `conversation_key` (linha #37) |
 | `companion_lead_conversation_summaries` | `last_message_watermark` | só usado para permitir a checagem de deriva no `working_summary`, não invalida o resumo automaticamente |
@@ -505,13 +513,25 @@ companion-analysis-job-reader.ts::loadCompanionAnalysisJobStatus()` →
 `buildSellerResult()` **lê `communication.commercial_reading` de volta**
 (incluindo `seller_strengths`/`improvement_points`/`method.adherence`) e o
 devolve ao Companion como resultado do job de análise — o vendedor vê
-esse conteúdo. O que **não existe** é agregação/merge entre turnos: cada
-leitura é o resultado de exatamente um job específico (por
-`analysis_job_id`), não uma consulta "histórico de coaching deste
-vendedor" ou "tendência de aderência ao longo do tempo". **Não é possível
-hoje reconstruir um padrão histórico sem reprocessar múltiplos eventos de
-auditoria manualmente** — mas o resultado de um turno individual é, sim,
-lido de volta e exibido normalmente.
+esse conteúdo. O que **não existe** é agregação/merge **conectada a
+produção**: cada leitura de `loadCompanionAnalysisJobStatus()` é o
+resultado de exatamente um job específico (por `analysis_job_id`), não uma
+consulta "histórico de coaching deste vendedor" ou "tendência de aderência
+ao longo do tempo", e não há read-model persistido nem chamador de
+produção que consulte múltiplos eventos de uma vez. **Ressalva (achado do
+Codex, 36ª revisão do PR #274):** isso não significa que reconstruir um
+padrão histórico exigiria processamento manual do zero —
+`managerial-evidence-extractor.ts::extractManagerialEvidence()` já recebe
+vários `commercial_reading_events` de uma vez e extrai
+`seller_strengths`/`improvement_points`, e
+`managerial-evidence-aggregator.ts::aggregateManagerialEvidence()` já
+consolida essas extrações em ocorrências/padrões entre eventos — uma
+implementação reutilizável de agregação **já existe** (grep confirma:
+nenhum arquivo em `app/api/**` chama nenhuma das duas funções; só outros
+módulos de `app/lib/companion/` e seus próprios testes o fazem). O que
+falta é conectá-la a um caller de produção e/ou persistir seu resultado —
+não implementá-la — mas o resultado de um turno individual é, sim, lido
+de volta e exibido normalmente.
 
 ## 17. Method State sources
 
