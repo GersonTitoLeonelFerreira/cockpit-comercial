@@ -148,6 +148,11 @@ function buildEventRow({
   candidate_state_version = 1,
   state_contract_version = STATE_CONTRACT_VERSION,
   output_contract_version = OUTPUT_CONTRACT_VERSION,
+  // generated_at (quando o evento foi gravado) por padrão IGUAL ao
+  // updated_at default do snapshot — testes que exercitam a
+  // divergência entre os dois campos (achado do Codex, PR #278,
+  // rodada 1) devem declarar os dois explicitamente.
+  generated_at = '2026-09-09T16:00:00.000Z',
   snapshot = {},
   commercialReading = buildCommercialReadingPayload(),
 } = {}) {
@@ -160,6 +165,7 @@ function buildEventRow({
     candidate_state_version,
     state_contract_version,
     output_contract_version,
+    generated_at,
     state_snapshot: buildSnapshot(snapshot),
     normalized_output: {
       contract_version: OUTPUT_CONTRACT_VERSION,
@@ -298,6 +304,7 @@ function load({
   conversation_key = CONVERSATION_KEY,
   reference_time = REFERENCE_TIME,
   current_reading = buildCurrentReading(),
+  current_method_config_version_id = 'method-config-1',
 }) {
   return loadCanonicalMethodCoachingSource({
     admin,
@@ -306,6 +313,7 @@ function load({
     conversation_key,
     reference_time,
     current_reading,
+    current_method_config_version_id,
   })
 }
 
@@ -357,6 +365,7 @@ test('método configurado com AGORA e ANÁLISE concordando: sem divergência', a
 
   assert.equal(source.method.agora_stage.stage_key, 'diagnostico')
   assert.equal(source.method.analise_stage.stage_key, 'diagnostico')
+  assert.equal(source.method.stage_comparison_reliable, true)
   assert.equal(source.method.stage_divergence, false)
 })
 
@@ -411,7 +420,60 @@ test('AGORA e ANÁLISE discordando sobre o estágio: stage_divergence=true, sem 
 
   assert.equal(source.method.agora_stage.stage_key, 'diagnostico')
   assert.equal(source.method.analise_stage.stage_key, 'proposta')
+  assert.equal(source.method.stage_comparison_reliable, true)
   assert.equal(source.method.stage_divergence, true)
+})
+
+test('AGORA de versão de método diferente da atual: comparação não confiável, sem falsa divergência nem falsa concordância', async () => {
+  // Achado do Codex (PR #278, rodada 1): lead-seller-guidance.ts já
+  // trata uma etapa anterior de outra method_config_version_id como
+  // "sem etapa anterior confiável" (activePreviousStage). Comparar
+  // stage_key entre revisões diferentes do método pode reportar
+  // divergência falsa (chaves diferentes por acaso) ou concordância
+  // falsa (chave reaproveitada com outro significado).
+  const admin = createAdmin({
+    agoraRows: [
+      buildAgoraRow({
+        stage_key: 'diagnostico',
+        method_config_version_id: 'method-config-OLD',
+      }),
+    ],
+    stateRows: [buildStateRow({})],
+  })
+
+  const source = await load({
+    admin,
+    current_method_config_version_id: 'method-config-NEW',
+    current_reading: buildCurrentReading({
+      method: buildMethod({
+        current_stage: {
+          step_order: 1,
+          stage_key: 'diagnostico',
+          name: 'Diagnóstico',
+        },
+      }),
+    }),
+  })
+
+  assert.equal(source.method.agora_stage.stage_key, 'diagnostico')
+  assert.equal(source.method.analise_stage.stage_key, 'diagnostico')
+  assert.equal(source.method.stage_comparison_reliable, false)
+  assert.equal(source.method.stage_divergence, false)
+})
+
+test('current_method_config_version_id desconhecido (null): comparação nunca é confiável', async () => {
+  const admin = createAdmin({
+    agoraRows: [buildAgoraRow({ stage_key: 'diagnostico' })],
+    stateRows: [buildStateRow({})],
+  })
+
+  const source = await load({
+    admin,
+    current_method_config_version_id: null,
+  })
+
+  assert.equal(source.method.stage_comparison_reliable, false)
+  assert.equal(source.method.stage_divergence, false)
 })
 
 test('coaching da conversa atual reflete a leitura canônica sem inventar quando não há desvio', async () => {
@@ -496,6 +558,40 @@ test('coaching de outra conversa do mesmo ciclo aparece em cross_conversation_co
   assert.equal(
     source.cross_conversation_coaching[0].seller_strengths.length,
     1,
+  )
+})
+
+test('cross_conversation_coaching expõe o generated_at real do evento, não o instante semântico de state_snapshot.updated_at', async () => {
+  // Achado do Codex (PR #278, rodada 1): generated_at (quando o
+  // evento foi gravado) e state_snapshot.updated_at (o instante
+  // semântico que decide qual evento é o mais recente) podem
+  // divergir — publicar o valor errado sob o nome generated_at
+  // deixaria esse campo inconsistente com coaching.generated_at.
+  const admin = createAdmin({
+    agoraRows: [],
+    stateRows: [
+      buildStateRow({ id: 'row-current', conversation_key: CONVERSATION_KEY }),
+      buildStateRow({ id: 'row-other', conversation_key: OTHER_CONVERSATION_KEY }),
+    ],
+    eventRows: [
+      buildEventRow({
+        id: 'event-other-1',
+        conversation_key: OTHER_CONVERSATION_KEY,
+        state_record_id: 'row-other',
+        snapshot: { updated_at: '2026-09-09T15:00:00.000Z' },
+        // generated_at deliberadamente diferente do instante
+        // semântico acima — simula um evento gravado com atraso.
+        generated_at: '2026-09-09T15:45:00.000Z',
+      }),
+    ],
+  })
+
+  const source = await load({ admin })
+
+  assert.equal(source.cross_conversation_coaching.length, 1)
+  assert.equal(
+    source.cross_conversation_coaching[0].generated_at,
+    '2026-09-09T15:45:00.000Z',
   )
 })
 

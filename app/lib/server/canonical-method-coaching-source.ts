@@ -48,6 +48,7 @@ const CROSS_CONVERSATION_EVENT_FIELDS = [
   'output_contract_version',
   'state_snapshot',
   'normalized_output',
+  'generated_at',
 ].join(',')
 
 const CROSS_CONVERSATION_EVENT_PAGE_SIZE =
@@ -113,11 +114,22 @@ export type CanonicalMethodCoachingSource = {
     analise_stage:
       CanonicalMethodCoachingAnaliseStage | null
 
-    // true SOMENTE quando os dois lados existem e discordam
+    // true SOMENTE quando os dois lados existem, vêm da MESMA versão
+    // publicada do método (ver stage_comparison_reliable) e discordam
     // explicitamente sobre stage_key — nunca inferido quando um dos
     // dois está ausente (achado da FASE 16.2: os dois mecanismos são
     // "diferentes, não coordenados", não "um substitui o outro").
     stage_divergence: boolean
+
+    // false quando a comparação acima não é segura — AGORA e ANÁLISE
+    // vêm de revisões diferentes do método publicado (ou a versão
+    // atual não pôde ser determinada). Quando false, stage_divergence
+    // é sempre false, mas isso não significa concordância: significa
+    // que a comparação não pôde ser feita com segurança (achado do
+    // Codex, PR #278, rodada 1 — mesmo tratamento que
+    // lead-seller-guidance.ts já dá a uma etapa anterior de versão
+    // diferente: ignorada, não comparada).
+    stage_comparison_reliable: boolean
 
     adherence:
       CommercialReadingMethod['adherence'] | null
@@ -277,27 +289,66 @@ function buildAnaliseStage(
   }
 }
 
-function computeStageDivergence({
+/**
+ * Compara AGORA e ANÁLISE só quando ambos vêm da MESMA versão
+ * publicada do método (`method_config_version_id`). Quando a empresa
+ * republica o método, `companion_method_stage_state` pode ainda
+ * referenciar a versão anterior até a próxima persistência — o
+ * próprio caminho AGORA já trata esse caso como "sem etapa anterior
+ * confiável" (`lead-seller-guidance.ts`, `activePreviousStage`:
+ * `previousStage.method_config_version_id === method.id ? previousStage
+ * : null`). Comparar `stage_key` entre revisões diferentes do método
+ * pode reportar divergência falsa, ou concordância falsa se a chave
+ * for reaproveitada com outro significado na nova versão — achado do
+ * Codex, PR #278, rodada 1.
+ */
+function computeStageComparison({
   agoraStage,
   analiseStage,
+  currentMethodConfigVersionId,
 }: {
   agoraStage:
     CanonicalMethodCoachingAgoraStage | null
   analiseStage:
     CanonicalMethodCoachingAnaliseStage | null
-}): boolean {
+  currentMethodConfigVersionId:
+    string | null
+}): {
+  reliable: boolean
+  divergence: boolean
+} {
   if (!agoraStage || !analiseStage) {
-    return false
+    return {
+      reliable: false,
+      divergence: false,
+    }
   }
 
   if (analiseStage.stage_key === null) {
-    return false
+    return {
+      reliable: false,
+      divergence: false,
+    }
   }
 
-  return (
-    agoraStage.stage_key !==
-    analiseStage.stage_key
-  )
+  const reliable =
+    currentMethodConfigVersionId !== null &&
+    agoraStage.method_config_version_id ===
+      currentMethodConfigVersionId
+
+  if (!reliable) {
+    return {
+      reliable: false,
+      divergence: false,
+    }
+  }
+
+  return {
+    reliable: true,
+    divergence:
+      agoraStage.stage_key !==
+      analiseStage.stage_key,
+  }
 }
 
 /**
@@ -328,6 +379,7 @@ function parseCrossConversationEvent({
   stateRecordId: string
   candidateStateVersion: number
   snapshotUpdatedAt: string | null
+  generatedAt: string
   method: CommercialReadingMethod | null
   sellerStrengths: CommercialReadingSellerStrength[]
   improvementPoints: CommercialReadingImprovementPoint[]
@@ -338,6 +390,11 @@ function parseCrossConversationEvent({
 
   const eventId =
     readNonEmptyString(row.id)
+
+  const generatedAt =
+    readNonEmptyString(
+      row.generated_at,
+    )
 
   const rowCompanyId =
     readNonEmptyString(row.company_id)
@@ -370,6 +427,7 @@ function parseCrossConversationEvent({
 
   if (
     !eventId ||
+    !generatedAt ||
     !rowCompanyId ||
     !rowCycleId ||
     !conversationKey ||
@@ -475,6 +533,7 @@ function parseCrossConversationEvent({
     stateRecordId,
     candidateStateVersion,
     snapshotUpdatedAt,
+    generatedAt,
     method,
     sellerStrengths,
     improvementPoints,
@@ -483,14 +542,23 @@ function parseCrossConversationEvent({
 
 /**
  * Para cada conversation_key do ciclo (exceto a atual), busca o evento
- * mais recente cujo instante semântico (`normalized_output.updated_at`
- * — o mesmo campo que StatefulCommercialState carrega como
- * `updated_at`, forçado a igualar reference_time pela persistence
- * plan) é `<= reference_time`. Mesma lição da FASE 16.3C: nunca usar
+ * mais recente cujo instante semântico (`state_snapshot.updated_at` —
+ * forçado a igualar reference_time pela persistence plan) é
+ * `<= reference_time`. Mesma lição da FASE 16.3C: nunca usar
  * `generated_at` (quando foi gravado) como corte semântico, nunca
  * `.range()` sem uma coluna única para paginar, sempre desempatar por
  * versão quando o instante empata entre duas versões da mesma
  * conversa.
+ *
+ * `state_snapshot.updated_at` decide QUAL evento é o mais recente
+ * válido; a coluna real `generated_at` do evento (quando foi
+ * efetivamente gravado, podendo ser posterior por fila/retry) é
+ * exposta separadamente no resultado, sem ser confundida com o
+ * instante semântico usado para selecioná-lo — achado do Codex, PR
+ * #278, rodada 1: publicar o instante semântico sob o nome
+ * `generated_at` tornaria esse campo inconsistente com
+ * `coaching.generated_at` (que já é o `generated_at` real, vindo de
+ * `current_reading`).
  */
 async function loadCrossConversationCoaching({
   admin,
@@ -563,6 +631,7 @@ async function loadCrossConversationCoaching({
       string,
       {
         eventId: string
+        generatedAt: string
         updatedAtInstant: number
         candidateStateVersion: number
         sellerStrengths: CommercialReadingSellerStrength[]
@@ -623,6 +692,7 @@ async function loadCrossConversationCoaching({
         parsed.conversationKey,
         {
           eventId: parsed.eventId,
+          generatedAt: parsed.generatedAt,
           updatedAtInstant,
           candidateStateVersion:
             parsed.candidateStateVersion,
@@ -650,9 +720,7 @@ async function loadCrossConversationCoaching({
           entry.eventId,
 
         generated_at:
-          new Date(
-            entry.updatedAtInstant,
-          ).toISOString(),
+          entry.generatedAt,
 
         seller_strengths:
           entry.sellerStrengths,
@@ -690,11 +758,15 @@ async function loadCrossConversationCoaching({
  * Esta função NÃO escolhe um vencedor por adivinhação nem funde os
  * dois valores: expõe ambos explicitamente (`agora_stage`/
  * `analise_stage`) e computa `stage_divergence` só quando os dois
- * existem e discordam. Escolher qual estágio deve "vencer" quando
- * divergem é uma decisão de produto sobre o comportamento de AGORA —
- * território da FASE 16.3E, fora do escopo aqui. Este módulo não
- * escreve em `companion_method_stage_state` nem em nenhuma tabela —
- * é somente leitura, e não altera o gate anti-regressão existente.
+ * existem, vêm da MESMA versão publicada do método (ver
+ * `stage_comparison_reliable`/`computeStageComparison` — mesma guarda
+ * que `lead-seller-guidance.ts` já aplica à etapa anterior, achado do
+ * Codex, PR #278, rodada 1) e discordam. Escolher qual estágio deve
+ * "vencer" quando divergem é uma decisão de produto sobre o
+ * comportamento de AGORA — território da FASE 16.3E, fora do escopo
+ * aqui. Este módulo não escreve em `companion_method_stage_state` nem
+ * em nenhuma tabela — é somente leitura, e não altera o gate
+ * anti-regressão existente.
  *
  * `coaching` (seller_strengths/improvement_points/recovery_guidance)
  * reaproveita o shape já existente de CommercialReading — a mission
@@ -735,6 +807,7 @@ export async function loadCanonicalMethodCoachingSource({
   conversation_key,
   reference_time,
   current_reading,
+  current_method_config_version_id,
 }: {
   admin: SupabaseClient
   company_id: string
@@ -744,6 +817,16 @@ export async function loadCanonicalMethodCoachingSource({
 
   current_reading:
     CanonicalCommercialReadingSource | null
+
+  // Identidade da versão publicada do método (`company_commercial_-
+  // config_versions.id`) usada para gerar `current_reading` — mesma
+  // fonte que `PublishedCommercialMethod.id` em lead-seller-
+  // guidance.ts. Necessária para decidir se `agora_stage` (que carrega
+  // sua própria `method_config_version_id`) pode ser comparado com
+  // segurança a `analise_stage`. `null` quando desconhecida — nesse
+  // caso a comparação nunca é considerada confiável (fail-closed).
+  current_method_config_version_id:
+    string | null
 }): Promise<CanonicalMethodCoachingSource | null> {
   const referenceTime =
     normalizeDateOrNull(reference_time)
@@ -838,6 +921,14 @@ export async function loadCanonicalMethodCoachingSource({
     const analiseStage =
       buildAnaliseStage(method)
 
+    const stageComparison =
+      computeStageComparison({
+        agoraStage,
+        analiseStage,
+        currentMethodConfigVersionId:
+          current_method_config_version_id,
+      })
+
     return {
       company_id,
       cycle_id,
@@ -858,10 +949,10 @@ export async function loadCanonicalMethodCoachingSource({
         analise_stage: analiseStage,
 
         stage_divergence:
-          computeStageDivergence({
-            agoraStage,
-            analiseStage,
-          }),
+          stageComparison.divergence,
+
+        stage_comparison_reliable:
+          stageComparison.reliable,
 
         adherence:
           method?.adherence ?? null,
