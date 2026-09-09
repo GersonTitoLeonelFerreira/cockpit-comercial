@@ -69,6 +69,7 @@ function baseFixtures() {
         next_action: null,
         next_action_date: null,
         updated_at: '2026-08-29T21:55:00.000Z',
+        created_at: '2026-08-29T20:00:00.000Z',
         origin_cycle_id: null,
       },
     ],

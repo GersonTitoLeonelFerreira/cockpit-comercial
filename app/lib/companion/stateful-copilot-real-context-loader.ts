@@ -59,15 +59,21 @@ const CYCLE_FIELDS = `
   next_action,
   next_action_date,
   updated_at,
+  created_at,
   origin_cycle_id
 `
 
-// Fase 12A, Frente 2B — Blocker 4: colunas mínimas para localizar o ciclo
-// ANTERIOR do mesmo lead (candidato a fonte de memória durável). Nunca
+// Fase 16.3A — colunas mínimas para localizar e validar um ciclo
+// candidato a fonte de memória durável, seja via origin_cycle_id
+// explícito ou via heurística de fallback. Inclui company_id/lead_id
+// para permitir revalidação em memória (nunca confiar só no filtro da
+// query) e created_at para impor predecessor cronológico estrito. Nunca
 // traz colunas comerciais/transacionais desse outro ciclo — só o
-// suficiente para decidir "qual é o ciclo anterior".
+// suficiente para decidir "este ciclo é um predecessor seguro".
 const PRIOR_CYCLE_LOOKUP_FIELDS = `
   id,
+  company_id,
+  lead_id,
   created_at
 `
 
@@ -238,6 +244,11 @@ export type StatefulCopilotContextQuery = PromiseLike<
   ) => StatefulCopilotContextQuery
 
   lte: (
+    column: string,
+    value: unknown,
+  ) => StatefulCopilotContextQuery
+
+  lt: (
     column: string,
     value: unknown,
   ) => StatefulCopilotContextQuery
@@ -2157,23 +2168,36 @@ async function loadCommercialConfig({
   }
 }
 
-// Fase 12A, Frente 2B — Blocker 4: encontra a memória durável de um ciclo
-// ANTERIOR do mesmo lead, para ser herdada apenas quando o ciclo atual
-// ainda não tem nenhum estado próprio. Deliberadamente best-effort e
-// nunca bloqueante: se a busca falhar, a herança é apenas ignorada nesta
-// rodada (o Companion continua funcionando sem CLIENTE herdado) — isto
-// não é um dado crítico como o ledger ou a configuração comercial
-// publicada, é um enriquecimento sobre um recorte que já nasce vazio.
+// Fase 12A, Frente 2B — Blocker 4, endurecido na Fase 16.3A: encontra a
+// memória durável de um ciclo ANTERIOR do mesmo lead, para ser herdada
+// apenas quando o ciclo atual ainda não tem nenhum estado próprio.
+// Deliberadamente best-effort e nunca bloqueante: se a busca falhar, a
+// herança é apenas ignorada nesta rodada (o Companion continua
+// funcionando sem CLIENTE herdado) — isto não é um dado crítico como o
+// ledger ou a configuração comercial publicada, é um enriquecimento
+// sobre um recorte que já nasce vazio.
+//
+// Contrato de segurança (Fase 16.3A): um ciclo só pode ser fonte de
+// memória durável se (1) pertence à mesma company, (2) pertence ao
+// mesmo lead, (3) não é o próprio ciclo atual, (4) é cronologicamente
+// anterior ao ciclo atual (created_at estrito — nunca <=, um empate
+// exato não tem critério causal seguro e falha fechado) e (5) possui
+// estado herdável válido. Isso vale tanto para origin_cycle_id
+// explícito quanto para a heurística de fallback: origin_cycle_id
+// nunca é confiado só por existir — é revalidado contra sales_cycles
+// antes de ser usado, e se a validação falhar (outro lead, outra
+// company, o próprio ciclo, ou um ciclo futuro/empatado), o fallback
+// cronológico assume, exatamente como se origin_cycle_id fosse nulo.
+//
 // Exportada (Message Intelligence Shadow Validation) para reutilização
 // device-free por app/lib/server/message-intelligence-source-loader.ts.
-// Nenhuma mudança de comportamento: mesma implementação, mesma
-// assinatura, apenas visível fora deste módulo.
 export async function loadDurableMemorySeedForMissingState({
   client,
   companyId,
   cycleId,
   leadId,
   originCycleId,
+  currentCycleCreatedAt,
 }: {
   client:
     StatefulCopilotRealContextSupabaseClient
@@ -2184,15 +2208,81 @@ export async function loadDurableMemorySeedForMissingState({
 
   originCycleId:
     string | null
+
+  // created_at do ciclo ATUAL (fronteira de causalidade) — nunca
+  // buscado de novo aqui: sempre vem do canonical scope já carregado
+  // pelo chamador (mesma fonte que MIE e o loader stateful já
+  // compartilham), para não criar uma segunda fonte de verdade.
+  currentCycleCreatedAt: string
 }): Promise<DurableMemorySeed | null> {
   try {
-    let priorCycleId =
-      originCycleId
+    let priorCycleId: string | null =
+      null
 
     if (
-      !priorCycleId ||
-      priorCycleId === cycleId
+      originCycleId &&
+      originCycleId !== cycleId
     ) {
+      const originRows =
+        await readList(
+          client
+            .from(
+              'sales_cycles',
+            )
+            .select(
+              PRIOR_CYCLE_LOOKUP_FIELDS,
+            )
+            .eq(
+              'company_id',
+              companyId,
+            )
+            .eq(
+              'id',
+              originCycleId,
+            )
+            // Correção (achado do Codex, PR #275): a ordem cronológica
+            // precisa ser decidida pelo Postgres (comparação real de
+            // instante no tipo timestamptz), não por comparação lexical
+            // de string em JS — o timestamp bruto devolvido pelo banco
+            // pode vir serializado num formato diferente do que
+            // currentCycleCreatedAt (normalizado via
+            // Date.prototype.toISOString() em normalizeDate()), fazendo
+            // uma string comparison aceitar incorretamente um ciclo
+            // empatado ou até futuro.
+            .lt(
+              'created_at',
+              currentCycleCreatedAt,
+            )
+            .limit(
+              1,
+            ),
+          'sales_cycles.origin_cycle_validation',
+        )
+
+      const originRecord =
+        originRows[0]
+          ? requireRecord(
+              originRows[0],
+              'sales_cycles.origin_cycle_validation',
+            )
+          : null
+
+      // Nunca confiar em origin_cycle_id só por existir: a query já
+      // exige company_id igual e created_at estritamente anterior ao
+      // ciclo atual (comparação de instante feita pelo banco). Só falta
+      // confirmar lead_id, que só é validável em memória. Qualquer
+      // falha aqui não é erro — cai para a heurística de fallback
+      // abaixo, como se fosse nulo.
+      if (
+        originRecord &&
+        originRecord.lead_id === leadId
+      ) {
+        priorCycleId =
+          originCycleId
+      }
+    }
+
+    if (!priorCycleId) {
       const candidateRows =
         await readList(
           client
@@ -2209,6 +2299,10 @@ export async function loadDurableMemorySeedForMissingState({
             .eq(
               'lead_id',
               leadId,
+            )
+            .lt(
+              'created_at',
+              currentCycleCreatedAt,
             )
             .order(
               'created_at',
@@ -2246,10 +2340,7 @@ export async function loadDurableMemorySeedForMissingState({
           null
     }
 
-    if (
-      !priorCycleId ||
-      priorCycleId === cycleId
-    ) {
+    if (!priorCycleId) {
       return null
     }
 
@@ -2342,6 +2433,7 @@ export type StatefulCopilotCanonicalScope = {
     next_action: string | null
     next_action_date: string | null
     updated_at: string
+    created_at: string
   }
 
   origin_cycle_id: string | null
@@ -2576,6 +2668,11 @@ export async function loadStatefulCopilotCanonicalScope({
         normalizeDate(
           cycleRecord.updated_at,
           'sales_cycles.updated_at',
+        ),
+      created_at:
+        normalizeDate(
+          cycleRecord.created_at,
+          'sales_cycles.created_at',
         ),
     },
 
@@ -2880,6 +2977,9 @@ export function createStatefulCopilotRealContextLoader(
               canonicalScope.lead.id,
 
             originCycleId,
+
+            currentCycleCreatedAt:
+              canonicalScope.cycle.created_at,
           })
         : null
 

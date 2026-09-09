@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   StatefulCopilotRealContextLoaderError,
   createStatefulCopilotRealContextLoader,
+  loadDurableMemorySeedForMissingState,
   loadStatefulCopilotCanonicalScope,
 } from './stateful-copilot-real-context-loader.ts'
 
@@ -292,6 +293,9 @@ function createMockClient(
       this.upperBounds =
         []
 
+      this.strictUpperBounds =
+        []
+
       this.orders =
         []
 
@@ -331,6 +335,18 @@ function createMockClient(
       value,
     ) {
       this.upperBounds.push({
+        column,
+        value,
+      })
+
+      return this
+    }
+
+    lt(
+      column,
+      value,
+    ) {
+      this.strictUpperBounds.push({
         column,
         value,
       })
@@ -393,6 +409,13 @@ function createMockClient(
             }),
           ),
 
+        strict_upper_bounds:
+          this.strictUpperBounds.map(
+            item => ({
+              ...item,
+            }),
+          ),
+
         orders:
           this.orders.map(
             item => ({
@@ -449,6 +472,12 @@ function createMockClient(
           )
       }
 
+      // Fase 16.3A (achado do Codex, PR #275): compara como instante
+      // (Date.parse), não como string — o Postgres real compara
+      // timestamptz por instante, então o fake precisa fazer o mesmo
+      // para não deixar passar um bug de formato de serialização
+      // (ex.: "...+00:00" vs "...000Z" para o mesmo instante) que uma
+      // comparação lexical de string esconderia.
       for (
         const upperBound of
         this.upperBounds
@@ -456,10 +485,28 @@ function createMockClient(
         rows =
           rows.filter(
             row =>
-              row[
-                upperBound.column
-              ] <=
-              upperBound.value,
+              Date.parse(
+                row[upperBound.column],
+              ) <=
+              Date.parse(
+                upperBound.value,
+              ),
+          )
+      }
+
+      for (
+        const strictUpperBound of
+        this.strictUpperBounds
+      ) {
+        rows =
+          rows.filter(
+            row =>
+              Date.parse(
+                row[strictUpperBound.column],
+              ) <
+              Date.parse(
+                strictUpperBound.value,
+              ),
           )
       }
 
@@ -639,6 +686,9 @@ function buildFixtures({
 
         updated_at:
           '2026-08-07T00:50:00.000Z',
+
+        created_at:
+          '2026-08-06T09:00:00.000Z',
       },
     ],
 
@@ -2380,6 +2430,21 @@ test(
 const priorCycleId =
   '30000000-0000-4000-8000-000000000099'
 
+// Fase 16.3A — adversarial fixtures: um segundo lead/company e um ciclo
+// futuro, usados para provar que origin_cycle_id e o fallback de
+// heurística nunca atravessam identidade nem causalidade.
+const otherLeadId =
+  '20000000-0000-4000-8000-000000000002'
+
+const otherCompanyId =
+  '10000000-0000-4000-8000-000000000002'
+
+const futureCycleId =
+  '30000000-0000-4000-8000-000000000098'
+
+const olderCycleId =
+  '30000000-0000-4000-8000-000000000097'
+
 function priorStateSnapshotFixture() {
   return {
     contract_version:
@@ -2443,6 +2508,21 @@ test(
 
     fixtures.sales_cycles[0].origin_cycle_id =
       priorCycleId
+
+    // Fase 16.3A: origin_cycle_id agora é revalidado contra sales_cycles
+    // (mesma company, mesmo lead, cronologicamente anterior) — precisa
+    // existir como linha própria para o caminho feliz continuar válido.
+    fixtures.sales_cycles.push({
+      id: priorCycleId,
+      company_id: companyId,
+      lead_id: leadId,
+      owner_user_id: ownerId,
+      status: 'perdido',
+      next_action: null,
+      next_action_date: null,
+      updated_at: '2026-08-01T10:00:00.000Z',
+      created_at: '2026-08-01T09:00:00.000Z',
+    })
 
     fixtures.companion_commercial_states = [
       {
@@ -2586,6 +2666,628 @@ test(
   },
 )
 
+// ----------------------------------------------------------------------------
+// Fase 16.3A — Identity + Durable Memory Safety.
+//
+// Bug A (cross-lead/cross-company contamination): origin_cycle_id nunca
+// era revalidado contra sales_cycles antes de ser usado como fonte —
+// bastava existir. Bug B (inversão temporal): o fallback ordenava por
+// created_at DESC e excluía só o próprio id, sem exigir predecessor
+// cronológico estrito, permitindo herdar de um ciclo futuro do mesmo
+// lead. As correções tornam ambos os caminhos (origin_cycle_id
+// explícito e heurística de fallback) sujeitos ao mesmo contrato: mesma
+// company, mesmo lead, nunca o próprio ciclo, estritamente anterior.
+// ----------------------------------------------------------------------------
+
+test(
+  'Fase 16.3A (Bug A): origin_cycle_id de outro lead da mesma company nunca é usado para herdar memória',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    fixtures.sales_cycles[0].origin_cycle_id =
+      priorCycleId
+
+    // O ciclo indicado por origin_cycle_id existe e é da mesma company,
+    // mas pertence a OUTRO lead — não pode ser usado como fonte.
+    fixtures.sales_cycles.push({
+      id: priorCycleId,
+      company_id: companyId,
+      lead_id: otherLeadId,
+      owner_user_id: ownerId,
+      status: 'perdido',
+      next_action: null,
+      next_action_date: null,
+      updated_at: '2026-08-01T10:00:00.000Z',
+      created_at: '2026-08-01T09:00:00.000Z',
+    })
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: companyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-01T10:00:00.000Z',
+        persisted_at: '2026-08-01T10:00:01.000Z',
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.equal(
+      result.durable_memory_seed,
+      null,
+      'não deveria herdar memória de um ciclo de outro lead, mesmo indicado por origin_cycle_id',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A (Bug A): origin_cycle_id de outra company nunca é usado para herdar memória',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    fixtures.sales_cycles[0].origin_cycle_id =
+      priorCycleId
+
+    // Mesmo lead_id (coincidência possível entre tenants), mas OUTRA
+    // company — o filtro de tenant da própria query já deveria excluir.
+    fixtures.sales_cycles.push({
+      id: priorCycleId,
+      company_id: otherCompanyId,
+      lead_id: leadId,
+      owner_user_id: ownerId,
+      status: 'perdido',
+      next_action: null,
+      next_action_date: null,
+      updated_at: '2026-08-01T10:00:00.000Z',
+      created_at: '2026-08-01T09:00:00.000Z',
+    })
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: otherCompanyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-01T10:00:00.000Z',
+        persisted_at: '2026-08-01T10:00:01.000Z',
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.equal(
+      result.durable_memory_seed,
+      null,
+      'não deveria herdar memória de um ciclo de outra company, mesmo indicado por origin_cycle_id',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A: origin_cycle_id apontando para o próprio ciclo atual é ignorado',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    fixtures.sales_cycles[0].origin_cycle_id =
+      cycleId
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.equal(
+      result.durable_memory_seed,
+      null,
+      'origin_cycle_id igual ao ciclo atual nunca pode ser fonte de si mesmo',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A (Bug B): origin_cycle_id apontando para um ciclo futuro do mesmo lead nunca é usado',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    fixtures.sales_cycles[0].origin_cycle_id =
+      futureCycleId
+
+    fixtures.sales_cycles.push({
+      id: futureCycleId,
+      company_id: companyId,
+      lead_id: leadId,
+      owner_user_id: ownerId,
+      status: 'negociacao',
+      next_action: null,
+      next_action_date: null,
+      updated_at: '2026-08-08T10:00:00.000Z',
+      created_at: '2026-08-08T10:00:00.000Z',
+    })
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000098',
+        company_id: companyId,
+        cycle_id: futureCycleId,
+        conversation_key: 'whatsapp:+5547999990098',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-08T10:00:00.000Z',
+        persisted_at: '2026-08-08T10:00:01.000Z',
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.equal(
+      result.durable_memory_seed,
+      null,
+      'um ciclo futuro nunca pode ser fonte de memória durável, mesmo indicado por origin_cycle_id',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A (fallback): sem origin_cycle_id, escolhe o predecessor cronológico MAIS RECENTE entre vários válidos',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    // Dois candidatos válidos (mesma company/lead, ambos anteriores ao
+    // ciclo atual) — o mais recente (priorCycleId) deve vencer sobre o
+    // mais antigo (olderCycleId).
+    fixtures.sales_cycles.push(
+      {
+        id: olderCycleId,
+        company_id: companyId,
+        lead_id: leadId,
+        owner_user_id: ownerId,
+        status: 'perdido',
+        next_action: null,
+        next_action_date: null,
+        updated_at: '2026-07-01T10:00:00.000Z',
+        created_at: '2026-07-01T09:00:00.000Z',
+      },
+      {
+        id: priorCycleId,
+        company_id: companyId,
+        lead_id: leadId,
+        owner_user_id: ownerId,
+        status: 'perdido',
+        next_action: null,
+        next_action_date: null,
+        updated_at: '2026-08-01T10:00:00.000Z',
+        created_at: '2026-08-01T09:00:00.000Z',
+      },
+    )
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000096',
+        company_id: companyId,
+        cycle_id: olderCycleId,
+        conversation_key: 'whatsapp:+5547999990096',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-07-01T10:00:00.000Z',
+        persisted_at: '2026-07-01T10:00:01.000Z',
+        state_snapshot: {
+          ...priorStateSnapshotFixture(),
+          cycle_id: olderCycleId,
+        },
+      },
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: companyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-01T10:00:00.000Z',
+        persisted_at: '2026-08-01T10:00:01.000Z',
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.ok(result.durable_memory_seed)
+    assert.equal(
+      result.durable_memory_seed.source_cycle_id,
+      priorCycleId,
+      'deveria escolher o predecessor cronológico mais recente, não o mais antigo',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A (Bug B, fallback): ignora ciclo futuro e escolhe o predecessor cronológico real',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    // futureCycleId é mais recente que qualquer coisa em created_at
+    // DESC, mas é POSTERIOR ao ciclo atual — não pode vencer priorCycleId.
+    fixtures.sales_cycles.push(
+      {
+        id: futureCycleId,
+        company_id: companyId,
+        lead_id: leadId,
+        owner_user_id: ownerId,
+        status: 'negociacao',
+        next_action: null,
+        next_action_date: null,
+        updated_at: '2026-08-08T10:00:00.000Z',
+        created_at: '2026-08-08T10:00:00.000Z',
+      },
+      {
+        id: priorCycleId,
+        company_id: companyId,
+        lead_id: leadId,
+        owner_user_id: ownerId,
+        status: 'perdido',
+        next_action: null,
+        next_action_date: null,
+        updated_at: '2026-08-01T10:00:00.000Z',
+        created_at: '2026-08-01T09:00:00.000Z',
+      },
+    )
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000098',
+        company_id: companyId,
+        cycle_id: futureCycleId,
+        conversation_key: 'whatsapp:+5547999990098',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-08T10:00:00.000Z',
+        persisted_at: '2026-08-08T10:00:01.000Z',
+        state_snapshot: {
+          ...priorStateSnapshotFixture(),
+          cycle_id: futureCycleId,
+        },
+      },
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: companyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-01T10:00:00.000Z',
+        persisted_at: '2026-08-01T10:00:01.000Z',
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.ok(result.durable_memory_seed)
+    assert.equal(
+      result.durable_memory_seed.source_cycle_id,
+      priorCycleId,
+      'o ciclo futuro nunca deveria ser escolhido, mesmo sendo o de created_at mais recente',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A (Bug B, fallback): só existe ciclo futuro do mesmo lead — sem predecessor real, permanece null',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    fixtures.sales_cycles.push({
+      id: futureCycleId,
+      company_id: companyId,
+      lead_id: leadId,
+      owner_user_id: ownerId,
+      status: 'negociacao',
+      next_action: null,
+      next_action_date: null,
+      updated_at: '2026-08-08T10:00:00.000Z',
+      created_at: '2026-08-08T10:00:00.000Z',
+    })
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000098',
+        company_id: companyId,
+        cycle_id: futureCycleId,
+        conversation_key: 'whatsapp:+5547999990098',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-08T10:00:00.000Z',
+        persisted_at: '2026-08-08T10:00:01.000Z',
+        state_snapshot: {
+          ...priorStateSnapshotFixture(),
+          cycle_id: futureCycleId,
+        },
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.equal(
+      result.durable_memory_seed,
+      null,
+      'sem nenhum predecessor cronológico real, o fallback precisa retornar null — nunca escolher o único ciclo futuro disponível',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A (empate de created_at): um ciclo com o mesmo timestamp do ciclo atual nunca é um predecessor seguro',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    const tiedCreatedAt =
+      fixtures.sales_cycles[0].created_at
+
+    // Empatado exatamente com o ciclo atual — sem critério causal
+    // seguro para decidir quem veio "antes". origin_cycle_id explícito
+    // E a heurística de fallback precisam recusar os dois.
+    fixtures.sales_cycles[0].origin_cycle_id =
+      priorCycleId
+
+    fixtures.sales_cycles.push({
+      id: priorCycleId,
+      company_id: companyId,
+      lead_id: leadId,
+      owner_user_id: ownerId,
+      status: 'perdido',
+      next_action: null,
+      next_action_date: null,
+      updated_at: tiedCreatedAt,
+      created_at: tiedCreatedAt,
+    })
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: companyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: tiedCreatedAt,
+        persisted_at: tiedCreatedAt,
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.equal(
+      result.durable_memory_seed,
+      null,
+      'created_at empatado não é um predecessor cronológico seguro — nem via origin_cycle_id, nem via fallback',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A (achado do Codex, PR #275): empate de instante com formato ISO diferente também é recusado',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    // Mesmo instante do ciclo atual (2026-08-06T09:00:00.000Z), mas
+    // serializado como o Postgres/PostgREST real faria para
+    // timestamptz sem frações de segundo: "+00:00" em vez de ".000Z".
+    // Uma comparação lexical de string ("...+00:00" < "...000Z", já
+    // que "+" < "." em ASCII) aceitaria isto incorretamente como
+    // anterior — a correção precisa comparar como instante (delegado
+    // ao Postgres via `.lt()` na query), não como texto.
+    const tiedInstantDifferentFormat =
+      '2026-08-06T09:00:00+00:00'
+
+    fixtures.sales_cycles[0].origin_cycle_id =
+      priorCycleId
+
+    fixtures.sales_cycles.push({
+      id: priorCycleId,
+      company_id: companyId,
+      lead_id: leadId,
+      owner_user_id: ownerId,
+      status: 'perdido',
+      next_action: null,
+      next_action_date: null,
+      updated_at: tiedInstantDifferentFormat,
+      created_at: tiedInstantDifferentFormat,
+    })
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: companyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: tiedInstantDifferentFormat,
+        persisted_at: tiedInstantDifferentFormat,
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.equal(
+      result.durable_memory_seed,
+      null,
+      'um instante empatado com o ciclo atual não pode ser aceito só porque o banco serializou o timestamp num formato ISO diferente',
+    )
+  },
+)
+
+test(
+  'Fase 16.3A (best-effort): erro na busca do ciclo anterior nunca lança, retorna null',
+  async () => {
+    const result =
+      await loadDurableMemorySeedForMissingState({
+        client: {
+          from(table) {
+            if (table === 'sales_cycles') {
+              return {
+                select() {
+                  return this
+                },
+                eq() {
+                  return this
+                },
+                lt() {
+                  return this
+                },
+                order() {
+                  return this
+                },
+                limit() {
+                  return this
+                },
+                then(_resolve, reject) {
+                  reject(
+                    new Error('lookup indisponível'),
+                  )
+                },
+              }
+            }
+
+            throw new Error(
+              `tabela inesperada nesta simulação de falha: ${table}`,
+            )
+          },
+        },
+
+        companyId,
+        cycleId,
+        leadId,
+
+        originCycleId:
+          null,
+
+        currentCycleCreatedAt:
+          '2026-08-06T09:00:00.000Z',
+      })
+
+    assert.equal(
+      result,
+      null,
+      'uma falha best-effort na busca do ciclo anterior nunca pode lançar nem interromper o fluxo',
+    )
+  },
+)
 
 test(
   'scope canônico compartilhado é equivalente ao scope consumido pelo loader stateful',

@@ -213,12 +213,14 @@ async function loadDurableMemory({
   scope,
   state_read,
   origin_cycle_id,
+  current_cycle_created_at,
 }: {
   admin: SupabaseClient
   request: MessageIntelligenceRequestV1
   scope: MessageIntelligenceCanonicalScopeV1
   state_read: StatefulCopilotStateReadResult
   origin_cycle_id: string | null
+  current_cycle_created_at: string
 }) {
   // Mesma regra do loader stateful amplo: a memória durável só é
   // buscada quando o estado do ciclo atual está ausente. Estado
@@ -236,6 +238,8 @@ async function loadDurableMemory({
     leadId: scope.lead.id,
     originCycleId:
       origin_cycle_id,
+    currentCycleCreatedAt:
+      current_cycle_created_at,
   })
 }
 
@@ -338,6 +342,8 @@ export function createMessageIntelligenceSourceLoaderV1({
           state_read,
           origin_cycle_id:
             canonicalScope.origin_cycle_id,
+          current_cycle_created_at:
+            canonicalScope.cycle.created_at,
         })
       } finally {
         canonicalScopeByRequest.delete(
