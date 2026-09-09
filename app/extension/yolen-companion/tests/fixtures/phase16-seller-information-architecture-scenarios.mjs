@@ -18,7 +18,7 @@
 /**
  * @typedef {Object} ScenarioArea
  * @property {string|null} primaryDecision - AGORA: no máximo uma decisão principal (nunca array).
- * @property {Array<{source: string, priority: 'critical'|'high'|'medium'|'low', reason: string, recommendedAction: string, expiresAt: string|null, resolveCondition: string|null}>} interventionCards - AGORA: no máximo 2. Contrato, seção 4.3: todo card precisa de `expiresAt` OU `resolveCondition` (ciclo de vida).
+ * @property {Array<{source: string, priority: 'critical'|'high'|'medium'|'low', reason: string, recommendedAction: string, expiresAt: string|null, resolveCondition: string|null, evidenceRefs: string[]}>} interventionCards - AGORA: no máximo 2. Contrato, seção 4.3: todo card precisa de `expiresAt` (timestamp válido) OU `resolveCondition` (string não vazia), além de `evidenceRefs` não vazio (seção 12 item 5: evidência referenciável).
  */
 
 export const PHASE16_SCENARIOS = [
@@ -124,6 +124,7 @@ export const PHASE16_SCENARIOS = [
           recommendedAction: 'Confirmar o retorno comercial das 16h.',
           expiresAt: '2026-08-22T16:00:00-03:00',
           resolveCondition: null,
+          evidenceRefs: ['agenda-event-2026-08-22-1600'],
         },
       ],
       proactive: true,
@@ -173,6 +174,7 @@ export const PHASE16_SCENARIOS = [
           recommendedAction: 'Fazer o primeiro contato agora.',
           expiresAt: null,
           resolveCondition: 'primeiro_contato_realizado',
+          evidenceRefs: ['inbound-event-lead-created'],
         },
       ],
       proactive: true,
@@ -215,6 +217,7 @@ export const PHASE16_SCENARIOS = [
           recommendedAction: 'Retome a descoberta antes de defender preço.',
           expiresAt: null,
           resolveCondition: 'descoberta_de_impacto_confirmada',
+          evidenceRefs: ['message-2'],
         },
       ],
       proactive: false,
@@ -264,6 +267,7 @@ export const PHASE16_SCENARIOS = [
           recommendedAction: 'Encaminhar para o time de suporte.',
           expiresAt: null,
           resolveCondition: 'assunto_de_suporte_resolvido',
+          evidenceRefs: ['message-support-1'],
         },
       ],
       proactive: false,

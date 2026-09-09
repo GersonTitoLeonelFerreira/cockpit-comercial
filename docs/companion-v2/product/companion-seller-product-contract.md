@@ -191,7 +191,11 @@ DECISION STATE (estado de decisão)
 1. **Sessão não comercial não apaga a oportunidade.** Se existe uma
    oportunidade ativa com histórico comercial (proposta, preço, interesse,
    objeção, compromisso), uma conversa pessoal/administrativa na sessão
-   atual **não** faz esse histórico desaparecer de ANÁLISE nem de CLIENTE.
+   atual **não** faz esse histórico desaparecer de ANÁLISE. Esse histórico
+   de negociação (proposta, preço, objeção, pendência) é conteúdo de
+   ANÁLISE/Opportunity Reading (seção 6.1) — CLIENTE continua preservando,
+   em paralelo, apenas a memória sobre a pessoa que já era semanticamente
+   válida (seção 7), nunca uma cópia do estado da venda.
 2. **Sessão não comercial não vira venda.** O fato de existir um sinal
    operacional relevante (SLA vencendo, retorno agendado, inbound
    prioritário) **não** transforma a conversa pessoal em comercial, não gera
@@ -638,6 +642,32 @@ si — o julgamento sobre a condução do vendedor, ou sobre o momento — não
 pertence conceitualmente à aba CLIENTE. Um card de SLA sobre este cliente
 aparece em AGORA (como Card de Intervenção) ou no histórico de
 relacionamento dentro de CLIENTE como fato temporal, nunca como avaliação.
+
+### 7.8 Histórico da relação e ações da Yolen
+
+CLIENTE deve conseguir mostrar, quando a informação existir:
+
+- Primeiro contato conhecido.
+- Há quanto tempo a oportunidade existe.
+- Tempo total em conversa.
+- Última mensagem do cliente e última mensagem do vendedor.
+- Quantidade de interações, quando mensurável.
+
+Quando a telemetria permitir, CLIENTE também deve poder mostrar as ações que
+a própria Yolen tomou nesta relação e como o vendedor reagiu a elas:
+
+- Sugestão mostrada.
+- Sugestão copiada.
+- Sugestão inserida no campo de mensagem.
+- Sugestão ignorada.
+- Sugestão editada antes de enviar.
+- Sugestão enviada como está.
+- CRM aceito / CRM rejeitado.
+- Agenda aceita / Agenda rejeitada.
+
+Estes fatos são temporais e factuais (linha do tempo), não avaliação — uma
+lista de sugestões copiadas não é um julgamento sobre o vendedor, apenas um
+registro do que aconteceu. Isso os distingue do que a seção 7.7 proíbe.
 
 ---
 

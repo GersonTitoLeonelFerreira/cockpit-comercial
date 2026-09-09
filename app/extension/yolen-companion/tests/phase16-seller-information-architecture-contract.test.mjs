@@ -65,14 +65,34 @@ function validateScenario(scenario) {
     violations.push('agora_too_many_intervention_cards')
   }
 
+  const isNonEmptyString = (value) => typeof value === 'string' && value.trim() !== ''
+  const isValidTimestamp = (value) => isNonEmptyString(value) && !Number.isNaN(new Date(value).getTime())
+
   // Regra adicional (contrato, seção 4.3 / seção 12 item 15): todo card de
-  // intervenção precisa de `expiresAt` ou `resolveCondition` — sem isso ele
-  // é um card permanente por omissão, proibido pelo contrato.
+  // intervenção precisa de `expiresAt` (timestamp válido) ou
+  // `resolveCondition` (string não vazia) — sem isso ele é um card
+  // permanente por omissão, proibido pelo contrato. Achado do Codex (6ª
+  // revisão): a checagem original usava truthiness — `expiresAt: true` ou
+  // `resolveCondition: '   '` passavam como se fossem ciclo de vida real.
   const hasCardWithoutLifecycle = (cards || []).some(
-    (card) => !card || (!card.expiresAt && !card.resolveCondition),
+    (card) => !card || (!isValidTimestamp(card.expiresAt) && !isNonEmptyString(card.resolveCondition)),
   )
   if (hasCardWithoutLifecycle) {
     violations.push('intervention_card_without_lifecycle')
+  }
+
+  // Regra adicional (contrato, seção 4.3: todo InterventionCard tem
+  // `evidence_refs`; seção 12 item 5: toda afirmação precisa de evidência
+  // referenciável). Achado do Codex (6ª revisão): `source` identifica só a
+  // categoria da origem (ex.: `'agenda'`), não o evento persistido que
+  // comprova a frase do card — sem `evidenceRefs`, o gate aprovava cards
+  // não auditáveis.
+  const hasCardWithoutEvidence = (cards || []).some(
+    (card) => !card || !Array.isArray(card.evidenceRefs) || card.evidenceRefs.length === 0 ||
+      !card.evidenceRefs.every(isNonEmptyString),
+  )
+  if (hasCardWithoutEvidence) {
+    violations.push('intervention_card_missing_evidence')
   }
 
   // Regra adicional (contrato, seção 4.3): todo card precisa de `source`
@@ -84,7 +104,6 @@ function validateScenario(scenario) {
   // (`!card.reason`), então um valor truthy não textual (`true`, `1`,
   // `{}`) passava como se fosse uma explicação real; `source` nunca era
   // validado, então um card podia perder sua origem sem quebrar o gate.
-  const isNonEmptyString = (value) => typeof value === 'string' && value.trim() !== ''
   const hasIncompleteCard = (cards || []).some(
     (card) =>
       !card ||
@@ -288,6 +307,41 @@ test('regra adicional (mutante): card de intervenção sem ciclo de vida é dete
   delete broken.agora.interventionCards[0].resolveCondition
 
   assert.ok(validateScenario(broken).includes('intervention_card_without_lifecycle'))
+})
+
+test('regra adicional (mutante): ciclo de vida com valor truthy inválido é detectado (achado do Codex, 6ª revisão)', () => {
+  // A checagem anterior usava truthiness — `expiresAt: true` ou
+  // `resolveCondition: '   '` passavam como se fossem ciclo de vida real.
+  const truthyExpiresAt = clone(PHASE16_SCENARIOS[3]) // cenário 4: sem expiresAt, só resolveCondition
+  truthyExpiresAt.agora.interventionCards[0].resolveCondition = null
+  truthyExpiresAt.agora.interventionCards[0].expiresAt = true
+  assert.ok(validateScenario(truthyExpiresAt).includes('intervention_card_without_lifecycle'))
+
+  const invalidTimestamp = clone(PHASE16_SCENARIOS[3])
+  invalidTimestamp.agora.interventionCards[0].resolveCondition = null
+  invalidTimestamp.agora.interventionCards[0].expiresAt = 'not-a-date'
+  assert.ok(validateScenario(invalidTimestamp).includes('intervention_card_without_lifecycle'))
+
+  const blankResolveCondition = clone(PHASE16_SCENARIOS[3])
+  blankResolveCondition.agora.interventionCards[0].resolveCondition = '   '
+  assert.ok(validateScenario(blankResolveCondition).includes('intervention_card_without_lifecycle'))
+})
+
+test('regra adicional (mutante): card de intervenção sem evidenceRefs é detectado (achado do Codex, 6ª revisão)', () => {
+  // `source: 'agenda'` identifica só a categoria da origem, não o evento
+  // persistido que comprova a frase do card — sem evidenceRefs o gate
+  // aprovava cards não auditáveis (contrato, seção 4.3 e seção 12 item 5).
+  const missingEvidence = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
+  delete missingEvidence.agora.interventionCards[0].evidenceRefs
+  assert.ok(validateScenario(missingEvidence).includes('intervention_card_missing_evidence'))
+
+  const emptyEvidence = clone(PHASE16_SCENARIOS[2])
+  emptyEvidence.agora.interventionCards[0].evidenceRefs = []
+  assert.ok(validateScenario(emptyEvidence).includes('intervention_card_missing_evidence'))
+
+  const blankEvidenceEntry = clone(PHASE16_SCENARIOS[2])
+  blankEvidenceEntry.agora.interventionCards[0].evidenceRefs = ['   ']
+  assert.ok(validateScenario(blankEvidenceEntry).includes('intervention_card_missing_evidence'))
 })
 
 test('regra adicional (mutante): card de intervenção sem reason/recommendedAction é detectado (achado do Codex, 4ª revisão)', () => {
