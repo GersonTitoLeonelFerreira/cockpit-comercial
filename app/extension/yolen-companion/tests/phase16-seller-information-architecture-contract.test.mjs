@@ -75,12 +75,18 @@ function validateScenario(scenario) {
     violations.push('intervention_card_without_lifecycle')
   }
 
-  // Regra adicional (contrato, seção 4.4): prioridade BAIXA nunca ocupa
-  // AGORA — permanece em ANÁLISE/CLIENTE. Um card canônico com
-  // `priority: 'low'` reintroduziria exatamente o layout proibido.
-  const hasLowPriorityCard = (cards || []).some((card) => card?.priority === 'low')
-  if (hasLowPriorityCard) {
-    violations.push('agora_card_with_low_priority')
+  // Regra adicional (contrato, seção 4.4): AGORA só aceita as prioridades
+  // que de fato ocupam AGORA — CRÍTICA, ALTA, MÉDIA. BAIXA nunca ocupa
+  // AGORA (permanece em ANÁLISE/CLIENTE), e qualquer valor ausente ou fora
+  // da taxonomia (`undefined`, `'LOW'`, `'urgent'`, etc.) não pode ser
+  // ordenado corretamente e também não satisfaz o contrato. Achado do
+  // Codex (3ª revisão): a checagem original só rejeitava o literal `'low'`.
+  const ALLOWED_AGORA_CARD_PRIORITIES = new Set(['critical', 'high', 'medium'])
+  const hasInvalidPriorityCard = (cards || []).some(
+    (card) => !ALLOWED_AGORA_CARD_PRIORITIES.has(card?.priority),
+  )
+  if (hasInvalidPriorityCard) {
+    violations.push('agora_card_with_invalid_priority')
   }
 
   // Regra 4 — MENSAGEM contendo fatos próprios não fornecidos pelas
@@ -89,10 +95,27 @@ function validateScenario(scenario) {
     violations.push('mensagem_introduces_own_facts')
   }
 
+  // Regra de base — campos core do cenário (session, opportunity,
+  // operationalSignal) precisam existir para que as regras semânticas 5 e 6
+  // tenham premissa válida. Achado do Codex (3ª revisão): como essas regras
+  // liam os campos com optional chaining, apagar `session`/`opportunity`
+  // (cenário 2) ou `operationalSignal`/`session` (cenários 3/6) fazia a
+  // condição inteira avaliar para `false` e a regra nunca disparar — a
+  // premissa que deveria ser protegida desaparecia sem violação alguma.
+  const hasCoreScenarioFields =
+    scenario.session && typeof scenario.session === 'object' &&
+    scenario.opportunity && typeof scenario.opportunity === 'object' &&
+    scenario.operationalSignal && typeof scenario.operationalSignal === 'object'
+
+  if (!hasCoreScenarioFields) {
+    violations.push('missing_core_scenario_fields')
+  }
+
   // Regra 5 — sessão não comercial apagando a leitura da oportunidade.
   if (
-    scenario.session?.commercial === false &&
-    scenario.opportunity?.active === true &&
+    hasCoreScenarioFields &&
+    scenario.session.commercial === false &&
+    scenario.opportunity.active === true &&
     (scenario.analise.opportunityReadingPresent !== true || scenario.opportunity.preserved !== true)
   ) {
     violations.push('non_commercial_session_erases_opportunity')
@@ -100,8 +123,9 @@ function validateScenario(scenario) {
 
   // Regra 6 — sinal operacional transformando sessão pessoal em comercial.
   if (
-    scenario.operationalSignal?.present === true &&
-    scenario.session?.commercial === false &&
+    hasCoreScenarioFields &&
+    scenario.operationalSignal.present === true &&
+    scenario.session.commercial === false &&
     scenario.agora.treatsSessionAsCommercial !== false
   ) {
     violations.push('operational_signal_flips_session_commercial')
@@ -228,7 +252,20 @@ test('regra adicional (mutante): card de intervenção com prioridade BAIXA em A
   const broken = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
   broken.agora.interventionCards[0].priority = 'low'
 
-  assert.ok(validateScenario(broken).includes('agora_card_with_low_priority'))
+  assert.ok(validateScenario(broken).includes('agora_card_with_invalid_priority'))
+})
+
+test('regra adicional (mutante): card de intervenção com prioridade ausente ou fora da taxonomia é detectado', () => {
+  // Achado do Codex (3ª revisão): a checagem original só rejeitava o
+  // literal 'low' — priority ausente ou um valor fora da taxonomia
+  // ('LOW', 'urgent', etc.) passava sem violação.
+  const missingPriority = clone(PHASE16_SCENARIOS[2])
+  delete missingPriority.agora.interventionCards[0].priority
+  assert.ok(validateScenario(missingPriority).includes('agora_card_with_invalid_priority'))
+
+  const unknownPriority = clone(PHASE16_SCENARIOS[2])
+  unknownPriority.agora.interventionCards[0].priority = 'urgent'
+  assert.ok(validateScenario(unknownPriority).includes('agora_card_with_invalid_priority'))
 })
 
 test('regra 4 (mutante): MENSAGEM introduzindo fato próprio é detectado', () => {
@@ -246,11 +283,35 @@ test('regra 5 (mutante): sessão não comercial apagando a oportunidade é detec
   assert.ok(validateScenario(broken).includes('non_commercial_session_erases_opportunity'))
 })
 
+test('regra 5 (mutante): apagar session ou opportunity do cenário 2 é detectado (achado do Codex, 3ª revisão)', () => {
+  // A checagem original usava optional chaining (`scenario.session?.commercial`),
+  // então apagar `session` ou `opportunity` inteiro fazia a condição da
+  // regra 5 avaliar para `false` e nunca disparar — a premissa que a regra
+  // deveria proteger desaparecia sem violação alguma.
+  const brokenSession = clone(PHASE16_SCENARIOS[1])
+  delete brokenSession.session
+  assert.ok(validateScenario(brokenSession).includes('missing_core_scenario_fields'))
+
+  const brokenOpportunity = clone(PHASE16_SCENARIOS[1])
+  delete brokenOpportunity.opportunity
+  assert.ok(validateScenario(brokenOpportunity).includes('missing_core_scenario_fields'))
+})
+
 test('regra 6 (mutante): sinal operacional convertendo sessão pessoal em comercial é detectado', () => {
   const broken = clone(PHASE16_SCENARIOS[2]) // cenário 3: pessoal + agenda comercial
   broken.agora.treatsSessionAsCommercial = true
 
   assert.ok(validateScenario(broken).includes('operational_signal_flips_session_commercial'))
+})
+
+test('regra 6 (mutante): apagar operationalSignal ou session dos cenários 3/6 é detectado (achado do Codex, 3ª revisão)', () => {
+  const brokenSignal = clone(PHASE16_SCENARIOS[2]) // cenário 3
+  delete brokenSignal.operationalSignal
+  assert.ok(validateScenario(brokenSignal).includes('missing_core_scenario_fields'))
+
+  const brokenSession = clone(PHASE16_SCENARIOS[5]) // cenário 6
+  delete brokenSession.session
+  assert.ok(validateScenario(brokenSession).includes('missing_core_scenario_fields'))
 })
 
 test('regra 7 (mutante): CLIENTE contendo avaliação do vendedor é detectado', () => {

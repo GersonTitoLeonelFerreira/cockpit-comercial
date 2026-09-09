@@ -83,11 +83,16 @@ export const PHASE16_SCENARIOS = [
       includesRisks: true,
       reducedToLastBurst: false,
     },
+    // Nota (achado do Codex, 3ª revisão): "proposta enviada com preço e
+    // pendência aberta" descreve a oportunidade (venda) — pertence a
+    // ANÁLISE/Opportunity Reading, já representada acima em
+    // analise.opportunityReadingPresent/opportunity.preserved. Um fato
+    // sobre a PESSOA aqui, não sobre o estado da venda.
     cliente: {
       customerMemoryPresent: true,
       memoryItems: [
         {
-          fact: 'Proposta enviada com preço e pendência aberta.',
+          fact: 'Prefere confirmações por escrito antes de avançar.',
           origin: 'opportunity_history',
           observedAt: '2026-08-18T14:00:00-03:00',
           status: 'active',
