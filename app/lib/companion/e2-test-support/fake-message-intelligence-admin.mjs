@@ -21,6 +21,7 @@ function buildQueryClass(tables, writeLog, resolveInterceptor) {
       this.inFilters = []
       this.maximum = null
       this.upperBounds = []
+      this.strictUpperBounds = []
       this.rangeFrom = null
       this.rangeTo = null
       this.pendingPatch = null
@@ -43,6 +44,11 @@ function buildQueryClass(tables, writeLog, resolveInterceptor) {
 
     lte(column, value) {
       this.upperBounds.push({ column, value })
+      return this
+    }
+
+    lt(column, value) {
+      this.strictUpperBounds.push({ column, value })
       return this
     }
 
@@ -93,6 +99,7 @@ function buildQueryClass(tables, writeLog, resolveInterceptor) {
           patch: this.pendingPatch,
           filters: this.filters.map((item) => ({ ...item })),
           upper_bounds: this.upperBounds.map((item) => ({ ...item })),
+          strict_upper_bounds: this.strictUpperBounds.map((item) => ({ ...item })),
         })
 
       if (intercepted) {
@@ -114,6 +121,9 @@ function buildQueryClass(tables, writeLog, resolveInterceptor) {
           ) &&
           this.upperBounds.every((filter) =>
             row[filter.column] <= filter.value,
+          ) &&
+          this.strictUpperBounds.every((filter) =>
+            row[filter.column] < filter.value,
           ),
       )
 

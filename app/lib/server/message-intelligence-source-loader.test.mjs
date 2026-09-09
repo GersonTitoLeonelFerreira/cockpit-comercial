@@ -70,6 +70,7 @@ function baseScopeRows() {
         next_action: null,
         next_action_date: null,
         updated_at: '2026-08-29T21:55:00.000Z',
+        created_at: '2026-08-29T20:00:00.000Z',
         origin_cycle_id: null,
       },
     ],
@@ -499,6 +500,88 @@ test(
     assert.equal(
       sources.real_context.durable_memory_seed,
       null,
+    )
+  },
+)
+
+test(
+  'Fase 16.3A: MIE reutiliza a mesma proteção endurecida — origin_cycle_id de outro lead também é recusado aqui',
+  async () => {
+    const otherLeadId =
+      '20000000-0000-4000-8000-000000000002'
+
+    const scope = baseScopeRows()
+
+    scope.cycles[0].origin_cycle_id =
+      IDS.previousCycle
+
+    // Mesma company, mas o ciclo indicado por origin_cycle_id pertence
+    // a OUTRO lead — a mesma validação usada pelo loader stateful
+    // precisa recusar isto aqui também, sem lógica paralela.
+    scope.cycles.push({
+      id: IDS.previousCycle,
+      company_id: IDS.company,
+      lead_id: otherLeadId,
+      owner_user_id: IDS.seller,
+      status: 'perdido',
+      next_action: null,
+      next_action_date: null,
+      updated_at: '2026-08-10T10:00:00.000Z',
+      origin_cycle_id: null,
+      created_at: '2026-08-01T10:00:00.000Z',
+    })
+
+    const commercialStates = [
+      {
+        id: 'state-previous',
+        company_id: IDS.company,
+        cycle_id: IDS.previousCycle,
+        conversation_key: 'whatsapp:+5547999990009',
+        state_version: 5,
+        state_contract_version:
+          'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-10T09:00:00.000Z',
+        state_snapshot: buildTestCommercialState({
+          cycleId: IDS.previousCycle,
+          facts: [
+            {
+              kind: 'client.objective',
+              summary:
+                'Cliente de outro lead — nunca deveria ser herdado.',
+              value: null,
+              confidence: 'high',
+              memory_status: 'active',
+            },
+          ],
+        }),
+        persisted_at: '2026-08-10T09:05:00.000Z',
+      },
+    ]
+
+    const { admin } =
+      createMessageIntelligenceFakeAdmin({
+        ...scope,
+        reconciliation: [],
+        messages: [],
+        configVersions: [],
+        commercialStates,
+      })
+
+    const loadSources =
+      createMessageIntelligenceSourceLoaderV1({
+        admin,
+      })
+
+    const sources = await loadSources(buildRequest())
+
+    assert.equal(
+      sources.real_context.state_read.mode,
+      'missing',
+    )
+    assert.equal(
+      sources.real_context.durable_memory_seed,
+      null,
+      'MIE não deveria herdar memória de um ciclo de outro lead, mesmo indicado por origin_cycle_id',
     )
   },
 )
