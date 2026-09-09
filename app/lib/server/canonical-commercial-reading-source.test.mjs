@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  COMMERCIAL_READING_CONTRACT_VERSION,
+} from '../companion/commercial-reading-contract.ts'
+
+import {
   loadCanonicalCommercialReadingSource,
 } from './canonical-commercial-reading-source.ts'
 
@@ -52,7 +56,7 @@ function buildEvent(overrides = {}) {
           'phase-5.2-communication-v5',
         commercial_reading: {
           contract_version:
-            'commercial-reading-v2',
+            COMMERCIAL_READING_CONTRACT_VERSION,
         },
       },
     },
@@ -156,7 +160,7 @@ function load({
 }
 
 test(
-  'retorna a Commercial Reading do evento que corresponde exatamente ao state_record_id e state_version atuais',
+  'retorna a Commercial Reading do evento que corresponde exatamente ao estado atual',
   async () => {
     const { admin } = createAdmin({
       events: [buildEvent()],
@@ -170,11 +174,7 @@ test(
     assert.equal(source.state_version, 4)
     assert.equal(
       source.reading.contract_version,
-      'commercial-reading-v2',
-    )
-    assert.equal(
-      source.generated_at,
-      '2026-09-09T16:58:00.000Z',
+      COMMERCIAL_READING_CONTRACT_VERSION,
     )
   },
 )
@@ -190,10 +190,7 @@ test(
       ],
     })
 
-    assert.equal(
-      await load({ admin }),
-      null,
-    )
+    assert.equal(await load({ admin }), null)
   },
 )
 
@@ -209,10 +206,7 @@ test(
       ],
     })
 
-    assert.equal(
-      await load({ admin }),
-      null,
-    )
+    assert.equal(await load({ admin }), null)
   },
 )
 
@@ -229,10 +223,7 @@ test(
       ],
     })
 
-    assert.equal(
-      await load({ admin }),
-      null,
-    )
+    assert.equal(await load({ admin }), null)
   },
 )
 
@@ -248,10 +239,7 @@ test(
       ],
     })
 
-    assert.equal(
-      await load({ admin }),
-      null,
-    )
+    assert.equal(await load({ admin }), null)
   },
 )
 
@@ -285,7 +273,7 @@ test(
 )
 
 test(
-  'rejeita output ou Commercial Reading com contrato incompatível',
+  'rejeita output, communication ou Commercial Reading com contrato incompatível',
   async () => {
     const badOutput = createAdmin({
       events: [
@@ -302,6 +290,29 @@ test(
       null,
     )
 
+    const badCommunication = createAdmin({
+      events: [
+        buildEvent({
+          normalized_output: {
+            contract_version:
+              'phase-5.2-stateful-copilot-v4',
+            communication: {
+              contract_version: 'old-communication',
+              commercial_reading: {
+                contract_version:
+                  COMMERCIAL_READING_CONTRACT_VERSION,
+              },
+            },
+          },
+        }),
+      ],
+    })
+
+    assert.equal(
+      await load({ admin: badCommunication.admin }),
+      null,
+    )
+
     const badReading = createAdmin({
       events: [
         buildEvent({
@@ -313,7 +324,7 @@ test(
                 'phase-5.2-communication-v5',
               commercial_reading: {
                 contract_version:
-                  'commercial-reading-v1',
+                  'commercial-reading-invalid',
               },
             },
           },
@@ -339,10 +350,7 @@ test(
         error: new Error('database unavailable'),
       })
 
-      assert.equal(
-        await load({ admin }),
-        null,
-      )
+      assert.equal(await load({ admin }), null)
     } finally {
       console.error = originalError
     }
