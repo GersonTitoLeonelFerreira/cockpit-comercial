@@ -22,6 +22,101 @@ const EVENT_ID =
 const REFERENCE_TIME =
   '2026-09-09T17:00:00.000Z'
 
+function evidence(
+  summary,
+  messageIds = ['1'],
+  memoryIds = [],
+) {
+  return {
+    summary,
+    evidence_message_ids: messageIds,
+    memory_ids: memoryIds,
+  }
+}
+
+function buildValidReading(overrides = {}) {
+  return {
+    contract_version:
+      COMMERCIAL_READING_CONTRACT_VERSION,
+    analysis_status: 'complete',
+    analysis_limitations: [],
+    commercial_role: 'buyer',
+    commercial_relevance: 'commercial',
+    conversation_summary: {
+      initial_context: null,
+      evolution: null,
+      important_events: [],
+      current_state:
+        evidence(
+          'A conversa está aberta e sem intervenção útil neste instante.',
+        ),
+      last_customer_request_or_decision:
+        null,
+    },
+    customer: {
+      objectives: [],
+      problems: [],
+      impacts: [],
+      needs: [],
+      interests: [],
+      decision_criteria: [],
+      preferences: [],
+      open_questions: [],
+      objections: [],
+      uncertainties: [],
+      discussed_products: [],
+      primary_product_interest: null,
+      competitors: [],
+      commitments: [],
+      missing_discovery: [],
+      resolved_information: [],
+      superseded_information: [],
+      communication: {
+        events: [],
+        patterns: [],
+      },
+    },
+    commercial_evolution: [],
+    method: null,
+    seller_strengths: [],
+    improvement_points: [],
+    risks: {
+      customer_objections: [],
+      service_risks: [],
+    },
+    best_approach: {
+      decision: 'no_intervention',
+      reason:
+        'Não há ação nova sustentada pelo contexto atual.',
+      channel: 'none',
+      evidence_message_ids: ['1'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: false,
+      recommended_question: null,
+      recommended_message: null,
+    },
+    operations: {
+      crm: {
+        should_change_crm_stage: false,
+        recommended_status: null,
+        rationale: null,
+        requires_human_confirmation: true,
+      },
+      agenda: {
+        should_change_agenda: false,
+        expected_next_action_at: null,
+        rationale: null,
+        requires_human_confirmation: true,
+      },
+    },
+    evidence_message_ids: ['1'],
+    memory_ids: [],
+    ...overrides,
+  }
+}
+
 function buildStateRead(overrides = {}) {
   return {
     mode: 'found',
@@ -54,10 +149,8 @@ function buildEvent(overrides = {}) {
       communication: {
         contract_version:
           'phase-5.2-communication-v5',
-        commercial_reading: {
-          contract_version:
-            COMMERCIAL_READING_CONTRACT_VERSION,
-        },
+        commercial_reading:
+          buildValidReading(),
       },
     },
     generated_at:
@@ -148,6 +241,7 @@ function load({
   admin,
   stateRead = buildStateRead(),
   referenceTime = REFERENCE_TIME,
+  validationContext = {},
 }) {
   return loadCanonicalCommercialReadingSource({
     admin,
@@ -156,6 +250,14 @@ function load({
     conversation_key: CONVERSATION_KEY,
     reference_time: referenceTime,
     state_read: stateRead,
+    validation_context: {
+      available_message_ids: ['1'],
+      available_memory_ids: [],
+      seller_message_ids: [],
+      current_crm_status: 'respondeu',
+      reference_time: referenceTime,
+      ...validationContext,
+    },
   })
 }
 
@@ -298,10 +400,8 @@ test(
               'phase-5.2-stateful-copilot-v4',
             communication: {
               contract_version: 'old-communication',
-              commercial_reading: {
-                contract_version:
-                  COMMERCIAL_READING_CONTRACT_VERSION,
-              },
+              commercial_reading:
+                buildValidReading(),
             },
           },
         }),
@@ -322,10 +422,11 @@ test(
             communication: {
               contract_version:
                 'phase-5.2-communication-v5',
-              commercial_reading: {
-                contract_version:
-                  'commercial-reading-invalid',
-              },
+              commercial_reading:
+                buildValidReading({
+                  contract_version:
+                    'commercial-reading-invalid',
+                }),
             },
           },
         }),
@@ -334,6 +435,77 @@ test(
 
     assert.equal(
       await load({ admin: badReading.admin }),
+      null,
+    )
+  },
+)
+
+test(
+  'revalidação rejeita provenance de mensagem que não pertence mais ao contexto canônico',
+  async () => {
+    const invalidReading =
+      buildValidReading({
+        evidence_message_ids: ['removed-message'],
+      })
+
+    invalidReading.conversation_summary.current_state =
+      evidence(
+        'Leitura aponta para mensagem removida.',
+        ['removed-message'],
+      )
+    invalidReading.best_approach = {
+      ...invalidReading.best_approach,
+      evidence_message_ids: [
+        'removed-message',
+      ],
+    }
+
+    const { admin } = createAdmin({
+      events: [
+        buildEvent({
+          normalized_output: {
+            contract_version:
+              'phase-5.2-stateful-copilot-v4',
+            communication: {
+              contract_version:
+                'phase-5.2-communication-v5',
+              commercial_reading:
+                invalidReading,
+            },
+          },
+        }),
+      ],
+    })
+
+    const originalError = console.error
+    console.error = () => {}
+
+    try {
+      assert.equal(
+        await load({ admin }),
+        null,
+      )
+    } finally {
+      console.error = originalError
+    }
+  },
+)
+
+test(
+  'reference_time da validação precisa representar o mesmo instante da requisição',
+  async () => {
+    const { admin } = createAdmin({
+      events: [buildEvent()],
+    })
+
+    assert.equal(
+      await load({
+        admin,
+        validationContext: {
+          reference_time:
+            '2026-09-09T16:59:00.000Z',
+        },
+      }),
       null,
     )
   },
