@@ -75,6 +75,18 @@ function validateScenario(scenario) {
     violations.push('intervention_card_without_lifecycle')
   }
 
+  // Regra adicional (contrato, seção 4.3): todo card precisa explicar POR
+  // QUE apareceu/importa (`reason`) e O QUE fazer (`recommendedAction`).
+  // Achado do Codex (4ª revisão): a checagem original só validava ciclo de
+  // vida e prioridade — um card sem `reason`/`recommendedAction` é
+  // inutilizável para o vendedor e ainda passava sem violação.
+  const hasIncompleteCard = (cards || []).some(
+    (card) => !card || !card.reason || !card.recommendedAction,
+  )
+  if (hasIncompleteCard) {
+    violations.push('intervention_card_missing_explanation')
+  }
+
   // Regra adicional (contrato, seção 4.4): AGORA só aceita as prioridades
   // que de fato ocupam AGORA — CRÍTICA, ALTA, MÉDIA. BAIXA nunca ocupa
   // AGORA (permanece em ANÁLISE/CLIENTE), e qualquer valor ausente ou fora
@@ -96,16 +108,26 @@ function validateScenario(scenario) {
   }
 
   // Regra de base — campos core do cenário (session, opportunity,
-  // operationalSignal) precisam existir para que as regras semânticas 5 e 6
-  // tenham premissa válida. Achado do Codex (3ª revisão): como essas regras
-  // liam os campos com optional chaining, apagar `session`/`opportunity`
-  // (cenário 2) ou `operationalSignal`/`session` (cenários 3/6) fazia a
-  // condição inteira avaliar para `false` e a regra nunca disparar — a
-  // premissa que deveria ser protegida desaparecia sem violação alguma.
+  // operationalSignal) precisam existir, E seus discriminadores booleanos
+  // precisam estar presentes com o tipo certo, para que as regras
+  // semânticas 5 e 6 tenham premissa válida. Achado do Codex (3ª revisão):
+  // como essas regras liam os campos com optional chaining, apagar
+  // `session`/`opportunity` (cenário 2) ou `operationalSignal`/`session`
+  // (cenários 3/6) fazia a condição inteira avaliar para `false` e a regra
+  // nunca disparar. Achado do Codex (4ª revisão): exigir só a presença dos
+  // objetos-contêiner não bastava — apagar apenas `session.commercial`,
+  // `opportunity.active` ou `operationalSignal.present` (mantendo o objeto
+  // pai) também fazia as condições de 5/6 avaliarem `undefined === false`/
+  // `undefined === true` como falso, sem violação. Os discriminadores
+  // precisam ser validados individualmente, não só o contêiner.
   const hasCoreScenarioFields =
     scenario.session && typeof scenario.session === 'object' &&
+    typeof scenario.session.commercial === 'boolean' &&
     scenario.opportunity && typeof scenario.opportunity === 'object' &&
-    scenario.operationalSignal && typeof scenario.operationalSignal === 'object'
+    typeof scenario.opportunity.active === 'boolean' &&
+    typeof scenario.opportunity.preserved === 'boolean' &&
+    scenario.operationalSignal && typeof scenario.operationalSignal === 'object' &&
+    typeof scenario.operationalSignal.present === 'boolean'
 
   if (!hasCoreScenarioFields) {
     violations.push('missing_core_scenario_fields')
@@ -255,6 +277,16 @@ test('regra adicional (mutante): card de intervenção sem ciclo de vida é dete
   assert.ok(validateScenario(broken).includes('intervention_card_without_lifecycle'))
 })
 
+test('regra adicional (mutante): card de intervenção sem reason/recommendedAction é detectado (achado do Codex, 4ª revisão)', () => {
+  const brokenReason = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
+  delete brokenReason.agora.interventionCards[0].reason
+  assert.ok(validateScenario(brokenReason).includes('intervention_card_missing_explanation'))
+
+  const brokenAction = clone(PHASE16_SCENARIOS[2])
+  delete brokenAction.agora.interventionCards[0].recommendedAction
+  assert.ok(validateScenario(brokenAction).includes('intervention_card_missing_explanation'))
+})
+
 test('regra adicional (mutante): card de intervenção com prioridade BAIXA em AGORA é detectado', () => {
   const broken = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
   broken.agora.interventionCards[0].priority = 'low'
@@ -332,6 +364,33 @@ test('regra 6 (mutante): as duas combinações restantes (session no cenário 3,
   const brokenSignalScenario6 = clone(PHASE16_SCENARIOS[5]) // cenário 6
   delete brokenSignalScenario6.operationalSignal
   assert.ok(validateScenario(brokenSignalScenario6).includes('missing_core_scenario_fields'))
+})
+
+test('regra 5/6 (mutante): apagar só o discriminador booleano (mantendo o objeto pai) é detectado (achado do Codex, 4ª revisão)', () => {
+  // A checagem anterior só exigia que session/opportunity/operationalSignal
+  // fossem objetos — apagar apenas o booleano interno (`session.commercial`,
+  // `opportunity.active`/`preserved`, `operationalSignal.present`) mantinha
+  // o objeto-contêiner intacto e ainda fazia as condições de 5/6 avaliarem
+  // como falsas sem violação.
+  const brokenCommercial = clone(PHASE16_SCENARIOS[1]) // cenário 2
+  delete brokenCommercial.session.commercial
+  assert.ok(validateScenario(brokenCommercial).includes('missing_core_scenario_fields'))
+
+  const brokenActive = clone(PHASE16_SCENARIOS[1]) // cenário 2
+  delete brokenActive.opportunity.active
+  assert.ok(validateScenario(brokenActive).includes('missing_core_scenario_fields'))
+
+  const brokenPreserved = clone(PHASE16_SCENARIOS[1]) // cenário 2
+  delete brokenPreserved.opportunity.preserved
+  assert.ok(validateScenario(brokenPreserved).includes('missing_core_scenario_fields'))
+
+  const brokenPresentScenario3 = clone(PHASE16_SCENARIOS[2]) // cenário 3
+  delete brokenPresentScenario3.operationalSignal.present
+  assert.ok(validateScenario(brokenPresentScenario3).includes('missing_core_scenario_fields'))
+
+  const brokenPresentScenario6 = clone(PHASE16_SCENARIOS[5]) // cenário 6
+  delete brokenPresentScenario6.operationalSignal.present
+  assert.ok(validateScenario(brokenPresentScenario6).includes('missing_core_scenario_fields'))
 })
 
 test('regra 7 (mutante): CLIENTE contendo avaliação do vendedor é detectado', () => {
