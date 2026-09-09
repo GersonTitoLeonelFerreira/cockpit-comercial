@@ -375,11 +375,18 @@ têm o mesmo padrão.
 | Commercial Config | versão (`draft`/`published`/`archived`) | fresco por definição enquanto a versão publicada não mudar |
 | SLA rules | nenhum versionamento encontrado além da linha atual | `[Unverified]` se há histórico de mudança de regra |
 
-Um dado sem sinal de freshness (Seller Coaching, `method.adherence`,
-`companion_method_stage_state` sem histórico) **não pode ser assumido
-atual/consistente entre leituras diferentes** — cada leitura de ANÁLISE
-pode, em princípio, computar algo diferente do que AGORA mostrou minutos
-antes, porque não há um objeto persistido único que ambos leiam.
+**Correção (achado do Codex, 28ª revisão do PR #274):** Seller Coaching e
+`method.adherence` **não** estão sem sinal de freshness — como a linha
+acima já registra, ambos têm `generated_at`+`candidate_state_version` por
+evento (`loadCompanionAnalysisJobStatus()`), e `companion_method_stage_state`
+tem `updated_at`. O que nenhum dos três oferece é um **read-model
+agregado/histórico** entre eventos/turnos — cada evento/linha individual
+tem freshness própria, mas não há um objeto único que consolide a
+trajetória. Por isso, mesmo com sinal de freshness por evento, **não se
+pode assumir que duas leituras de ANÁLISE em momentos diferentes
+convergem** — cada leitura pode, em princípio, computar algo diferente do
+que AGORA mostrou minutos antes, porque falta o histórico agregado (não
+falta o timestamp do evento em si).
 
 ---
 
@@ -436,14 +443,24 @@ interação comercial anterior, não só da sessão atual.
 `signals` dentro de `StatefulCommercialState` — todos `OPPORTUNITY_STATE`,
 escopados por `(company_id, cycle_id, conversation_key)` — não apenas
 `cycle_id` (correção, achado do Codex, 9ª revisão do PR #274, propagando a
-correção já feita na linha #20/§1 para esta seção) —, aditivos, mas com
-mecanismo de fechamento **distinto por coleção** — correção (achado do
-Codex, 27ª revisão do PR #274): `needs`/`open_loops`/`objections`/`uncertainties`
-têm `resolve`/`supersede`; `signals` só tem `signal_ids_to_resolve`
+correção já feita na linha #20/§1 para esta seção) — mecanismo de escrita
+e de fechamento **distintos por coleção**, não um padrão único
+"aditivo". Correção (achado do Codex, 27ª revisão do PR #274):
+`needs`/`open_loops`/`objections`/`uncertainties` têm `resolve`/`supersede`;
+`signals` só tem `signal_ids_to_resolve`
 (`stateful-copilot-contract.ts:124` — não existe `signal_ids_to_supersede`);
 `commitments` fecha por transição de `status` (`cancelled`/`completed`,
 via `isTerminalCommitmentStatus()` em `applyCommitmentPatches()`), não por
-operação `resolve`/`supersede` alguma — evidência completa **para
+operação `resolve`/`supersede` alguma. **Ressalva adicional sobre
+`commitments` (achado do Codex, 28ª revisão do PR #274):** ao contrário das
+demais coleções — que só acrescentam itens novos e fecham por id —,
+`commitments_to_upsert` com `commitment_id` não nulo faz
+`applyCommitmentPatches()` **substituir o item existente** (`result[existingIndex]
+= {...}`, `stateful-commercial-state-reducer.ts:738`), atualizando `summary`,
+`status` e datas em vez de só anexar ou só fechar; só `commitment_id: null`
+é puramente aditivo. Tratar `commitments` como aditivo sem essa ressalva
+pode levar a FASE 16.3 a duplicar reagendamentos em vez de atualizar o
+compromisso existente — evidência completa **para
 itens nativos da conversa**. **Ressalva (achado do
 Codex, 5ª e 6ª revisões do PR #274):** `objections` (e `facts`, ver linha
 #37/§9) recebem exceção quando herdados via `durable-memory-seed.ts` —
@@ -640,7 +657,16 @@ granularidade estruturada; o efêmero é prosa de LLM não reproduzível
 idempotentemente, não auditável (não persistido) e mistura fontes
 heterogêneas sem fundamentação por fato — exatamente o padrão que o
 validador de `commercial-reading-contract.ts` foi construído para
-rejeitar (exige `evidence_message_ids`/`memory_ids` em cada claim).
+rejeitar na maioria dos campos, via `normalizeReferences()` com
+`requireGrounding=true` por padrão. **Ressalva (achado do Codex, 28ª
+revisão do PR #274):** essa exigência não é universal por claim —
+`CommercialReadingCrmSuggestion`/`CommercialReadingAgendaSuggestion`
+(`commercial-reading-contract.ts:563-587`) nem possuem os campos
+`evidence_message_ids`/`memory_ids`; e `method.adherence` permite os dois
+vazios quando `status` é `not_configured`/`insufficient_evidence`
+(`requiresGrounding = ![...].includes(status)`,
+`commercial-reading-contract.ts:2102-2106`). O ponto continua válido para
+os demais campos do contrato, só não é absoluto para esses dois casos.
 
 ---
 
