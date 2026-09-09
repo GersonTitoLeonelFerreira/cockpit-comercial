@@ -1,0 +1,928 @@
+import 'server-only'
+
+import type {
+  SupabaseClient,
+} from '@supabase/supabase-js'
+
+import {
+  COMMERCIAL_READING_CONTRACT_VERSION,
+  type CommercialReadingImprovementPoint,
+  type CommercialReadingMethod,
+  type CommercialReadingRecoveryGuidance,
+  type CommercialReadingSellerStrength,
+} from '@/app/lib/companion/commercial-reading-contract'
+
+import {
+  STATEFUL_COPILOT_CONTRACT_VERSION,
+} from '@/app/lib/companion/stateful-copilot-contract'
+
+import {
+  STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION,
+} from '@/app/lib/companion/stateful-commercial-state'
+
+import {
+  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+} from '@/app/lib/companion/stateful-communication-contract'
+
+import {
+  loadCompanionMethodStage,
+  type CompanionMethodStageRecord,
+} from './companion-method-stage-store'
+
+import {
+  loadCanonicalCycleCommercialMemory,
+} from './canonical-cycle-commercial-memory-source'
+
+import type {
+  CanonicalCommercialReadingSource,
+} from './canonical-commercial-reading-source'
+
+const CROSS_CONVERSATION_EVENT_FIELDS = [
+  'id',
+  'company_id',
+  'cycle_id',
+  'conversation_key',
+  'state_record_id',
+  'candidate_state_version',
+  'state_contract_version',
+  'output_contract_version',
+  'state_snapshot',
+  'normalized_output',
+].join(',')
+
+const CROSS_CONVERSATION_EVENT_PAGE_SIZE =
+  500
+
+const MAX_CROSS_CONVERSATION_EVENT_ROWS =
+  10000
+
+type JsonRecord =
+  Record<string, unknown>
+
+type SupabasePageResult = {
+  data: unknown
+  error: unknown
+}
+
+export type CanonicalMethodCoachingAgoraStage = {
+  source: 'agora_persisted'
+
+  stage_key: string
+  stage_name: string
+  stage_display_order: number
+  method_config_version_id: string
+  updated_at: string
+}
+
+export type CanonicalMethodCoachingAnaliseStage = {
+  source: 'analise_commercial_reading'
+
+  stage_key: string | null
+  step_order: number
+  name: string
+}
+
+export type CanonicalMethodCoachingCrossConversationSignal = {
+  conversation_key: string
+  source_event_id: string
+  generated_at: string
+
+  seller_strengths:
+    CommercialReadingSellerStrength[]
+
+  improvement_points:
+    CommercialReadingImprovementPoint[]
+}
+
+export type CanonicalMethodCoachingSource = {
+  company_id: string
+  cycle_id: string
+  conversation_key: string
+  reference_time: string
+
+  method: {
+    configured: boolean
+    name: string | null
+
+    stages:
+      CommercialReadingMethod['stages']
+
+    agora_stage:
+      CanonicalMethodCoachingAgoraStage | null
+
+    analise_stage:
+      CanonicalMethodCoachingAnaliseStage | null
+
+    // true SOMENTE quando os dois lados existem e discordam
+    // explicitamente sobre stage_key — nunca inferido quando um dos
+    // dois está ausente (achado da FASE 16.2: os dois mecanismos são
+    // "diferentes, não coordenados", não "um substitui o outro").
+    stage_divergence: boolean
+
+    adherence:
+      CommercialReadingMethod['adherence'] | null
+
+    recovery_guidance:
+      CommercialReadingRecoveryGuidance | null
+  }
+
+  coaching: {
+    seller_strengths:
+      CommercialReadingSellerStrength[]
+
+    improvement_points:
+      CommercialReadingImprovementPoint[]
+
+    source_event_id: string | null
+    generated_at: string | null
+  }
+
+  // Sinais de coaching de OUTRAS conversas do mesmo ciclo, canonicamente
+  // relevantes por pertencerem à mesma oportunidade — nunca substituem
+  // `coaching` (a leitura da conversa atual), apenas a complementam.
+  cross_conversation_coaching:
+    CanonicalMethodCoachingCrossConversationSignal[]
+
+  provenance: {
+    conversation_key: string
+    agora_updated_at: string | null
+    analise_source_event_id: string | null
+    analise_state_record_id: string | null
+    analise_state_version: number | null
+  }
+}
+
+function isRecord(
+  value: unknown,
+): value is JsonRecord {
+  return (
+    Boolean(value) &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  )
+}
+
+function readNonEmptyString(
+  value: unknown,
+): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized =
+    value.trim()
+
+  return normalized || null
+}
+
+function normalizeDateOrNull(
+  value: unknown,
+): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const timestamp =
+    Date.parse(value)
+
+  if (!Number.isFinite(timestamp)) {
+    return null
+  }
+
+  return new Date(timestamp).toISOString()
+}
+
+async function readAllPages({
+  pageSize,
+  maxRows,
+  fetchPage,
+}: {
+  pageSize: number
+  maxRows: number
+  fetchPage: (
+    offset: number,
+    limit: number,
+  ) => PromiseLike<SupabasePageResult>
+}): Promise<unknown[] | null> {
+  const rows: unknown[] = []
+
+  let offset = 0
+
+  while (true) {
+    const {
+      data,
+      error,
+    } =
+      await fetchPage(
+        offset,
+        pageSize,
+      )
+
+    if (
+      error ||
+      !Array.isArray(data)
+    ) {
+      return null
+    }
+
+    rows.push(
+      ...data,
+    )
+
+    if (rows.length > maxRows) {
+      return null
+    }
+
+    if (data.length < pageSize) {
+      break
+    }
+
+    offset += pageSize
+  }
+
+  return rows
+}
+
+function buildAgoraStage(
+  record: CompanionMethodStageRecord | null,
+): CanonicalMethodCoachingAgoraStage | null {
+  if (!record) {
+    return null
+  }
+
+  return {
+    source: 'agora_persisted',
+    stage_key: record.stage_key,
+    stage_name: record.stage_name,
+    stage_display_order:
+      record.stage_display_order,
+    method_config_version_id:
+      record.method_config_version_id,
+    updated_at: record.updated_at,
+  }
+}
+
+function buildAnaliseStage(
+  method: CommercialReadingMethod | null,
+): CanonicalMethodCoachingAnaliseStage | null {
+  if (!method?.current_stage) {
+    return null
+  }
+
+  return {
+    source: 'analise_commercial_reading',
+    stage_key: method.current_stage.stage_key,
+    step_order: method.current_stage.step_order,
+    name: method.current_stage.name,
+  }
+}
+
+function computeStageDivergence({
+  agoraStage,
+  analiseStage,
+}: {
+  agoraStage:
+    CanonicalMethodCoachingAgoraStage | null
+  analiseStage:
+    CanonicalMethodCoachingAnaliseStage | null
+}): boolean {
+  if (!agoraStage || !analiseStage) {
+    return false
+  }
+
+  if (analiseStage.stage_key === null) {
+    return false
+  }
+
+  return (
+    agoraStage.stage_key !==
+    analiseStage.stage_key
+  )
+}
+
+/**
+ * Extrai method/coaching de um evento de
+ * companion_commercial_state_events com validação ESTRUTURAL apenas
+ * (contract_version, escopo company/cycle/conversation) — não a
+ * revalidação completa de normalizeCommercialReading() (que exige o
+ * ledger de mensagens/memory ids daquela conversa específica). Mesmo
+ * limite deliberado documentado em canonical-cycle-commercial-memory-
+ * source.ts: usado só para sinalizar coaching relevante de OUTRAS
+ * conversas do ciclo, nunca como a leitura autoritativa da conversa
+ * atual (essa vem de loadCanonicalCommercialReadingSource, com
+ * revalidação completa, via `current_reading`).
+ */
+function parseCrossConversationEvent({
+  row,
+  companyId,
+  cycleId,
+  excludeConversationKey,
+}: {
+  row: unknown
+  companyId: string
+  cycleId: string
+  excludeConversationKey: string
+}): {
+  conversationKey: string
+  eventId: string
+  stateRecordId: string
+  candidateStateVersion: number
+  snapshotUpdatedAt: string | null
+  method: CommercialReadingMethod | null
+  sellerStrengths: CommercialReadingSellerStrength[]
+  improvementPoints: CommercialReadingImprovementPoint[]
+} | null {
+  if (!isRecord(row)) {
+    return null
+  }
+
+  const eventId =
+    readNonEmptyString(row.id)
+
+  const rowCompanyId =
+    readNonEmptyString(row.company_id)
+
+  const rowCycleId =
+    readNonEmptyString(row.cycle_id)
+
+  const conversationKey =
+    readNonEmptyString(
+      row.conversation_key,
+    )
+
+  const stateRecordId =
+    readNonEmptyString(
+      row.state_record_id,
+    )
+
+  const stateContractVersion =
+    readNonEmptyString(
+      row.state_contract_version,
+    )
+
+  const outputContractVersion =
+    readNonEmptyString(
+      row.output_contract_version,
+    )
+
+  const candidateStateVersion =
+    row.candidate_state_version
+
+  if (
+    !eventId ||
+    !rowCompanyId ||
+    !rowCycleId ||
+    !conversationKey ||
+    !stateRecordId ||
+    !stateContractVersion ||
+    !outputContractVersion ||
+    rowCompanyId !== companyId ||
+    rowCycleId !== cycleId ||
+    conversationKey ===
+      excludeConversationKey ||
+    stateContractVersion !==
+      STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION ||
+    outputContractVersion !==
+      STATEFUL_COPILOT_CONTRACT_VERSION ||
+    typeof candidateStateVersion !== 'number' ||
+    !Number.isInteger(
+      candidateStateVersion,
+    ) ||
+    candidateStateVersion <= 0
+  ) {
+    return null
+  }
+
+  const stateSnapshot =
+    row.state_snapshot
+
+  if (
+    !isRecord(stateSnapshot) ||
+    stateSnapshot.contract_version !==
+      STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION ||
+    stateSnapshot.cycle_id !== cycleId
+  ) {
+    return null
+  }
+
+  const snapshotUpdatedAt =
+    typeof stateSnapshot.updated_at ===
+      'string'
+      ? stateSnapshot.updated_at
+      : null
+
+  const normalizedOutput =
+    row.normalized_output
+
+  if (
+    !isRecord(normalizedOutput) ||
+    normalizedOutput.contract_version !==
+      STATEFUL_COPILOT_CONTRACT_VERSION
+  ) {
+    return null
+  }
+
+  const communication =
+    normalizedOutput.communication
+
+  if (
+    !isRecord(communication) ||
+    communication.contract_version !==
+      STATEFUL_COMMUNICATION_CONTRACT_VERSION
+  ) {
+    return null
+  }
+
+  const commercialReading =
+    communication.commercial_reading
+
+  if (
+    !isRecord(commercialReading) ||
+    commercialReading.contract_version !==
+      COMMERCIAL_READING_CONTRACT_VERSION
+  ) {
+    return null
+  }
+
+  const method =
+    isRecord(commercialReading.method)
+      ? (
+        commercialReading.method as unknown as CommercialReadingMethod
+      )
+      : null
+
+  const sellerStrengths =
+    Array.isArray(
+      commercialReading.seller_strengths,
+    )
+      ? (
+        commercialReading.seller_strengths as unknown as CommercialReadingSellerStrength[]
+      )
+      : []
+
+  const improvementPoints =
+    Array.isArray(
+      commercialReading.improvement_points,
+    )
+      ? (
+        commercialReading.improvement_points as unknown as CommercialReadingImprovementPoint[]
+      )
+      : []
+
+  return {
+    conversationKey,
+    eventId,
+    stateRecordId,
+    candidateStateVersion,
+    snapshotUpdatedAt,
+    method,
+    sellerStrengths,
+    improvementPoints,
+  }
+}
+
+/**
+ * Para cada conversation_key do ciclo (exceto a atual), busca o evento
+ * mais recente cujo instante semântico (`normalized_output.updated_at`
+ * — o mesmo campo que StatefulCommercialState carrega como
+ * `updated_at`, forçado a igualar reference_time pela persistence
+ * plan) é `<= reference_time`. Mesma lição da FASE 16.3C: nunca usar
+ * `generated_at` (quando foi gravado) como corte semântico, nunca
+ * `.range()` sem uma coluna única para paginar, sempre desempatar por
+ * versão quando o instante empata entre duas versões da mesma
+ * conversa.
+ */
+async function loadCrossConversationCoaching({
+  admin,
+  companyId,
+  cycleId,
+  conversationKey,
+  referenceTime,
+  otherConversationKeys,
+}: {
+  admin: SupabaseClient
+  companyId: string
+  cycleId: string
+  conversationKey: string
+  referenceTime: string
+  otherConversationKeys: string[]
+}): Promise<
+  CanonicalMethodCoachingCrossConversationSignal[] | null
+> {
+  if (otherConversationKeys.length === 0) {
+    return []
+  }
+
+  const rows =
+    await readAllPages({
+      pageSize:
+        CROSS_CONVERSATION_EVENT_PAGE_SIZE,
+
+      maxRows:
+        MAX_CROSS_CONVERSATION_EVENT_ROWS,
+
+      fetchPage: (offset, limit) =>
+        admin
+          .from(
+            'companion_commercial_state_events',
+          )
+          .select(
+            CROSS_CONVERSATION_EVENT_FIELDS,
+          )
+          .eq(
+            'company_id',
+            companyId,
+          )
+          .eq(
+            'cycle_id',
+            cycleId,
+          )
+          .in(
+            'conversation_key',
+            otherConversationKeys,
+          )
+          .order(
+            'id',
+            { ascending: true },
+          )
+          .range(
+            offset,
+            offset + limit - 1,
+          ),
+    })
+
+  if (rows === null) {
+    return null
+  }
+
+  const referenceInstant =
+    Date.parse(referenceTime)
+
+  const latestPerConversationKey =
+    new Map<
+      string,
+      {
+        eventId: string
+        updatedAtInstant: number
+        candidateStateVersion: number
+        sellerStrengths: CommercialReadingSellerStrength[]
+        improvementPoints: CommercialReadingImprovementPoint[]
+      }
+    >()
+
+  for (const row of rows) {
+    const parsed =
+      parseCrossConversationEvent({
+        row,
+        companyId,
+        cycleId,
+        excludeConversationKey:
+          conversationKey,
+      })
+
+    if (
+      !parsed ||
+      typeof parsed.snapshotUpdatedAt !==
+        'string'
+    ) {
+      continue
+    }
+
+    const updatedAtInstant =
+      Date.parse(
+        parsed.snapshotUpdatedAt,
+      )
+
+    if (
+      !Number.isFinite(
+        updatedAtInstant,
+      ) ||
+      updatedAtInstant > referenceInstant
+    ) {
+      continue
+    }
+
+    const existing =
+      latestPerConversationKey.get(
+        parsed.conversationKey,
+      )
+
+    const isBetterCandidate =
+      !existing ||
+      updatedAtInstant >
+        existing.updatedAtInstant ||
+      (
+        updatedAtInstant ===
+          existing.updatedAtInstant &&
+        parsed.candidateStateVersion >
+          existing.candidateStateVersion
+      )
+
+    if (isBetterCandidate) {
+      latestPerConversationKey.set(
+        parsed.conversationKey,
+        {
+          eventId: parsed.eventId,
+          updatedAtInstant,
+          candidateStateVersion:
+            parsed.candidateStateVersion,
+          sellerStrengths:
+            parsed.sellerStrengths,
+          improvementPoints:
+            parsed.improvementPoints,
+        },
+      )
+    }
+  }
+
+  return [
+    ...latestPerConversationKey.entries(),
+  ]
+    .map(
+      ([
+        conversationKeyEntry,
+        entry,
+      ]) => ({
+        conversation_key:
+          conversationKeyEntry,
+
+        source_event_id:
+          entry.eventId,
+
+        generated_at:
+          new Date(
+            entry.updatedAtInstant,
+          ).toISOString(),
+
+        seller_strengths:
+          entry.sellerStrengths,
+
+        improvement_points:
+          entry.improvementPoints,
+      }),
+    )
+    .sort(
+      (a, b) =>
+        a.conversation_key <
+        b.conversation_key
+          ? -1
+          : a.conversation_key >
+            b.conversation_key
+            ? 1
+            : 0,
+    )
+}
+
+/**
+ * Combina, para uma conversa específica, os dois mecanismos de estágio
+ * de método hoje divergentes e não coordenados (achado crítico da
+ * FASE 16.2, §16/§17 de phase16-source-of-truth-audit.md):
+ *
+ * - AGORA: `companion_method_stage_state` — persistido, com gate
+ *   anti-regressão (`validateStageContinuity`/`composeSellerFacing-
+ *   Guidance`, em lead-seller-guidance.ts), só avança sem evidência
+ *   explícita do cliente.
+ * - ANÁLISE: `CommercialReading.method.current_stage` — recalculado a
+ *   cada turno por `deriveCurrentMethodStage(stages, adherenceStatus)`
+ *   (commercial-reading-contract.ts), nunca persistido, sem proteção
+ *   contra regressão.
+ *
+ * Esta função NÃO escolhe um vencedor por adivinhação nem funde os
+ * dois valores: expõe ambos explicitamente (`agora_stage`/
+ * `analise_stage`) e computa `stage_divergence` só quando os dois
+ * existem e discordam. Escolher qual estágio deve "vencer" quando
+ * divergem é uma decisão de produto sobre o comportamento de AGORA —
+ * território da FASE 16.3E, fora do escopo aqui. Este módulo não
+ * escreve em `companion_method_stage_state` nem em nenhuma tabela —
+ * é somente leitura, e não altera o gate anti-regressão existente.
+ *
+ * `coaching` (seller_strengths/improvement_points/recovery_guidance)
+ * reaproveita o shape já existente de CommercialReading — a mission
+ * (FASE 16.3D) e o achado #34 do próprio audit confirmam que
+ * `CommercialReadingImprovementPoint` já tem o formato Observação
+ * (summary) → Diagnóstico (why_it_matters) → Impacto (impact) → Ação
+ * (how_to_improve); não foi criado um shape novo.
+ *
+ * `current_reading` é o resultado JÁ CALCULADO de
+ * loadCanonicalCommercialReadingSource() (FASE 16.3B) para a conversa
+ * atual — este módulo não o recalcula (evita reconstruir
+ * validation_context/state_read aqui, que só o chamador já tem
+ * montado corretamente) e nunca amplia o contrato de 16.3B.
+ *
+ * `cross_conversation_coaching` reaproveita `conversation_keys` de
+ * loadCanonicalCycleCommercialMemory() (FASE 16.3C, chamado aqui sem
+ * nenhuma alteração) para descobrir as demais conversas do ciclo, e
+ * lê o coaching mais recente válido em reference_time de cada uma —
+ * ver loadCrossConversationCoaching para o contrato de validação
+ * estrutural (não revalidação completa por ledger).
+ *
+ * Best-effort: `agora_stage` e `cross_conversation_coaching` são
+ * enriquecimentos, não a entrega principal — uma falha isolada em
+ * qualquer um deles (leitura de `companion_method_stage_state`,
+ * descoberta de conversation_keys via loadCanonicalCycleCommercialMemory,
+ * ou a consulta de eventos cross-conversation) degrada para
+ * `agora_stage: null`/`cross_conversation_coaching: []`, sem derrubar
+ * a leitura de method/coaching da conversa atual (que já veio pronta
+ * em `current_reading`). A função só retorna `null` por completo para
+ * seus próprios problemas estruturais: `reference_time` inválido,
+ * `current_reading` de outro escopo (company/cycle/conversation), ou
+ * uma exceção genuinamente inesperada.
+ */
+export async function loadCanonicalMethodCoachingSource({
+  admin,
+  company_id,
+  cycle_id,
+  conversation_key,
+  reference_time,
+  current_reading,
+}: {
+  admin: SupabaseClient
+  company_id: string
+  cycle_id: string
+  conversation_key: string
+  reference_time: string
+
+  current_reading:
+    CanonicalCommercialReadingSource | null
+}): Promise<CanonicalMethodCoachingSource | null> {
+  const referenceTime =
+    normalizeDateOrNull(reference_time)
+
+  if (!referenceTime) {
+    return null
+  }
+
+  if (
+    current_reading &&
+    (
+      current_reading.company_id !==
+        company_id ||
+      current_reading.cycle_id !==
+        cycle_id ||
+      current_reading.conversation_key !==
+        conversation_key
+    )
+  ) {
+    return null
+  }
+
+  try {
+    let agoraRecord:
+      CompanionMethodStageRecord | null
+
+    try {
+      agoraRecord =
+        await loadCompanionMethodStage({
+          admin,
+          companyId: company_id,
+          cycleId: cycle_id,
+          conversationKey:
+            conversation_key,
+        })
+    } catch (error) {
+      console.error(
+        '[CANONICAL_METHOD_COACHING] agora stage lookup failed, continuing without it',
+        {
+          company_id,
+          cycle_id,
+          conversation_key,
+          error,
+        },
+      )
+
+      agoraRecord = null
+    }
+
+    const cycleMemory =
+      await loadCanonicalCycleCommercialMemory(
+        {
+          admin,
+          company_id,
+          cycle_id,
+          reference_time:
+            referenceTime,
+        },
+      )
+
+    const otherConversationKeys =
+      (
+        cycleMemory?.conversation_keys ??
+        []
+      ).filter(
+        (key) =>
+          key !== conversation_key,
+      )
+
+    const crossConversationCoaching =
+      (
+        await loadCrossConversationCoaching(
+          {
+            admin,
+            companyId: company_id,
+            cycleId: cycle_id,
+            conversationKey:
+              conversation_key,
+            referenceTime,
+            otherConversationKeys,
+          },
+        )
+      ) ?? []
+
+    const method =
+      current_reading?.reading.method ??
+      null
+
+    const agoraStage =
+      buildAgoraStage(agoraRecord)
+
+    const analiseStage =
+      buildAnaliseStage(method)
+
+    return {
+      company_id,
+      cycle_id,
+      conversation_key,
+      reference_time: referenceTime,
+
+      method: {
+        configured:
+          method?.configured ?? false,
+
+        name:
+          method?.name ?? null,
+
+        stages:
+          method?.stages ?? [],
+
+        agora_stage: agoraStage,
+        analise_stage: analiseStage,
+
+        stage_divergence:
+          computeStageDivergence({
+            agoraStage,
+            analiseStage,
+          }),
+
+        adherence:
+          method?.adherence ?? null,
+
+        recovery_guidance:
+          method?.recovery_guidance ??
+          null,
+      },
+
+      coaching: {
+        seller_strengths:
+          current_reading?.reading
+            .seller_strengths ?? [],
+
+        improvement_points:
+          current_reading?.reading
+            .improvement_points ?? [],
+
+        source_event_id:
+          current_reading
+            ?.source_event_id ?? null,
+
+        generated_at:
+          current_reading
+            ?.generated_at ?? null,
+      },
+
+      cross_conversation_coaching:
+        crossConversationCoaching,
+
+      provenance: {
+        conversation_key,
+
+        agora_updated_at:
+          agoraRecord?.updated_at ??
+          null,
+
+        analise_source_event_id:
+          current_reading
+            ?.source_event_id ?? null,
+
+        analise_state_record_id:
+          current_reading
+            ?.state_record_id ?? null,
+
+        analise_state_version:
+          current_reading
+            ?.state_version ?? null,
+      },
+    }
+  } catch (error) {
+    console.error(
+      '[CANONICAL_METHOD_COACHING] lookup or aggregation failed, continuing without method/coaching',
+      {
+        company_id,
+        cycle_id,
+        conversation_key,
+        error,
+      },
+    )
+
+    return null
+  }
+}
