@@ -75,13 +75,22 @@ function validateScenario(scenario) {
     violations.push('intervention_card_without_lifecycle')
   }
 
-  // Regra adicional (contrato, seção 4.3): todo card precisa explicar POR
-  // QUE apareceu/importa (`reason`) e O QUE fazer (`recommendedAction`).
-  // Achado do Codex (4ª revisão): a checagem original só validava ciclo de
-  // vida e prioridade — um card sem `reason`/`recommendedAction` é
-  // inutilizável para o vendedor e ainda passava sem violação.
+  // Regra adicional (contrato, seção 4.3): todo card precisa de `source`
+  // (origem/identidade), e precisa explicar POR QUE apareceu/importa
+  // (`reason`) e O QUE fazer (`recommendedAction`) — como texto de fato, não
+  // qualquer valor truthy. Achado do Codex (4ª revisão): a checagem
+  // original só validava ciclo de vida e prioridade. Achado do Codex (5ª
+  // revisão): a checagem de `reason`/`recommendedAction` usava truthiness
+  // (`!card.reason`), então um valor truthy não textual (`true`, `1`,
+  // `{}`) passava como se fosse uma explicação real; `source` nunca era
+  // validado, então um card podia perder sua origem sem quebrar o gate.
+  const isNonEmptyString = (value) => typeof value === 'string' && value.trim() !== ''
   const hasIncompleteCard = (cards || []).some(
-    (card) => !card || !card.reason || !card.recommendedAction,
+    (card) =>
+      !card ||
+      !isNonEmptyString(card.source) ||
+      !isNonEmptyString(card.reason) ||
+      !isNonEmptyString(card.recommendedAction),
   )
   if (hasIncompleteCard) {
     violations.push('intervention_card_missing_explanation')
@@ -119,10 +128,14 @@ function validateScenario(scenario) {
   // `opportunity.active` ou `operationalSignal.present` (mantendo o objeto
   // pai) também fazia as condições de 5/6 avaliarem `undefined === false`/
   // `undefined === true` como falso, sem violação. Os discriminadores
-  // precisam ser validados individualmente, não só o contêiner.
+  // precisam ser validados individualmente, não só o contêiner. Achado do
+  // Codex (5ª revisão): `session.isGroup` também é um discriminador core
+  // (usado pela regra 11 via `scenario.id`) e ficou de fora desta lista —
+  // apagar só esse booleano do cenário 9 não quebrava nada.
   const hasCoreScenarioFields =
     scenario.session && typeof scenario.session === 'object' &&
     typeof scenario.session.commercial === 'boolean' &&
+    typeof scenario.session.isGroup === 'boolean' &&
     scenario.opportunity && typeof scenario.opportunity === 'object' &&
     typeof scenario.opportunity.active === 'boolean' &&
     typeof scenario.opportunity.preserved === 'boolean' &&
@@ -285,6 +298,27 @@ test('regra adicional (mutante): card de intervenção sem reason/recommendedAct
   const brokenAction = clone(PHASE16_SCENARIOS[2])
   delete brokenAction.agora.interventionCards[0].recommendedAction
   assert.ok(validateScenario(brokenAction).includes('intervention_card_missing_explanation'))
+})
+
+test('regra adicional (mutante): card com campos truthy não textuais ou sem source é detectado (achado do Codex, 5ª revisão)', () => {
+  // A checagem anterior usava truthiness (`!card.reason`) — um valor
+  // truthy não textual (`true`, `1`, `{}`) passava como se fosse uma
+  // explicação real. `source` nunca era validado.
+  const nonStringReason = clone(PHASE16_SCENARIOS[2])
+  nonStringReason.agora.interventionCards[0].reason = true
+  assert.ok(validateScenario(nonStringReason).includes('intervention_card_missing_explanation'))
+
+  const nonStringAction = clone(PHASE16_SCENARIOS[2])
+  nonStringAction.agora.interventionCards[0].recommendedAction = 1
+  assert.ok(validateScenario(nonStringAction).includes('intervention_card_missing_explanation'))
+
+  const emptyStringReason = clone(PHASE16_SCENARIOS[2])
+  emptyStringReason.agora.interventionCards[0].reason = '   '
+  assert.ok(validateScenario(emptyStringReason).includes('intervention_card_missing_explanation'))
+
+  const missingSource = clone(PHASE16_SCENARIOS[2])
+  delete missingSource.agora.interventionCards[0].source
+  assert.ok(validateScenario(missingSource).includes('intervention_card_missing_explanation'))
 })
 
 test('regra adicional (mutante): card de intervenção com prioridade BAIXA em AGORA é detectado', () => {
@@ -479,6 +513,20 @@ test('regra 11 (mutante): apagar session inteiro do cenário de grupo ainda é d
   delete broken.group
 
   assert.ok(validateScenario(broken).includes('group_receives_individual_context'))
+})
+
+test('regra 5/6/11 (mutante): apagar só session.isGroup do cenário 9 é detectado (achado do Codex, 5ª revisão)', () => {
+  // `session.isGroup` é o discriminador que classifica a conversa como
+  // grupo; apagá-lo sozinho (mantendo `session` e `group` intactos) não
+  // era coberto pela checagem de campos core, que validava commercial/
+  // active/preserved/present mas não isGroup.
+  const groupScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-9-group-conversation')
+  assert.ok(groupScenario, 'cenário de grupo precisa existir na fixture')
+
+  const broken = clone(groupScenario)
+  delete broken.session.isGroup
+
+  assert.ok(validateScenario(broken).includes('missing_core_scenario_fields'))
 })
 
 test('regra 12: ausência de silêncio como resultado válido é impossível — o conjunto de cenários sempre representa silêncio', () => {
