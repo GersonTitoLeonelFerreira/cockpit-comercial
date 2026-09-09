@@ -187,10 +187,10 @@ Taxonomia usada nas seções seguintes (definida na missão, seção 8):
 | 14 | commercial commitment | Opportunity | cycle | `commitments[]` | OPPORTUNITY_STATE | idem #7 | idem | idem | idem | idem | idem | MEDIUM | HIGH (ver #7) | sim | ANÁLISE | AGORA proativo | decidir ownership |
 | 15 | method current stage (AGORA) | Method State | cycle | `companion_method_stage_state` | OPPORTUNITY_STATE | tabela dedicada (`companion-method-stage-store.ts`) | `saveCompanionMethodStage` | AGORA | company_id+cycle_id+conversation_key | nenhuma (gate determinístico) | último valor, sem histórico | LOW | **HIGH** (vs #16) | sim — divergência documentada no próprio código | AGORA | Method State (16.3) | consolidar |
 | 16 | method current stage (ANÁLISE) | Method State | cycle | `CommercialReading.method.current_stage` (`commercial-reading-contract.ts:425-429`, `{step_order, stage_key, name}`). **Correção (achado do Codex, 5ª revisão do PR #274):** este campo **não** tem `evidence_message_ids` próprio — é derivado deterministicamente por `deriveCurrentMethodStage(stages, adherenceStatus)` (linha 2244) dentro de `normalizeMethodModelOutput()`, a partir dos `stages` e do `adherenceStatus` já normalizados, não escrito diretamente pelo modelo com evidência própria. Distinto de `method.adherence` (linha #17). | DERIVED (não persistido) | não persistido (só audit log) | **normalizador** (`normalizeMethodModelOutput`/`deriveCurrentMethodStage`), não o modelo diretamente | ANÁLISE | company_id+cycle_id | **indireta** — recuperável do item correspondente em `method.stages`, não um campo próprio | recalculado a cada turno, sem continuidade | **HIGH** | **HIGH** (vs #15) | sim | ANÁLISE | Method State (16.3) | consolidar, preservando `current_stage` e `adherence` como campos distintos |
-| 17 | method adherence | Method State | cycle | `CommercialReading.method.adherence` (`commercial-reading-contract.ts:431-454`, `{status, summary, deviation_stage_order, evidence_message_ids, memory_ids, ...}`) — campo distinto de `method.current_stage` (linha #16). | DERIVED (não persistido) | não persistido (só audit log) | modelo, por turno (`stateful-communication-executor.ts`) | ANÁLISE | company_id+cycle_id | `evidence_message_ids`/`memory_ids` (campos próprios do tipo) | recalculado a cada turno, sem continuidade | HIGH | HIGH (vs #16) | não | ANÁLISE | Method State | consolidar |
+| 17 | method adherence | Method State | cycle | `CommercialReading.method.adherence` (`commercial-reading-contract.ts:431-454`, `{status, summary, deviation_stage_order, evidence_message_ids, memory_ids, ...}`) — campo distinto de `method.current_stage` (linha #16). | DERIVED (não persistido) | não persistido (só audit log) | modelo, por turno (`stateful-communication-executor.ts`) | ANÁLISE | company_id+cycle_id | `evidence_message_ids`/`memory_ids` (campos próprios do tipo) | recalculado a cada turno, sem continuidade | HIGH | **LOW — correção (achado do Codex, 7ª revisão do PR #274): `adherence` não compete com `current_stage` (#16); `current_stage` é derivado a partir de `adherenceStatus`, não uma fonte independente** | não | ANÁLISE | Method State | não consolidar com o estágio — ver #16 para a real disputa de ownership de estágio |
 | 18 | method deviation | Method State | cycle | `deviation_stage_order` (`CommercialReadingMethodAdherence`) | DERIVED | idem | idem | ANÁLISE | idem | idem | idem | HIGH | — | não | ANÁLISE | Method State | consolidar |
 | 19 | method recovery | Method State | cycle | `CommercialReadingRecoveryGuidance` | DERIVED | idem (só audit log) | idem | ANÁLISE | idem | idem | idem | HIGH | — | não | ANÁLISE | Method State | consolidar |
-| 20 | customer objective | Customer Memory | cycle (ver §12) | `facts[]` kind `client.objective` | OPPORTUNITY_STATE (persistência) / Customer Memory (semântica) | `companion_commercial_states` | reducer | CLIENTE | company_id+**cycle_id** | `evidence_message_ids` | até `resolve`/`supersede`; herdado 1x entre ciclos via seed | MEDIUM | LOW | não | CLIENTE | Customer Memory (16.3) | **decidir escopo (cycle vs lead)** |
+| 20 | customer objective | Customer Memory | **cycle + conversation_key** (ver §1/§12) | `facts[]` kind `client.objective`. **Correção (achado do Codex, 7ª revisão do PR #274):** a correção do §1 (fragmentação por `conversation_key`) não chegou a esta linha — a chave real é `(company_id, cycle_id, conversation_key)` (`companion_commercial_states_scope_unique`), então duas conversas do mesmo ciclo mantêm fatos independentes. O seed (`applyDurableMemorySeedToFreshState()`) é aplicado uma vez por **conversa sem estado** (primeiro turno daquele `conversation_key`), não uma vez por ciclo. | OPPORTUNITY_STATE (persistência) / Customer Memory (semântica) | `companion_commercial_states` | reducer | CLIENTE | **company_id+cycle_id+conversation_key** | `evidence_message_ids` | até `resolve`/`supersede`; herdado 1x por conversa sem estado, via seed do ciclo anterior | MEDIUM | LOW | não | CLIENTE | Customer Memory (16.3) | **decidir escopo (conversation_key/cycle vs lead)** |
 | 21 | problem | Customer Memory | cycle | `facts[]` kind `client.problem` | idem #20 | idem | idem | CLIENTE | idem | idem | idem | MEDIUM | LOW | não | CLIENTE | Customer Memory | idem #20 |
 | 22 | need | Customer Memory | cycle | `needs[]` | OPPORTUNITY_STATE | idem | idem (additive) | CLIENTE/ANÁLISE | idem | idem | idem | MEDIUM | LOW | não | ambos | Customer Memory/Opportunity Reading | reutilizar |
 | 23 | impact | Customer Memory | cycle | `facts[]` kind `client.problem`/`client.impact` (ver contrato) | idem #20 | idem | idem | CLIENTE | idem | idem | idem | MEDIUM | LOW | não | CLIENTE | Customer Memory | idem #20 |
@@ -339,10 +339,10 @@ a um JID/telefone/lead — sua correção depende inteiramente do cliente
 | Fonte | Nível de evidência | Detalhe |
 |---|---|---|
 | `StatefulCommercialState` (facts/needs/objections/signals/uncertainties/open_loops/commitments) — **itens nativos do ciclo atual** | **FULL** | todo item carrega `evidence_message_ids: string[]`, verificado contra o ledger real na validação do reducer |
-| `StatefulCommercialState` — **itens herdados via `durable-memory-seed.ts`** (subconjunto de `facts`/`objections` no primeiro turno de um novo ciclo) | **NONE (degradado)** — correção (achado do Codex, 5ª revisão do PR #274): esta linha do mapa não excluía essa exceção, embora as linhas #37 e §24 já a reconheçam | `applyDurableMemorySeedToCandidateState()` insere esses itens com `evidence_message_ids: []` — não têm evidência real, apenas herança degradada (mesma linha da tabela logo abaixo) |
+| `StatefulCommercialState` — **itens herdados via `durable-memory-seed.ts`** (subconjunto de `facts`/`objections` no primeiro turno de um novo ciclo) | **NONE (degradado)** — correção (achado do Codex, 5ª revisão do PR #274): esta linha do mapa não excluía essa exceção, embora as linhas #37 e §24 já a reconheçam | `applyDurableMemorySeedToFreshState()` (achado do Codex, 7ª revisão do PR #274: nome corrigido — a função real chama-se `ToFreshState`, não `ToCandidateState`) insere esses itens com `evidence_message_ids: []` — não têm evidência real, apenas herança degradada (mesma linha da tabela logo abaixo) |
 | `current_moment`/`current_priority` | **FULL** | `evidence_message_ids` obrigatório na própria forma do tipo |
 | `CommercialReading` (seller coaching, method adherence, crm/agenda suggestions) | **PARTIAL** — `[Unverified]` a extensão exata de `evidence_message_ids` em cada subtipo não foi 100% confirmada campo a campo nesta rodada, mas o contrato (`commercial-reading-contract.ts`) exige `evidence_message_ids`/`memory_ids` em claims normalizados | ver `normalizeCommercialReading` |
-| `durable-memory-seed.ts` (fatos herdados) | **NONE (degradado)** | itens herdados recebem `evidence_message_ids: []` deliberadamente — mensagens antigas não existem no novo ledger; confiança é rebaixada (`degradeConfidenceForInheritance`) |
+| `durable-memory-seed.ts` (fatos herdados) | **NONE (degradado)** | itens herdados recebem `evidence_message_ids: []` deliberadamente. **Correção (achado do Codex, 7ª revisão do PR #274):** não é que as mensagens antigas deixem de existir — `conversation_messages` é append-only e as linhas do ciclo/conversa anterior permanecem no banco com seu `cycle_id` original. `applyDurableMemorySeedToFreshState()` descarta deliberadamente os IDs na herança, e o normalizador do novo estado não aceita evidência fora da fotografia (snapshot) atual — é perda de ponteiro/escopo, não ausência de registro. Confiança é rebaixada (`degradeConfidenceForInheritance`). |
 | Resumo canônico do lead (`companion_lead_conversation_summaries`) | **NONE** | prosa livre, sem referência por claim; só `last_message_watermark` para estar "atualizado", não para provar afirmações |
 | `working_summary` (efêmero) | **PARTIAL (nível de fonte, não de claim)** | rótulo `working_summary_source` (`canonical`, `canonical_plus_conversation`, etc.) indica de onde veio, mas não há evidência por afirmação |
 | Commercial Config (business_description, etc.) | **N/A** | é configuração, não uma afirmação sobre a conversa — não se aplica o conceito de evidência |
@@ -434,8 +434,8 @@ cycle-scoped, aditivos com fechamento explícito (`resolve`/`supersede`),
 evidência completa **para itens nativos do ciclo**. **Ressalva (achado do
 Codex, 5ª e 6ª revisões do PR #274):** `objections` (e `facts`, ver linha
 #37/§9) recebem exceção quando herdados via `durable-memory-seed.ts` —
-`applyDurableMemorySeedToCandidateState()` injeta objeções ativas
-herdadas do ciclo anterior com `evidence_message_ids: []`, sem ponteiro
+`applyDurableMemorySeedToFreshState()` injeta objeções ativas
+herdadas do ciclo/conversa anterior com `evidence_message_ids: []`, sem ponteiro
 verificável; não é seguro tratar essas objeções herdadas como plenamente
 fundamentadas. Complementado por `method.adherence`/`CommercialReading`
 (seller coaching, sugestões de CRM/agenda) — estes últimos **sem
@@ -629,7 +629,7 @@ rejeitar (exige `evidence_message_ids`/`memory_ids` em cada claim).
   a maior parte de Customer Memory) — versionamento CAS, isolamento seguro
   por `company_id`+`cycle_id`. **Ressalva (achado do Codex, 3ª revisão do
   PR #274):** nem todo item tem evidência completa — itens herdados via
-  `durable-memory-seed.ts`/`applyDurableMemorySeedToCandidateState()` (o
+  `durable-memory-seed.ts`/`applyDurableMemorySeedToFreshState()` (o
   seed do ciclo anterior, ver linha #37) têm `evidence_message_ids: []`
   deliberadamente. Reutilizar o estado inteiro como "fundamentado em
   evidência" sem excluir/qualificar esses itens herdados promoveria
@@ -643,7 +643,10 @@ rejeitar (exige `evidence_message_ids`/`memory_ids` em cada claim).
   sobrescrito automaticamente, seguro para leitura direta.
 - `companion_method_stage_state` como base para o estágio de método
   persistido (tem gate anti-regressão) — mas precisa de decisão de
-  ownership frente a `method.adherence`.
+  ownership frente a **`method.current_stage`** (correção, achado do
+  Codex, 7ª revisão do PR #274 — não `method.adherence`, que é um campo
+  de status/resumo distinto, derivado a partir da aderência, não uma
+  fonte concorrente de identidade de estágio).
 - O tipo/contrato `commercial-reading-contract.ts` em si (validação
   rigorosa) — reaproveitável como *shape* de saída, mesmo que a
   persistência precise ser criada do zero.
@@ -663,8 +666,10 @@ rejeitar (exige `evidence_message_ids`/`memory_ids` em cada claim).
   PR #274): admin, Companion e Kanban/relatórios "for company" **já usam
   `sla_rules`** (apesar dos nomes de RPC); `company_sla_rules` parece
   órfã, sem writer de aplicação conhecido (§11).
-- `method.adherence` isolado, sem reconciliação com
-  `companion_method_stage_state`, como única fonte de "estágio atual".
+- `method.current_stage` isolado, sem reconciliação com
+  `companion_method_stage_state`, como única fonte de "estágio atual"
+  (correção, achado do Codex, 7ª revisão do PR #274 — o campo comparável
+  é `current_stage`, não `adherence`).
 
 ## 26. Missing canonical sources
 
