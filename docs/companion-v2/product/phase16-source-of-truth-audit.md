@@ -38,10 +38,18 @@ dedicada e sem query "leitura atual do lead X".
 O segundo achado estrutural mais importante: **Customer Memory
 (`companion_commercial_states`) é escopada por `cycle_id`, não por
 `lead_id`** — ou seja, tecnicamente CLIENTE=PESSOA está hoje persistido
-dentro do escopo de ANÁLISE=VENDA (o ciclo). A continuidade entre ciclos
-existe apenas como uma cópia pontual, degradada, de um subconjunto de fatos
-do ciclo anterior mais recente (`durable-memory-seed.ts`) — não como um
-perfil de pessoa vivo e continuamente atualizado.
+dentro do escopo de ANÁLISE=VENDA (o ciclo). **Correção (achado do Codex,
+6ª revisão do PR #274):** a fragmentação é ainda maior do que "por
+ciclo" — a constraint real (`companion_commercial_states_scope_unique`)
+é `(company_id, cycle_id, conversation_key)`, então um único ciclo pode
+ter memórias **independentes para múltiplas conversas** (`conversation_key`
+distintos). A continuidade entre ciclos existe apenas como uma cópia
+pontual e degradada de um subconjunto de fatos do ciclo anterior — e
+`loadDurableMemorySeedForMissingState()` escolhe só **uma** dessas linhas
+por `cycle_id` (`ORDER BY persisted_at DESC LIMIT 1`), então se o ciclo
+anterior tiver mais de uma conversa com estado próprio, a memória das
+demais é silenciosamente descartada na herança. Não é um perfil de
+pessoa vivo e continuamente atualizado.
 
 Terceiro achado: **Seller Coaching e o estágio de método usado por ANÁLISE
 não têm read-model próprio** — são recalculados a cada turno pelo modelo e
@@ -207,12 +215,12 @@ Taxonomia usada nas seções seguintes (definida na missão, seção 8):
 | 42 | allowed claims | Commercial Config | company/produto | `company_commercial_product_profiles.allowed_claims`/`forbidden_claims` | CONFIG_SOURCE | Supabase | admin UI | prompts | company_id+product_id | n/a | até edição | LOW | LOW | não | Companion | idem | reutilizar |
 | 43 | current CRM state | CRM | lead/cycle | `leads`/`sales_cycles` | CANONICAL | Supabase | dashboard | Companion (leitura), dashboard | company_id+lead_id/cycle_id | n/a | até edição humana | LOW | LOW | não | ambos | ambos | reutilizar |
 | 44 | suggested CRM state | Operational (sugestão) | turno | `CommercialReadingCrmSuggestion` (`requires_human_confirmation: true` — tipo TS literal) | DERIVED | só audit log | modelo | ANÁLISE (exibição) | company_id+cycle_id | `[Unverified]` | por turno | HIGH | — | não | ANÁLISE | AGORA/Decision State | reutilizar (nunca auto-aplicar) |
-| 45 | operational signal | Operational | sessão | `signals[]` (`StatefulCommercialState`) | OPPORTUNITY_STATE (armazenamento) / SESSION_STATE (semântica) | `companion_commercial_states` | reducer | AGORA | company_id+cycle_id | `evidence_message_ids` | por turno, additive | MEDIUM | LOW | não | AGORA | Operational Signals | reutilizar |
+| 45 | operational signal | Operational | cycle (não sessão) | `signals[]` (`StatefulCommercialState`). **Correção (achado do Codex, 6ª revisão do PR #274):** `reduceStatefulCommercialState()` carrega `previousState.signals`, fecha só os ids em `signal_ids_to_resolve` e acrescenta `signals_to_add` — o mesmo padrão aditivo de `needs`/`objections`/`open_loops`. Um sinal sobrevive a vários turnos até ser resolvido; não é recalculado do zero a cada turno. | **OPPORTUNITY_STATE** (armazenamento e semântica — não SESSION_STATE) | `companion_commercial_states` | reducer (`appendObservedItems`/`closeMemoryItems`) | AGORA | company_id+cycle_id | `evidence_message_ids` | **até `resolve`** (não "por turno") | MEDIUM | LOW | não | AGORA | Operational Signals | reutilizar |
 | 46 | recommended next action | Opportunity | turno | `current_priority` / `CommercialReadingCrmSuggestion`/`AgendaSuggestion` | mistura DERIVED/OPPORTUNITY_STATE | ver #13/#44 | ver #13/#44 | AGORA | idem | idem | idem | MEDIUM-HIGH | — | **sim — 3 fontes concorrentes de "próxima ação"** | AGORA | Decision State | consolidar |
 | 47 | Decision State | — | — | não existe objeto/contrato real hoje | **MISSING** | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | AGORA (16.1) | **MISSING — TO BE CREATED IN 16.3/16.5** |
 | 48 | Communication Context | — | — | não existe objeto canônico compartilhado; o MIE monta seu próprio contexto | **MISSING**/DERIVED (MIE-specific) | n/a | `message-intelligence-source-loader.ts` monta ad-hoc | MIE (shadow, não seller-facing) | n/a | n/a | n/a | n/a | n/a | n/a | MENSAGEM (16.1, fora de escopo ainda) | **MISSING — TO BE CREATED IN 16.3+** |
 | 49 | message suggestion | Communication | turno | `communication_output` (`stateful-copilot-runtime-orchestrator.ts`) | DERIVED | só audit log | modelo | Companion UI | company_id+cycle_id | `[Unverified]` | por turno | HIGH | — | não | UI | MENSAGEM | reutilizar |
-| 50 | silence decision | Communication | turno | implícito — ausência de `communication_output`/`suggested_message` | DERIVED | não persistido | modelo | UI | idem | n/a | por turno | LOW | LOW | não | UI | MENSAGEM | reutilizar |
+| 50 | silence decision | Communication | turno | **Correção (achado do Codex, 6ª revisão do PR #274):** campo booleano explícito `intervention_needed` em `StatefulCommunicationOutput` (`stateful-communication-executor.ts:396-405`) — não a ausência implícita de `communication_output`/`suggested_message`. `stateful-copilot-persistence-plan.ts` persiste o `communication_output` inteiro dentro de `companion_commercial_state_events.normalized_output` mesmo quando `suggested_message` é `null`. Ausência de `communication_output` no payload pode significar execução bloqueada/falha, não silêncio deliberado. | DERIVED, mas **persistido** (audit log) | `companion_commercial_state_events.normalized_output` | modelo, por turno (`stateful-communication-executor.ts`) | UI | company_id+cycle_id | `[Unverified]` | por turno, mas com registro persistido | LOW | LOW | não | UI | MENSAGEM | reutilizar — usar `intervention_needed`, não a ausência de saída |
 
 ---
 
@@ -264,7 +272,8 @@ companion_lead_conversation_summaries (resumo canônico do lead, lead-scoped)
 
 companion_method_stage_state (estágio de método, superfície AGORA)
   ├─ written/read by companion-method-stage-store.ts (gate anti-regressão, só último valor)
-  └─ DIVERGENTE de: method.adherence (superfície ANÁLISE), calculado por stateful-communication-executor.ts,
+  └─ DIVERGENTE de: method.current_stage (superfície ANÁLISE — não method.adherence,
+       campo distinto de status/aderência), calculado por stateful-communication-executor.ts,
        sem persistência própria — divergência documentada no próprio comentário do código-fonte
 
 company_commercial_config_versions (Commercial Config, company-scoped, versionado)
@@ -375,7 +384,7 @@ antes, porque não há um objeto persistido único que ambos leiam.
 | Semântica | Fontes concorrentes | Classificação |
 |---|---|---|
 | "Próxima ação"/agenda | (1) `sales_cycles.next_action`/`next_action_date` (CRM); (2) `StatefulCommercialState.commitments[]` (memória, cycle-scoped); (3) `CommercialReadingAgendaSuggestion` (sugestão de IA, não persistida) | **DANGEROUS DUPLICATION** — três fontes, nenhuma deriva automaticamente da outra, nenhuma sincroniza com as demais |
-| "Estágio atual" da oportunidade | (1) `sales_cycles.status`/`leads.current_stage_id` (CRM); (2) `companion_method_stage_state` (AGORA, persistido, anti-regressão); (3) `method.adherence` (ANÁLISE, não persistido, recalculado por turno) | **DANGEROUS DUPLICATION** — o próprio código documenta que (2) e (3) são "mecanismos diferentes, não coordenados" |
+| "Estágio atual" da oportunidade | (1) `sales_cycles.status`/`leads.current_stage_id` (CRM); (2) `companion_method_stage_state` (AGORA, persistido, anti-regressão); (3) `method.current_stage` (ANÁLISE, não persistido, recalculado por turno — não `method.adherence`, que é status/resumo de aderência, campo distinto) | **DANGEROUS DUPLICATION** — o próprio código documenta que (2) e (3) são "mecanismos diferentes, não coordenados" |
 | Sensibilidade a preço / fatos de cliente | `facts[]` dentro de `companion_commercial_states` (cycle-scoped) vs. a intenção conceitual de CLIENTE=PESSOA (deveria ser lead-scoped) | **DANGEROUS DUPLICATION estrutural** — não é duplicação de tabela, é conflação de escopo: o mesmo dado de pessoa é reiniciado por ciclo, com uma cópia degradada (`durable-memory-seed.ts`) tentando compensar |
 | Regras de SLA | `sla_rules` (admin, Companion, Kanban/relatórios "for company" — apesar dos nomes de RPC sugerirem `company_sla_rules`) vs. `company_sla_rules` (só `report_sla_risk()`, sem writer de aplicação encontrado) | **Correção final (achado do Codex, 5ª revisão do PR #274):** não há divergência entre admin e Companion — ambos usam `sla_rules`. A única fonte potencialmente desalinhada é `report_sla_risk()`, que lê a tabela separada `company_sla_rules`, aparentemente órfã (sem writer). Classificação: **DUPLICATED**, não mais "DANGEROUS" no sentido de admin vs. Companion — o risco real é `report_sla_risk()` mostrar dados de uma tabela que ninguém mais escreve. |
 | Fatos comerciais de config | `company_commercial_facts` v1 (genérico `category`/`fact_key`/`fact_value`) vs. v2 (`commercial_fact_definition jsonb`) coexistindo sem migração automática | **SAFE PROJECTION, mas requer decisão** — não é perigosa hoje (ambas são lidas), mas é dívida técnica explícita |
@@ -388,7 +397,7 @@ antes, porque não há um objeto persistido único que ambos leiam.
 
 | Par | Quem deveria vencer | Status de ownership |
 |---|---|---|
-| CRM stage (`sales_cycles.status`) vs. estágio inferido por IA (`companion_method_stage_state` / `method.adherence`) | `[Inference]` CRM deveria ser a verdade operacional; o estágio de método é uma leitura de progresso *dentro* do método de vendas, um conceito relacionado mas não idêntico ao status do funil — **ownership ainda não definido** entre os dois "estágios de método" internos |
+| CRM stage (`sales_cycles.status`) vs. estágio inferido por IA (`companion_method_stage_state` / `method.current_stage`) | `[Inference]` CRM deveria ser a verdade operacional; o estágio de método é uma leitura de progresso *dentro* do método de vendas, um conceito relacionado mas não idêntico ao status do funil — **ownership ainda não definido** entre os dois "estágios de método" internos |
 | Customer Memory (`facts[]`, cycle-scoped) vs. nova mensagem recebida | Nova evidência explícita deveria atualizar/superar memória antiga — mecanismo existe (`*_ids_to_supersede`), mas só dentro do mesmo ciclo; entre ciclos, o seed é uma cópia estática, não uma reconciliação | ownership definido *dentro* do ciclo; **não definido** entre ciclos |
 | Agenda commitment (`StatefulCommercialState.commitments`) vs. Agenda CRM (`sales_cycles.next_action`) | `[Inference]` Deveriam eventualmente ser a mesma verdade — hoje são independentes; nenhum evento sincroniza um a partir do outro | **ownership não definido** |
 | Resumo de lead (`companion_lead_conversation_summaries`) vs. Message Ledger | Ledger é a fonte primária de evidência; o resumo é derivado e pode ficar desatualizado entre edições manuais | ownership definido (ledger vence), mas o resumo não se invalida automaticamente quando diverge |
@@ -422,7 +431,13 @@ interação comercial anterior, não só da sessão atual.
 `needs`, `objections`, `open_loops`, `uncertainties`, `commitments`,
 `signals` dentro de `StatefulCommercialState` — todos `OPPORTUNITY_STATE`,
 cycle-scoped, aditivos com fechamento explícito (`resolve`/`supersede`),
-evidência completa. Complementado por `method.adherence`/`CommercialReading`
+evidência completa **para itens nativos do ciclo**. **Ressalva (achado do
+Codex, 5ª e 6ª revisões do PR #274):** `objections` (e `facts`, ver linha
+#37/§9) recebem exceção quando herdados via `durable-memory-seed.ts` —
+`applyDurableMemorySeedToCandidateState()` injeta objeções ativas
+herdadas do ciclo anterior com `evidence_message_ids: []`, sem ponteiro
+verificável; não é seguro tratar essas objeções herdadas como plenamente
+fundamentadas. Complementado por `method.adherence`/`CommercialReading`
 (seller coaching, sugestões de CRM/agenda) — estes últimos **sem
 persistência legível**, apenas audit log.
 
@@ -464,10 +479,14 @@ lido de volta e exibido normalmente.
 
 Ver achado crítico do §1: dois mecanismos divergentes e não coordenados —
 `companion_method_stage_state` (persistido, gate anti-regressão, usado por
-AGORA) vs. `method.adherence` derivado por turno (usado por ANÁLISE, sem
-persistência). Configuração do método (`CommercialMethodDefinition`, em
-`company_commercial_config_versions`) é única e bem definida,
-company-scoped, versionada.
+AGORA) vs. `CommercialReading.method.current_stage` derivado por turno
+(usado por ANÁLISE, sem persistência — ver correção da linha #16,
+achado do Codex, 6ª revisão do PR #274: o campo comparável a
+`companion_method_stage_state` é `current_stage`, não `adherence` — este
+último é status/resumo de aderência, um conceito relacionado mas
+distinto de identidade de estágio). Configuração do método
+(`CommercialMethodDefinition`, em `company_commercial_config_versions`)
+é única e bem definida, company-scoped, versionada.
 
 ## 18. Operational sources
 
