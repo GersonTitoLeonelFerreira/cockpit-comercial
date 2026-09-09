@@ -28,6 +28,101 @@ const CONVERSATION_KEY =
 const REFERENCE_TIME =
   '2026-09-09T17:00:00.000Z'
 
+function evidence(
+  summary,
+  messageIds = ['1'],
+  memoryIds = [],
+) {
+  return {
+    summary,
+    evidence_message_ids: messageIds,
+    memory_ids: memoryIds,
+  }
+}
+
+function buildValidReading(overrides = {}) {
+  return {
+    contract_version:
+      COMMERCIAL_READING_CONTRACT_VERSION,
+    analysis_status: 'complete',
+    analysis_limitations: [],
+    commercial_role: 'buyer',
+    commercial_relevance: 'commercial',
+    conversation_summary: {
+      initial_context: null,
+      evolution: null,
+      important_events: [],
+      current_state:
+        evidence(
+          'A conversa está aberta e sem intervenção útil neste instante.',
+        ),
+      last_customer_request_or_decision:
+        null,
+    },
+    customer: {
+      objectives: [],
+      problems: [],
+      impacts: [],
+      needs: [],
+      interests: [],
+      decision_criteria: [],
+      preferences: [],
+      open_questions: [],
+      objections: [],
+      uncertainties: [],
+      discussed_products: [],
+      primary_product_interest: null,
+      competitors: [],
+      commitments: [],
+      missing_discovery: [],
+      resolved_information: [],
+      superseded_information: [],
+      communication: {
+        events: [],
+        patterns: [],
+      },
+    },
+    commercial_evolution: [],
+    method: null,
+    seller_strengths: [],
+    improvement_points: [],
+    risks: {
+      customer_objections: [],
+      service_risks: [],
+    },
+    best_approach: {
+      decision: 'no_intervention',
+      reason:
+        'Não há ação nova sustentada pelo contexto atual.',
+      channel: 'none',
+      evidence_message_ids: ['1'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: false,
+      recommended_question: null,
+      recommended_message: null,
+    },
+    operations: {
+      crm: {
+        should_change_crm_stage: false,
+        recommended_status: null,
+        rationale: null,
+        requires_human_confirmation: true,
+      },
+      agenda: {
+        should_change_agenda: false,
+        expected_next_action_at: null,
+        rationale: null,
+        requires_human_confirmation: true,
+      },
+    },
+    evidence_message_ids: ['1'],
+    memory_ids: [],
+    ...overrides,
+  }
+}
+
 function buildRequest() {
   return {
     contract_version:
@@ -152,10 +247,8 @@ function buildEvent(overrides = {}) {
       communication: {
         contract_version:
           'phase-5.2-communication-v5',
-        commercial_reading: {
-          contract_version:
-            COMMERCIAL_READING_CONTRACT_VERSION,
-        },
+        commercial_reading:
+          buildValidReading(),
       },
     },
     generated_at:
@@ -273,5 +366,71 @@ test(
       sources.commercial_reading,
       null,
     )
+  },
+)
+
+test(
+  'MIE rejeita leitura cuja provenance aponta para mensagem que deixou de ser ativa',
+  async () => {
+    const invalidReading =
+      buildValidReading({
+        evidence_message_ids: [
+          'removed-message',
+        ],
+      })
+
+    invalidReading.conversation_summary.current_state =
+      evidence(
+        'Leitura usa evidência removida.',
+        ['removed-message'],
+      )
+    invalidReading.best_approach = {
+      ...invalidReading.best_approach,
+      evidence_message_ids: [
+        'removed-message',
+      ],
+    }
+
+    const { admin } =
+      createMessageIntelligenceFakeAdmin({
+        ...buildBaseRows(),
+        commercialStates: [
+          buildCurrentState(),
+        ],
+        commercialStateEvents: [
+          buildEvent({
+            normalized_output: {
+              contract_version:
+                'phase-5.2-stateful-copilot-v4',
+              communication: {
+                contract_version:
+                  'phase-5.2-communication-v5',
+                commercial_reading:
+                  invalidReading,
+              },
+            },
+          }),
+        ],
+      })
+
+    const loadSources =
+      createMessageIntelligenceSourceLoaderV1({
+        admin,
+      })
+
+    const originalError = console.error
+    console.error = () => {}
+
+    try {
+      const sources =
+        await loadSources(buildRequest())
+
+      assert.equal(
+        sources.commercial_reading,
+        null,
+      )
+    } finally {
+      console.error = originalError
+    }
   },
 )
