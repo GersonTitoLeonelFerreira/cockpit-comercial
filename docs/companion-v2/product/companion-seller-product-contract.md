@@ -137,7 +137,7 @@ Memory`, `Seller Coaching`, `Method State`, `Operational Signals`, `Decision
 State`, `Communication Context`) são os conceitos que a seção 5 mapeia para
 contratos de dados candidatos. **Nesta subfase eles não geram nenhuma tabela,
 migration, ou classe nova em produção** — são o vocabulário normativo que as
-seções 4, 6, 7 e 9 usam para descrever AGORA, ANÁLISE, CLIENTE e MENSAGEM sem
+seções 4, 6, 7 e 8 usam para descrever AGORA, ANÁLISE, CLIENTE e MENSAGEM sem
 ambiguidade.
 
 ### 2.2 O que cada área nunca pode se tornar
@@ -508,7 +508,7 @@ formulação correta é: **evidência real, com proveniência**, que pode vir de
 qualquer uma destas fontes — conversa atual, estado persistido (Opportunity
 Reading), memória válida (Customer Memory), ou histórico da oportunidade —
 nunca invenção, e nunca a fonte errada apresentada como se fosse outra (ver
-seção 8, "conflito de informação").
+seção 11, "conflito de informação").
 
 ### 6.2 Situação da oportunidade
 
@@ -556,7 +556,7 @@ Momentum; follow-up; promessa; pressão; compromisso; oportunidade parada.
 ### 6.7 Melhor condução
 
 A direção comercial recomendada. Isso **não significa necessariamente uma
-mensagem** — mensagem é decisão de MENSAGEM (seção 9), não de ANÁLISE.
+mensagem** — mensagem é decisão de MENSAGEM (seção 8), não de ANÁLISE.
 
 ### 6.8 Regra de qualidade da avaliação (evidência)
 
@@ -576,7 +576,7 @@ ciclos**. Isto é uma extensão explícita da versão anterior deste contrato,
 que acoplava CLIENTE demais a "daquela oportunidade" — parte da inteligência
 sobre a pessoa (ex.: como ela se comunica, quem são os decisores do lado
 dela) pode sobreviver entre ciclos quando a semântica permitir (ver seção
-8.2 e seção 10 sobre até onde um fato atravessa ciclo).
+11, item 8, sobre até onde um fato atravessa ciclo).
 
 ### 7.1 Objetivo / contexto
 
@@ -802,12 +802,20 @@ nenhuma capacidade nova, por mais valiosa que pareça:
 12. Proibido inverter o papel comercial — nunca tratar o cliente comprador
     como se fosse fornecedor, ou vice-versa, sem evidência clara do papel
     real na conversa.
-13. **Uma conversa de grupo nunca herda o Commercial Brain de um
+13. **Proibido inventar percentual de risco** (ex.: "72% de chance de
+    perder") sem base estatística real calibrada com dados da própria
+    operação. Probabilidade futura só pode ser apresentada quando existirem
+    dados suficientes para calibração — caso contrário, o produto deve usar
+    classificações qualitativas (baixo/médio/alto), nunca um número que
+    sugere precisão que não existe. Esta invariante se aplica a qualquer
+    área que apresente risco — AGORA (prioridade de Cards de Intervenção),
+    ANÁLISE (riscos da oportunidade) e CLIENTE.
+14. **Uma conversa de grupo nunca herda o Commercial Brain de um
     participante individual.** Nenhuma das quatro áreas, nem um Card de
     Intervenção, pode renderizar Decision State ou memória de um indivíduo
     dentro do contexto de um grupo (ver cenário canônico 9). Isto preserva
     todos os gates de identidade N→AM já existentes.
-14. Um Card de Intervenção sem `resolve_condition`/`expires_at` explícito
+15. Um Card de Intervenção sem `resolve_condition`/`expires_at` explícito
     não satisfaz o contrato da seção 4.3 — cards não podem ser permanentes
     por omissão.
 

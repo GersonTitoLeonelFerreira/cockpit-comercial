@@ -65,6 +65,16 @@ function validateScenario(scenario) {
     violations.push('agora_too_many_intervention_cards')
   }
 
+  // Regra adicional (contrato, seção 4.3 / seção 12 item 15): todo card de
+  // intervenção precisa de `expiresAt` ou `resolveCondition` — sem isso ele
+  // é um card permanente por omissão, proibido pelo contrato.
+  const hasCardWithoutLifecycle = (cards || []).some(
+    (card) => !card || (!card.expiresAt && !card.resolveCondition),
+  )
+  if (hasCardWithoutLifecycle) {
+    violations.push('intervention_card_without_lifecycle')
+  }
+
   // Regra 4 — MENSAGEM contendo fatos próprios não fornecidos pelas
   // camadas anteriores.
   if (scenario.mensagem.ownFactsIntroduced !== false) {
@@ -117,18 +127,26 @@ function validateScenario(scenario) {
     violations.push('memory_without_provenance')
   }
 
-  // Regra 10 — isolamento A→B permitindo cross-lead state.
-  if (scenario.isolation && scenario.isolation.crossLeadLeak !== false) {
-    violations.push('cross_lead_state_leak')
+  // Regra 10 — isolamento A→B permitindo cross-lead state. `isolationRequired`
+  // é um campo de topo independente do bloco `isolation` em si, para que
+  // apagar o bloco inteiro (não só zerar seu valor) também quebre o gate —
+  // achado do Codex na revisão desta PR: a versão anterior só checava
+  // `scenario.isolation` quando ele existia, então removê-lo por completo
+  // passava silenciosamente.
+  if (scenario.isolationRequired === true) {
+    if (!scenario.isolation || scenario.isolation.crossLeadLeak !== false) {
+      violations.push('cross_lead_state_leak')
+    }
   }
 
-  // Regra 11 — grupo recebendo contexto individual.
-  if (
-    scenario.session?.isGroup === true &&
-    scenario.group &&
-    scenario.group.individualContextRendered !== false
-  ) {
-    violations.push('group_receives_individual_context')
+  // Regra 11 — grupo recebendo contexto individual. `session.isGroup` é um
+  // campo core (parte da identidade do cenário, coberto pela regra 1) — usá-lo
+  // como gatilho em vez de `scenario.group &&...` garante que apagar o bloco
+  // `group` inteiro de um cenário de grupo também quebre o gate.
+  if (scenario.session?.isGroup === true) {
+    if (!scenario.group || scenario.group.individualContextRendered !== false) {
+      violations.push('group_receives_individual_context')
+    }
   }
 
   // Validação estrutural adicional (não numerada na seção 36, mas exigida
@@ -180,11 +198,19 @@ test('regra 2 (mutante): AGORA com mais de uma decisão principal é detectado',
 test('regra 3 (mutante): AGORA com mais de dois cards de intervenção é detectado', () => {
   const broken = clone(PHASE16_SCENARIOS[2])
   broken.agora.interventionCards.push(
-    { source: 'sla', priority: 'high', reason: 'x', recommendedAction: 'y' },
-    { source: 'crm', priority: 'medium', reason: 'x', recommendedAction: 'y' },
+    { source: 'sla', priority: 'high', reason: 'x', recommendedAction: 'y', expiresAt: null, resolveCondition: 'x' },
+    { source: 'crm', priority: 'medium', reason: 'x', recommendedAction: 'y', expiresAt: null, resolveCondition: 'x' },
   )
 
   assert.ok(validateScenario(broken).includes('agora_too_many_intervention_cards'))
+})
+
+test('regra adicional (mutante): card de intervenção sem ciclo de vida é detectado', () => {
+  const broken = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
+  delete broken.agora.interventionCards[0].expiresAt
+  delete broken.agora.interventionCards[0].resolveCondition
+
+  assert.ok(validateScenario(broken).includes('intervention_card_without_lifecycle'))
 })
 
 test('regra 4 (mutante): MENSAGEM introduzindo fato próprio é detectado', () => {
@@ -245,12 +271,38 @@ test('regra 10 (mutante): cross-lead leak no cenário de isolamento é detectado
   assert.ok(validateScenario(broken).includes('cross_lead_state_leak'))
 })
 
+test('regra 10 (mutante): apagar o bloco isolation inteiro do cenário de isolamento é detectado', () => {
+  // Achado do Codex na revisão desta PR: a checagem original só avaliava
+  // `scenario.isolation` quando ele existia — remover o bloco inteiro
+  // passava silenciosamente. `isolationRequired` (campo de topo,
+  // independente do bloco) fecha esse buraco.
+  const isolationScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-8-lead-isolation-a-to-b')
+  assert.ok(isolationScenario, 'cenário de isolamento precisa existir na fixture')
+
+  const broken = clone(isolationScenario)
+  delete broken.isolation
+
+  assert.ok(validateScenario(broken).includes('cross_lead_state_leak'))
+})
+
 test('regra 11 (mutante): grupo recebendo contexto individual é detectado', () => {
   const groupScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-9-group-conversation')
   assert.ok(groupScenario, 'cenário de grupo precisa existir na fixture')
 
   const broken = clone(groupScenario)
   broken.group.individualContextRendered = true
+
+  assert.ok(validateScenario(broken).includes('group_receives_individual_context'))
+})
+
+test('regra 11 (mutante): apagar o bloco group inteiro do cenário de grupo é detectado', () => {
+  // Mesmo achado do Codex aplicado ao cenário de grupo: `session.isGroup`
+  // (campo core, não o bloco opcional `group`) é o gatilho da checagem.
+  const groupScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-9-group-conversation')
+  assert.ok(groupScenario, 'cenário de grupo precisa existir na fixture')
+
+  const broken = clone(groupScenario)
+  delete broken.group
 
   assert.ok(validateScenario(broken).includes('group_receives_individual_context'))
 })

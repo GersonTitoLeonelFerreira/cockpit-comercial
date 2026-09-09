@@ -18,7 +18,7 @@
 /**
  * @typedef {Object} ScenarioArea
  * @property {string|null} primaryDecision - AGORA: no máximo uma decisão principal (nunca array).
- * @property {Array<{source: string, priority: 'critical'|'high'|'medium'|'low', reason: string, recommendedAction: string}>} interventionCards - AGORA: no máximo 2.
+ * @property {Array<{source: string, priority: 'critical'|'high'|'medium'|'low', reason: string, recommendedAction: string, expiresAt: string|null, resolveCondition: string|null}>} interventionCards - AGORA: no máximo 2. Contrato, seção 4.3: todo card precisa de `expiresAt` OU `resolveCondition` (ciclo de vida).
  */
 
 export const PHASE16_SCENARIOS = [
@@ -117,6 +117,8 @@ export const PHASE16_SCENARIOS = [
           priority: 'high',
           reason: 'Existe retorno comercial agendado para hoje às 16h.',
           recommendedAction: 'Confirmar o retorno comercial das 16h.',
+          expiresAt: '2026-08-22T16:00:00-03:00',
+          resolveCondition: null,
         },
       ],
       proactive: true,
@@ -157,8 +159,17 @@ export const PHASE16_SCENARIOS = [
     opportunity: { active: false, preserved: true },
     agora: {
       momentoAtual: 'Nenhuma mensagem nova nesta sessão.',
-      primaryDecision: 'Lead prioritário sem primeiro contato.',
-      interventionCards: [],
+      primaryDecision: null,
+      interventionCards: [
+        {
+          source: 'inbound',
+          priority: 'high',
+          reason: 'Lead inbound sem primeiro contato há tempo suficiente para exigir ação.',
+          recommendedAction: 'Fazer o primeiro contato agora.',
+          expiresAt: null,
+          resolveCondition: 'primeiro_contato_realizado',
+        },
+      ],
       proactive: true,
       treatsSessionAsCommercial: false,
     },
@@ -190,8 +201,17 @@ export const PHASE16_SCENARIOS = [
     opportunity: { active: true, preserved: true },
     agora: {
       momentoAtual: 'Preço apresentado antes de confirmar o impacto.',
-      primaryDecision: 'Descoberta incompleta. Retome a descoberta antes de defender preço.',
-      interventionCards: [],
+      primaryDecision: null,
+      interventionCards: [
+        {
+          source: 'off_method',
+          priority: 'high',
+          reason: 'Preço foi apresentado antes de confirmar o impacto do problema.',
+          recommendedAction: 'Retome a descoberta antes de defender preço.',
+          expiresAt: null,
+          resolveCondition: 'descoberta_de_impacto_confirmada',
+        },
+      ],
       proactive: false,
       treatsSessionAsCommercial: true,
     },
@@ -237,6 +257,8 @@ export const PHASE16_SCENARIOS = [
           priority: 'medium',
           reason: 'Assunto operacional identificado (contrato/boleto/suporte).',
           recommendedAction: 'Encaminhar para o time de suporte.',
+          expiresAt: null,
+          resolveCondition: 'assunto_de_suporte_resolvido',
         },
       ],
       proactive: false,
@@ -252,10 +274,15 @@ export const PHASE16_SCENARIOS = [
     },
     cliente: {
       customerMemoryPresent: true,
+      // Nota (achado do Codex na revisão desta PR): o estado "oportunidade
+      // ativa" é venda (ANÁLISE/Opportunity Reading — já representado acima
+      // em analise.opportunityReadingPresent/opportunity.preserved), não
+      // memória sobre a pessoa. Colocá-lo aqui violaria a fronteira
+      // ANÁLISE=VENDA / CLIENTE=PESSOA que este próprio contrato formaliza.
       memoryItems: [
         {
-          fact: 'Oportunidade comercial ativa, independente do assunto de suporte.',
-          origin: 'opportunity_history',
+          fact: 'Prefere tratar assuntos administrativos por e-mail.',
+          origin: 'current_conversation',
           observedAt: '2026-08-15T11:00:00-03:00',
           status: 'active',
         },
@@ -319,6 +346,11 @@ export const PHASE16_SCENARIOS = [
     id: 'scenario-8-lead-isolation-a-to-b',
     title: 'Isolamento A → B',
     session: { commercial: true, isGroup: false },
+    // Campo de topo (fora do bloco opcional `isolation`) para que a
+    // validação exija o bloco de isolamento em vez de só verificar seu
+    // conteúdo quando ele existe — remover o bloco `isolation` inteiro
+    // deve quebrar o gate, não passar silenciosamente.
+    isolationRequired: true,
     operationalSignal: { present: false, type: null },
     // O Lead B começa sem histórico de oportunidade próprio nesta projeção
     // — o ponto do cenário é que nada de A atravessa para B, não que B já
