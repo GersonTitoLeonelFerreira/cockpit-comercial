@@ -643,6 +643,63 @@ test('evento histórico com state_snapshot.updated_at no futuro em relação a r
   assert.equal(memory.facts.length, 0)
 })
 
+test('empate em state_snapshot.updated_at entre versões da mesma conversa é desempatado pela versão mais alta', async () => {
+  // Achado do Codex (PR #277, rodada 3): stateful-copilot-input.ts só
+  // rejeita reference_time ESTRITAMENTE anterior ao updated_at do
+  // estado anterior — nunca igual — então duas versões sequenciais
+  // da mesma conversa podem compartilhar o mesmo updated_at. O
+  // desempate precisa usar candidate_state_version (a mais alta
+  // vence), não a ordem de chegada da paginação por `id` (que não
+  // tem relação com a ordem lógica das versões). O id padrão de
+  // buildEventRow (`event-<state_record_id>-v<version>`) ordena "v1"
+  // antes de "v3" em ordem lexicográfica ascendente — exatamente a
+  // ordem em que o código antigo (sem o desempate) escolheria
+  // incorretamente a versão mais antiga.
+  const tiedInstant = '2026-09-09T16:00:00.000Z'
+
+  const admin = createAdmin({
+    stateRows: [
+      buildStateRow({
+        id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        state_version: 5,
+        state_updated_at: '2026-09-09T18:00:00.000Z',
+        snapshot: { version: 5, updated_at: '2026-09-09T18:00:00.000Z' },
+      }),
+    ],
+    eventRows: [
+      buildEventRow({
+        state_record_id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        candidate_state_version: 1,
+        generated_at: tiedInstant,
+        snapshot: {
+          version: 1,
+          updated_at: tiedInstant,
+          facts: [buildFact({ id: 'fact-stale-tied-version' })],
+        },
+      }),
+      buildEventRow({
+        state_record_id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        candidate_state_version: 3,
+        generated_at: tiedInstant,
+        snapshot: {
+          version: 3,
+          updated_at: tiedInstant,
+          facts: [buildFact({ id: 'fact-correct-tied-version' })],
+        },
+      }),
+    ],
+  })
+
+  const memory = await load({ admin })
+
+  assert.equal(memory.facts.length, 1)
+  assert.equal(memory.facts[0].origin_id, 'fact-correct-tied-version')
+  assert.equal(memory.facts[0].provenance.state_version, 3)
+})
+
 test('paginação: mais linhas do que uma página (500) do PostgREST/Supabase são todas consolidadas', async () => {
   // Achado do Codex (PR #277): sem paginação explícita via .range(),
   // um ciclo com mais linhas do que o limite padrão de resposta do

@@ -807,6 +807,14 @@ async function loadCurrentStateRows({
  * ordenação por chave única garante que cada linha apareça em
  * exatamente uma página.
  *
+ * Empate em `state_snapshot.updated_at` entre versões da MESMA
+ * conversa é possível e legítimo: `stateful-copilot-input.ts` só
+ * rejeita `reference_time` ESTRITAMENTE anterior ao `updated_at` do
+ * estado anterior, nunca igual — uma versão nova pode ser produzida
+ * no mesmo instante da anterior. Nesse caso o desempate usa
+ * `candidate_state_version` (maior vence), não a ordem de chegada da
+ * paginação (achado do Codex, PR #277, rodada 3).
+ *
  * Escopo deliberado: a busca é restrita às conversation_keys que
  * realmente avançaram (normalmente zero, quando reference_time é
  * "agora"), nunca ao histórico inteiro do ciclo — evita carregar
@@ -923,11 +931,31 @@ async function loadHistoricalEventRows({
         conversationKey,
       )
 
-    if (
+    // stateful-copilot-input.ts só rejeita reference_time
+    // ESTRITAMENTE anterior ao updated_at do estado anterior
+    // (`Date.parse(referenceTime) < Date.parse(previousState.
+    // updated_at)`), nunca igual — então duas versões sequenciais da
+    // mesma conversa podem legitimamente compartilhar o mesmo
+    // state_snapshot.updated_at (candidate_state_version avança, o
+    // instante não). Num empate, a versão mais alta é a mais
+    // completa (o reducer só adiciona/supersede, nunca remove um
+    // item sem registrar isso numa versão nova) — desempatar por
+    // `id` (ordem de paginação, alheia à ordem lógica das versões)
+    // poderia manter a versão mais antiga. Achado do Codex, PR #277,
+    // rodada 3.
+    const isBetterCandidate =
       !existing ||
       updatedAtInstant >
-        existing.updatedAtInstant
-    ) {
+        existing.updatedAtInstant ||
+      (
+        updatedAtInstant ===
+          existing.updatedAtInstant &&
+        parsed.provenance.state_version >
+          existing.parsed.provenance
+            .state_version
+      )
+
+    if (isBetterCandidate) {
       latestPerConversationKey.set(
         conversationKey,
         {
