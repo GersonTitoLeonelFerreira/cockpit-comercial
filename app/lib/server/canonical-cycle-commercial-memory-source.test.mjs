@@ -92,16 +92,40 @@ function buildStateRow({
   }
 }
 
-function createAdmin({
-  rows = [],
-  error = null,
-  bypassFilters = false,
+function buildEventRow({
+  state_record_id = 'row-1',
+  company_id = COMPANY_ID,
+  cycle_id = CYCLE_ID,
+  conversation_key = 'whatsapp:+5547999990001',
+  candidate_state_version = 1,
+  state_contract_version = STATE_CONTRACT_VERSION,
+  generated_at = '2026-09-09T16:00:00.000Z',
+  snapshot = {},
 } = {}) {
-  class Query {
-    constructor(table) {
-      this.table = table
+  return {
+    state_record_id,
+    company_id,
+    cycle_id,
+    conversation_key,
+    candidate_state_version,
+    state_contract_version,
+    generated_at,
+    state_snapshot: buildSnapshot(snapshot),
+  }
+}
+
+function createQueryClass({
+  rows,
+  error,
+  bypassFilters,
+}) {
+  return class Query {
+    constructor() {
       this.filters = []
       this.upperBounds = []
+      this.inFilters = []
+      this.rangeFrom = null
+      this.rangeTo = null
     }
 
     select() { return this }
@@ -116,7 +140,22 @@ function createAdmin({
       return this
     }
 
-    order() { return this }
+    in(column, values) {
+      this.inFilters.push({ column, values })
+      return this
+    }
+
+    order(column, options = {}) {
+      this.orderColumn = column
+      this.orderAscending = options.ascending !== false
+      return this
+    }
+
+    range(from, to) {
+      this.rangeFrom = from
+      this.rangeTo = to
+      return this
+    }
 
     then(onFulfilled, onRejected) {
       if (error) {
@@ -124,7 +163,7 @@ function createAdmin({
           .then(onFulfilled, onRejected)
       }
 
-      const matched = bypassFilters
+      let matched = bypassFilters
         ? rows
         : rows.filter((row) =>
           this.filters.every(
@@ -134,18 +173,80 @@ function createAdmin({
             (filter) =>
               Date.parse(row[filter.column]) <=
                 Date.parse(filter.value),
+          ) &&
+          this.inFilters.every(
+            (filter) =>
+              filter.values.includes(row[filter.column]),
           ),
         )
+
+      matched = [...matched]
+
+      if (this.orderColumn) {
+        const column = this.orderColumn
+        const direction = this.orderAscending ? 1 : -1
+
+        matched.sort((a, b) => {
+          const left = a[column]
+          const right = b[column]
+
+          if (left === right) return 0
+
+          const leftInstant = Date.parse(left)
+          const rightInstant = Date.parse(right)
+
+          if (
+            Number.isFinite(leftInstant) &&
+            Number.isFinite(rightInstant)
+          ) {
+            return (leftInstant - rightInstant) * direction
+          }
+
+          return (left < right ? -1 : 1) * direction
+        })
+      }
+
+      if (this.rangeFrom !== null && this.rangeTo !== null) {
+        matched = matched.slice(this.rangeFrom, this.rangeTo + 1)
+      }
 
       return Promise.resolve({ data: matched, error: null })
         .then(onFulfilled, onRejected)
     }
   }
+}
+
+function createAdmin({
+  stateRows = [],
+  eventRows = [],
+  stateError = null,
+  eventError = null,
+  bypassFilters = false,
+} = {}) {
+  const StateQuery = createQueryClass({
+    rows: stateRows,
+    error: stateError,
+    bypassFilters,
+  })
+
+  const EventQuery = createQueryClass({
+    rows: eventRows,
+    error: eventError,
+    bypassFilters,
+  })
 
   return {
     from(table) {
-      assert.equal(table, 'companion_commercial_states')
-      return new Query(table)
+      if (table === 'companion_commercial_states') {
+        return new StateQuery()
+      }
+
+      if (table === 'companion_commercial_state_events') {
+        return new EventQuery()
+      }
+
+      assert.fail(`tabela inesperada: ${table}`)
+      return null
     },
   }
 }
@@ -166,7 +267,7 @@ function load({
 
 test('consolida fato ativo da Conversation A na memória canônica do ciclo', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         conversation_key: 'whatsapp:conversation-a',
         snapshot: {
@@ -192,7 +293,7 @@ test('consolida fato ativo da Conversation A na memória canônica do ciclo', as
 
 test('consolida objeção ativa de outra conversa do mesmo ciclo', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         conversation_key: 'phone-notes:conversation-b',
         snapshot: {
@@ -216,7 +317,7 @@ test('consolida objeção ativa de outra conversa do mesmo ciclo', async () => {
 
 test('não vaza memória de outro ciclo do mesmo lead', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         cycle_id: OTHER_CYCLE_ID,
         snapshot: {
@@ -235,7 +336,7 @@ test('não vaza memória de outro ciclo do mesmo lead', async () => {
 test('não vaza memória de outra empresa mesmo com bypass na camada de query', async () => {
   const admin = createAdmin({
     bypassFilters: true,
-    rows: [
+    stateRows: [
       buildStateRow({
         company_id: OTHER_COMPANY_ID,
         snapshot: {
@@ -258,7 +359,7 @@ test('ids brutos colidentes entre conversas diferentes não se confundem nem se 
   // conversation_key, então duas conversas independentes no mesmo
   // ciclo podem legitimamente colidir nesse id bruto.
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         conversation_key: 'conversation-a',
         snapshot: {
@@ -300,7 +401,7 @@ test('ids brutos colidentes entre conversas diferentes não se confundem nem se 
 
 test('mesma informação com ids diferentes convive na leitura (sem dedup semântico)', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         conversation_key: 'conversation-a',
         snapshot: {
@@ -327,7 +428,7 @@ test('mesma informação com ids diferentes convive na leitura (sem dedup semân
 
 test('item superseded em uma conversa nunca reaparece como ativo', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         snapshot: {
           facts: [
@@ -349,7 +450,7 @@ test('item superseded em uma conversa nunca reaparece como ativo', async () => {
 
 test('item resolved em uma conversa nunca reaparece como ativo', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         snapshot: {
           commitments: [
@@ -369,13 +470,36 @@ test('item resolved em uma conversa nunca reaparece como ativo', async () => {
   assert.equal(memory.commitments.length, 0)
 })
 
-test('estado com state_updated_at no futuro em relação a reference_time é excluído', async () => {
+test('linha atual com state_updated_at no futuro cai para o fallback histórico em vez de sumir', async () => {
+  // Achado do Codex (PR #277): companion_commercial_states é
+  // atualizada EM LUGAR — se a versão atual já avançou para depois de
+  // reference_time (job atrasado, replay), a linha atual não
+  // representa mais o que essa conversa sabia naquele instante. O
+  // fallback correto é o evento histórico mais recente <=
+  // reference_time em companion_commercial_state_events, não
+  // descartar a conversa inteira.
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
+        id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        state_version: 3,
         state_updated_at: '2026-09-09T17:00:00.001Z',
         snapshot: {
-          facts: [buildFact({ id: 'fact-future' })],
+          version: 3,
+          facts: [buildFact({ id: 'fact-future-version', created_in_state_version: 3 })],
+        },
+      }),
+    ],
+    eventRows: [
+      buildEventRow({
+        state_record_id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        candidate_state_version: 2,
+        generated_at: '2026-09-09T16:00:00.000Z',
+        snapshot: {
+          version: 2,
+          facts: [buildFact({ id: 'fact-valid-at-reference-time', created_in_state_version: 2 })],
         },
       }),
     ],
@@ -383,12 +507,131 @@ test('estado com state_updated_at no futuro em relação a reference_time é exc
 
   const memory = await load({ admin })
 
-  assert.equal(memory.facts.length, 0)
+  assert.equal(memory.facts.length, 1)
+  assert.equal(memory.facts[0].origin_id, 'fact-valid-at-reference-time')
+  assert.equal(memory.facts[0].provenance.state_version, 2)
+})
+
+test('fallback histórico usa o evento mais recente entre vários candidatos <= reference_time', async () => {
+  const admin = createAdmin({
+    stateRows: [
+      buildStateRow({
+        id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        state_version: 5,
+        state_updated_at: '2026-09-09T18:00:00.000Z',
+        snapshot: { version: 5 },
+      }),
+    ],
+    eventRows: [
+      buildEventRow({
+        state_record_id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        candidate_state_version: 2,
+        generated_at: '2026-09-09T15:00:00.000Z',
+        snapshot: {
+          version: 2,
+          facts: [buildFact({ id: 'fact-too-old', created_in_state_version: 2 })],
+        },
+      }),
+      buildEventRow({
+        state_record_id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        candidate_state_version: 4,
+        generated_at: '2026-09-09T16:30:00.000Z',
+        snapshot: {
+          version: 4,
+          facts: [buildFact({ id: 'fact-correct-version', created_in_state_version: 4 })],
+        },
+      }),
+    ],
+  })
+
+  const memory = await load({ admin })
+
+  assert.equal(memory.facts.length, 1)
+  assert.equal(memory.facts[0].origin_id, 'fact-correct-version')
+  assert.equal(memory.facts[0].provenance.state_version, 4)
+})
+
+test('conversa drifted sem nenhum evento elegível não contribui memória (mas não derruba as demais)', async () => {
+  const admin = createAdmin({
+    stateRows: [
+      buildStateRow({
+        id: 'state-record-drifted-no-history',
+        conversation_key: 'conversation-drifted-no-history',
+        state_version: 1,
+        state_updated_at: '2026-09-09T17:00:00.001Z',
+        snapshot: {
+          facts: [buildFact({ id: 'fact-only-future' })],
+        },
+      }),
+      buildStateRow({
+        id: 'state-record-fresh',
+        conversation_key: 'conversation-fresh',
+        snapshot: {
+          facts: [buildFact({ id: 'fact-fresh' })],
+        },
+      }),
+    ],
+    eventRows: [],
+  })
+
+  const memory = await load({ admin })
+
+  assert.equal(memory.facts.length, 1)
+  assert.equal(memory.facts[0].origin_id, 'fact-fresh')
+})
+
+test('paginação: mais linhas do que uma página (500) do PostgREST/Supabase são todas consolidadas', async () => {
+  // Achado do Codex (PR #277): sem paginação explícita via .range(),
+  // um ciclo com mais linhas do que o limite padrão de resposta do
+  // PostgREST/Supabase relataria sucesso com uma leitura incompleta.
+  // 501 linhas força exatamente duas páginas (500 + 1) na paginação
+  // real do módulo.
+  const totalRows = 501
+
+  const stateRows = Array.from({ length: totalRows }, (_, index) =>
+    buildStateRow({
+      id: `row-${String(index).padStart(4, '0')}`,
+      conversation_key: `conversation-${String(index).padStart(4, '0')}`,
+      snapshot: {
+        facts: [buildFact({ id: `fact-${String(index).padStart(4, '0')}` })],
+      },
+    }))
+
+  const admin = createAdmin({ stateRows })
+
+  const memory = await load({ admin })
+
+  assert.equal(memory.facts.length, totalRows)
+  assert.equal(memory.conversation_keys.length, totalRows)
+  assert.equal(memory.conversation_keys[0], 'conversation-0000')
+  assert.equal(memory.conversation_keys[totalRows - 1], 'conversation-0500')
+})
+
+test('erro na consulta de eventos históricos também mantém a leitura best-effort e retorna null', async () => {
+  const admin = createAdmin({
+    stateRows: [
+      buildStateRow({
+        conversation_key: 'conversation-drifted',
+        state_updated_at: '2026-09-09T17:00:00.001Z',
+        snapshot: {
+          facts: [buildFact({ id: 'fact-future' })],
+        },
+      }),
+    ],
+    eventError: { message: 'boom' },
+  })
+
+  const memory = await load({ admin })
+
+  assert.equal(memory, null)
 })
 
 test('estado no exato instante de reference_time é incluído mesmo com formato de serialização diferente', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         state_updated_at: '2026-09-09T17:00:00+00:00',
         snapshot: {
@@ -405,7 +648,7 @@ test('estado no exato instante de reference_time é incluído mesmo com formato 
 
 test('linha malformada é ignorada sem derrubar a leitura das demais', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         conversation_key: 'conversation-broken',
         state_contract_version: 'contrato-desconhecido',
@@ -430,7 +673,7 @@ test('linha malformada é ignorada sem derrubar a leitura das demais', async () 
 
 test('item malformado dentro de uma linha válida é ignorado sem afetar os demais itens', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         snapshot: {
           facts: [
@@ -448,9 +691,9 @@ test('item malformado dentro de uma linha válida é ignorado sem afetar os dema
   assert.equal(memory.facts[0].origin_id, 'fact-valid')
 })
 
-test('erro de query mantém a leitura best-effort e retorna null', async () => {
+test('erro de query no estado atual mantém a leitura best-effort e retorna null', async () => {
   const admin = createAdmin({
-    error: { message: 'boom' },
+    stateError: { message: 'boom' },
   })
 
   const memory = await load({ admin })
@@ -479,7 +722,7 @@ test('reference_time inválido retorna null sem consultar o banco', async () => 
 
 test('ordenação é determinística por conversation_key, versão de criação e id de origem', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         conversation_key: 'conversation-z',
         snapshot: {
@@ -503,7 +746,7 @@ test('ordenação é determinística por conversation_key, versão de criação 
   const memoryFirstRun = await load({ admin })
 
   const admin2 = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         conversation_key: 'conversation-a',
         snapshot: {
@@ -535,7 +778,7 @@ test('ordenação é determinística por conversation_key, versão de criação 
 
 test('provenance de cada item preserva conversation_key, state_record_id e state_version', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         id: 'state-record-xyz',
         conversation_key: 'conversation-a',
@@ -558,7 +801,7 @@ test('provenance de cada item preserva conversation_key, state_record_id e state
 
 test('compromisso ativo preserva commitment_status, scheduled_at e proposed_at', async () => {
   const admin = createAdmin({
-    rows: [
+    stateRows: [
       buildStateRow({
         snapshot: {
           commitments: [
@@ -584,7 +827,7 @@ test('compromisso ativo preserva commitment_status, scheduled_at e proposed_at',
 })
 
 test('nenhuma linha para o ciclo retorna coleções vazias, não null', async () => {
-  const admin = createAdmin({ rows: [] })
+  const admin = createAdmin({ stateRows: [] })
 
   const memory = await load({ admin })
 

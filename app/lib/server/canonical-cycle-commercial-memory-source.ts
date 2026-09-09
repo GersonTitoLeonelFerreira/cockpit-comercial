@@ -31,8 +31,36 @@ const CYCLE_COMMERCIAL_MEMORY_STATE_FIELDS = [
   'state_snapshot',
 ].join(',')
 
+const CYCLE_COMMERCIAL_MEMORY_EVENT_FIELDS = [
+  'state_record_id',
+  'company_id',
+  'cycle_id',
+  'conversation_key',
+  'candidate_state_version',
+  'state_contract_version',
+  'generated_at',
+  'state_snapshot',
+].join(',')
+
+const CYCLE_MEMORY_STATE_PAGE_SIZE =
+  500
+
+const MAX_CYCLE_MEMORY_STATE_ROWS =
+  10000
+
+const CYCLE_MEMORY_EVENT_PAGE_SIZE =
+  500
+
+const MAX_CYCLE_MEMORY_EVENT_ROWS =
+  10000
+
 type JsonRecord =
   Record<string, unknown>
+
+type SupabasePageResult = {
+  data: unknown
+  error: unknown
+}
 
 export type CycleCommercialMemoryProvenance = {
   conversation_key: string
@@ -76,6 +104,11 @@ export type CanonicalCycleCommercialMemory = {
 
   uncertainties:
     CycleCommercialMemoryItem<StatefulCommercialObservedItem>[]
+}
+
+type ParsedMemoryRow = {
+  provenance: CycleCommercialMemoryProvenance
+  snapshot: JsonRecord
 }
 
 function isRecord(
@@ -150,6 +183,254 @@ function readStringArray(
   }
 
   return result
+}
+
+/**
+ * Pagina uma consulta inteira via `.range(...)`, parando na primeira
+ * página menor que `pageSize` (fim dos dados). Retorna `null` (nunca
+ * lança) se qualquer página falhar ou se o total ultrapassar
+ * `maxRows` — o mesmo padrão de segurança já usado por
+ * loadLedgerRows em stateful-copilot-real-context-loader.ts, adaptado
+ * para o contrato best-effort deste módulo (degrada para `null` em
+ * vez de lançar, já que aqui uma leitura indisponível nunca deve
+ * derrubar o chamador).
+ */
+async function readAllPages({
+  pageSize,
+  maxRows,
+  fetchPage,
+}: {
+  pageSize: number
+  maxRows: number
+  fetchPage: (
+    offset: number,
+    limit: number,
+  ) => PromiseLike<SupabasePageResult>
+}): Promise<unknown[] | null> {
+  const rows: unknown[] = []
+
+  let offset = 0
+
+  while (true) {
+    const {
+      data,
+      error,
+    } =
+      await fetchPage(
+        offset,
+        pageSize,
+      )
+
+    if (
+      error ||
+      !Array.isArray(data)
+    ) {
+      return null
+    }
+
+    rows.push(
+      ...data,
+    )
+
+    if (rows.length > maxRows) {
+      return null
+    }
+
+    if (data.length < pageSize) {
+      break
+    }
+
+    offset += pageSize
+  }
+
+  return rows
+}
+
+function parseSnapshot(
+  rawSnapshot: unknown,
+  cycleId: string,
+): JsonRecord | null {
+  if (!isRecord(rawSnapshot)) {
+    return null
+  }
+
+  if (
+    rawSnapshot.contract_version !==
+      STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION ||
+    rawSnapshot.cycle_id !== cycleId
+  ) {
+    return null
+  }
+
+  return rawSnapshot
+}
+
+/**
+ * Valida somente os campos de identidade de uma linha de
+ * `companion_commercial_states` (sem validar o state_snapshot ainda)
+ * e devolve `state_updated_at` bruto para a classificação
+ * fresh/drifted em `loadCanonicalCycleCommercialMemory`. Uma linha
+ * "drifted" (versão atual gravada depois de reference_time) usa o
+ * fallback histórico em companion_commercial_state_events — para essa
+ * linha o `state_snapshot` atual nunca chega a ser lido, então não
+ * faz sentido validá-lo aqui.
+ */
+function parseCurrentStateIdentity({
+  row,
+  companyId,
+  cycleId,
+}: {
+  row: unknown
+  companyId: string
+  cycleId: string
+}): {
+  stateRecordId: string
+  conversationKey: string
+  stateVersion: number
+  stateUpdatedAt: string
+  rawSnapshot: unknown
+} | null {
+  if (!isRecord(row)) {
+    return null
+  }
+
+  const stateRecordId =
+    readNonEmptyString(row.id)
+
+  const rowCompanyId =
+    readNonEmptyString(row.company_id)
+
+  const rowCycleId =
+    readNonEmptyString(row.cycle_id)
+
+  const conversationKey =
+    readNonEmptyString(
+      row.conversation_key,
+    )
+
+  const stateContractVersion =
+    readNonEmptyString(
+      row.state_contract_version,
+    )
+
+  const stateUpdatedAt =
+    readNonEmptyString(
+      row.state_updated_at,
+    )
+
+  if (
+    !stateRecordId ||
+    !rowCompanyId ||
+    !rowCycleId ||
+    !conversationKey ||
+    !stateContractVersion ||
+    !stateUpdatedAt ||
+    rowCompanyId !== companyId ||
+    rowCycleId !== cycleId ||
+    stateContractVersion !==
+      STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION ||
+    !isPositiveStateVersion(
+      row.state_version,
+    ) ||
+    !Number.isFinite(
+      Date.parse(stateUpdatedAt),
+    )
+  ) {
+    return null
+  }
+
+  return {
+    stateRecordId,
+    conversationKey,
+    stateVersion:
+      row.state_version,
+    stateUpdatedAt,
+    rawSnapshot:
+      row.state_snapshot,
+  }
+}
+
+/**
+ * Valida uma linha de `companion_commercial_state_events` (o
+ * histórico versionado, nunca atualizado em lugar) e a converte no
+ * mesmo formato {provenance, snapshot} usado pelas linhas atuais de
+ * `companion_commercial_states`.
+ */
+function parseHistoricalEventRow({
+  row,
+  companyId,
+  cycleId,
+}: {
+  row: unknown
+  companyId: string
+  cycleId: string
+}): ParsedMemoryRow | null {
+  if (!isRecord(row)) {
+    return null
+  }
+
+  const stateRecordId =
+    readNonEmptyString(
+      row.state_record_id,
+    )
+
+  const rowCompanyId =
+    readNonEmptyString(row.company_id)
+
+  const rowCycleId =
+    readNonEmptyString(row.cycle_id)
+
+  const conversationKey =
+    readNonEmptyString(
+      row.conversation_key,
+    )
+
+  const stateContractVersion =
+    readNonEmptyString(
+      row.state_contract_version,
+    )
+
+  if (
+    !stateRecordId ||
+    !rowCompanyId ||
+    !rowCycleId ||
+    !conversationKey ||
+    !stateContractVersion ||
+    rowCompanyId !== companyId ||
+    rowCycleId !== cycleId ||
+    stateContractVersion !==
+      STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION ||
+    !isPositiveStateVersion(
+      row.candidate_state_version,
+    )
+  ) {
+    return null
+  }
+
+  const snapshot =
+    parseSnapshot(
+      row.state_snapshot,
+      cycleId,
+    )
+
+  if (!snapshot) {
+    return null
+  }
+
+  return {
+    provenance: {
+      conversation_key:
+        conversationKey,
+
+      state_record_id:
+        stateRecordId,
+
+      state_version:
+        row.candidate_state_version,
+    },
+
+    snapshot,
+  }
 }
 
 /**
@@ -348,83 +629,454 @@ function sortDeterministically<
   })
 }
 
-function readCommercialStateRow({
-  row,
+/**
+ * Carrega, para o ciclo inteiro, todas as linhas atuais de
+ * `companion_commercial_states` (paginado) e as classifica em:
+ * - "fresh": a versão atual já reflete um instante <= reference_time
+ *   — usa o snapshot atual diretamente, sem custo adicional.
+ * - "drifted": a versão atual foi gravada DEPOIS de reference_time —
+ *   `companion_commercial_states` é atualizada em lugar (a RPC faz
+ *   UPDATE, não INSERT, a partir da segunda versão), então a linha
+ *   atual não representa mais o que essa conversa sabia em
+ *   reference_time. Essas conversation_keys precisam do fallback
+ *   histórico via companion_commercial_state_events.
+ *
+ * A comparação fresh/drifted é feita em memória via Date.parse (não
+ * comparação lexical de string) — mesma lição da FASE 16.3A: o
+ * PostgREST pode serializar o mesmo instante em formatos diferentes
+ * (`+00:00` vs `.000Z`), e uma comparação de string ingênua poderia
+ * classificar um instante empatado como "no futuro" incorretamente.
+ */
+async function loadCurrentStateRows({
+  admin,
   companyId,
   cycleId,
+  referenceTime,
 }: {
-  row: unknown
+  admin: SupabaseClient
   companyId: string
   cycleId: string
-}): {
-  provenance: CycleCommercialMemoryProvenance
-  snapshot: JsonRecord
-} | null {
-  if (!isRecord(row)) {
+  referenceTime: string
+}): Promise<{
+  fresh: ParsedMemoryRow[]
+  driftedConversationKeys: string[]
+} | null> {
+  const rows =
+    await readAllPages({
+      pageSize:
+        CYCLE_MEMORY_STATE_PAGE_SIZE,
+
+      maxRows:
+        MAX_CYCLE_MEMORY_STATE_ROWS,
+
+      fetchPage: (offset, limit) =>
+        admin
+          .from(
+            'companion_commercial_states',
+          )
+          .select(
+            CYCLE_COMMERCIAL_MEMORY_STATE_FIELDS,
+          )
+          .eq(
+            'company_id',
+            companyId,
+          )
+          .eq(
+            'cycle_id',
+            cycleId,
+          )
+          .order(
+            'conversation_key',
+            { ascending: true },
+          )
+          .range(
+            offset,
+            offset + limit - 1,
+          ),
+    })
+
+  if (rows === null) {
     return null
   }
 
-  const stateRecordId =
-    readNonEmptyString(row.id)
+  const referenceInstant =
+    Date.parse(referenceTime)
 
-  const rowCompanyId =
-    readNonEmptyString(row.company_id)
+  const fresh: ParsedMemoryRow[] =
+    []
 
-  const rowCycleId =
-    readNonEmptyString(row.cycle_id)
+  const driftedConversationKeys: string[] =
+    []
 
-  const conversationKey =
-    readNonEmptyString(
-      row.conversation_key,
+  for (const row of rows) {
+    const identity =
+      parseCurrentStateIdentity({
+        row,
+        companyId,
+        cycleId,
+      })
+
+    if (!identity) {
+      continue
+    }
+
+    const updatedAtInstant =
+      Date.parse(
+        identity.stateUpdatedAt,
+      )
+
+    if (updatedAtInstant <= referenceInstant) {
+      const snapshot =
+        parseSnapshot(
+          identity.rawSnapshot,
+          cycleId,
+        )
+
+      if (snapshot) {
+        fresh.push({
+          provenance: {
+            conversation_key:
+              identity.conversationKey,
+
+            state_record_id:
+              identity.stateRecordId,
+
+            state_version:
+              identity.stateVersion,
+          },
+
+          snapshot,
+        })
+      }
+
+      continue
+    }
+
+    driftedConversationKeys.push(
+      identity.conversationKey,
     )
-
-  const stateContractVersion =
-    readNonEmptyString(
-      row.state_contract_version,
-    )
-
-  if (
-    !stateRecordId ||
-    !rowCompanyId ||
-    !rowCycleId ||
-    !conversationKey ||
-    !stateContractVersion ||
-    rowCompanyId !== companyId ||
-    rowCycleId !== cycleId ||
-    stateContractVersion !==
-      STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION ||
-    !isPositiveStateVersion(
-      row.state_version,
-    ) ||
-    !isRecord(row.state_snapshot)
-  ) {
-    return null
-  }
-
-  const snapshot =
-    row.state_snapshot
-
-  if (
-    snapshot.contract_version !==
-      STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION ||
-    snapshot.cycle_id !== cycleId
-  ) {
-    return null
   }
 
   return {
-    provenance: {
-      conversation_key:
-        conversationKey,
+    fresh,
+    driftedConversationKeys,
+  }
+}
 
-      state_record_id:
-        stateRecordId,
+/**
+ * Para conversas cuja linha atual já avançou além de reference_time
+ * ("drifted"), busca em companion_commercial_state_events (histórico
+ * imutável, nunca atualizado em lugar) o evento mais recente com
+ * generated_at <= reference_time — a fotografia que era válida no
+ * instante pedido. Ordenado por generated_at DESC e paginado; como a
+ * ordenação é decrescente, a PRIMEIRA ocorrência de cada
+ * conversation_key encontrada já é a mais recente elegível.
+ *
+ * Escopo deliberado: a busca é restrita às conversation_keys que
+ * realmente avançaram (normalmente zero, quando reference_time é
+ * "agora"), nunca ao histórico inteiro do ciclo — evita carregar
+ * anos de eventos de um ciclo de vida longa para servir uma leitura
+ * best-effort.
+ */
+async function loadHistoricalEventRows({
+  admin,
+  companyId,
+  cycleId,
+  referenceTime,
+  driftedConversationKeys,
+}: {
+  admin: SupabaseClient
+  companyId: string
+  cycleId: string
+  referenceTime: string
+  driftedConversationKeys: string[]
+}): Promise<ParsedMemoryRow[] | null> {
+  if (driftedConversationKeys.length === 0) {
+    return []
+  }
 
-      state_version:
-        row.state_version,
-    },
+  const rows =
+    await readAllPages({
+      pageSize:
+        CYCLE_MEMORY_EVENT_PAGE_SIZE,
 
+      maxRows:
+        MAX_CYCLE_MEMORY_EVENT_ROWS,
+
+      fetchPage: (offset, limit) =>
+        admin
+          .from(
+            'companion_commercial_state_events',
+          )
+          .select(
+            CYCLE_COMMERCIAL_MEMORY_EVENT_FIELDS,
+          )
+          .eq(
+            'company_id',
+            companyId,
+          )
+          .eq(
+            'cycle_id',
+            cycleId,
+          )
+          .in(
+            'conversation_key',
+            driftedConversationKeys,
+          )
+          .lte(
+            'generated_at',
+            referenceTime,
+          )
+          .order(
+            'generated_at',
+            { ascending: false },
+          )
+          .range(
+            offset,
+            offset + limit - 1,
+          ),
+    })
+
+  if (rows === null) {
+    return null
+  }
+
+  const latestPerConversationKey =
+    new Map<string, ParsedMemoryRow>()
+
+  for (const row of rows) {
+    const parsed =
+      parseHistoricalEventRow({
+        row,
+        companyId,
+        cycleId,
+      })
+
+    if (!parsed) {
+      continue
+    }
+
+    if (
+      !latestPerConversationKey.has(
+        parsed.provenance.conversation_key,
+      )
+    ) {
+      latestPerConversationKey.set(
+        parsed.provenance.conversation_key,
+        parsed,
+      )
+    }
+  }
+
+  return [
+    ...latestPerConversationKey.values(),
+  ]
+}
+
+function collectFromParsedRows(
+  parsedRows: ParsedMemoryRow[],
+): Omit<
+  CanonicalCycleCommercialMemory,
+  'company_id' | 'cycle_id' | 'reference_time'
+> {
+  const facts: CycleCommercialMemoryItem<
+    StatefulCommercialFact
+  >[] = []
+
+  const needs: CycleCommercialMemoryItem<
+    StatefulCommercialObservedItem
+  >[] = []
+
+  const openLoops: CycleCommercialMemoryItem<
+    StatefulCommercialOpenLoop
+  >[] = []
+
+  const objections: CycleCommercialMemoryItem<
+    StatefulCommercialObservedItem
+  >[] = []
+
+  const commitments: CycleCommercialMemoryItem<
+    StatefulCommercialCommitment
+  >[] = []
+
+  const signals: CycleCommercialMemoryItem<
+    StatefulCommercialObservedItem
+  >[] = []
+
+  const uncertainties: CycleCommercialMemoryItem<
+    StatefulCommercialObservedItem
+  >[] = []
+
+  const conversationKeys: string[] =
+    []
+
+  for (const {
+    provenance,
     snapshot,
+  } of parsedRows) {
+    conversationKeys.push(
+      provenance.conversation_key,
+    )
+
+    facts.push(
+      ...collectActiveItems<
+        StatefulCommercialFact
+      >(
+        snapshot.facts,
+        provenance,
+        (raw) => {
+          const value =
+            raw.value === null ||
+            typeof raw.value === 'string'
+              ? raw.value
+              : undefined
+
+          if (
+            value === undefined ||
+            !isStatefulCopilotConfidence(
+              raw.confidence,
+            )
+          ) {
+            return null
+          }
+
+          return {
+            value,
+            confidence:
+              raw.confidence,
+          }
+        },
+      ),
+    )
+
+    const observed = (
+      rawItems: unknown,
+    ) =>
+      collectActiveItems<
+        StatefulCommercialObservedItem
+      >(
+        rawItems,
+        provenance,
+        (raw) => {
+          if (
+            !isStatefulCopilotConfidence(
+              raw.confidence,
+            )
+          ) {
+            return null
+          }
+
+          return {
+            confidence:
+              raw.confidence,
+          }
+        },
+      )
+
+    needs.push(
+      ...observed(snapshot.needs),
+    )
+
+    objections.push(
+      ...observed(
+        snapshot.objections,
+      ),
+    )
+
+    signals.push(
+      ...observed(snapshot.signals),
+    )
+
+    uncertainties.push(
+      ...observed(
+        snapshot.uncertainties,
+      ),
+    )
+
+    openLoops.push(
+      ...collectActiveItems<
+        StatefulCommercialOpenLoop
+      >(
+        snapshot.open_loops,
+        provenance,
+        () => ({}),
+      ),
+    )
+
+    commitments.push(
+      ...collectActiveItems<
+        StatefulCommercialCommitment
+      >(
+        snapshot.commitments,
+        provenance,
+        (raw) => {
+          const scheduledAt =
+            readNullableString(
+              raw.scheduled_at,
+            )
+
+          const proposedAt =
+            readNullableString(
+              raw.proposed_at,
+            )
+
+          if (
+            !isStatefulCopilotCommitmentStatus(
+              raw.commitment_status,
+            ) ||
+            !scheduledAt.ok ||
+            !proposedAt.ok
+          ) {
+            return null
+          }
+
+          return {
+            commitment_status:
+              raw.commitment_status,
+            scheduled_at:
+              scheduledAt.value,
+            proposed_at:
+              proposedAt.value,
+          }
+        },
+      ),
+    )
+  }
+
+  return {
+    conversation_keys:
+      [...new Set(conversationKeys)].sort(),
+
+    facts:
+      sortDeterministically(facts),
+
+    needs:
+      sortDeterministically(needs),
+
+    open_loops:
+      sortDeterministically(
+        openLoops,
+      ),
+
+    objections:
+      sortDeterministically(
+        objections,
+      ),
+
+    commitments:
+      sortDeterministically(
+        commitments,
+      ),
+
+    signals:
+      sortDeterministically(
+        signals,
+      ),
+
+    uncertainties:
+      sortDeterministically(
+        uncertainties,
+      ),
   }
 }
 
@@ -453,24 +1105,36 @@ function readCommercialStateRow({
  * por construção e preservando a proveniência original em
  * `origin_id` + `provenance`.
  *
- * Escopo desta leitura (deliberado, não uma lacuna silenciosa):
+ * IMPORTANTE — leitura histórica em reference_time: como
+ * `companion_commercial_states` é atualizada em lugar (a RPC de
+ * persistência faz UPDATE a partir da segunda versão, nunca INSERT),
+ * a linha atual de uma conversa pode já ter avançado para depois de
+ * `reference_time` (jobs atrasados, replay). Para essas conversas
+ * ("drifted"), a leitura cai para companion_commercial_state_events
+ * — o histórico imutável — e usa o evento mais recente com
+ * generated_at <= reference_time, em vez de simplesmente descartar a
+ * conversa inteira. Ver loadCurrentStateRows/loadHistoricalEventRows.
+ *
+ * Toda consulta é paginada via `.range(...)` (mesmo padrão de
+ * loadLedgerRows em stateful-copilot-real-context-loader.ts) com um
+ * teto de segurança — excedê-lo degrada para `null` (best-effort),
+ * nunca retorna uma leitura silenciosamente incompleta.
+ *
+ * Escopo deliberado desta leitura (documentado no próprio módulo, não
+ * uma lacuna silenciosa):
  * - Somente itens com `memory_status: 'active'` são retornados.
  *   Resolved/superseded em uma conversa nunca reaparecem como ativos
  *   aqui, mesmo que outra conversa nunca os tenha fechado.
- * - Estado com `state_updated_at` posterior a `reference_time` é
- *   excluído (nunca promove memória "do futuro"), comparado como
- *   instante pela própria query (`.lte`), não como string em JS —
- *   mesma lição do achado do Codex na FASE 16.3A.
  * - A validação de cada item é estrutural (shape, status, versões).
  *   NÃO revalida se evidence_message_ids ainda pertence ao ledger
  *   ativo daquela conversa específica — isso exigiria carregar o
  *   ledger de cada conversation_key contribuinte, o que esta leitura
  *   best-effort e multi-conversa não faz nesta fase.
  * - "Mesma informação com ids diferentes" (duas conversas descrevendo
- *   o mesmo fato com side="active" e side ids distintos) NÃO é
- *   deduplicada: não existe no contrato atual nenhuma noção de
- *   equivalência semântica entre itens, então os dois convivem na
- *   leitura (coexistência), com proveniência própria cada um.
+ *   o mesmo fato com ids distintos) NÃO é deduplicada: não existe no
+ *   contrato atual nenhuma noção de equivalência semântica entre
+ *   itens, então os dois convivem na leitura (coexistência), com
+ *   proveniência própria cada um.
  * - Não promove memória de ciclo para memória de pessoa (e
  *   vice-versa): este agregador nunca cruza cycle_id. A herança
  *   entre ciclos continua sendo exclusivamente responsabilidade do
@@ -508,217 +1172,38 @@ export async function loadCanonicalCycleCommercialMemory({
   }
 
   try {
-    const {
-      data: rows,
-      error,
-    } =
-      await admin
-        .from(
-          'companion_commercial_states',
-        )
-        .select(
-          CYCLE_COMMERCIAL_MEMORY_STATE_FIELDS,
-        )
-        .eq(
-          'company_id',
-          company_id,
-        )
-        .eq(
-          'cycle_id',
-          cycle_id,
-        )
-        .lte(
-          'state_updated_at',
-          referenceTime,
-        )
-        .order(
-          'conversation_key',
-          { ascending: true },
-        )
+    const currentRows =
+      await loadCurrentStateRows({
+        admin,
+        companyId: company_id,
+        cycleId: cycle_id,
+        referenceTime,
+      })
 
-    if (
-      error ||
-      !Array.isArray(rows)
-    ) {
+    if (currentRows === null) {
       return null
     }
 
-    const facts: CycleCommercialMemoryItem<
-      StatefulCommercialFact
-    >[] = []
+    const historicalRows =
+      await loadHistoricalEventRows({
+        admin,
+        companyId: company_id,
+        cycleId: cycle_id,
+        referenceTime,
+        driftedConversationKeys:
+          currentRows
+            .driftedConversationKeys,
+      })
 
-    const needs: CycleCommercialMemoryItem<
-      StatefulCommercialObservedItem
-    >[] = []
-
-    const openLoops: CycleCommercialMemoryItem<
-      StatefulCommercialOpenLoop
-    >[] = []
-
-    const objections: CycleCommercialMemoryItem<
-      StatefulCommercialObservedItem
-    >[] = []
-
-    const commitments: CycleCommercialMemoryItem<
-      StatefulCommercialCommitment
-    >[] = []
-
-    const signals: CycleCommercialMemoryItem<
-      StatefulCommercialObservedItem
-    >[] = []
-
-    const uncertainties: CycleCommercialMemoryItem<
-      StatefulCommercialObservedItem
-    >[] = []
-
-    const conversationKeys: string[] =
-      []
-
-    for (const row of rows) {
-      const parsed =
-        readCommercialStateRow({
-          row,
-          companyId: company_id,
-          cycleId: cycle_id,
-        })
-
-      if (!parsed) {
-        continue
-      }
-
-      const {
-        provenance,
-        snapshot,
-      } = parsed
-
-      conversationKeys.push(
-        provenance.conversation_key,
-      )
-
-      facts.push(
-        ...collectActiveItems<
-          StatefulCommercialFact
-        >(
-          snapshot.facts,
-          provenance,
-          (raw) => {
-            const value =
-              raw.value === null ||
-              typeof raw.value === 'string'
-                ? raw.value
-                : undefined
-
-            if (
-              value === undefined ||
-              !isStatefulCopilotConfidence(
-                raw.confidence,
-              )
-            ) {
-              return null
-            }
-
-            return {
-              value,
-              confidence:
-                raw.confidence,
-            }
-          },
-        ),
-      )
-
-      const observed = (
-        rawItems: unknown,
-      ) =>
-        collectActiveItems<
-          StatefulCommercialObservedItem
-        >(
-          rawItems,
-          provenance,
-          (raw) => {
-            if (
-              !isStatefulCopilotConfidence(
-                raw.confidence,
-              )
-            ) {
-              return null
-            }
-
-            return {
-              confidence:
-                raw.confidence,
-            }
-          },
-        )
-
-      needs.push(
-        ...observed(snapshot.needs),
-      )
-
-      objections.push(
-        ...observed(
-          snapshot.objections,
-        ),
-      )
-
-      signals.push(
-        ...observed(snapshot.signals),
-      )
-
-      uncertainties.push(
-        ...observed(
-          snapshot.uncertainties,
-        ),
-      )
-
-      openLoops.push(
-        ...collectActiveItems<
-          StatefulCommercialOpenLoop
-        >(
-          snapshot.open_loops,
-          provenance,
-          () => ({}),
-        ),
-      )
-
-      commitments.push(
-        ...collectActiveItems<
-          StatefulCommercialCommitment
-        >(
-          snapshot.commitments,
-          provenance,
-          (raw) => {
-            const scheduledAt =
-              readNullableString(
-                raw.scheduled_at,
-              )
-
-            const proposedAt =
-              readNullableString(
-                raw.proposed_at,
-              )
-
-            if (
-              !isStatefulCopilotCommitmentStatus(
-                raw.commitment_status,
-              ) ||
-              !scheduledAt.ok ||
-              !proposedAt.ok
-            ) {
-              return null
-            }
-
-            return {
-              commitment_status:
-                raw.commitment_status,
-              scheduled_at:
-                scheduledAt.value,
-              proposed_at:
-                proposedAt.value,
-            }
-          },
-        ),
-      )
+    if (historicalRows === null) {
+      return null
     }
+
+    const collected =
+      collectFromParsedRows([
+        ...currentRows.fresh,
+        ...historicalRows,
+      ])
 
     return {
       company_id,
@@ -726,39 +1211,7 @@ export async function loadCanonicalCycleCommercialMemory({
       reference_time:
         referenceTime,
 
-      conversation_keys:
-        [...new Set(conversationKeys)].sort(),
-
-      facts:
-        sortDeterministically(facts),
-
-      needs:
-        sortDeterministically(needs),
-
-      open_loops:
-        sortDeterministically(
-          openLoops,
-        ),
-
-      objections:
-        sortDeterministically(
-          objections,
-        ),
-
-      commitments:
-        sortDeterministically(
-          commitments,
-        ),
-
-      signals:
-        sortDeterministically(
-          signals,
-        ),
-
-      uncertainties:
-        sortDeterministically(
-          uncertainties,
-        ),
+      ...collected,
     }
   } catch (error) {
     console.error(
