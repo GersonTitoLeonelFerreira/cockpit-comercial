@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  COMMERCIAL_READING_CONTRACT_VERSION,
+} from '../companion/commercial-reading-contract.ts'
+
+import {
   buildTestCommercialState,
   createMessageIntelligenceFakeAdmin,
 } from '../companion/e2-test-support/fake-message-intelligence-admin.mjs'
@@ -150,7 +154,7 @@ function buildEvent(overrides = {}) {
           'phase-5.2-communication-v5',
         commercial_reading: {
           contract_version:
-            'commercial-reading-v2',
+            COMMERCIAL_READING_CONTRACT_VERSION,
         },
       },
     },
@@ -201,7 +205,7 @@ test(
     assert.equal(
       sources.commercial_reading.reading
         .contract_version,
-      'commercial-reading-v2',
+      COMMERCIAL_READING_CONTRACT_VERSION,
     )
   },
 )
