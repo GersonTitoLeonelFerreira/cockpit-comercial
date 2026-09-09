@@ -173,7 +173,7 @@ Taxonomia usada nas seções seguintes (definida na missão, seção 8):
 | 10 | stage | CRM | lead/cycle | `leads.current_stage_id` / `sales_cycles.status` | CANONICAL | idem | dashboard | dashboard, Companion | idem | n/a | idem | LOW | **MEDIUM** (vs. `companion_method_stage_state`, ver §12) | não (mas dois conceitos de "estágio" coexistem) | dashboard | ANÁLISE | decidir ownership |
 | 11 | opportunity status | CRM | cycle | `sales_cycles.status` (enum `lead_status`) | CANONICAL | `sales_cycles` | dashboard | dashboard, Companion | company_id+cycle_id | n/a | até edição/won/lost | LOW | LOW | não | dashboard | ANÁLISE | reutilizar |
 | 12 | opportunity stagnation | Operational | cycle | `assessCompanionClientSla()` (via `stage_entered_at`) | DERIVED | não persistido | n/a | UI | company_id+cycle_id | nenhuma | por request | LOW | LOW | não | UI | AGORA (seção 4.7) | reutilizar |
-| 13 | next step | Opportunity/Method | cycle | `current_priority` (`StatefulCommercialState`) via `output.strategy.next_move` | OPPORTUNITY_STATE | `companion_commercial_states` | reducer | AGORA | company_id+cycle_id | `evidence_message_ids` | por turno | LOW | LOW | não | AGORA | Decision State | reutilizar |
+| 13 | next step | Opportunity/Method | cycle | `current_priority` (`StatefulCommercialState`) via `output.strategy.next_move`. **Mesma ressalva da linha #3 (achado do Codex, 2ª revisão do PR #274):** `preservePreviousCommercialStateWhenClosed()` também preserva `current_priority` do estado anterior fora de interação comercial acionável — não é recalculado incondicionalmente a cada turno. | OPPORTUNITY_STATE | `companion_commercial_states` | reducer | AGORA | company_id+cycle_id | `evidence_message_ids` | **preservado (não recalculado) quando o contato não é comercialmente acionável** | **MEDIUM** (não LOW) | LOW | não | AGORA | Decision State | reutilizar, expondo o momento em que foi preservado |
 | 14 | commercial commitment | Opportunity | cycle | `commitments[]` | OPPORTUNITY_STATE | idem #7 | idem | idem | idem | idem | idem | MEDIUM | HIGH (ver #7) | sim | ANÁLISE | AGORA proativo | decidir ownership |
 | 15 | method current stage (AGORA) | Method State | cycle | `companion_method_stage_state` | OPPORTUNITY_STATE | tabela dedicada (`companion-method-stage-store.ts`) | `saveCompanionMethodStage` | AGORA | company_id+cycle_id+conversation_key | nenhuma (gate determinístico) | último valor, sem histórico | LOW | **HIGH** (vs #16) | sim — divergência documentada no próprio código | AGORA | Method State (16.3) | consolidar |
 | 16 | method current stage (ANÁLISE) | Method State | cycle | `commercial-reading-contract.ts` `method.adherence` via `stateful-communication-executor.ts` | DERIVED (não persistido) | não persistido (só audit log) | modelo, por turno | ANÁLISE | company_id+cycle_id | `evidence_message_ids` (no output) | recalculado a cada turno, sem continuidade | **HIGH** | **HIGH** (vs #15) | sim | ANÁLISE | Method State (16.3) | consolidar |
@@ -397,12 +397,22 @@ antes, porque não há um objeto persistido único que ambos leiam.
 ## 13. Current Moment sources
 
 `StatefulCommercialState.current_moment` e `.current_priority`
-(`app/lib/companion/stateful-commercial-state.ts`), computados a cada
-turno pelo reducer a partir da janela de sessão de 4h (§3). Persistidos
-dentro de `companion_commercial_states.state_snapshot`, mas
-semanticamente são "estado de sessão" (mudam a cada turno), não memória
-de longo prazo — classificação mista `OPPORTUNITY_STATE` (mecanismo de
-persistência) com semântica `SESSION_STATE` (horizonte).
+(`app/lib/companion/stateful-commercial-state.ts`), candidatos computados
+a cada turno pelo reducer a partir da janela de sessão de 4h (§3).
+Persistidos dentro de `companion_commercial_states.state_snapshot`.
+
+**Correção (achado do Codex, 2ª revisão do PR #274):** esses campos **não
+mudam necessariamente a cada turno**. `stateful-copilot-engine.ts::
+preservePreviousCommercialStateWhenClosed()` substitui o candidato pelo
+valor do estado anterior sempre que `output.commercial_role !== 'buyer'`
+ou a relevância comercial não é acionável — isso vale tanto para
+`current_moment` quanto para `current_priority` (linha #13 da matriz,
+"next step", também herda essa ressalva: seu lifetime não é "por turno"
+incondicionalmente, e o stale risk correto é MEDIUM, não LOW). A
+classificação continua mista — `OPPORTUNITY_STATE` (mecanismo de
+persistência) com semântica `SESSION_STATE` (horizonte pretendido) — mas
+o horizonte real inclui a possibilidade de um valor herdado de uma
+interação comercial anterior, não só da sessão atual.
 
 ## 14. Opportunity Reading sources
 
@@ -481,11 +491,14 @@ cadeia stateful. Bem definido e sem ambiguidade de ownership.
 Ver §11/§12 para as duplicações. CRM (`leads`/`sales_cycles`) é canônico e
 nunca escrito automaticamente por IA (confirmado — nenhum write path
 encontrado a partir de `CommercialReadingCrmSuggestion`/
-`AgendaSuggestion`). Agenda tem 3 fontes não sincronizadas. SLA tem 2
-tabelas de regra (uma provavelmente legada) e 2 eixos de cálculo
-independentes (SLA de etapa vs. espera por mensagem). Inbound real existe
-só para captura de site; **inbound via WhatsApp está `MISSING`** como
-fonte operacional própria.
+`AgendaSuggestion`). Agenda tem 3 fontes não sincronizadas. **SLA tem 2
+tabelas de regra ativas e divergentes, não uma canônica e uma legada**
+(achado do Codex, 1ª revisão do PR #274, reforçado na 2ª): o caminho real
+do Companion (`companion-client-context-loader.ts::loadSlaRule()`) lê
+`sla_rules`, enquanto admin/relatórios (`report_sla_risk`) leem/escrevem
+`company_sla_rules` — mais 2 eixos de cálculo independentes (SLA de etapa
+vs. espera por mensagem). Inbound real existe só para captura de site;
+**inbound via WhatsApp está `MISSING`** como fonte operacional própria.
 
 ## 21. Commercial Reading audit
 
