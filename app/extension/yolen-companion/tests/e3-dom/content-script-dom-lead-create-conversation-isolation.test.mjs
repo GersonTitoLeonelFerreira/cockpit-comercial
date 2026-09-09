@@ -986,3 +986,221 @@ test('TESTE 16: vínculo pendente -> botão GLOBAL Atualizar -> resolve continua
     'o botão global Atualizar nunca pode disparar um CREATE',
   )
 })
+
+// FASE 15.1 — hotfix pós-merge: os TESTES 1-16 acima chamam
+// window.YolenCompanionApi.resolveLead() direto no mock, sem carregar
+// lead-resolution-runtime-cache.js (o cache por identidade
+// phone/display_name que existe de verdade entre yolen-api.js e
+// content-script.js em produção, conforme manifest.json). Por isso nenhum
+// deles conseguia enxergar o BLOCKER real do smoke Firefox: NOT_FOUND
+// sendo cacheado por identidade e reaproveitado indefinidamente pelas
+// PRÓPRIAS chamadas de resolveCurrentLead() (retry automático pós-create E
+// clique manual em "Atualizar vínculo"), mesmo depois do backend já ter o
+// lead. `withLeadResolutionCache: true` carrega o runtime de cache real
+// nesta mesma sandbox (mesma ordem relativa do manifest.json), fechando
+// esse ponto cego.
+test('TESTE 17 (com cache de resolução real): NOT_FOUND -> create confirmado -> primeira reconsulta ainda NOT_FOUND -> backend passa a OWNED_BY_ME -> retry automático consulta de verdade e o vínculo aparece', async () => {
+  let armEventualConsistencyOnNextCall = false
+  let firstPostCreateSeen = false
+
+  const resolutions = {
+    [PHONE_A]: () => {
+      if (armEventualConsistencyOnNextCall && !firstPostCreateSeen) {
+        // Primeira reconsulta depois do create: eventual consistency
+        // ainda não propagou, continua NOT_FOUND. Com o BUG pré-fix, essa
+        // resposta seria cacheada por identidade e nenhuma chamada
+        // seguinte a este mock aconteceria de verdade.
+        firstPostCreateSeen = true
+        return notFoundResolution(PHONE_A)
+      }
+
+      if (firstPostCreateSeen) {
+        return ownedResolution(PHONE_A)
+      }
+
+      return notFoundResolution(PHONE_A)
+    },
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    withLeadResolutionCache: true,
+    createLeadResult: {
+      ok: true,
+      lead_id: 'lead-new-1',
+      cycle_id: 'cycle-new-1',
+      owner_user_id: 'user-1',
+    },
+  })
+
+  await waitFor(() =>
+    Boolean(document.querySelector('[data-yolen-lead-create-form]')),
+  )
+  await sleep(60)
+
+  armEventualConsistencyOnNextCall = true
+  await fillAndSubmit(document, 'Cliente Novo')
+
+  await waitFor(() => createLeadCalls(calls).length > 0)
+  await waitFor(() => firstPostCreateSeen)
+
+  // O formulário de criação some quase IMEDIATAMENTE depois do CREATE
+  // confirmado (antes mesmo do laço de retry começar) — esperar só por
+  // isso não prova nada sobre o cache. O que precisa ser esperado é o
+  // laço de retry (400/900/1600ms de backoff) terminar de verdade e o
+  // vínculo aparecer sozinho. Com o BUG pré-fix, o NOT_FOUND da primeira
+  // reconsulta pós-create ficava cacheado por identidade (mesmo phone) e
+  // as tentativas seguintes deste laço nunca chegavam a consultar o
+  // backend de novo — este waitFor estoura por timeout.
+  await waitFor(
+    () =>
+      Boolean(document.querySelector('[data-yolen-action="open-cycle-yolen"]')),
+    { timeoutMs: 6000 },
+  )
+
+  assert.doesNotMatch(
+    getPanel(document).innerHTML,
+    /vínculo ainda não foi atualizado/,
+    'o vínculo precisa aparecer sozinho, sem exigir nenhum clique manual',
+  )
+  assert.equal(
+    document.querySelector('[data-yolen-lead-create-form]'),
+    null,
+  )
+  assert.equal(
+    createLeadCalls(calls).length,
+    1,
+    'eventual consistency não pode gerar um segundo CREATE',
+  )
+})
+
+test('TESTE 18 (com cache de resolução real): vínculo pendente -> backend passa a OWNED_BY_ME -> clique em "Atualizar vínculo" consulta de verdade -> vínculo aparece -> zero segundo CREATE', async () => {
+  let armLinkedOnNextCall = false
+
+  const resolutions = {
+    [PHONE_A]: () => {
+      if (armLinkedOnNextCall) {
+        armLinkedOnNextCall = false
+        return ownedResolution(PHONE_A)
+      }
+
+      return notFoundResolution(PHONE_A)
+    },
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    withLeadResolutionCache: true,
+    createLeadResult: {
+      ok: true,
+      lead_id: 'lead-new-1',
+      cycle_id: 'cycle-new-1',
+      owner_user_id: 'user-1',
+    },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0)
+  await fillAndSubmit(document, 'Cliente Novo')
+  await waitFor(() => createLeadCalls(calls).length > 0)
+
+  await waitFor(
+    () =>
+      Boolean(
+        document.querySelector('[data-yolen-action="retry-lead-link"]'),
+      ),
+    { timeoutMs: 6000 },
+  )
+
+  const resolveCallsBeforeRetry = resolveLeadCalls(calls).length
+
+  // O backend passa a ter o vínculo ENTRE a última reconsulta automática
+  // (que ainda tinha visto NOT_FOUND, e que — pré-fix — ficaria presa no
+  // cache por identidade) e este clique manual.
+  armLinkedOnNextCall = true
+
+  const retryButton = document.querySelector(
+    '[data-yolen-action="retry-lead-link"]',
+  )
+  dispatch(retryButton, 'click')
+
+  // Com o BUG pré-fix, o clique nunca dispara uma nova consulta real
+  // (NOT_FOUND cacheado por identidade é devolvido sem chamar o backend) —
+  // este waitFor estoura por timeout.
+  await waitFor(
+    () => resolveLeadCalls(calls).length > resolveCallsBeforeRetry,
+  )
+  await waitFor(
+    () =>
+      Boolean(document.querySelector('[data-yolen-action="open-cycle-yolen"]')),
+    { timeoutMs: 4000 },
+  )
+
+  assert.doesNotMatch(
+    getPanel(document).innerHTML,
+    /vínculo ainda não foi atualizado/,
+  )
+  assert.equal(
+    document.querySelector('[data-yolen-action="retry-lead-link"]'),
+    null,
+  )
+  assert.equal(
+    document.querySelector('[data-yolen-lead-create-form]'),
+    null,
+  )
+  assert.equal(createLeadCalls(calls).length, 1, 'nunca um segundo CREATE')
+})
+
+// FASE 15.1 — não trocar stale-cache por request storm: NOT_FOUND deixar de
+// ser cacheado por identidade em lead-resolution-runtime-cache.js NÃO pode
+// significar que toda mutation do WhatsApp (o app real gera muitas, sem
+// nenhuma mudança de conversa) volte a disparar uma nova consulta de
+// verdade. Quem impede isso é lastResolvedConversationKey em
+// content-script.js (resolveCurrentLead() automático só dispara quando a
+// conversationKey muda) — um guard inteiramente independente do cache por
+// identidade removido nesta correção. Prova aqui com o runtime de cache
+// real carregado, para não repetir o ponto cego: NOT_FOUND resolvido uma
+// vez, depois várias mutations de mensagem na MESMA conversa, e nenhuma
+// consulta nova acontece.
+test('TESTE 19 (com cache de resolução real): mutations repetidas da MESMA conversa NOT_FOUND não geram nenhuma nova consulta (sem request storm)', async () => {
+  const resolutions = {
+    [PHONE_A]: notFoundResolution(PHONE_A),
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    withLeadResolutionCache: true,
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0)
+  await sleep(60)
+
+  const resolveCallsAfterInitial = resolveLeadCalls(calls).length
+
+  const conversationBody = document.getElementById('conversation-body')
+
+  for (let i = 0; i < 5; i += 1) {
+    const message = document.createElement('div')
+    message.className = 'message-in'
+    message.setAttribute('data-id', `mutation-msg-${i}`)
+    message.innerHTML =
+      '<div data-pre-plain-text="[10:2' +
+      i +
+      ', 21/08/2026] Cliente: "></div><div data-testid="selectable-text">Nova mensagem</div>'
+    conversationBody.appendChild(message)
+    await sleep(40)
+  }
+
+  await sleep(200)
+
+  assert.equal(
+    resolveLeadCalls(calls).length,
+    resolveCallsAfterInitial,
+    'mutations sucessivas da mesma conversa (mesma conversationKey) não podem disparar nenhuma reconsulta automática nova — nem mesmo com NOT_FOUND fora do cache de identidade',
+  )
+})
