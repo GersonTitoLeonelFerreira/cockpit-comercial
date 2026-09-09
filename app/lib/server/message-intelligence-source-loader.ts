@@ -5,6 +5,7 @@ import type {
 } from '@supabase/supabase-js'
 
 import type {
+  MessageIntelligenceCanonicalContextV1,
   MessageIntelligenceCanonicalScopeV1,
   MessageIntelligenceCommercialReadingSourceV1,
   MessageIntelligenceContextSourceLoaderV1,
@@ -35,6 +36,10 @@ import {
 import {
   buildCompanionDiagnosticInput,
 } from '@/app/lib/companion/diagnostic-input'
+
+import {
+  loadCanonicalCommercialReadingSource,
+} from './canonical-commercial-reading-source'
 
 import {
   loadCommercialConfig,
@@ -243,16 +248,50 @@ async function loadDurableMemory({
   })
 }
 
-async function loadCommercialReading(): Promise<
+async function loadCommercialReading({
+  admin,
+  request,
+  context,
+}: {
+  admin: SupabaseClient
+  request: MessageIntelligenceRequestV1
+  context: MessageIntelligenceCanonicalContextV1
+}): Promise<
   MessageIntelligenceCommercialReadingSourceV1 | null
 > {
-  // Nenhuma fonte canônica de Commercial Reading está disponível de
-  // forma segura para o worker de shadow validation nesta fase (ver
-  // handoff). Ausência permanece ausência — o Context Assembler já
-  // possui fallback para o estado persistido. PROIBIDO construir a
-  // partir de guidance_status/guidance_stage_name/guidance_next_step/
-  // working_summary/payload client-side.
-  return null
+  const source =
+    await loadCanonicalCommercialReadingSource({
+      admin,
+      company_id:
+        request.company_id,
+      cycle_id:
+        request.cycle_id,
+      conversation_key:
+        request.conversation_key,
+      reference_time:
+        request.reference_time,
+      state_read:
+        context.state_read,
+    })
+
+  if (!source) {
+    return null
+  }
+
+  return {
+    company_id:
+      source.company_id,
+    cycle_id:
+      source.cycle_id,
+    conversation_key:
+      source.conversation_key,
+    reading:
+      source.reading,
+    source_id:
+      source.source_event_id,
+    observed_at:
+      source.generated_at,
+  }
 }
 
 /**
@@ -352,7 +391,14 @@ export function createMessageIntelligenceSourceLoaderV1({
       }
     },
 
-    load_commercial_reading: () =>
-      loadCommercialReading(),
+    load_commercial_reading: ({
+      request,
+      context,
+    }) =>
+      loadCommercialReading({
+        admin,
+        request,
+        context,
+      }),
   })
 }
