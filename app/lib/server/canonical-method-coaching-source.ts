@@ -950,6 +950,24 @@ export async function loadCanonicalMethodCoachingSource({
     return null
   }
 
+  // loadCanonicalCommercialReadingSource() aplica o corte por
+  // reference_time apenas durante a própria carga — o objeto que ele
+  // devolve não retém esse reference_time. Um chamador pode reusar um
+  // current_reading carregado com um reference_time posterior (achado
+  // do Codex, PR #278, rodada 3); sem esta checagem, este agregador
+  // exporia method/coaching do futuro e compararia sua fase ANÁLISE
+  // contra o corte histórico já aplicado ao AGORA. Trata-se como
+  // escopo inválido para este reference_time, não como leitura atual.
+  if (
+    current_reading &&
+    Date.parse(
+      current_reading.generated_at,
+    ) >
+      Date.parse(referenceTime)
+  ) {
+    return null
+  }
+
   try {
     let agoraRecord:
       CompanionMethodStageRecord | null

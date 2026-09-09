@@ -875,6 +875,29 @@ test('current_reading de outro escopo é rejeitado (fail-closed)', async () => {
   assert.equal(source, null)
 })
 
+test('current_reading com generated_at posterior a reference_time é rejeitado (fail-closed)', async () => {
+  // Achado do Codex (PR #278, rodada 3): loadCanonicalCommercialReadingSource()
+  // aplica seu corte por reference_time apenas durante a própria carga —
+  // o objeto devolvido não retém esse reference_time. Um chamador que
+  // reuse um current_reading carregado com reference_time posterior não
+  // pode ser aceito aqui, senão o agregador exporia method/coaching do
+  // futuro e compararia ANÁLISE contra o corte histórico já aplicado ao
+  // AGORA.
+  const admin = createAdmin({
+    agoraRows: [],
+    stateRows: [buildStateRow({})],
+  })
+
+  const source = await load({
+    admin,
+    current_reading: buildCurrentReading({
+      generated_at: '2026-09-09T17:00:00.001Z',
+    }),
+  })
+
+  assert.equal(source, null)
+})
+
 test('reference_time inválido retorna null sem consultar o banco', async () => {
   let calledFrom = false
 
