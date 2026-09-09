@@ -426,6 +426,35 @@ distinto de "carregando" ou "erro". Isto é um resultado positivo e esperado
 tanto quando a sessão é comercial sem risco quanto quando a sessão não é
 comercial e não há sinal operacional algum (cenário canônico 10).
 
+### 4.7 Tempo, SLA e risco de demora
+
+AGORA deve conseguir distinguir três situações diferentes, como base para
+decidir se um Card de Intervenção de tempo/SLA é necessário:
+
+1. **Cliente aguardando o vendedor** — o cliente enviou a última mensagem e
+   ainda não houve resposta.
+2. **Vendedor aguardando o cliente** — o vendedor respondeu e aguarda
+   retorno.
+3. **Oportunidade parada** — nenhuma das partes está agindo há tempo
+   suficiente para configurar risco de abandono.
+
+Comportamento observável esperado, por exemplo:
+
+> "Cliente aguarda resposta há 2h47."
+
+Quando existir uma regra de SLA configurada para a empresa:
+
+> "Tempo esperado: 1h."
+> "Atraso: 1h47."
+> "Risco por demora: alto."
+
+Este dado de tempo decorrido é a mesma origem canônica que alimenta o
+histórico de relacionamento em CLIENTE (seção 7.8) — um fato, uma origem
+(seção 9): AGORA decide se ele merece um Card de Intervenção agora; CLIENTE
+apenas registra a duração como fato histórico. A regra de honestidade
+estatística (proibido inventar percentual de risco) está formalizada como
+invariante permanente na seção 12, item 13.
+
 ---
 
 ## 5. Vocabulário canônico — como isto se traduz em contratos de dados
@@ -652,6 +681,34 @@ CLIENTE deve conseguir mostrar, quando a informação existir:
 - Tempo total em conversa.
 - Última mensagem do cliente e última mensagem do vendedor.
 - Quantidade de interações, quando mensurável.
+
+CLIENTE também deve conseguir mostrar a linha do tempo de eventos
+comerciais desta relação — a sequência real de marcos como necessidade
+descoberta, apresentação, preço, objeção, follow-up, compromisso (a
+granularidade ilustrativa abaixo não é um checklist fixo que todo cliente
+precisa cumprir; a implementação real reflete os eventos que de fato
+ocorreram):
+
+```
+primeiro contato
+  ↓
+necessidade descoberta
+  ↓
+apresentação
+  ↓
+preço
+  ↓
+objeção
+  ↓
+follow-up
+  ↓
+compromisso
+  ↓ (etc., conforme a conversa real)
+```
+
+Esta linha do tempo é sobre a **relação** (quando cada marco aconteceu),
+não sobre reavaliar o estado atual da negociação — o estado atual e a
+condução de cada marco continuam sendo conteúdo de ANÁLISE (seção 6).
 
 Quando a telemetria permitir, CLIENTE também deve poder mostrar as ações que
 a própria Yolen tomou nesta relação e como o vendedor reagiu a elas:

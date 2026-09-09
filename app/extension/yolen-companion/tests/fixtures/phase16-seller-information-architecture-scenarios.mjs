@@ -18,7 +18,7 @@
 /**
  * @typedef {Object} ScenarioArea
  * @property {string|null} primaryDecision - AGORA: no máximo uma decisão principal (nunca array).
- * @property {Array<{source: string, priority: 'critical'|'high'|'medium'|'low', reason: string, recommendedAction: string, expiresAt: string|null, resolveCondition: string|null, evidenceRefs: string[]}>} interventionCards - AGORA: no máximo 2. Contrato, seção 4.3: todo card precisa de `expiresAt` (timestamp válido) OU `resolveCondition` (string não vazia), além de `evidenceRefs` não vazio (seção 12 item 5: evidência referenciável).
+ * @property {Array<{source: string, priority: 'critical'|'high'|'medium'|'low', reason: string, recommendedAction: string, expiresAt: string|null, resolveCondition: string|null, evidenceRefs: string[], createdAt: string, relatedLead: string, relatedCycle: string}>} interventionCards - AGORA: no máximo 2. Contrato, seção 4.3: todo card precisa de `expiresAt` (timestamp válido) OU `resolveCondition` (string não vazia), `evidenceRefs` não vazio (seção 12 item 5), `createdAt` (timestamp válido), `relatedLead` e `relatedCycle` (identidade do card, protege o escopo de isolamento A→B).
  */
 
 export const PHASE16_SCENARIOS = [
@@ -51,6 +51,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'current_conversation',
           observedAt: '2026-08-21T10:15:00-03:00',
           status: 'active',
+          evidenceRefs: ['message-1'],
         },
       ],
       aindaNaoSabemosPresent: true,
@@ -96,6 +97,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'opportunity_history',
           observedAt: '2026-08-18T14:00:00-03:00',
           status: 'active',
+          evidenceRefs: ['message-scenario-2-1'],
         },
       ],
       aindaNaoSabemosPresent: true,
@@ -125,6 +127,9 @@ export const PHASE16_SCENARIOS = [
           expiresAt: '2026-08-22T16:00:00-03:00',
           resolveCondition: null,
           evidenceRefs: ['agenda-event-2026-08-22-1600'],
+          createdAt: '2026-08-22T09:00:00-03:00',
+          relatedLead: 'lead-scenario-3',
+          relatedCycle: 'cycle-scenario-3',
         },
       ],
       proactive: true,
@@ -146,6 +151,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'agenda',
           observedAt: '2026-08-22T09:00:00-03:00',
           status: 'active',
+          evidenceRefs: ['agenda-event-2026-08-22-1600'],
         },
       ],
       aindaNaoSabemosPresent: true,
@@ -175,6 +181,9 @@ export const PHASE16_SCENARIOS = [
           expiresAt: null,
           resolveCondition: 'primeiro_contato_realizado',
           evidenceRefs: ['inbound-event-lead-created'],
+          createdAt: '2026-08-20T08:00:00-03:00',
+          relatedLead: 'lead-scenario-4',
+          relatedCycle: 'cycle-scenario-4',
         },
       ],
       proactive: true,
@@ -218,6 +227,9 @@ export const PHASE16_SCENARIOS = [
           expiresAt: null,
           resolveCondition: 'descoberta_de_impacto_confirmada',
           evidenceRefs: ['message-2'],
+          createdAt: '2026-08-21T10:16:00-03:00',
+          relatedLead: 'lead-scenario-5',
+          relatedCycle: 'cycle-scenario-5',
         },
       ],
       proactive: false,
@@ -239,6 +251,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'current_conversation',
           observedAt: '2026-08-21T10:16:00-03:00',
           status: 'active',
+          evidenceRefs: ['message-2'],
         },
       ],
       aindaNaoSabemosPresent: true,
@@ -268,6 +281,9 @@ export const PHASE16_SCENARIOS = [
           expiresAt: null,
           resolveCondition: 'assunto_de_suporte_resolvido',
           evidenceRefs: ['message-support-1'],
+          createdAt: '2026-08-15T11:00:00-03:00',
+          relatedLead: 'lead-scenario-6',
+          relatedCycle: 'cycle-scenario-6',
         },
       ],
       proactive: false,
@@ -294,6 +310,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'current_conversation',
           observedAt: '2026-08-15T11:00:00-03:00',
           status: 'active',
+          evidenceRefs: ['message-support-1'],
         },
       ],
       aindaNaoSabemosPresent: true,
@@ -334,12 +351,14 @@ export const PHASE16_SCENARIOS = [
           origin: 'opportunity_history',
           observedAt: '2026-08-14T09:00:00-03:00',
           status: 'superseded',
+          evidenceRefs: ['memory-scenario-7-old'],
         },
         {
           fact: 'Decisão adiada para o mês que vem.',
           origin: 'current_conversation',
           observedAt: '2026-08-21T10:20:00-03:00',
           status: 'active',
+          evidenceRefs: ['message-scenario-7-new'],
         },
       ],
       aindaNaoSabemosPresent: true,

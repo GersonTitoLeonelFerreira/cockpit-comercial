@@ -115,6 +115,21 @@ function validateScenario(scenario) {
     violations.push('intervention_card_missing_explanation')
   }
 
+  // Regra adicional (contrato, seção 4.3): o InterventionCard normativo
+  // também tem `created_at`, `related_lead` e `related_cycle` — sem eles,
+  // a fixture não protege o escopo necessário ao isolamento A→B (cenário
+  // 8) nem representa a idade real do card. Achado do Codex (7ª revisão).
+  const hasCardWithoutIdentity = (cards || []).some(
+    (card) =>
+      !card ||
+      !isValidTimestamp(card.createdAt) ||
+      !isNonEmptyString(card.relatedLead) ||
+      !isNonEmptyString(card.relatedCycle),
+  )
+  if (hasCardWithoutIdentity) {
+    violations.push('intervention_card_missing_identity')
+  }
+
   // Regra adicional (contrato, seção 4.4): AGORA só aceita as prioridades
   // que de fato ocupam AGORA — CRÍTICA, ALTA, MÉDIA. BAIXA nunca ocupa
   // AGORA (permanece em ANÁLISE/CLIENTE), e qualquer valor ausente ou fora
@@ -202,12 +217,25 @@ function validateScenario(scenario) {
     violations.push('analise_reduced_to_last_burst')
   }
 
-  // Regra 9 — memória sem indicação de temporalidade/origem.
+  // Regra 9 — memória sem indicação de temporalidade/origem, e sem
+  // evidência referenciável (contrato, seção 9: modelo mínimo de fato;
+  // seção 12 item 5: evidência obrigatória). Achado do Codex (6ª/7ª
+  // revisão): a checagem original usava truthiness (`!item.origin`), então
+  // `origin: true`/`'   '` e `observedAt: {}` passavam como proveniência
+  // válida; `origin: 'current_conversation'` sozinho também não é
+  // evidência referenciável — falta um ponteiro para a mensagem/registro
+  // real (`evidenceRefs`).
   const memoryItems = Array.isArray(scenario.cliente.memoryItems)
     ? scenario.cliente.memoryItems
     : []
   const hasUnprovenancedMemory = memoryItems.some(
-    (item) => !item || !item.origin || !item.observedAt,
+    (item) =>
+      !item ||
+      !isNonEmptyString(item.origin) ||
+      !isValidTimestamp(item.observedAt) ||
+      !Array.isArray(item.evidenceRefs) ||
+      item.evidenceRefs.length === 0 ||
+      !item.evidenceRefs.every(isNonEmptyString),
   )
   if (hasUnprovenancedMemory) {
     violations.push('memory_without_provenance')
@@ -231,9 +259,23 @@ function validateScenario(scenario) {
   // Regra 11 — grupo recebendo contexto individual. Mesmo princípio: gatilho
   // pelo `id` canônico, não por `session.isGroup` (apagar `session` inteiro
   // do cenário também apagaria esse sinal, e a regra 1 não valida a
-  // presença de `session` — só de agora/analise/cliente/mensagem).
+  // presença de `session` — só de agora/analise/cliente/mensagem). Achado
+  // do Codex (7ª revisão): checar só o marcador `group.individualContextRendered`
+  // não bastava — alguém podia preencher `cliente.memoryItems`, ligar
+  // `cliente.customerMemoryPresent`, ou marcar `analise.opportunityReadingPresent`
+  // com o marcador ainda em `false`, e nada disso quebrava o gate. A regra
+  // agora valida o estado neutro das quatro perspectivas, não só o marcador.
   if (scenario.id === 'scenario-9-group-conversation') {
-    if (!scenario.group || scenario.group.individualContextRendered !== false) {
+    const hasIndividualLeak =
+      !scenario.group ||
+      scenario.group.individualContextRendered !== false ||
+      scenario.cliente.customerMemoryPresent !== false ||
+      !Array.isArray(scenario.cliente.memoryItems) ||
+      scenario.cliente.memoryItems.length > 0 ||
+      scenario.analise.opportunityReadingPresent !== false ||
+      scenario.mensagem.decisionStateConsumed !== false
+
+    if (hasIndividualLeak) {
       violations.push('group_receives_individual_context')
     }
   }
@@ -375,6 +417,24 @@ test('regra adicional (mutante): card com campos truthy não textuais ou sem sou
   assert.ok(validateScenario(missingSource).includes('intervention_card_missing_explanation'))
 })
 
+test('regra adicional (mutante): card sem identidade (createdAt/relatedLead/relatedCycle) é detectado (achado do Codex, 7ª revisão)', () => {
+  const missingCreatedAt = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
+  delete missingCreatedAt.agora.interventionCards[0].createdAt
+  assert.ok(validateScenario(missingCreatedAt).includes('intervention_card_missing_identity'))
+
+  const invalidCreatedAt = clone(PHASE16_SCENARIOS[2])
+  invalidCreatedAt.agora.interventionCards[0].createdAt = 'not-a-date'
+  assert.ok(validateScenario(invalidCreatedAt).includes('intervention_card_missing_identity'))
+
+  const missingRelatedLead = clone(PHASE16_SCENARIOS[2])
+  delete missingRelatedLead.agora.interventionCards[0].relatedLead
+  assert.ok(validateScenario(missingRelatedLead).includes('intervention_card_missing_identity'))
+
+  const missingRelatedCycle = clone(PHASE16_SCENARIOS[2])
+  delete missingRelatedCycle.agora.interventionCards[0].relatedCycle
+  assert.ok(validateScenario(missingRelatedCycle).includes('intervention_card_missing_identity'))
+})
+
 test('regra adicional (mutante): card de intervenção com prioridade BAIXA em AGORA é detectado', () => {
   const broken = clone(PHASE16_SCENARIOS[2]) // cenário 3: card de agenda
   broken.agora.interventionCards[0].priority = 'low'
@@ -507,6 +567,39 @@ test('regra 9 (mutante): memória sem origem/temporalidade é detectado', () => 
   assert.ok(validateScenario(broken).includes('memory_without_provenance'))
 })
 
+test('regra 9 (mutante): proveniência com valores truthy não utilizáveis é detectada (achado do Codex, 7ª revisão)', () => {
+  // A checagem anterior usava truthiness — `origin: true`, `origin: '   '`
+  // ou `observedAt: {}` passavam como proveniência válida.
+  const truthyOrigin = clone(PHASE16_SCENARIOS[6])
+  truthyOrigin.cliente.memoryItems[0].origin = true
+  assert.ok(validateScenario(truthyOrigin).includes('memory_without_provenance'))
+
+  const blankOrigin = clone(PHASE16_SCENARIOS[6])
+  blankOrigin.cliente.memoryItems[0].origin = '   '
+  assert.ok(validateScenario(blankOrigin).includes('memory_without_provenance'))
+
+  const truthyObservedAt = clone(PHASE16_SCENARIOS[6])
+  truthyObservedAt.cliente.memoryItems[0].observedAt = {}
+  assert.ok(validateScenario(truthyObservedAt).includes('memory_without_provenance'))
+
+  const invalidObservedAt = clone(PHASE16_SCENARIOS[6])
+  invalidObservedAt.cliente.memoryItems[0].observedAt = 'not-a-date'
+  assert.ok(validateScenario(invalidObservedAt).includes('memory_without_provenance'))
+})
+
+test('regra 9 (mutante): memória sem evidenceRefs é detectada (achado do Codex, 7ª revisão)', () => {
+  // `origin: 'current_conversation'` sozinho não é evidência referenciável
+  // — falta um ponteiro para a mensagem/registro real (contrato, seção 9 e
+  // seção 12 item 5).
+  const missingEvidence = clone(PHASE16_SCENARIOS[0]) // cenário 1
+  delete missingEvidence.cliente.memoryItems[0].evidenceRefs
+  assert.ok(validateScenario(missingEvidence).includes('memory_without_provenance'))
+
+  const emptyEvidence = clone(PHASE16_SCENARIOS[0])
+  emptyEvidence.cliente.memoryItems[0].evidenceRefs = []
+  assert.ok(validateScenario(emptyEvidence).includes('memory_without_provenance'))
+})
+
 test('regra 10 (mutante): cross-lead leak no cenário de isolamento é detectado', () => {
   const isolationScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-8-lead-isolation-a-to-b')
   assert.ok(isolationScenario, 'cenário de isolamento precisa existir na fixture')
@@ -581,6 +674,33 @@ test('regra 5/6/11 (mutante): apagar só session.isGroup do cenário 9 é detect
   delete broken.session.isGroup
 
   assert.ok(validateScenario(broken).includes('missing_core_scenario_fields'))
+})
+
+test('regra 11 (mutante): vazamento de contexto individual no cenário de grupo é detectado mesmo com o marcador em false (achado do Codex, 7ª revisão)', () => {
+  // A checagem anterior só olhava `group.individualContextRendered` —
+  // preencher cliente.memoryItems, ligar cliente.customerMemoryPresent, ou
+  // marcar analise.opportunityReadingPresent/mensagem.decisionStateConsumed
+  // não disparava violação enquanto esse marcador continuasse `false`.
+  const groupScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-9-group-conversation')
+  assert.ok(groupScenario, 'cenário de grupo precisa existir na fixture')
+
+  const leakedMemory = clone(groupScenario)
+  leakedMemory.cliente.memoryItems = [
+    { fact: 'Fato de um participante individual.', origin: 'current_conversation', observedAt: '2026-08-22T09:00:00-03:00', evidenceRefs: ['message-x'], status: 'active' },
+  ]
+  assert.ok(validateScenario(leakedMemory).includes('group_receives_individual_context'))
+
+  const leakedCustomerMemoryFlag = clone(groupScenario)
+  leakedCustomerMemoryFlag.cliente.customerMemoryPresent = true
+  assert.ok(validateScenario(leakedCustomerMemoryFlag).includes('group_receives_individual_context'))
+
+  const leakedOpportunityReading = clone(groupScenario)
+  leakedOpportunityReading.analise.opportunityReadingPresent = true
+  assert.ok(validateScenario(leakedOpportunityReading).includes('group_receives_individual_context'))
+
+  const leakedDecisionState = clone(groupScenario)
+  leakedDecisionState.mensagem.decisionStateConsumed = true
+  assert.ok(validateScenario(leakedDecisionState).includes('group_receives_individual_context'))
 })
 
 test('regra 12: ausência de silêncio como resultado válido é impossível — o conjunto de cenários sempre representa silêncio', () => {
