@@ -190,6 +190,7 @@ export function createMessageIntelligenceFakeAdmin({
   objectionGuides = [],
   products = [],
   commercialStates = [],
+  commercialStateEvents = [],
   shadowRuns = [],
   resolveInterceptor = null,
 } = {}) {
@@ -208,6 +209,7 @@ export function createMessageIntelligenceFakeAdmin({
     company_commercial_objection_guides: objectionGuides,
     products,
     companion_commercial_states: commercialStates,
+    companion_commercial_state_events: commercialStateEvents,
     message_intelligence_shadow_runs: shadowRuns,
   }
 
