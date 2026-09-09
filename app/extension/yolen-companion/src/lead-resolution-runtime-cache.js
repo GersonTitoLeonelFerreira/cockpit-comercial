@@ -37,13 +37,25 @@
     return displayName ? `name:${displayName}` : null
   }
 
+  // NOT_FOUND é um estado TRANSITÓRIO, não uma resolução estável: o lead
+  // pode ter acabado de ser criado no backend (eventual consistency) e uma
+  // consulta futura para o MESMO telefone precisa poder enxergar essa
+  // mudança. Cachear NOT_FOUND por identidade prendia tanto o retry
+  // automático pós-criação (resolveAfterLeadCreation) quanto o clique
+  // manual em "Atualizar vínculo" (retryLeadLinkAfterCreation) num
+  // resultado obsoleto para sempre, já que nenhum dos dois passa por
+  // clearLeadResolutionCache() — só o botão global "Atualizar" limpa o
+  // cache inteiro. Resultados positivos/estáveis continuam cacheados
+  // normalmente (dedup entre chamadas concorrentes/rápidas da mesma
+  // identidade).
   function isCacheableResolution(result) {
     return Boolean(
       result?.ok === true &&
       result?.payload &&
       typeof result.payload === 'object' &&
       result.payload.status &&
-      result.payload.status !== 'NO_PHONE_DETECTED',
+      result.payload.status !== 'NO_PHONE_DETECTED' &&
+      result.payload.status !== 'NOT_FOUND',
     )
   }
 

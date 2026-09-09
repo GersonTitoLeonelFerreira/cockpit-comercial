@@ -540,6 +540,7 @@ export function loadContentScript({
   messageGenerationResult,
   withStabilityRuntimes = false,
   withSellerMessageRuntime = false,
+  withLeadResolutionCache = false,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
   installDefaultIdentityBridgeResponder(dom.window)
@@ -611,33 +612,53 @@ export function loadContentScript({
   for (const dependency of DEPENDENCY_FILES) {
     vm.runInContext(readSource(dependency), sandbox, { filename: dependency })
 
-    if (withSellerMessageRuntime && dependency === 'yolen-api.js') {
+    if (
+      (withSellerMessageRuntime || withLeadResolutionCache) &&
+      dependency === 'yolen-api.js'
+    ) {
       // yolen-api.js expõe `window.YolenCompanionApi = {...}` (window
-      // literal). lead-method-guidance-runtime.js e seller-message-runtime.js
-      // leem `root.YolenCompanionApi`, onde `root` é
-      // `typeof globalThis !== 'undefined' ? globalThis : window` — dentro
-      // de um vm.createContext, `globalThis` É o próprio objeto do
+      // literal). lead-resolution-runtime-cache.js, lead-method-guidance-runtime.js
+      // e seller-message-runtime.js leem `root.YolenCompanionApi`, onde
+      // `root` é `typeof globalThis !== 'undefined' ? globalThis : window`
+      // — dentro de um vm.createContext, `globalThis` É o próprio objeto do
       // sandbox, um objeto DIFERENTE de `sandbox.window` (o Window real do
       // jsdom). Num navegador de verdade `window === globalThis`, então
       // essa distinção nunca existe; aqui, sem esta ponte, `root.YolenCompanionApi`
-      // seria `undefined` e os dois runtimes nunca instalariam seu wrap
+      // seria `undefined` e nenhum desses runtimes instalaria seu wrap
       // (early-return silencioso). Como é o MESMO objeto (não uma cópia),
-      // a mutação de `api.loadLeadSummary` feita pelos runtimes continua
-      // visível em `window.YolenCompanionApi.loadLeadSummary` — exatamente
-      // o que content-script.js chama.
+      // a mutação de `api.resolveLead`/`api.loadLeadSummary` feita pelos
+      // runtimes continua visível em `window.YolenCompanionApi.resolveLead`
+      // — exatamente o que content-script.js chama.
       sandbox.YolenCompanionApi = sandbox.window.YolenCompanionApi
 
-      for (const runtimeFile of SELLER_MESSAGE_RUNTIME_FILES) {
-        vm.runInContext(readSource(runtimeFile), sandbox, { filename: runtimeFile })
+      if (withLeadResolutionCache) {
+        // Mesma posição relativa do manifest.json real: logo depois de
+        // yolen-api.js, antes de qualquer outro runtime que também
+        // envolva a API. Sem carregar isto, os testes e3 chamam
+        // window.YolenCompanionApi.resolveLead() diretamente no mock —
+        // nunca exercitando o cache por identidade (phone/display_name)
+        // que existe de verdade em produção entre yolen-api.js e
+        // content-script.js (o ponto cego que motivou a FASE 15.1).
+        vm.runInContext(
+          readSource('lead-resolution-runtime-cache.js'),
+          sandbox,
+          { filename: 'lead-resolution-runtime-cache.js' },
+        )
       }
 
-      // seller-message-runtime.js expõe sua API pública via
-      // `root.YolenCompanionSellerMessageRuntime = Object.freeze({...})`
-      // (root-scoped); content-script.js lê essa mesma API via
-      // `window.YolenCompanionSellerMessageRuntime` — a ponte inversa da
-      // acima, pelo mesmo motivo.
-      sandbox.window.YolenCompanionSellerMessageRuntime =
-        sandbox.YolenCompanionSellerMessageRuntime
+      if (withSellerMessageRuntime) {
+        for (const runtimeFile of SELLER_MESSAGE_RUNTIME_FILES) {
+          vm.runInContext(readSource(runtimeFile), sandbox, { filename: runtimeFile })
+        }
+
+        // seller-message-runtime.js expõe sua API pública via
+        // `root.YolenCompanionSellerMessageRuntime = Object.freeze({...})`
+        // (root-scoped); content-script.js lê essa mesma API via
+        // `window.YolenCompanionSellerMessageRuntime` — a ponte inversa da
+        // acima, pelo mesmo motivo.
+        sandbox.window.YolenCompanionSellerMessageRuntime =
+          sandbox.YolenCompanionSellerMessageRuntime
+      }
     }
   }
   vm.runInContext(readSource('content-script.js'), sandbox, { filename: 'content-script.js' })
