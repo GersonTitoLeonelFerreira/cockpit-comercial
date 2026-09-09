@@ -301,7 +301,19 @@ function validateScenario(scenario) {
   // ANÁLISE e manter o marcador em `false`. A regra agora audita o
   // conteúdo real: o Lead B (canonicamente) ainda não tem decisão, card,
   // memória ou leitura de oportunidade herdada de nenhum outro ciclo.
+  // Achado do Codex (9ª revisão): a checagem de `analise.basedOn` usava uma
+  // blacklist de só dois literais (`'opportunity_history'`/
+  // `'persisted_state'`) — `['cycle-a']`, `['previous_cycle']` ou qualquer
+  // outro identificador do ciclo anterior passava sem violação. Como o Lead
+  // B canonicamente só tem a conversa atual como origem, a regra agora
+  // exige a composição exata `['current_conversation']` (whitelist), não a
+  // ausência de dois marcadores conhecidos.
   if (scenario.id === 'scenario-8-lead-isolation-a-to-b') {
+    const basedOnIsExactlyCurrentConversation =
+      Array.isArray(scenario.analise.basedOn) &&
+      scenario.analise.basedOn.length === 1 &&
+      scenario.analise.basedOn[0] === 'current_conversation'
+
     const hasCrossLeadLeak =
       !scenario.isolation ||
       scenario.isolation.crossLeadLeak !== false ||
@@ -310,10 +322,7 @@ function validateScenario(scenario) {
       scenario.agora.interventionCards.length > 0 ||
       !Array.isArray(scenario.cliente.memoryItems) ||
       scenario.cliente.memoryItems.length > 0 ||
-      (Array.isArray(scenario.analise.basedOn) &&
-        scenario.analise.basedOn.some(
-          (source) => source === 'opportunity_history' || source === 'persisted_state',
-        ))
+      !basedOnIsExactlyCurrentConversation
 
     if (hasCrossLeadLeak) {
       violations.push('cross_lead_state_leak')
@@ -332,11 +341,19 @@ function validateScenario(scenario) {
   // `primaryDecision` ou um `interventionCard` individual (ex.: "responder
   // o Lead A agora") podia aparecer no cenário de grupo sem quebrar o
   // gate. A regra agora valida o estado neutro das quatro perspectivas,
-  // não só o marcador.
+  // não só o marcador. Achado do Codex (9ª revisão): `agora.momentoAtual`
+  // também é conteúdo renderizado de AGORA e ficou fora da checagem —
+  // trocá-lo por algo individual (ex.: "Lead A questionou o preço") não
+  // quebrava o gate. O cenário de grupo canônico só tem uma leitura neutra
+  // possível de Current Moment; qualquer outra é, por definição, contexto
+  // que não pertence a um grupo sem leitura individual.
   if (scenario.id === 'scenario-9-group-conversation') {
+    const GROUP_NEUTRAL_MOMENTO_ATUAL = 'Conversa de grupo — sem leitura individual.'
+
     const hasIndividualLeak =
       !scenario.group ||
       scenario.group.individualContextRendered !== false ||
+      scenario.agora.momentoAtual !== GROUP_NEUTRAL_MOMENTO_ATUAL ||
       scenario.agora.primaryDecision !== null ||
       !Array.isArray(scenario.agora.interventionCards) ||
       scenario.agora.interventionCards.length > 0 ||
@@ -805,6 +822,43 @@ test('regra 11 (mutante): AGORA vazando decisão ou card individual no cenário 
   assert.ok(cardViolations.includes('scenario_missing_identity_for_cards'))
 })
 
+test('regra 11 (mutante): AGORA vazando momentoAtual individual no cenário de grupo é detectado (achado do Codex, 9ª revisão)', () => {
+  // `momentoAtual` é conteúdo renderizado de AGORA como qualquer outro —
+  // a checagem anterior só olhava `primaryDecision`/`interventionCards`,
+  // então trocar o Current Moment por algo individual não quebrava o gate.
+  const groupScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-9-group-conversation')
+  assert.ok(groupScenario, 'cenário de grupo precisa existir na fixture')
+
+  const leakedMomentoAtual = clone(groupScenario)
+  leakedMomentoAtual.agora.momentoAtual = 'Lead A questionou o preço.'
+  assert.ok(validateScenario(leakedMomentoAtual).includes('group_receives_individual_context'))
+})
+
+test('regra 10 (mutante): basedOn com identificador de outro ciclo no isolamento é detectado, não só os dois literais conhecidos (achado do Codex, 9ª revisão)', () => {
+  // A checagem anterior era uma blacklist de dois literais
+  // (`opportunity_history`/`persisted_state`) — qualquer outro
+  // identificador do ciclo anterior (`'cycle-a'`, `'previous_cycle'`, etc.)
+  // passava sem violação. A regra agora exige a composição exata
+  // `['current_conversation']` (whitelist).
+  const isolationScenario = PHASE16_SCENARIOS.find((scenario) => scenario.id === 'scenario-8-lead-isolation-a-to-b')
+  assert.ok(isolationScenario, 'cenário de isolamento precisa existir na fixture')
+
+  const unknownCycleIdentifier = clone(isolationScenario)
+  unknownCycleIdentifier.isolation.crossLeadLeak = false
+  unknownCycleIdentifier.analise.basedOn = ['current_conversation', 'cycle-a']
+  assert.ok(validateScenario(unknownCycleIdentifier).includes('cross_lead_state_leak'))
+
+  const onlyUnknownIdentifier = clone(isolationScenario)
+  onlyUnknownIdentifier.isolation.crossLeadLeak = false
+  onlyUnknownIdentifier.analise.basedOn = ['previous_cycle']
+  assert.ok(validateScenario(onlyUnknownIdentifier).includes('cross_lead_state_leak'))
+
+  const emptyBasedOn = clone(isolationScenario)
+  emptyBasedOn.isolation.crossLeadLeak = false
+  emptyBasedOn.analise.basedOn = []
+  assert.ok(validateScenario(emptyBasedOn).includes('cross_lead_state_leak'))
+})
+
 test('regra adicional (mutante): card com relatedLead/relatedCycle de outro lead é detectado (achado do Codex, 8ª revisão)', () => {
   // `relatedLead`/`relatedCycle` serem strings não vazias não bastava — um
   // card carregando a identidade de outro lead/ciclo ainda passava.
@@ -899,21 +953,47 @@ test('regra 9 (mutante): memoryItem sem scope válido é detectado (achado do Co
   assert.ok(validateScenario(invalidScope).includes('memory_item_invalid_scope'))
 })
 
-test('cenário 7: fato de timing da negociação é cycle-scoped, não promovido a fato eterno sobre a pessoa', () => {
-  const scenario = PHASE16_SCENARIOS.find((item) => item.id === 'scenario-7-contradicted-old-memory')
-  assert.ok(scenario)
-
-  for (const item of scenario.cliente.memoryItems) {
-    assert.equal(item.scope, 'cycle', `fato "${item.fact}" deveria ser cycle-scoped`)
+test('classificação semântica de scope é fixada para todo memoryItem canônico da fixture (transversal, achado do Codex, 9ª revisão)', () => {
+  // A validação estrutural (`memory_item_invalid_scope`) só exige que
+  // `scope` esteja em `{'person', 'cycle'}` — ela não sabe, e não pode
+  // saber genericamente, qual dos dois é semanticamente correto para um
+  // fato específico. Achado do Codex (9ª revisão): antes deste teste, era
+  // possível trocar `scope: 'cycle'` por `'person'` em qualquer memoryItem
+  // (não só no cenário 7, mas também nos cenários 3 e 5) e os 43 testes
+  // continuavam verdes — a promoção silenciosa que a seção 9 do contrato
+  // proíbe não tinha nenhum teste fixando o valor esperado. Este teste
+  // ancora a classificação correta de cada fato canônico da fixture,
+  // pessoa por pessoa, ciclo por ciclo — trocar qualquer um destes valores
+  // quebra o teste.
+  const expectedMemoryScopes = {
+    // Fala única ("está caro") sem evidência de persistência entre
+    // oportunidades — objeção ligada à proposta em curso, não traço da
+    // pessoa (contrato, seção 9; achado do Codex, 9ª revisão).
+    'scenario-1-active-sale-price-objection': ['cycle'],
+    // Preferência de comunicação evidenciada ao longo do histórico da
+    // oportunidade — sobrevive entre ciclos (contrato, seção 11, item 8).
+    'scenario-2-personal-conversation-active-opportunity': ['person'],
+    // Compromisso de agenda específico desta oportunidade.
+    'scenario-3-personal-conversation-upcoming-commercial-agenda': ['cycle'],
+    // Lacuna de descoberta desta negociação, não traço da pessoa.
+    'scenario-5-seller-off-method': ['cycle'],
+    // Preferência de canal — mesma categoria do cenário 2.
+    'scenario-6-support-administrative-active-opportunity': ['person'],
+    // "Pretendia decidir sexta" / "decisão adiada para o mês que vem" —
+    // ambos timing específico deste ciclo, o exemplo que a própria seção
+    // 11 item 8 do contrato usa para "não deveria atravessar ciclo".
+    'scenario-7-contradicted-old-memory': ['cycle', 'cycle'],
   }
-})
 
-test('cenário 2: preferência de comunicação da pessoa é person-scoped, sobrevive entre ciclos', () => {
-  const scenario = PHASE16_SCENARIOS.find(
-    (item) => item.id === 'scenario-2-personal-conversation-active-opportunity',
-  )
-  assert.ok(scenario)
-  assert.equal(scenario.cliente.memoryItems[0].scope, 'person')
+  for (const [id, expectedScopes] of Object.entries(expectedMemoryScopes)) {
+    const scenario = PHASE16_SCENARIOS.find((item) => item.id === id)
+    assert.ok(scenario, `cenário ${id} precisa existir`)
+    assert.deepEqual(
+      scenario.cliente.memoryItems.map((item) => item.scope),
+      expectedScopes,
+      `cenário ${id} tem classificação de scope diferente do esperado`,
+    )
+  }
 })
 
 test('regra 12: ausência de silêncio como resultado válido é impossível — o conjunto de cenários sempre representa silêncio', () => {

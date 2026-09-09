@@ -67,7 +67,7 @@ export const PHASE16_SCENARIOS = [
           origin: 'current_conversation',
           observedAt: '2026-08-21T10:15:00-03:00',
           status: 'active',
-          scope: 'person',
+          scope: 'cycle',
           evidenceRefs: ['message-1'],
         },
       ],
