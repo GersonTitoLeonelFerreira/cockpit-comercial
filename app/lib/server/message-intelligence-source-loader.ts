@@ -37,6 +37,10 @@ import {
   buildCompanionDiagnosticInput,
 } from '@/app/lib/companion/diagnostic-input'
 
+import type {
+  StatefulCommercialState,
+} from '@/app/lib/companion/stateful-commercial-state'
+
 import {
   loadCanonicalCommercialReadingSource,
 } from './canonical-commercial-reading-source'
@@ -248,6 +252,20 @@ async function loadDurableMemory({
   })
 }
 
+function collectStateMemoryIds(
+  state: StatefulCommercialState,
+): string[] {
+  return [
+    ...state.facts,
+    ...state.needs,
+    ...state.open_loops,
+    ...state.objections,
+    ...state.commitments,
+    ...state.signals,
+    ...state.uncertainties,
+  ].map(item => item.id)
+}
+
 async function loadCommercialReading({
   admin,
   request,
@@ -259,6 +277,10 @@ async function loadCommercialReading({
 }): Promise<
   MessageIntelligenceCommercialReadingSourceV1 | null
 > {
+  if (context.state_read.mode !== 'found') {
+    return null
+  }
+
   const source =
     await loadCanonicalCommercialReadingSource({
       admin,
@@ -272,6 +294,32 @@ async function loadCommercialReading({
         request.reference_time,
       state_read:
         context.state_read,
+      validation_context: {
+        available_message_ids: [
+          ...context.active_message_ids,
+        ],
+        available_memory_ids:
+          collectStateMemoryIds(
+            context.state_read.state,
+          ),
+        seller_message_ids:
+          context
+            .diagnostic_input
+            .conversation
+            .messages
+            .filter(
+              message =>
+                message.direction ===
+                'outgoing',
+            )
+            .map(message => message.id),
+        current_crm_status:
+          context
+            .diagnostic_input
+            .current_crm_status,
+        reference_time:
+          request.reference_time,
+      },
     })
 
   if (!source) {
