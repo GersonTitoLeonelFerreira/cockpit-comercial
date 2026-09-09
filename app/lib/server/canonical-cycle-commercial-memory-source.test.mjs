@@ -59,6 +59,7 @@ function buildSnapshot(overrides = {}) {
     contract_version: STATE_CONTRACT_VERSION,
     cycle_id: CYCLE_ID,
     version: 1,
+    updated_at: '2026-09-09T16:00:00.000Z',
     facts: [],
     needs: [],
     open_loops: [],
@@ -88,7 +89,13 @@ function buildStateRow({
     state_version,
     state_contract_version,
     state_updated_at,
-    state_snapshot: buildSnapshot(snapshot),
+    // Espelha a CHECK constraint real
+    // (companion_commercial_states_snapshot_time_check): a linha
+    // atual sempre tem state_updated_at === state_snapshot.updated_at.
+    state_snapshot: buildSnapshot({
+      updated_at: state_updated_at,
+      ...snapshot,
+    }),
   }
 }
 
@@ -99,10 +106,18 @@ function buildEventRow({
   conversation_key = 'whatsapp:+5547999990001',
   candidate_state_version = 1,
   state_contract_version = STATE_CONTRACT_VERSION,
+  // generated_at (quando o evento foi gravado) e snapshot.updated_at
+  // (o instante que a análise considera "agora") NÃO são o mesmo
+  // campo em companion_commercial_state_events — de propósito, sem
+  // valor default compartilhado, para que testes que não se importam
+  // com a diferença usem o mesmo padrão em ambos, e testes que
+  // exercitam a divergência (achado do Codex, PR #277, rodada 2)
+  // precisem declará-la explicitamente.
   generated_at = '2026-09-09T16:00:00.000Z',
   snapshot = {},
 } = {}) {
   return {
+    id: `event-${state_record_id}-v${candidate_state_version}`,
     state_record_id,
     company_id,
     cycle_id,
@@ -475,9 +490,9 @@ test('linha atual com state_updated_at no futuro cai para o fallback histórico 
   // atualizada EM LUGAR — se a versão atual já avançou para depois de
   // reference_time (job atrasado, replay), a linha atual não
   // representa mais o que essa conversa sabia naquele instante. O
-  // fallback correto é o evento histórico mais recente <=
-  // reference_time em companion_commercial_state_events, não
-  // descartar a conversa inteira.
+  // fallback correto é o evento histórico cujo state_snapshot.
+  // updated_at é o maior valor ainda <= reference_time, não descartar
+  // a conversa inteira.
   const admin = createAdmin({
     stateRows: [
       buildStateRow({
@@ -496,9 +511,15 @@ test('linha atual com state_updated_at no futuro cai para o fallback histórico 
         state_record_id: 'state-record-drifted',
         conversation_key: 'conversation-drifted',
         candidate_state_version: 2,
-        generated_at: '2026-09-09T16:00:00.000Z',
+        // generated_at deliberadamente MUITO depois de reference_time
+        // (20:00 > 17:00) — se o código usasse generated_at para o
+        // corte em vez de state_snapshot.updated_at (achado do Codex,
+        // PR #277, rodada 2), este evento seria incorretamente
+        // excluído mesmo sendo o único candidato válido.
+        generated_at: '2026-09-09T20:00:00.000Z',
         snapshot: {
           version: 2,
+          updated_at: '2026-09-09T16:00:00.000Z',
           facts: [buildFact({ id: 'fact-valid-at-reference-time', created_in_state_version: 2 })],
         },
       }),
@@ -512,7 +533,7 @@ test('linha atual com state_updated_at no futuro cai para o fallback histórico 
   assert.equal(memory.facts[0].provenance.state_version, 2)
 })
 
-test('fallback histórico usa o evento mais recente entre vários candidatos <= reference_time', async () => {
+test('fallback histórico usa o snapshot mais recente entre vários candidatos <= reference_time, não generated_at', async () => {
   const admin = createAdmin({
     stateRows: [
       buildStateRow({
@@ -520,17 +541,24 @@ test('fallback histórico usa o evento mais recente entre vários candidatos <= 
         conversation_key: 'conversation-drifted',
         state_version: 5,
         state_updated_at: '2026-09-09T18:00:00.000Z',
-        snapshot: { version: 5 },
+        snapshot: { version: 5, updated_at: '2026-09-09T18:00:00.000Z' },
       }),
     ],
     eventRows: [
+      // generated_at INVERTIDO em relação a snapshot.updated_at em
+      // ambos os eventos: se o código selecionasse por generated_at
+      // (achado do Codex, PR #277, rodada 2), "fact-too-old" venceria
+      // por ter sido gravado por último — mas seu snapshot descreve
+      // um instante mais antigo, então é "fact-correct-version" (com
+      // o maior updated_at ainda <= reference_time) que deve vencer.
       buildEventRow({
         state_record_id: 'state-record-drifted',
         conversation_key: 'conversation-drifted',
         candidate_state_version: 2,
-        generated_at: '2026-09-09T15:00:00.000Z',
+        generated_at: '2026-09-09T16:59:00.000Z',
         snapshot: {
           version: 2,
+          updated_at: '2026-09-09T15:00:00.000Z',
           facts: [buildFact({ id: 'fact-too-old', created_in_state_version: 2 })],
         },
       }),
@@ -538,9 +566,10 @@ test('fallback histórico usa o evento mais recente entre vários candidatos <= 
         state_record_id: 'state-record-drifted',
         conversation_key: 'conversation-drifted',
         candidate_state_version: 4,
-        generated_at: '2026-09-09T16:30:00.000Z',
+        generated_at: '2026-09-09T16:31:00.000Z',
         snapshot: {
           version: 4,
+          updated_at: '2026-09-09T16:30:00.000Z',
           facts: [buildFact({ id: 'fact-correct-version', created_in_state_version: 4 })],
         },
       }),
@@ -581,6 +610,37 @@ test('conversa drifted sem nenhum evento elegível não contribui memória (mas 
 
   assert.equal(memory.facts.length, 1)
   assert.equal(memory.facts[0].origin_id, 'fact-fresh')
+})
+
+test('evento histórico com state_snapshot.updated_at no futuro em relação a reference_time é excluído', async () => {
+  const admin = createAdmin({
+    stateRows: [
+      buildStateRow({
+        id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        state_version: 2,
+        state_updated_at: '2026-09-09T18:00:00.000Z',
+        snapshot: { version: 2, updated_at: '2026-09-09T18:00:00.000Z' },
+      }),
+    ],
+    eventRows: [
+      buildEventRow({
+        state_record_id: 'state-record-drifted',
+        conversation_key: 'conversation-drifted',
+        candidate_state_version: 1,
+        generated_at: '2026-09-09T17:00:00.500Z',
+        snapshot: {
+          version: 1,
+          updated_at: '2026-09-09T17:00:00.500Z',
+          facts: [buildFact({ id: 'fact-future-event' })],
+        },
+      }),
+    ],
+  })
+
+  const memory = await load({ admin })
+
+  assert.equal(memory.facts.length, 0)
 })
 
 test('paginação: mais linhas do que uma página (500) do PostgREST/Supabase são todas consolidadas', async () => {

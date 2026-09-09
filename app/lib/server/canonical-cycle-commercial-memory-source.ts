@@ -32,13 +32,13 @@ const CYCLE_COMMERCIAL_MEMORY_STATE_FIELDS = [
 ].join(',')
 
 const CYCLE_COMMERCIAL_MEMORY_EVENT_FIELDS = [
+  'id',
   'state_record_id',
   'company_id',
   'cycle_id',
   'conversation_key',
   'candidate_state_version',
   'state_contract_version',
-  'generated_at',
   'state_snapshot',
 ].join(',')
 
@@ -766,11 +766,46 @@ async function loadCurrentStateRows({
 /**
  * Para conversas cuja linha atual já avançou além de reference_time
  * ("drifted"), busca em companion_commercial_state_events (histórico
- * imutável, nunca atualizado em lugar) o evento mais recente com
- * generated_at <= reference_time — a fotografia que era válida no
- * instante pedido. Ordenado por generated_at DESC e paginado; como a
- * ordenação é decrescente, a PRIMEIRA ocorrência de cada
- * conversation_key encontrada já é a mais recente elegível.
+ * imutável, nunca atualizado em lugar) o evento cujo SNAPSHOT era
+ * válido no instante pedido — a fotografia com o maior
+ * `state_snapshot.updated_at` que ainda seja `<= reference_time`.
+ *
+ * IMPORTANTE — por que `state_snapshot.updated_at`, não
+ * `generated_at`: em `companion_commercial_states` (linha atual), uma
+ * CHECK constraint garante `state_updated_at =
+ * (state_snapshot->>'updated_at')::timestamptz`, então os dois
+ * sempre coincidem — é seguro usar `state_updated_at` como
+ * classificador (ver loadCurrentStateRows). Mas
+ * `companion_commercial_state_events` NÃO tem essa constraint: a
+ * validação em stateful-copilot-persistence-plan.ts só exige
+ * `generated_at >= diagnostic_input.reference_time` (nunca `=`),
+ * enquanto `state_snapshot.updated_at` É forçado a ser exatamente
+ * `diagnostic_input.reference_time`. Ou seja, `generated_at` é
+ * quando o evento foi GRAVADO (pode atrasar — fila, retry, job
+ * assíncrono) e `state_snapshot.updated_at` é o instante que a
+ * análise CONSIDERA como "agora". Usar `generated_at` para decidir
+ * "isto era válido em reference_time" filtra pelo campo errado:
+ * um evento com `updated_at` <= reference_time mas `generated_at`
+ * tardio seria incorretamente excluído (achado do Codex, PR #277,
+ * rodada 2).
+ *
+ * Por isso a consulta NÃO filtra por instante no banco (não há
+ * caminho seguro/já usado no código para filtrar por um campo dentro
+ * de state_snapshot via PostgREST aqui) — pagina TODOS os eventos das
+ * conversation_keys "drifted" (protegido pelo teto de segurança de
+ * readAllPages) e faz a comparação de instante inteiramente em
+ * memória via Date.parse.
+ *
+ * A paginação usa `id` (chave primária, única) como critério de
+ * ordenação — não `generated_at`, que pode se repetir entre
+ * conversas diferentes. Um critério de ordenação não-único faz o
+ * Postgres devolver empates em ordens potencialmente diferentes entre
+ * chamadas de `.range()` separadas, duplicando ou pulando linhas na
+ * borda de uma página (achado do Codex, PR #277, rodada 2). Como o
+ * resultado é varrido por completo (sem parar na primeira ocorrência
+ * por conversation_key), a ordem em si não afeta a correção — só a
+ * ordenação por chave única garante que cada linha apareça em
+ * exatamente uma página.
  *
  * Escopo deliberado: a busca é restrita às conversation_keys que
  * realmente avançaram (normalmente zero, quando reference_time é
@@ -823,13 +858,9 @@ async function loadHistoricalEventRows({
             'conversation_key',
             driftedConversationKeys,
           )
-          .lte(
-            'generated_at',
-            referenceTime,
-          )
           .order(
-            'generated_at',
-            { ascending: false },
+            'id',
+            { ascending: true },
           )
           .range(
             offset,
@@ -841,8 +872,17 @@ async function loadHistoricalEventRows({
     return null
   }
 
+  const referenceInstant =
+    Date.parse(referenceTime)
+
   const latestPerConversationKey =
-    new Map<string, ParsedMemoryRow>()
+    new Map<
+      string,
+      {
+        parsed: ParsedMemoryRow
+        updatedAtInstant: number
+      }
+    >()
 
   for (const row of rows) {
     const parsed =
@@ -856,21 +896,53 @@ async function loadHistoricalEventRows({
       continue
     }
 
+    const snapshotUpdatedAt =
+      parsed.snapshot.updated_at
+
+    if (typeof snapshotUpdatedAt !== 'string') {
+      continue
+    }
+
+    const updatedAtInstant =
+      Date.parse(snapshotUpdatedAt)
+
     if (
-      !latestPerConversationKey.has(
-        parsed.provenance.conversation_key,
+      !Number.isFinite(
+        updatedAtInstant,
+      ) ||
+      updatedAtInstant > referenceInstant
+    ) {
+      continue
+    }
+
+    const conversationKey =
+      parsed.provenance.conversation_key
+
+    const existing =
+      latestPerConversationKey.get(
+        conversationKey,
       )
+
+    if (
+      !existing ||
+      updatedAtInstant >
+        existing.updatedAtInstant
     ) {
       latestPerConversationKey.set(
-        parsed.provenance.conversation_key,
-        parsed,
+        conversationKey,
+        {
+          parsed,
+          updatedAtInstant,
+        },
       )
     }
   }
 
   return [
     ...latestPerConversationKey.values(),
-  ]
+  ].map(
+    (entry) => entry.parsed,
+  )
 }
 
 function collectFromParsedRows(
@@ -1111,9 +1183,11 @@ function collectFromParsedRows(
  * a linha atual de uma conversa pode já ter avançado para depois de
  * `reference_time` (jobs atrasados, replay). Para essas conversas
  * ("drifted"), a leitura cai para companion_commercial_state_events
- * — o histórico imutável — e usa o evento mais recente com
- * generated_at <= reference_time, em vez de simplesmente descartar a
- * conversa inteira. Ver loadCurrentStateRows/loadHistoricalEventRows.
+ * — o histórico imutável — e usa o evento cujo `state_snapshot.
+ * updated_at` (não `generated_at`, que pode divergir — ver
+ * loadHistoricalEventRows) é o maior valor ainda `<= reference_time`,
+ * em vez de simplesmente descartar a conversa inteira. Ver
+ * loadCurrentStateRows/loadHistoricalEventRows.
  *
  * Toda consulta é paginada via `.range(...)` (mesmo padrão de
  * loadLedgerRows em stateful-copilot-real-context-loader.ts) com um
