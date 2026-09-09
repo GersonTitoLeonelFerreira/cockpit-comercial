@@ -24,7 +24,7 @@ const IDS = {
 }
 
 const CONVERSATION_KEY = 'whatsapp:+5547999990001'
-const REFERENCE_TIME = '2026-09-09T17:00:00.000Z'
+const REFERENCE_TIME = '2026-08-29T22:00:00.000Z'
 
 function evidence(summary, ids = ['1']) {
   return {
@@ -158,7 +158,7 @@ function buildBaseRows() {
         phone: '+5547999990001',
         email: null,
         deleted_at: null,
-        updated_at: '2026-09-09T16:50:00.000Z',
+        updated_at: '2026-08-29T21:55:00.000Z',
       },
     ],
     cycles: [
@@ -170,8 +170,8 @@ function buildBaseRows() {
         status: 'respondeu',
         next_action: null,
         next_action_date: null,
-        updated_at: '2026-09-09T16:50:00.000Z',
-        created_at: '2026-09-01T10:00:00.000Z',
+        updated_at: '2026-08-29T21:55:00.000Z',
+        created_at: '2026-08-29T20:00:00.000Z',
         origin_cycle_id: null,
       },
     ],
@@ -192,8 +192,8 @@ function buildBaseRows() {
         message_key: 'm1',
         version: 1,
         direction: 'incoming',
-        occurred_at: '2026-09-09T16:45:00.000Z',
-        observed_at: '2026-09-09T16:45:01.000Z',
+        occurred_at: '2026-08-29T21:50:00.000Z',
+        observed_at: '2026-08-29T21:50:01.000Z',
         content_type: 'text',
         text_content: 'Quero entender a condição comercial.',
         audio_transcription: null,
@@ -212,13 +212,13 @@ function buildCurrentState() {
     conversation_key: CONVERSATION_KEY,
     state_version: 3,
     state_contract_version: 'phase-5.1-commercial-state-v1',
-    state_updated_at: '2026-09-09T16:50:00.000Z',
+    state_updated_at: '2026-08-29T21:55:00.000Z',
     state_snapshot: buildTestCommercialState({
       cycleId: IDS.cycle,
       version: 3,
       evidenceMessageIds: ['1'],
     }),
-    persisted_at: '2026-09-09T16:50:05.000Z',
+    persisted_at: '2026-08-29T21:56:00.000Z',
   }
 }
 
@@ -238,7 +238,7 @@ function buildEvent(overrides = {}) {
         commercial_reading: buildValidReading(),
       },
     },
-    generated_at: '2026-09-09T16:49:00.000Z',
+    generated_at: '2026-08-29T21:55:30.000Z',
     ...overrides,
   }
 }
@@ -258,7 +258,7 @@ test('MIE recebe a leitura persistida da versão exata com provenance do evento'
   assert.equal(sources.commercial_reading.source_id, IDS.event)
   assert.equal(
     sources.commercial_reading.observed_at,
-    '2026-09-09T16:49:00.000Z',
+    '2026-08-29T21:55:30.000Z',
   )
   assert.equal(
     sources.commercial_reading.reading.contract_version,
