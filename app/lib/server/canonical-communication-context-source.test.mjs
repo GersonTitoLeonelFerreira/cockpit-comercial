@@ -795,6 +795,30 @@ test('escalate vindo do passthrough de best_approach (sem candidato de SLA) perm
 
   assert.equal(context.decision_kind, 'escalate')
   assert.equal(context.do_not_generate, false)
+  // Achado do Codex (PR #281, rodada 9): o texto fixo de `escalate`
+  // ("Agir sobre a estagnação operacional.") só é válido para a origem
+  // `client_sla` — o passthrough deriva o objetivo do próprio
+  // dominant_intent (summary), nunca rotula como estagnação de CRM.
+  assert.equal(context.communication_goal, 'Exceção comercial em análise.')
+  assert.notEqual(context.communication_goal, 'Agir sobre a estagnação operacional.')
+})
+
+test('escalate de origem client_sla usa o objetivo operacional fixo, não o summary', async () => {
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'escalate',
+      source: 'client_sla',
+      summary: 'Etapa estagnada.',
+      reason: 'SLA da etapa vencido, sem mensagem pendente do cliente.',
+      recommended_action: 'Avaliar o próximo passo da oportunidade.',
+      evidence_message_ids: [],
+      memory_ids: [],
+    },
+  })
+
+  const context = await load({ decision_state: decisionState })
+
+  assert.equal(context.communication_goal, 'Agir sobre a estagnação operacional.')
 })
 
 // 11. Method deviation: vira restrição de abordagem, não jargão interno.

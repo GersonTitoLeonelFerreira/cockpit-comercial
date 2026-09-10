@@ -95,11 +95,39 @@ const COMMUNICATION_GOAL_BY_DECISION: Record<
   wait: 'Aguardar antes de agir.',
   give_space: 'Preservar naturalidade; não avançar a venda.',
   follow_up: 'Retomar compromisso ou contato pendente.',
+  // Só o `escalate` de origem `client_sla` (estagnação de etapa) usa
+  // este texto — o passthrough de `best_approach.decision` (`source`
+  // diferente de `client_sla`) tem o objetivo derivado do próprio
+  // `dominant_intent` em vez deste padrão fixo (achado do Codex, PR
+  // #281, rodada 9 — ver `communicationGoal` abaixo).
   escalate: 'Agir sobre a estagnação operacional.',
   close: 'Conduzir o fechamento.',
   no_intervention: 'Nenhuma comunicação necessária.',
   insufficient_information:
     'Aprofundar a descoberta para decidir o próximo passo.',
+}
+
+// `escalate` não tem um único significado fixo — a origem
+// `client_sla` (estagnação de etapa) é genuinamente operacional, mas o
+// passthrough de `best_approach.decision` (`source` diferente de
+// `client_sla`, ex.: uma exceção comercial com mensagem real ao
+// cliente) descreve uma situação concreta da leitura, não estagnação
+// de CRM. Rotular os dois com o mesmo texto fixo faria um gerador
+// futuro agir sobre um objetivo de CRM/SLA que o Decision State nunca
+// selecionou para o caso não-SLA (achado do Codex, PR #281, rodada 9).
+function resolveCommunicationGoal(
+  primaryDecision: DecisionStatePrimaryDecision,
+): string {
+  if (
+    primaryDecision.kind === 'escalate' &&
+    primaryDecision.source !== 'client_sla'
+  ) {
+    return primaryDecision.summary
+  }
+
+  return COMMUNICATION_GOAL_BY_DECISION[
+    primaryDecision.kind
+  ]
 }
 
 export type CommunicationContextConstraintSource =
@@ -1010,8 +1038,9 @@ export async function loadCanonicalCommunicationContext({
     non_executable_reason: null,
 
     decision_kind: decisionKind,
-    communication_goal:
-      COMMUNICATION_GOAL_BY_DECISION[decisionKind],
+    communication_goal: resolveCommunicationGoal(
+      decision_state.primary_decision,
+    ),
     do_not_generate: doNotGenerate,
 
     current_moment: decision_state.current_moment,
