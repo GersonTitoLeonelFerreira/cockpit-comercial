@@ -750,7 +750,7 @@ test('compromisso vencido na memória canônica do ciclo sobe como intervenção
 })
 
 // 12. Customer memory irrelevante agora: fica fora.
-test('compromisso ainda não vencido (futuro) não sobe', async () => {
+test('compromisso ainda não vencido em dia futuro distante não sobe', async () => {
   const admin = createAdminWithCommitments([
     buildCommitmentMemory({
       id: 'commit-2',
@@ -762,6 +762,30 @@ test('compromisso ainda não vencido (futuro) não sobe', async () => {
   const state = await load({ admin })
 
   assert.notEqual(state.primary_decision.kind, 'follow_up')
+})
+
+test('compromisso confirmado previsto para hoje, ainda não vencido, sobe como intervenção', async () => {
+  // Achado do Codex (PR #280, rodada 4): antes, só compromissos JÁ
+  // vencidos (scheduled_at < reference_time) produziam candidato — um
+  // retorno confirmado para mais tarde no mesmo dia (REFERENCE_TIME é
+  // 2026-09-09T17:00:00.000Z; compromisso às 20:00 do mesmo dia) não
+  // gerava sinal nenhum, mesmo sendo exatamente o Cenário 3 do roadmap
+  // (sessão pessoal + agenda comercial próxima).
+  const admin = createAdminWithCommitments([
+    buildCommitmentMemory({
+      id: 'commit-today-upcoming',
+      summary: 'Retorno comercial previsto para hoje às 20h.',
+      scheduled_at: '2026-09-09T20:00:00.000Z',
+    }),
+  ])
+
+  const state = await load({ admin })
+
+  assert.equal(state.primary_decision.kind, 'follow_up')
+  assert.equal(
+    state.primary_decision.summary,
+    'Retorno comercial previsto para hoje às 20h.',
+  )
 })
 
 test('compromisso ainda proposed (sem aceite bilateral) não é tratado como vencido', async () => {
@@ -883,6 +907,38 @@ test('sessão pessoal com sinal operacional sobrevivente: give_space continua pr
   assert.equal(
     state.interventions[0].summary,
     'Compromisso vencido durante sessão pessoal.',
+  )
+})
+
+// Cenário 3 do roadmap (docs/companion-v2/product/
+// phase16-seller-information-architecture-scenarios.md:58-71): sessão
+// pessoal + agenda comercial próxima. A sessão pessoal não vira venda,
+// mas o retorno comercial previsto para hoje continua visível como
+// card de intervenção.
+test('sessão pessoal com compromisso confirmado previsto para hoje: give_space continua principal, compromisso vira intervenção', async () => {
+  const admin = createAdminWithCommitments([
+    buildCommitmentMemory({
+      id: 'commit-personal-today',
+      summary: 'Retorno comercial previsto para hoje.',
+      scheduled_at: '2026-09-09T20:00:00.000Z',
+    }),
+  ])
+
+  const reading = buildReading({
+    commercial_relevance: 'non_commercial',
+  })
+
+  const state = await load({
+    admin,
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'give_space')
+  assert.equal(state.interventions.length, 1)
+  assert.equal(state.interventions[0].source, 'cycle_commitment')
+  assert.equal(
+    state.interventions[0].summary,
+    'Retorno comercial previsto para hoje.',
   )
 })
 

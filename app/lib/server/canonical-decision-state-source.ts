@@ -457,8 +457,11 @@ function buildClientSlaCandidate(
 // produzia intervenção nenhuma para um cliente esperando (achado do
 // Codex, PR #280, rodada 3). Não invento um limiar de "quanto tempo é
 // demais" (mandato §11: sem thresholds operacionais arbitrários) —
-// prioridade fixa 'medium', mais baixa que o 'critical' de SLA
-// configurado, que já é a fonte com prova objetiva de limiar.
+// prioridade 'high', igual à classificação explícita de "cliente
+// aguardando" em companion-seller-product-contract.md:375-379 (seção
+// 4.4, categoria ALTA). Usar 'medium' aqui subestimava o sinal e
+// arriscava perder a vaga de card para candidatos menos urgentes
+// (achado do Codex, PR #280, rodada 4).
 function buildCustomerWaitingCandidate(
   clientContext: CompanionClientContext | null,
 ): Candidate | null {
@@ -484,7 +487,7 @@ function buildCustomerWaitingCandidate(
 
   return {
     source: 'customer_waiting',
-    priority: 'medium',
+    priority: 'high',
     kind: 'respond',
 
     summary:
@@ -510,6 +513,30 @@ function buildCustomerWaitingCandidate(
   }
 }
 
+// Dois compromissos ISO instants estão no mesmo dia-calendário UTC.
+// Usado apenas para decidir se um compromisso confirmado ainda não
+// vencido é "hoje" (mandato §35, Cenário 3 do roadmap: um retorno
+// agendado para mais tarde no mesmo dia deve virar card mesmo sem
+// estar vencido). Nenhum fuso horário da empresa chega a este módulo
+// hoje — dia-calendário UTC é o limite não-arbitrário disponível
+// (decorre diretamente do próprio instante ISO armazenado, não é um
+// número de horas inventado), e é o mesmo tipo de boundary descrito
+// no cenário do produto ("previsto para hoje").
+function isSameUtcCalendarDay(
+  instantA: number,
+  instantB: number,
+): boolean {
+  const dateA = new Date(instantA)
+  const dateB = new Date(instantB)
+
+  return (
+    dateA.getUTCFullYear() ===
+      dateB.getUTCFullYear() &&
+    dateA.getUTCMonth() === dateB.getUTCMonth() &&
+    dateA.getUTCDate() === dateB.getUTCDate()
+  )
+}
+
 function buildCycleCommitmentCandidates(
   cycleMemory: Awaited<
     ReturnType<typeof loadCanonicalCycleCommercialMemory>
@@ -526,55 +553,121 @@ function buildCycleCommitmentCandidates(
   // Só 'confirmed' representa aceite bilateral comprovado
   // (stateful-copilot-execution-plan.ts:1031-1033: uma proposta
   // permanece 'proposed' até a outra parte aceitar explicitamente).
-  // Tratar um compromisso ainda 'proposed' como vencido inventaria uma
-  // obrigação firme que nunca foi aceita pelo cliente (achado do
-  // Codex, PR #280, rodada 1).
-  return cycleMemory.commitments
-    .filter(
+  // Tratar um compromisso ainda 'proposed' como vencido ou próximo
+  // inventaria uma obrigação firme que nunca foi aceita pelo cliente
+  // (achado do Codex, PR #280, rodada 1).
+  const confirmedActiveCommitmentsWithValidSchedule =
+    cycleMemory.commitments.filter(
       (commitment) =>
         commitment.memory_status === 'active' &&
         commitment.commitment_status === 'confirmed' &&
         typeof commitment.scheduled_at === 'string' &&
         Number.isFinite(
           Date.parse(commitment.scheduled_at),
-        ) &&
-        Date.parse(commitment.scheduled_at) <
-          referenceInstant,
+        ),
     )
-    .map(
-      (commitment): Candidate => ({
-        source: 'cycle_commitment',
-        priority: 'high',
-        kind: 'follow_up',
 
-        summary:
-          commitment.summary,
+  const overdueCandidates =
+    confirmedActiveCommitmentsWithValidSchedule
+      .filter(
+        (commitment) =>
+          Date.parse(
+            commitment.scheduled_at as string,
+          ) < referenceInstant,
+      )
+      .map(
+        (commitment): Candidate => ({
+          source: 'cycle_commitment',
+          priority: 'high',
+          kind: 'follow_up',
 
-        reason:
-          `Compromisso agendado para ${commitment.scheduled_at} já venceu.`,
+          summary:
+            commitment.summary,
 
-        // O contrato de estado registra aceite bilateral, mas não QUAL
-        // parte assumiu a obrigação — um compromisso confirmado pode
-        // ser do vendedor ou do cliente (ex.: "cliente enviará os
-        // documentos amanhã"). Ação neutra, sem presumir que cabe ao
-        // vendedor cumpri-lo (achado do Codex, PR #280, rodada 2).
-        recommended_action:
-          'Confirmar com o cliente o andamento do compromisso e reagendar explicitamente se necessário.',
+          reason:
+            `Compromisso agendado para ${commitment.scheduled_at} já venceu.`,
 
-        evidence_message_ids:
-          commitment.evidence_message_ids,
+          // O contrato de estado registra aceite bilateral, mas não
+          // QUAL parte assumiu a obrigação — um compromisso confirmado
+          // pode ser do vendedor ou do cliente (ex.: "cliente enviará
+          // os documentos amanhã"). Ação neutra, sem presumir que cabe
+          // ao vendedor cumpri-lo (achado do Codex, PR #280, rodada 2).
+          recommended_action:
+            'Confirmar com o cliente o andamento do compromisso e reagendar explicitamente se necessário.',
 
-        memory_ids: [
-          commitment.memory_id,
-        ],
+          evidence_message_ids:
+            commitment.evidence_message_ids,
 
-        observed_at:
+          memory_ids: [
+            commitment.memory_id,
+          ],
+
+          observed_at:
+            commitment.scheduled_at as string,
+
+          resolve_condition:
+            'Resolve quando o compromisso for cumprido ou reagendado.',
+        }),
+      )
+
+  // Um compromisso confirmado ainda NÃO vencido, mas previsto para
+  // hoje, também muda a decisão imediata do vendedor — é o Cenário 3
+  // do roadmap (sessão pessoal + agenda comercial próxima): sem este
+  // candidato, uma sessão sem sinal comercial na conversa atual
+  // resolvia para `give_space` com zero cards, mesmo havendo um
+  // retorno comercial previsto para o mesmo dia (achado do Codex,
+  // PR #280, rodada 4). `>=` aqui (em vez de `>`) fecha a partição com
+  // o filtro de vencidos acima (`<`), sem lacuna nem sobreposição no
+  // instante exato do vencimento.
+  const upcomingTodayCandidates =
+    confirmedActiveCommitmentsWithValidSchedule
+      .filter((commitment) => {
+        const scheduledInstant = Date.parse(
           commitment.scheduled_at as string,
+        )
 
-        resolve_condition:
-          'Resolve quando o compromisso for cumprido ou reagendado.',
-      }),
-    )
+        return (
+          scheduledInstant >= referenceInstant &&
+          isSameUtcCalendarDay(
+            scheduledInstant,
+            referenceInstant,
+          )
+        )
+      })
+      .map(
+        (commitment): Candidate => ({
+          source: 'cycle_commitment',
+          priority: 'high',
+          kind: 'follow_up',
+
+          summary:
+            commitment.summary,
+
+          reason:
+            `Compromisso confirmado previsto para hoje (${commitment.scheduled_at}).`,
+
+          recommended_action:
+            'Confirmar com o cliente a agenda do compromisso previsto para hoje.',
+
+          evidence_message_ids:
+            commitment.evidence_message_ids,
+
+          memory_ids: [
+            commitment.memory_id,
+          ],
+
+          observed_at:
+            commitment.scheduled_at as string,
+
+          resolve_condition:
+            'Resolve quando o compromisso for cumprido, reagendado, ou passar a estar vencido.',
+        }),
+      )
+
+  return [
+    ...overdueCandidates,
+    ...upcomingTodayCandidates,
+  ]
 }
 
 function buildCommercialRiskCandidates(

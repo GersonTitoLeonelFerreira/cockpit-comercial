@@ -1178,22 +1178,31 @@ export async function loadCanonicalMethodCoachingSource({
       cycle_memory.cycle_id === cycle_id &&
       cycle_memory.reference_time === referenceTime
 
-    // Um cycle_memory fornecido mas de escopo/instante divergente é
-    // tratado como se não tivesse sido fornecido — cai para a carga
-    // interna best-effort, nunca vira `null` direto (o que derrubaria
-    // cross_conversation_coaching por completo sem necessidade).
+    // Três casos distintos para o parâmetro opcional `cycle_memory`:
+    // - não fornecido (`undefined`): carga interna best-effort, como sempre.
+    // - fornecido mas de escopo/instante divergente: tratado como se não
+    //   tivesse sido fornecido, cai para a carga interna best-effort (nunca
+    //   vira `null` direto, o que derrubaria cross_conversation_coaching por
+    //   completo sem necessidade).
+    // - fornecido explicitamente como `null` (o chamador já tentou carregar
+    //   e falhou): respeitado como "confirmadamente indisponível" — repetir
+    //   a consulta aqui reintroduziria o double-scan que este parâmetro foi
+    //   criado para eliminar, e poderia produzir um resultado inconsistente
+    //   com o que o chamador já registrou como indisponível.
     const cycleMemory =
       suppliedCycleMemoryMatchesScope
         ? cycle_memory
-        : await loadCanonicalCycleCommercialMemory(
-          {
-            admin,
-            company_id,
-            cycle_id,
-            reference_time:
-              referenceTime,
-          },
-        )
+        : cycle_memory === null
+          ? null
+          : await loadCanonicalCycleCommercialMemory(
+            {
+              admin,
+              company_id,
+              cycle_id,
+              reference_time:
+                referenceTime,
+            },
+          )
 
     const otherConversationKeys =
       (

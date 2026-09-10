@@ -1268,3 +1268,37 @@ test('cycle_memory de escopo diferente do chamador é ignorado, cai para carga i
   assert.ok(stateTableQueries > 0)
   assert.ok(source)
 })
+
+test('cycle_memory explicitamente null (chamador já tentou e falhou) é respeitado, sem nova consulta a companion_commercial_states', async () => {
+  // Achado do Codex (PR #280, rodada 4): `cycle_memory != null` tratava
+  // "não fornecido" (undefined) e "fornecido como null" (o chamador —
+  // Decision State — já tentou carregar e falhou) da mesma forma,
+  // disparando uma nova consulta interna nos dois casos. Isso
+  // reproduzia o double-scan que o parâmetro foi criado para eliminar,
+  // e podia produzir um resultado inconsistente com o que o chamador
+  // já registrou como indisponível caso o retry tivesse sucesso.
+  const admin = createAdmin({
+    agoraRows: [],
+    eventRows: [],
+    stateRows: [buildStateRow({})],
+  })
+
+  let stateTableQueries = 0
+  const originalFrom = admin.from.bind(admin)
+
+  admin.from = (table) => {
+    if (table === 'companion_commercial_states') {
+      stateTableQueries += 1
+    }
+
+    return originalFrom(table)
+  }
+
+  const source = await load({
+    admin,
+    cycle_memory: null,
+  })
+
+  assert.equal(stateTableQueries, 0)
+  assert.ok(source)
+})
