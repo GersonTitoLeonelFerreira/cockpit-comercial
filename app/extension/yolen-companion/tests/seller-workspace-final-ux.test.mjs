@@ -91,6 +91,38 @@ test('AGORA só renderiza a decisão do ciclo/conversa atuais, nunca uma decisã
   )
 })
 
+test(
+  'loadAgoraDecisionStateForCurrentCycle rejeita uma resposta stale mesmo quando ciclo/conversa batem (achado do Codex, PR #283)',
+  () => {
+    // Identidade de escopo (cycleId/conversationKey) sozinha não prova
+    // que uma resposta em voo é a mais recente: uma requisição disparada
+    // ANTES de uma reanálise começar pode resolver DEPOIS da requisição
+    // que a própria reanálise disparou ao terminar, para o MESMO ciclo/
+    // conversa — sem um token de geração monotônico, a resposta antiga
+    // sobrescreveria o resultado fresco.
+    const start = contentScript.indexOf(
+      'async function loadAgoraDecisionStateForCurrentCycle(',
+    )
+    const end = contentScript.indexOf(
+      '\n  }\n\n  // Carrega o working summary factual do lead.',
+      start,
+    )
+    const block = contentScript.slice(start, end)
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    assert.match(
+      block,
+      /requestSequence =\s*\n?\s*\+\+agoraDecisionStateRequestSequence/,
+    )
+    assert.match(
+      block,
+      /requestSequence ===\s*\n?\s*agoraDecisionStateRequestSequence/,
+    )
+  },
+)
+
 test('erro e loading da análise profunda nunca bloqueiam nem aparecem em AGORA', () => {
   const summaryCardStart = contentScript.indexOf(
     'function getCompanionLeadSummaryCardHtml()',

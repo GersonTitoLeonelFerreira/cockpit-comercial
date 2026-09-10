@@ -220,6 +220,28 @@ test(
 )
 
 test(
+  'guard do rail minimizado compara contra a mesma chave de conversa usada para buscar o AGORA view model (achado do Codex, PR #283)',
+  () => {
+    // getCaptureConversationKey() (telefone canônico) é a chave que
+    // loadAgoraDecisionStateForCurrentCycle() de fato grava em
+    // agoraDecisionStateConversationKey — state.conversationKey é uma
+    // chave de identidade por título/DOM, de um namespace diferente.
+    // Comparar contra state.conversationKey nunca bate para uma conversa
+    // 1:1 resolvida, então isCurrentAgoraContext ficaria sempre falso e
+    // o rail nunca acenderia nenhum alerta de AGORA, nem os críticos.
+    assert.match(
+      b5Block,
+      /agoraDecisionStateConversationKey ===\s*getCaptureConversationKey\(\)/,
+    )
+
+    assert.doesNotMatch(
+      b5Block,
+      /agoraDecisionStateConversationKey ===\s*state\.conversationKey/,
+    )
+  },
+)
+
+test(
   'sessão non-commercial mantém o rail neutro',
   () => {
     assert.match(

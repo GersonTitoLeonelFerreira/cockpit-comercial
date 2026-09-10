@@ -94,7 +94,17 @@ const DECISION_KIND_TO_STATUS: Record<
 
   follow_up: 'follow_up',
   set_commitment: 'follow_up',
-  wait: 'follow_up',
+
+  // `wait` é uma recomendação deliberada de NÃO agir agora — o próprio
+  // contrato de leitura comercial só permite canal `wait`/`none` para
+  // esta decisão, e Communication Context a trata como não exigindo
+  // comunicação nenhuma. Mapear para `follow_up` diria ao vendedor para
+  // "retomar contato", exatamente o oposto do que Decision State
+  // recomendou (achado do Codex, PR #283). `no_intervention` é a
+  // categoria de tom mais próxima — informativa, nunca urgente — sem
+  // reusar o kind `no_intervention` em si (que continua exclusivo do
+  // silêncio central tratado em `buildAgoraViewModel`).
+  wait: 'no_intervention',
 
   handle_objection: 'handle_objection',
 

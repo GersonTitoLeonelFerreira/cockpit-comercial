@@ -837,6 +837,29 @@ test('qualidade de texto: primary e secondary nunca repetem o mesmo headline (re
   assert.equal(vm.primary.headline, vm.secondary[0].headline)
 })
 
+// Achado do Codex (PR #283): `wait` é uma recomendação deliberada de NÃO
+// agir agora (o próprio contrato de leitura comercial só permite canal
+// `wait`/`none` para esta decisão, e Communication Context a trata como
+// não exigindo comunicação nenhuma). Mapeá-la para `follow_up` diria ao
+// vendedor para "retomar contato" — o oposto do que Decision State
+// recomendou.
+test('wait nunca é apresentado como follow_up (recomendação de agir seria o oposto do que Decision State decidiu)', () => {
+  const state = buildDecisionState({
+    primary_decision: buildPrimary({
+      kind: 'wait',
+      source: null,
+      priority: null,
+      summary: 'Cliente pediu um tempo para decidir.',
+      recommended_action: 'Canal recomendado: wait.',
+    }),
+  })
+
+  const vm = buildAgoraViewModel(state)
+
+  assert.notEqual(vm.primary.status, 'follow_up')
+  assert.equal(vm.primary.status, 'no_intervention')
+})
+
 // ---------------------------------------------------------------------------
 // Cobertura de enums/exports públicos.
 // ---------------------------------------------------------------------------

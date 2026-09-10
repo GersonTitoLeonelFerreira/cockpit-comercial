@@ -215,6 +215,17 @@
   // sem isso, uma resposta antiga da MESMA conversa poderia vencer uma
   // resposta mais nova (ex.: duplo clique em "Analisar agora").
   let conversationAnalysisRequestSequence = 0
+  // FASE 16.5 — mesmo padrão acima, mas para o AGORA seller-facing view
+  // model: identidade de escopo (cycleId/conversationKey) sozinha não
+  // basta para saber se uma resposta em voo ainda é a mais recente — uma
+  // requisição disparada ANTES de uma reanálise começar (mesmo ciclo/
+  // conversa) pode resolver DEPOIS da requisição disparada pela própria
+  // reanálise ao terminar, e sobrescrever um resultado fresco com um
+  // stale (achado do Codex, PR #283). Incrementado a cada chamada de
+  // loadAgoraDecisionStateForCurrentCycle(), qualquer que seja a
+  // conversa; só a chamada cujo requestSequence capturado ainda é o mais
+  // recente pode aplicar seu resultado.
+  let agoraDecisionStateRequestSequence = 0
   // Identidade explícita da tentativa que hoje é dona do loading —
   // { requestSequence, cycleId, conversationKey, source: 'manual'|'automatic' }
   // ou null quando não há nenhuma em voo. Preenchida no início de
@@ -11656,6 +11667,15 @@
     const force =
       options.force === true
 
+    // Toda chamada — mesmo a que sai cedo por falta de ciclo/conversa —
+    // invalida qualquer requisição anterior ainda em voo: identidade de
+    // escopo (cycleId/conversationKey) sozinha não prova que uma
+    // resposta é a mais recente, porque uma reanálise pode disparar uma
+    // nova chamada para o MESMO ciclo/conversa antes da anterior
+    // resolver (achado do Codex, PR #283).
+    const requestSequence =
+      ++agoraDecisionStateRequestSequence
+
     const cycleId =
       state.leadResolution?.cycle?.id
 
@@ -11703,6 +11723,8 @@
 
     const isStillCurrentContext =
       () =>
+        requestSequence ===
+          agoraDecisionStateRequestSequence &&
         state.agoraDecisionStateCycleId ===
           cycleId &&
         state.agoraDecisionStateConversationKey ===
@@ -13679,7 +13701,7 @@
       state.agoraDecisionStateCycleId ===
         state.leadResolution?.cycle?.id &&
       state.agoraDecisionStateConversationKey ===
-        state.conversationKey
+        getCaptureConversationKey()
 
     const agoraPrimary =
       isCurrentAgoraContext
