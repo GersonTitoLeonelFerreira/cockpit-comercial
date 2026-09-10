@@ -31,6 +31,14 @@ test('UX7 dá responsabilidade única para AGORA ANÁLISE CLIENTE', () => {
   assert.match(block, /data-yolen-ux-build="UX7"/)
 })
 
+// FASE 16.5 (recalibração seller-facing do AGORA): getNowAttentionSnapshotHtml
+// não reconstrói mais a decisão a partir da leitura crua — ela consome o
+// AGORA seller-facing view model já pronto (Decision State, FASE 16.3E,
+// traduzido por app/lib/server/agora-view-model.ts e buscado por
+// loadAgoraDecisionStateForCurrentCycle). Os dois testes abaixo foram
+// atualizados para o novo formato — a mesma garantia semântica (no máximo
+// um card duplicando ANÁLISE nunca acontece; decisão de uma conversa
+// trocada nunca fica visível) continua valendo, só a implementação mudou.
 test('AGORA mostra no máximo um alerta relevante, sem duplicar o diagnóstico de ANÁLISE', () => {
   const attentionStart = contentScript.indexOf(
     'function getNowAttentionSnapshotHtml()',
@@ -45,7 +53,7 @@ test('AGORA mostra no máximo um alerta relevante, sem duplicar o diagnóstico d
   assert.notEqual(attentionEnd, -1)
   assert.match(
     attentionBlock,
-    /sellerInformationViewTools\.renderNowAttentionSnapshot\(/,
+    /sellerInformationViewTools\.renderAgoraViewModelSnapshot\(/,
   )
   assert.doesNotMatch(
     attentionBlock,
@@ -53,7 +61,7 @@ test('AGORA mostra no máximo um alerta relevante, sem duplicar o diagnóstico d
   )
 })
 
-test('AGORA só retém a incerteza informativa e nunca reutiliza decisão stale', () => {
+test('AGORA só renderiza a decisão do ciclo/conversa atuais, nunca uma decisão stale', () => {
   const start = contentScript.indexOf(
     'function getNowAttentionSnapshotHtml()',
   )
@@ -64,29 +72,22 @@ test('AGORA só retém a incerteza informativa e nunca reutiliza decisão stale'
   const block =
     contentScript.slice(start, end)
 
+  // Só renderiza quando o AGORA seller-facing view model está pronto.
   assert.match(
     block,
-    /state\.conversationAnalysisLoading/,
+    /state\.agoraDecisionState\?\.status !== 'ready'/,
+  )
+
+  // E só quando ele pertence ao MESMO ciclo/conversa atualmente ativos —
+  // o mesmo guard de escopo que impede uma troca de conversa (A→B) de
+  // deixar visível a decisão da conversa anterior (mandato §24/§25).
+  assert.match(
+    block,
+    /state\.agoraDecisionStateCycleId ===\s*cycleId/,
   )
   assert.match(
     block,
-    /state\.conversationAnalysisError/,
-  )
-  assert.match(
-    block,
-    /isCurrentAnalysisOutdated\(\)/,
-  )
-  assert.match(
-    block,
-    /getLastKnownClientCommercialReading\(\)/,
-  )
-  assert.match(
-    block,
-    /retainedAttention\?\.source !==\s*'commercial_intent_uncertain'/,
-  )
-  assert.doesNotMatch(
-    block,
-    /retainedAttention\?\.source !==\s*'improvement'/,
+    /state\.agoraDecisionStateConversationKey ===\s*conversationKey/,
   )
 })
 

@@ -52,44 +52,36 @@
     high: 'Alto',
   }
 
-  const ATTENTION_PRIORITY_RANK = {
-    medium: 1,
-    high: 2,
-    critical: 3,
+  // FASE 16.5 (recalibração seller-facing do AGORA): as tabelas locais de
+  // prioridade/tie-break (ATTENTION_PRIORITY_RANK/ATTENTION_SOURCE_RANK),
+  // os conjuntos de severidade (CRITICAL_RISK_KINDS/HIGH_IMPROVEMENT_KINDS)
+  // e o limiar de "cliente aguardando" (CUSTOMER_WAITING_ATTENTION_MS) que
+  // existiam aqui foram removidos — eram uma segunda implementação,
+  // independente e já divergente, da mesma priorização que Decision State
+  // (canonical-decision-state-source.ts, FASE 16.3E) já computa
+  // server-side. AGORA agora consome o AgoraViewModel pronto (ver
+  // renderAgoraViewModelSnapshot mais abaixo) em vez de reconstruir a
+  // decisão a partir da leitura crua — achado da auditoria da FASE 16.5.
+
+  const AGORA_VIEW_MODEL_STATUS_LABELS = {
+    respond: 'Responder agora',
+    follow_up: 'Retomar contato',
+    handle_objection: 'Objeção em aberto',
+    escalate: 'Atenção',
+    give_space: 'Dê espaço',
+    deepen_discovery: 'Descoberta incompleta',
+    no_intervention: 'Nada a fazer agora',
   }
 
-  const ATTENTION_SOURCE_RANK = {
-    sla: 70,
-    service_risk: 60,
-    off_method: 50,
-    open_question: 40,
-    customer_objection: 30,
-    commercial_intent_uncertain: 25,
-    improvement: 20,
-    waiting: 10,
+  const AGORA_VIEW_MODEL_STATUS_TONE = {
+    escalate: 'risk',
+    handle_objection: 'warning',
+    deepen_discovery: 'warning',
+    respond: 'warning',
+    follow_up: 'warning',
+    give_space: 'information',
+    no_intervention: 'information',
   }
-
-  const CRITICAL_RISK_KINDS = new Set([
-    'incorrect_information',
-    'promise_risk',
-    'unsupported_promise',
-    'contradiction',
-  ])
-
-  const HIGH_IMPROVEMENT_KINDS = new Set([
-    'unanswered_question',
-    'premature_price',
-    'premature_presentation',
-    'pressure',
-    'poor_objection_handling',
-    'advance_without_confirmation',
-    'missing_next_commitment',
-    'missed_commitment',
-  ])
-
-  // Sem regra de SLA não existe risco de SLA. Este limite só decide quando
-  // uma espera factual do cliente já merece uma lembrança moderada na UI.
-  const CUSTOMER_WAITING_ATTENTION_MS = 2 * 60 * 60 * 1000
 
   const PRODUCT_INTEREST_LABELS = {
     discussed: 'Produto discutido',
@@ -1266,294 +1258,32 @@
     `
   }
 
-  function getGrownOperationalValue(baseValue, generatedAt, now, unitMs) {
-    if (typeof baseValue !== 'number') {
-      return null
-    }
-
-    if (typeof now !== 'number' || !generatedAt) {
-      return baseValue
-    }
-
-    const anchor = new Date(generatedAt).getTime()
-
-    if (!Number.isFinite(anchor)) {
-      return baseValue
-    }
-
-    return baseValue + Math.max(0, now - anchor) / unitMs
-  }
-
-  function getLiveSlaRisk(sla, generatedAt, now) {
-    if (
-      !sla ||
-      sla.configured !== true ||
-      sla.applicable !== true
-    ) {
-      return null
-    }
-
-    if (typeof now !== 'number') {
-      return sla.risk || null
-    }
-
-    const elapsedMinutes = getGrownOperationalValue(
-      sla.elapsed_minutes,
-      generatedAt,
-      now,
-      60000,
-    )
-
-    if (typeof elapsedMinutes !== 'number') {
-      return sla.risk || null
-    }
-
-    if (
-      typeof sla.danger_minutes === 'number' &&
-      elapsedMinutes >= sla.danger_minutes
-    ) {
-      return 'high'
-    }
-
-    if (
-      typeof sla.warning_minutes === 'number' &&
-      elapsedMinutes >= sla.warning_minutes
-    ) {
-      return 'medium'
-    }
-
-    if (
-      typeof sla.target_minutes === 'number' ||
-      typeof sla.warning_minutes === 'number' ||
-      typeof sla.danger_minutes === 'number'
-    ) {
-      return 'low'
-    }
-
-    return sla.risk || null
-  }
-
-  function getImprovementPriority(kind) {
-    if (CRITICAL_RISK_KINDS.has(kind)) {
-      return 'critical'
-    }
-
-    if (HIGH_IMPROVEMENT_KINDS.has(kind)) {
-      return 'high'
-    }
-
-    return 'medium'
-  }
-
-  function getServiceRiskPriority(risk) {
-    if (risk?.severity === 'low') {
-      return null
-    }
-
-    if (
-      risk?.severity === 'high' &&
-      CRITICAL_RISK_KINDS.has(risk?.kind)
-    ) {
-      return 'critical'
-    }
-
-    return risk?.severity === 'high' ? 'high' : 'medium'
-  }
-
-  function resolveSellerAttentionSnapshot(
-    reading,
-    clientContextState,
-    options = {},
-  ) {
-    if (!reading || isNeutralCommercialSession(reading)) {
-      return null
-    }
-
-    const candidates = []
-    const addCandidate = (candidate) => {
-      if (
-        !candidate ||
-        !ATTENTION_PRIORITY_RANK[candidate.priority] ||
-        !displayText(candidate.copy)
-      ) {
-        return
-      }
-
-      candidates.push(candidate)
-    }
-
-    const context = clientContextState?.status === 'ready'
-      ? clientContextState.data
-      : null
-    const cycleClosed = options.cycleClosed === true
-
-    if (context && !cycleClosed) {
-      const sla = context.sla
-      const slaRisk = getLiveSlaRisk(
-        sla,
-        context.generated_at,
-        options.now,
-      )
-
-      if (slaRisk === 'high' || slaRisk === 'medium') {
-        const stageLabel = displayText(sla.stage_label) || displayText(sla.stage) || 'atual'
-
-        addCandidate({
-          priority: slaRisk === 'high' ? 'critical' : 'high',
-          source: 'sla',
-          label: slaRisk === 'high' ? 'Crítico · Prazo de atendimento' : 'Atenção · Prazo de atendimento',
-          copy: `${slaRisk === 'high' ? 'Risco alto' : 'Risco médio'} na etapa ${stageLabel}.`,
-        })
-      }
-
-      if (
-        sla?.configured !== true &&
-        context.waiting?.state === 'customer_waiting_for_seller'
-      ) {
-        const waitingDurationMs = getGrownOperationalValue(
-          context.waiting.waiting_duration_ms,
-          context.generated_at,
-          options.now,
-          1,
-        )
-
-        if (
-          typeof waitingDurationMs === 'number' &&
-          waitingDurationMs >= CUSTOMER_WAITING_ATTENTION_MS
-        ) {
-          addCandidate({
-            priority: 'medium',
-            source: 'waiting',
-            label: 'Atenção · Cliente aguardando',
-            copy: 'O cliente está aguardando sua resposta há algum tempo.',
-          })
-        }
-      }
-    }
-
-    for (const risk of displayItems(reading.risks?.service_risks)) {
-      const priority = getServiceRiskPriority(risk)
-
-      if (priority) {
-        addCandidate({
-          priority,
-          source: 'service_risk',
-          label: priority === 'critical' ? 'Crítico · Revise antes de avançar' : 'Atenção na condução',
-          copy: risk.summary,
-        })
-      }
-    }
-
-    if (reading.method?.adherence?.status === 'off_method') {
-      addCandidate({
-        priority: 'high',
-        source: 'off_method',
-        label: 'Atenção · Método',
-        copy: 'Você saiu do método.',
-      })
-    }
-
-    const decision = reading.best_approach?.decision
-
-    if (
-      ['respond', 'clarify', 'confirm_information'].includes(decision) &&
-      displayItems(reading.customer?.open_questions).some((item) => displayText(item.summary))
-    ) {
-      addCandidate({
-        priority: 'high',
-        source: 'open_question',
-        label: 'Atenção · Pergunta pendente',
-        copy: 'Há uma pergunta importante do cliente para responder.',
-      })
-    }
-
-    if (
-      decision === 'handle_objection' &&
-      displayItems(reading.customer?.objections).some((item) => displayText(item.summary))
-    ) {
-      const objectionRisk = displayItems(reading.risks?.customer_objections)
-        .find((risk) => displayText(risk.summary))
-
-      addCandidate({
-        priority: objectionRisk?.severity === 'high' ? 'high' : 'medium',
-        source: 'customer_objection',
-        label: 'Atenção · Objeção aberta',
-        copy: 'Há uma objeção relevante do cliente para tratar.',
-      })
-    }
-
-    const productFitUncertainty =
-      getActiveMissingDiscovery(
-        reading.customer,
-      ).find(
-        (item) =>
-          item?.topic === 'product_fit' &&
-          displayText(item.summary),
-      )
-
-    if (productFitUncertainty) {
-      addCandidate({
-        priority: 'medium',
-        source:
-          'commercial_intent_uncertain',
-        label:
-          'Intenção comercial ainda não confirmada',
-        copy:
-          productFitUncertainty.summary,
-      })
-    }
-
-    for (const improvement of displayItems(reading.improvement_points)) {
-      if (!displayText(improvement.summary)) {
-        continue
-      }
-
-      addCandidate({
-        priority: getImprovementPriority(improvement.kind),
-        source: 'improvement',
-        label: 'Atenção na condução',
-        copy: improvement.summary,
-      })
-    }
-
-    candidates.sort((left, right) => {
-      const priorityDifference =
-        ATTENTION_PRIORITY_RANK[right.priority] -
-        ATTENTION_PRIORITY_RANK[left.priority]
-
-      if (priorityDifference !== 0) {
-        return priorityDifference
-      }
-
-      return (
-        (ATTENTION_SOURCE_RANK[right.source] || 0) -
-        (ATTENTION_SOURCE_RANK[left.source] || 0)
-      )
-    })
-
-    return candidates[0] || null
-  }
-
-  function renderAttentionItem(label, copy, priority, source) {
+  // FASE 16.5 (recalibração seller-facing do AGORA): renderAttentionItem
+  // é o único primitivo de apresentação que sobrevive daqui — ele só
+  // desenha um card a partir de valores já decididos, nunca decide o que
+  // mostrar. Quem decide é o AgoraViewModel (Decision State traduzido por
+  // app/lib/server/agora-view-model.ts, FASE 16.3E/16.5), consumido por
+  // renderAgoraViewModelSnapshot logo abaixo.
+  function renderAttentionItem({
+    label,
+    copy,
+    priority,
+    source,
+    tone,
+    variant,
+  }) {
     const clean = displayText(copy)
 
     if (!clean) {
       return ''
     }
 
-    const visualTone =
-      source ===
-        'commercial_intent_uncertain'
-        ? 'information'
-        : priority === 'critical'
-          ? 'risk'
-          : 'warning'
-
     return `
       <div
-        class="yolen-now-attention yolen-now-attention--${visualTone}"
-        data-yolen-now-attention="${escapeHtml(source)}"
-        data-yolen-alert-priority="${escapeHtml(priority)}"
+        class="yolen-now-attention yolen-now-attention--${escapeHtml(tone)}"
+        data-yolen-now-attention="${escapeHtml(source || '')}"
+        data-yolen-alert-priority="${escapeHtml(priority || '')}"
+        ${variant ? `data-yolen-now-attention-variant="${escapeHtml(variant)}"` : ''}
       >
         <div class="yolen-decision-kicker">${escapeHtml(label)}</div>
         <div class="yolen-now-attention-copy">${escapeHtml(clean)}</div>
@@ -1561,22 +1291,56 @@
     `
   }
 
-  function renderNowAttentionSnapshot(reading, clientContextState, options) {
-    const attention = resolveSellerAttentionSnapshot(
-      reading,
-      clientContextState,
-      options,
-    )
-
-    if (!attention) {
+  // Traduz um AgoraViewModelSignal (primary ou um item de secondary) em
+  // texto/tom seller-facing — o `headline`/`action` já vêm concretos e
+  // específicos do candidato real que Decision State elegeu (mandato
+  // §7/§8); este mapa só decide rótulo curto e tom visual a partir de
+  // `status`, nunca reclassifica prioridade nem reescreve o texto.
+  function renderAgoraSignal(signal, variant) {
+    if (!signal) {
       return ''
     }
 
-    return renderAttentionItem(
-      attention.label,
-      attention.copy,
-      attention.priority,
-      attention.source,
+    const label =
+      AGORA_VIEW_MODEL_STATUS_LABELS[signal.status] ||
+      'Atenção'
+
+    const tone =
+      signal.priority === 'critical'
+        ? 'risk'
+        : (AGORA_VIEW_MODEL_STATUS_TONE[signal.status] || 'warning')
+
+    return renderAttentionItem({
+      label,
+      copy: signal.action
+        ? `${signal.headline} ${signal.action}`
+        : signal.headline,
+      priority: signal.priority || '',
+      source: signal.status,
+      tone,
+      variant,
+    })
+  }
+
+  // Ponto único de renderização do AGORA seller-facing (FASE 16.5): no
+  // máximo 1 card primário + no máximo 2 cards secundários (mandato §4),
+  // já garantido por construção em app/lib/server/agora-view-model.ts —
+  // esta função nunca reordena, nunca filtra por conta própria, nunca
+  // inventa um card quando `silent` é `true` (mandato §9/§23).
+  function renderAgoraViewModelSnapshot(agoraViewModel) {
+    if (!agoraViewModel || agoraViewModel.silent || !agoraViewModel.primary) {
+      return ''
+    }
+
+    const secondaryHtml =
+      (agoraViewModel.secondary || [])
+        .slice(0, 2)
+        .map((signal) => renderAgoraSignal(signal, 'secondary'))
+        .join('')
+
+    return (
+      renderAgoraSignal(agoraViewModel.primary, 'primary') +
+      secondaryHtml
     )
   }
 
@@ -1586,10 +1350,9 @@
     getMethodAdherenceLabel,
     getNeutralSessionCopy,
     isNeutralCommercialSession,
-    resolveSellerAttentionSnapshot,
+    renderAgoraViewModelSnapshot,
     renderAnalysisArea,
     renderClientCommercialArea,
-    renderNowAttentionSnapshot,
     renderNowMethodSnapshot,
   })
 

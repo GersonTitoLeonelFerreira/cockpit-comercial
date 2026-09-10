@@ -931,6 +931,16 @@
     )
   }
 
+  // FASE 16.5 — AGORA seller-facing view model (Decision State canônico,
+  // traduzido por app/lib/server/agora-view-model.ts). Read-only, mesmo
+  // padrão de loadClientContext acima.
+  async function loadDecisionState(payload) {
+    return sendToBackground(
+      'LOAD_DECISION_STATE',
+      payload,
+    )
+  }
+
   async function registerMessageAction(payload) {
     return sendToBackground('REGISTER_MESSAGE_ACTION', payload)
   }
@@ -996,6 +1006,7 @@
     applySuggestion,
     getAnalysisJobStatus,
     loadClientContext,
+    loadDecisionState,
     registerMessageAction,
     registerActionEvent,
     transcribeAudio,

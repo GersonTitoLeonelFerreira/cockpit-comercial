@@ -232,6 +232,25 @@ export type DecisionStatePrimaryDecision = {
   // rodada; ver relatório da FASE 16.3F).
   silent: boolean
 
+  // Prioridade do candidato que originou esta decisão — mesma escala de
+  // `DecisionStateInterventionCard.priority`, `null` quando a decisão
+  // não veio de um candidato priorizado (mesmos três casos de `source:
+  // null` acima: síntese de `give_space`, passthrough de
+  // `best_approach`, ou o fallback de `no_intervention` sem nenhuma
+  // fonte disponível) — nesses três casos não existe um candidato
+  // ranqueado para ler a prioridade, e inventar uma aqui duplicaria
+  // exatamente o tipo de heurística de priorização que este módulo
+  // existe para centralizar (mandato FASE 16.5 §20/§31). Adicionado na
+  // FASE 16.5 (recalibração seller-facing do AGORA): antes deste campo,
+  // um consumidor seller-facing não tinha como mostrar a prioridade da
+  // decisão principal sem reconstruir a mesma lógica de ranking de
+  // `compareCandidates` do zero (achado da auditoria da FASE 16.5 —
+  // AGORA hoje mantém duas tabelas de prioridade/tie-break locais e
+  // independentes desta, `ATTENTION_PRIORITY_RANK`/`ATTENTION_SOURCE_
+  // RANK` em companion-seller-information-view.js, exatamente a
+  // duplicação perigosa que este campo elimina).
+  priority: DecisionStateInterventionPriority | null
+
   summary: string
   reason: string
   recommended_action: string
@@ -1587,6 +1606,10 @@ export async function loadCanonicalDecisionState({
       kind: 'give_space',
       source: null,
 
+      // Sem candidato ranqueado por trás da síntese de `give_space` —
+      // ver docstring do campo.
+      priority: null,
+
       // Achado do Codex, PR #281, rodada 12: a síntese de `give_space`
       // também precisa preservar `intervention_needed === false` da
       // leitura atual — uma sessão não comercial ATIVA cuja própria
@@ -1621,6 +1644,7 @@ export async function loadCanonicalDecisionState({
     primaryDecision = {
       kind: top.kind,
       source: top.source,
+      priority: top.priority,
 
       silent:
         READING_DERIVED_INTERVENTION_SOURCES.includes(
@@ -1642,6 +1666,10 @@ export async function loadCanonicalDecisionState({
     primaryDecision = {
       kind: bestApproach.decision,
       source: null,
+
+      // Sem candidato ranqueado por trás do passthrough de
+      // `best_approach` — ver docstring do campo.
+      priority: null,
 
       // Achado do Codex, PR #281, rodada 10: `intervention_needed`
       // (CommercialReading.communication) é um sinal de silêncio
@@ -1673,6 +1701,10 @@ export async function loadCanonicalDecisionState({
     primaryDecision = {
       kind: 'no_intervention',
       source: null,
+
+      // Sem nenhuma fonte disponível — ver docstring do campo.
+      priority: null,
+
       silent: false,
 
       summary:

@@ -64,12 +64,47 @@ import {
   buildWhatsAppPageHtml,
   defaultLeadResolution,
   defaultClientContext,
+  defaultAgoraDecisionState,
   loadContentScript,
   resolveLeadCalls,
   ingestCalls,
   analysisJobStatusCalls,
   waitFor,
 } from '../e3-test-support/load-content-script.mjs'
+
+// FASE 16.5 — AGORA seller-facing view model para os cenários de objeção
+// usados abaixo (objectionReading()). Decision State e Commercial Reading
+// são buscados por rotas server independentes na produção; aqui os dois
+// fixtures (decisionStateResult/analysisJobStatusResult) só precisam
+// descrever a MESMA situação de negócio, cada um em seu próprio formato.
+//
+// objectionReading() deixa `risks.customer_objections` vazio (é um
+// fixture anterior à FASE 16.3B) — a leitura real de
+// canonical-decision-state-source.ts, dada exatamente esta leitura, cairia
+// no passthrough de `best_approach` (nenhum candidato de
+// commercial_risk elegível), não num candidato ranqueado. O headline
+// abaixo é literalmente `best_approach.reason` desta mesma leitura —
+// nunca o texto do fato acumulado em CLIENTE (`OBJECAO_PRECO_ALTO_
+// DEMAIS`), preservando a mesma fronteira AGORA/CLIENTE que estes
+// testes sempre verificaram.
+function objectionDecisionState() {
+  return defaultAgoraDecisionState({
+    silent: false,
+    silent_reason: null,
+    primary: {
+      status: 'handle_objection',
+      priority: null,
+      headline: 'Objeção de preço precisa ser tratada antes de avançar.',
+      action: 'Canal recomendado: text.',
+      provenance: {
+        decision_kind: 'handle_objection',
+        source: null,
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+    },
+  })
+}
 
 const CONVERSATION_A_TITLE = '+55 11 98888-7777'
 const CYCLE_A = 'cycle-a'
@@ -374,6 +409,7 @@ test(
         watermark: 'wm-1',
         result: deepOutput(objectionReading()),
       }),
+      decisionStateResult: objectionDecisionState(),
     })
 
     await waitFor(
@@ -383,20 +419,21 @@ test(
     await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
     await waitForSellerAreaOpen(document, 'now')
-    // AGORA nunca repete o texto literal da objeção — resolveSellerAttentionSnapshot
-    // usa uma cópia fixa ("Há uma objeção relevante...") como o resumo de
-    // atenção; o conteúdo da objeção em si só existe em CLIENTE. Por isso
-    // esperamos pelo rótulo fixo, não pelo marcador.
+    // FASE 16.5: AGORA nunca repete o texto literal do fato acumulado em
+    // CLIENTE (OBJECAO_PRECO_ALTO_DEMAIS) — mostra o motivo/ação já
+    // sintetizados por Decision State (objectionDecisionState() acima),
+    // que descrevem a situação real sem citar o marcador de conhecimento
+    // acumulado.
     await waitFor(
-      () => getSellerPanelText(document, 'now').includes('Atenção · Objeção aberta'),
+      () => getSellerPanelText(document, 'now').includes('Objeção de preço precisa ser tratada antes de avançar.'),
       { timeoutMs: 8000 },
     )
 
     const nowText = getSellerPanelText(document, 'now')
     assert.match(
       nowText,
-      /Atenção · Objeção aberta/,
-      'AGORA precisa sinalizar a objeção como o item de maior prioridade',
+      /Objeção de preço precisa ser tratada antes de avançar\./,
+      'AGORA precisa sinalizar a objeção como decisão principal',
     )
     assert.doesNotMatch(
       nowText,
@@ -422,7 +459,7 @@ test(
 
     assert.doesNotMatch(
       clientText,
-      /Atenção · Objeção aberta/,
+      /Objeção de preço precisa ser tratada antes de avançar\./,
       'CLIENTE não deveria repetir o texto de alerta de AGORA — são camadas diferentes (o que fazer vs o que sabemos)',
     )
   },
@@ -475,7 +512,7 @@ test(
     // anterior deste teste só fazia assertions reais em ANÁLISE. Usa
     // objectionReading() (em vez de uma leitura quieta) para que a
     // recuperação produza um sinal verificável tanto em AGORA
-    // (`Atenção · Objeção aberta`) quanto em CLIENTE
+    // (objectionDecisionState(), FASE 16.5) quanto em CLIENTE
     // (`OBJECAO_PRECO_ALTO_DEMAIS`) — e checa explicitamente a AUSÊNCIA
     // desses sinais enquanto o tick ruim ainda não foi superado, para não
     // aceitar um falso PASS por a análise simplesmente não ter chegado a
@@ -515,6 +552,7 @@ test(
           result: deepOutput(objectionReading()),
         })
       },
+      decisionStateResult: objectionDecisionState(),
     })
 
     await waitFor(
@@ -570,7 +608,7 @@ test(
 
     await waitForSellerAreaOpen(document, 'now')
     await waitFor(
-      () => getSellerPanelText(document, 'now').includes('Atenção · Objeção aberta'),
+      () => getSellerPanelText(document, 'now').includes('Objeção de preço precisa ser tratada antes de avançar.'),
       { timeoutMs: 8000 },
     )
 
@@ -790,6 +828,7 @@ test(
         // resultado novo chegou ainda.
         return new Promise(() => {})
       },
+      decisionStateResult: objectionDecisionState(),
     })
 
     await waitFor(
@@ -800,7 +839,7 @@ test(
 
     await waitForSellerAreaOpen(document, 'now')
     await waitFor(
-      () => getSellerPanelText(document, 'now').includes('Atenção · Objeção aberta'),
+      () => getSellerPanelText(document, 'now').includes('Objeção de preço precisa ser tratada antes de avançar.'),
       { timeoutMs: 8000 },
     )
 

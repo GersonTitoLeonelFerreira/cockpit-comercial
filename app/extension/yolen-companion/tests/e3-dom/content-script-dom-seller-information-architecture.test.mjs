@@ -6,6 +6,7 @@ import {
   buildMessageHtml,
   buildWhatsAppPageHtml,
   defaultClientContext,
+  defaultAgoraDecisionState,
   loadContentScript,
   resolveLeadCalls,
   waitFor,
@@ -322,6 +323,30 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
         risk: 'high',
       },
     }),
+    // FASE 16.5 (recalibração seller-facing do AGORA): AGORA não deriva
+    // mais o risco de SLA a partir de client-context por conta própria —
+    // consome o AGORA seller-facing view model (Decision State, FASE
+    // 16.3E) já pronto. Este fixture descreve a mesma situação de
+    // negócio (SLA crítico na etapa CONTATO) no formato que Decision
+    // State realmente produziria para um `client_sla` crítico sem
+    // cliente aguardando (ver buildClientSlaCandidate,
+    // canonical-decision-state-source.ts).
+    decisionStateResult: defaultAgoraDecisionState({
+      silent: false,
+      silent_reason: null,
+      primary: {
+        status: 'escalate',
+        priority: 'critical',
+        headline: 'Oportunidade estagnada na etapa acima do limite de SLA.',
+        action: 'Avaliar a oportunidade e decidir o próximo passo para avançar de etapa.',
+        provenance: {
+          decision_kind: 'escalate',
+          source: 'client_sla',
+          evidence_message_ids: [],
+          memory_ids: [],
+        },
+      },
+    }),
   })
 
   await analyze(runtime)
@@ -333,12 +358,12 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   await waitFor(() =>
     runtime.document
       .querySelector('[data-yolen-seller-panel="now"]')
-      ?.textContent.includes('Risco alto na etapa CONTATO'),
+      ?.textContent.includes('Oportunidade estagnada na etapa acima do limite de SLA.'),
   )
 
   const nowPanel = runtime.document.querySelector('[data-yolen-seller-panel="now"]')
   assert.match(nowPanel.textContent, /Resumo/i)
-  assert.match(nowPanel.textContent, /Risco alto na etapa CONTATO/)
+  assert.match(nowPanel.textContent, /Oportunidade estagnada na etapa acima do limite de SLA\./)
   assert.equal(nowPanel.querySelectorAll('[data-yolen-now-attention]').length, 1)
   assert.doesNotMatch(
     nowPanel.textContent,
