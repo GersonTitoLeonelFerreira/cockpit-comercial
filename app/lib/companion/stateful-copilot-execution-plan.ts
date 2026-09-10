@@ -67,6 +67,22 @@ const ANALYSIS_PRECONDITION_STATUSES = [
 type AnalysisPreconditionStatus =
   (typeof ANALYSIS_PRECONDITION_STATUSES)[number]
 
+// Mesma janela de 4h documentada como política de "gap de sessão" em
+// stateful-copilot-real-context-loader.ts
+// (STATEFUL_DIAGNOSTIC_SESSION_GAP_MS),
+// message-intelligence/context-assembler.ts
+// (MESSAGE_CONTEXT_CURRENT_INTERACTION_GAP_MS) e
+// canonical-decision-state-source.ts (DECISION_STATE_SESSION_GAP_MS) —
+// mas usada aqui para uma semântica DIFERENTE: agrupar por burst de
+// atividade QUAIS mensagens entram no prompt de análise incremental
+// (selectCurrentSessionMessageIds/selectAnalysisMessageIds), não para
+// classificar se a sessão atual está "ativa" (isso é responsabilidade
+// exclusiva de Decision State/AGORA). Auditado na FASE 16.4 (mandato
+// §4): as quatro constantes precisam continuar de acordo sobre o VALOR
+// da janela, mas não sobre o mecanismo — centralizá-las seria forçar
+// uma abstração artificial entre "seleção de mensagens para prompt" e
+// "classificação de frescor de sessão", duas responsabilidades
+// genuinamente distintas.
 const CURRENT_SESSION_GAP_MS =
   4 * 60 * 60 * 1000
 

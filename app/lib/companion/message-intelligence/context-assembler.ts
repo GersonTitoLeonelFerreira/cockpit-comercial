@@ -263,6 +263,17 @@ function cycleTrace(
   })
 }
 
+// Mesma janela de 4h documentada como política de "gap de sessão" em
+// stateful-copilot-execution-plan.ts (CURRENT_SESSION_GAP_MS),
+// stateful-copilot-real-context-loader.ts
+// (STATEFUL_DIAGNOSTIC_SESSION_GAP_MS) e
+// canonical-decision-state-source.ts (DECISION_STATE_SESSION_GAP_MS) —
+// aqui usada para segmentar por burst de atividade a "interação atual"
+// que alimenta o Message Intelligence Engine, não para classificar se
+// a sessão está ativa (isso é exclusivo de Decision State/AGORA).
+// Auditado na FASE 16.4 (mandato §4) — mesmo valor, mecanismo
+// legitimamente distinto; ver canonical-decision-state-source.ts para
+// a decisão de não centralizar.
 export const MESSAGE_CONTEXT_CURRENT_INTERACTION_GAP_MS =
   4 * 60 * 60 * 1000
 
