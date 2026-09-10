@@ -427,14 +427,28 @@ function resolveMethodContext(
       item.source === 'insufficient_information',
   )
 
-  // `missing_information` só é exposta quando existe um `candidate` de
-  // método/coaching/descoberta SELECIONADO pelo Decision State — sem essa
-  // condição, uma `recovery_guidance` presente em Method Coaching mas
-  // preterida por um candidato operacional de maior prioridade (ex.: SLA)
-  // vazaria mesmo sem ter sido escolhida, recriando exatamente o segundo
-  // caminho de decisão que este módulo existe para evitar (achado do
-  // Codex, PR #281, rodada 1).
-  const missingInformation = candidate
+  // `missing_information` só é exposta quando existe um candidato
+  // SELECIONADO pelo Decision State que semanticamente corresponde a
+  // `recovery_guidance` — `method_adherence` (desvio de método,
+  // recovery_guidance existe justamente para orientar a recuperação) e
+  // `insufficient_information` (descoberta insuficiente, mesma
+  // recovery_guidance). `seller_coaching` NÃO conta: seus kinds
+  // sempre-urgentes (correção defensiva) sobrevivem mesmo quando
+  // `method_adherence` foi suprimido (ex.: sessão não comercial — mandato
+  // §7/16.3E), então tratá-lo como autorização para expor
+  // `recovery_guidance.missing_information` vazaria o detalhe de um
+  // candidato que o Decision State explicitamente NÃO selecionou (achado
+  // do Codex, PR #281, rodada 2 — a mesma classe do achado da rodada 1,
+  // meu gate por `candidate` genérico ainda era amplo demais).
+  const recoveryCandidate = allSourcedCandidates(
+    decisionState,
+  ).find(
+    (item) =>
+      item.source === 'method_adherence' ||
+      item.source === 'insufficient_information',
+  )
+
+  const missingInformation = recoveryCandidate
     ? methodCoaching?.method.recovery_guidance
       ?.missing_information ?? []
     : []
@@ -805,6 +819,13 @@ export async function loadCanonicalCommunicationContext({
         ),
     )
 
+  // Mesma amarração exigida de `current_reading` (achado do Codex, PR
+  // #281, rodada 1) também precisa valer para `method_coaching` — escopo
+  // + `reference_time` batendo não prova que veio da MESMA análise que
+  // produziu a decisão; só `provenance.analise_*` prova isso (achado do
+  // Codex, PR #281, rodada 2). Em caso de divergência, cai para a carga
+  // interna best-effort — mesmo comportamento de qualquer outro mismatch
+  // de escopo suplementar.
   const methodCoaching =
     await resolveSupplementalSource(
       method_coaching,
@@ -813,7 +834,18 @@ export async function loadCanonicalCommunicationContext({
         value.cycle_id === cycle_id &&
         value.conversation_key ===
           conversation_key &&
-        value.reference_time === referenceTime,
+        value.reference_time === referenceTime &&
+        value.provenance
+          .analise_source_event_id ===
+          decision_state.provenance
+            .analise_source_event_id &&
+        value.provenance
+          .analise_state_record_id ===
+          decision_state.provenance
+            .analise_state_record_id &&
+        value.provenance.analise_state_version ===
+          decision_state.provenance
+            .analise_state_version,
       () =>
         loadInternalBestEffort(
           () =>

@@ -297,9 +297,9 @@ function buildMethodCoaching(overrides = {}) {
     provenance: {
       conversation_key: CONVERSATION_KEY,
       agora_updated_at: null,
-      analise_source_event_id: null,
-      analise_state_record_id: null,
-      analise_state_version: null,
+      analise_source_event_id: 'event-current-1',
+      analise_state_record_id: 'state-record-1',
+      analise_state_version: 3,
     },
 
     ...overrides,
@@ -713,6 +713,121 @@ test('missing_information NÃO vaza quando nenhum candidato de método/coaching 
   })
 
   assert.equal(context.method_context.approach_constraint, null)
+  assert.deepEqual(context.method_context.missing_information, [])
+})
+
+test('seller_coaching sozinho (method_adherence suprimido) não autoriza expor missing_information de recovery_guidance', async () => {
+  // Achado do Codex (PR #281, rodada 2): meu gate por `candidate`
+  // genérico (method_adherence OU seller_coaching OU
+  // insufficient_information) ainda era amplo demais — um
+  // `seller_coaching` sempre-urgente sobrevive mesmo quando
+  // `method_adherence` foi suprimido (ex.: sessão não comercial), e não
+  // tem relação semântica com `recovery_guidance` (que só existe para
+  // desvio de método/descoberta insuficiente).
+  const decisionState = buildDecisionState({
+    interventions: [
+      buildInterventionCard({
+        source: 'seller_coaching',
+        summary: 'Informação incorreta repassada ao cliente.',
+        reason: 'Vendedor informou dado incorreto.',
+        recommended_action: 'Corrigir a informação incorreta com o cliente.',
+      }),
+    ],
+  })
+
+  const methodCoaching = buildMethodCoaching({
+    method: {
+      configured: true,
+      name: 'Método X',
+      stages: [],
+      agora_stage: null,
+      analise_stage: null,
+      stage_divergence: false,
+      stage_comparison_reliable: false,
+      adherence: null,
+      recovery_guidance: {
+        objective: 'Confirmar impacto antes de apresentar solução.',
+        missing_information: ['impacto'],
+        recommended_move: 'Perguntar sobre o impacto do problema.',
+        optional_question: null,
+        evidence_message_ids: ['m1'],
+        memory_ids: [],
+      },
+    },
+  })
+
+  const context = await load({
+    decision_state: decisionState,
+    method_coaching: methodCoaching,
+  })
+
+  // approach_constraint pode vir do seller_coaching (é literalmente a
+  // orientação de abordagem dele) — só missing_information (específico de
+  // recovery_guidance) precisa ficar vazio.
+  assert.equal(
+    context.method_context.approach_constraint,
+    'Corrigir a informação incorreta com o cliente.',
+  )
+  assert.deepEqual(context.method_context.missing_information, [])
+})
+
+test('method_coaching de outra análise (mesmo escopo/reference_time, provenance divergente) cai para carga interna', async () => {
+  // Achado do Codex (PR #281, rodada 2): a mesma amarração exigida de
+  // current_reading contra decision_state.provenance também precisa
+  // valer para method_coaching — escopo e reference_time batendo não
+  // provam que veio da mesma análise.
+  const decisionState = buildDecisionState()
+
+  const failingAdmin = {
+    from() {
+      throw new Error('DB indisponível no teste')
+    },
+  }
+
+  const mismatchedMethodCoaching = buildMethodCoaching({
+    provenance: {
+      conversation_key: CONVERSATION_KEY,
+      agora_updated_at: null,
+      analise_source_event_id: 'event-OTHER',
+      analise_state_record_id: 'state-record-OTHER',
+      analise_state_version: 99,
+    },
+    method: {
+      configured: true,
+      name: 'Método X',
+      stages: [],
+      agora_stage: null,
+      analise_stage: null,
+      stage_divergence: false,
+      stage_comparison_reliable: false,
+      adherence: null,
+      recovery_guidance: {
+        objective: 'Objetivo de outra análise.',
+        missing_information: ['dado de outra análise'],
+        recommended_move: 'Mover de outra análise.',
+        optional_question: null,
+        evidence_message_ids: ['m1'],
+        memory_ids: [],
+      },
+    },
+  })
+
+  const context = await load({
+    admin: failingAdmin,
+    decision_state: decisionState,
+    method_coaching: mismatchedMethodCoaching,
+  })
+
+  // O objeto de escopo/instante divergente é descartado — o que volta é
+  // uma carga interna (degradada, já que o admin de teste falha em toda
+  // consulta), nunca o `missing_information`/`provenance` da fonte
+  // divergente fornecida.
+  assert.equal(context.executable, true)
+  assert.notEqual(
+    context.provenance.method_coaching_provenance
+      ?.analise_source_event_id,
+    'event-OTHER',
+  )
   assert.deepEqual(context.method_context.missing_information, [])
 })
 
