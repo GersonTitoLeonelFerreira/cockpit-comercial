@@ -538,6 +538,39 @@ test('sessão pessoal preserva oportunidade: primary_decision não força venda'
   assert.equal(state.primary_decision.kind, 'give_space')
   assert.deepEqual(state.interventions, [])
   assert.equal(state.current_moment.commercial_relevance, 'non_commercial')
+  // `communication.intervention_needed` não foi sobrescrito neste
+  // fixture — permanece no padrão `false` de `buildReading()`, então a
+  // síntese de `give_space` preserva esse silêncio.
+  assert.equal(state.primary_decision.silent, true)
+})
+
+test('sessão pessoal ativa com intervention_needed=true: give_space sintetizado não é silent', async () => {
+  // Achado do Codex (PR #281, rodada 12): a síntese de `give_space`
+  // também precisa refletir `intervention_needed` da leitura — quando a
+  // própria leitura diz que HÁ algo a comunicar (ex.: resposta factual
+  // necessária, mandato §12), `silent` deve ser `false`, não hard-coded.
+  const reading = buildReading({
+    commercial_relevance: 'non_commercial',
+    best_approach: {
+      decision: 'respond',
+      reason: 'Cliente fez uma pergunta factual simples.',
+      channel: 'text',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: 'Sim, funcionamos também aos sábados.',
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'give_space')
+  assert.equal(state.primary_decision.silent, false)
 })
 
 // 3. Nada relevante agora: silêncio explícito.

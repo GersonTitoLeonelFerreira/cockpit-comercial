@@ -1477,7 +1477,18 @@ export async function loadCanonicalDecisionState({
     primaryDecision = {
       kind: 'give_space',
       source: null,
-      silent: false,
+
+      // Achado do Codex, PR #281, rodada 12: a síntese de `give_space`
+      // também precisa preservar `intervention_needed === false` da
+      // leitura atual — uma sessão não comercial ATIVA cuja própria
+      // leitura já diz "nenhuma comunicação necessária agora" é um
+      // sinal de silêncio ainda mais forte, não menos, do que o
+      // passthrough (rodada 10) já tratava. Não afeta os cards
+      // operacionais sobreviventes em `interventions` — só a resposta
+      // de continuidade natural do `primary_decision`.
+      silent:
+        current_reading?.reading.communication
+          .intervention_needed === false,
 
       summary:
         'Sessão atual não é comercial.',
