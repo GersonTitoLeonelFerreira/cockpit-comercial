@@ -225,6 +225,19 @@ export type CommunicationContext = {
   provenance: CommunicationContextProvenance
 }
 
+function sameStringSet(
+  a: string[],
+  b: string[],
+): boolean {
+  if (a.length !== b.length) {
+    return false
+  }
+
+  const setB = new Set(b)
+
+  return a.every((item) => setB.has(item))
+}
+
 function normalizeDateOrNull(
   value: unknown,
 ): string | null {
@@ -408,9 +421,24 @@ function resolveReferencedObjection(
       continue
     }
 
+    // `summary` sozinho não é uma identidade confiável — `normalizeRisks`
+    // (commercial-reading-contract.ts) não exige unicidade de texto entre
+    // objeções, então duas objeções distintas podem compartilhar o mesmo
+    // resumo com evidência diferente. `buildCommercialRiskCandidates`
+    // (16.3E) copia `evidence_message_ids`/`memory_ids` verbatim da
+    // objeção original para o candidato — exigir que também batam
+    // desambigua duplicatas de texto (achado do Codex, PR #281, rodada 5).
     const match = objections.find(
       (objection) =>
-        objection.summary === candidate.summary,
+        objection.summary === candidate.summary &&
+        sameStringSet(
+          objection.evidence_message_ids,
+          candidate.evidence_message_ids,
+        ) &&
+        sameStringSet(
+          objection.memory_ids,
+          candidate.memory_ids,
+        ),
     )
 
     if (match) {

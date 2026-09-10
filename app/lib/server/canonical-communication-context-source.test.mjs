@@ -512,6 +512,63 @@ test('risco de atendimento (confirm_information) não é resolvido como objeçã
   assert.equal(context.opportunity_context.referenced_objection, null)
 })
 
+test('duas objeções com o mesmo resumo mas evidência diferente: resolve a que o candidato realmente referencia', async () => {
+  // Achado do Codex (PR #281, rodada 5): `normalizeRisks` não exige
+  // unicidade de texto entre objeções — comparar só por `summary` podia
+  // resolver a PRIMEIRA objeção de texto igual, não necessariamente a que
+  // o Decision State selecionou (que pode ser a de evidência/severidade
+  // diferente, adicionada depois).
+  const sharedSummary = 'Objeção de preço.'
+
+  const firstObjection = {
+    kind: 'price',
+    severity: 'medium',
+    summary: sharedSummary,
+    evidence_message_ids: ['m-first'],
+    memory_ids: ['mem-first'],
+  }
+
+  const secondObjection = {
+    kind: 'price',
+    severity: 'high',
+    summary: sharedSummary,
+    evidence_message_ids: ['m-second'],
+    memory_ids: ['mem-second'],
+  }
+
+  const currentReading = buildCurrentReading({
+    reading: buildReading({
+      risks: {
+        customer_objections: [firstObjection, secondObjection],
+        service_risks: [],
+      },
+    }),
+  })
+
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'handle_objection',
+      source: 'commercial_risk',
+      summary: sharedSummary,
+      reason: 'Objeção do cliente ainda em aberto na leitura atual.',
+      recommended_action: 'Tratar a objeção antes de avançar a conversa.',
+      evidence_message_ids: secondObjection.evidence_message_ids,
+      memory_ids: secondObjection.memory_ids,
+    },
+  })
+
+  const context = await load({
+    decision_state: decisionState,
+    current_reading: currentReading,
+  })
+
+  assert.ok(context.opportunity_context.referenced_objection)
+  assert.deepEqual(
+    context.opportunity_context.referenced_objection.risk,
+    secondObjection,
+  )
+})
+
 // 6. Objeção histórica resolvida: não ressuscitar.
 test('objeção resolvida (fora da leitura atual) não é ressuscitada', async () => {
   // A objeção só existe em `resolved_information`/histórico — a leitura
