@@ -172,6 +172,7 @@ function buildDecisionState(overrides = {}) {
     primary_decision: {
       kind: 'no_intervention',
       source: null,
+      silent: false,
       summary: 'Nenhuma leitura comercial disponível e nenhum sinal operacional pendente.',
       reason: 'Sem evidência suficiente para recomendar qualquer ação agora.',
       recommended_action: 'Nenhuma ação necessária agora.',
@@ -338,6 +339,7 @@ test('decision respond: comunicação orienta resposta sem redefinir a decisão'
     primary_decision: {
       kind: 'respond',
       source: 'customer_waiting',
+      silent: false,
       summary: 'Cliente aguardando resposta.',
       reason: 'Cliente aguarda resposta há horas.',
       recommended_action: 'Responder o cliente.',
@@ -370,6 +372,7 @@ test('decision give_space: constraint impede pitch comercial', async () => {
     primary_decision: {
       kind: 'give_space',
       source: null,
+      silent: false,
       summary: 'Sessão atual não é comercial.',
       reason: 'Preservar naturalidade — não forçar avanço de venda nesta interação.',
       recommended_action: 'Responder no tom da conversa atual sem empurrar a venda.',
@@ -398,6 +401,7 @@ test('give_space com intervenção operacional: sinal preservado em supporting_c
     primary_decision: {
       kind: 'give_space',
       source: null,
+      silent: false,
       summary: 'Sessão atual não é comercial.',
       reason: 'Preservar naturalidade.',
       recommended_action: 'Responder no tom da conversa atual.',
@@ -429,6 +433,7 @@ test('handle_objection: objeção específica resolvida em opportunity_context',
     primary_decision: {
       kind: 'handle_objection',
       source: 'commercial_risk',
+      silent: false,
       summary: objection.summary,
       reason: 'Objeção do cliente ainda em aberto na leitura atual.',
       recommended_action: 'Tratar a objeção antes de avançar a conversa.',
@@ -495,6 +500,7 @@ test('risco de atendimento (confirm_information) não é resolvido como objeçã
     primary_decision: {
       kind: 'confirm_information',
       source: 'commercial_risk',
+      silent: false,
       summary: sharedSummary,
       reason: 'Risco de atendimento em aberto.',
       recommended_action: 'Confirmar prazo de entrega com o time interno.',
@@ -549,6 +555,7 @@ test('duas objeções com o mesmo resumo mas evidência diferente: resolve a que
     primary_decision: {
       kind: 'handle_objection',
       source: 'commercial_risk',
+      silent: false,
       summary: sharedSummary,
       reason: 'Objeção do cliente ainda em aberto na leitura atual.',
       recommended_action: 'Tratar a objeção antes de avançar a conversa.',
@@ -610,6 +617,7 @@ test('duas objeções com resumo E evidência idênticos (só severidade/kind di
     primary_decision: {
       kind: 'handle_objection',
       source: 'commercial_risk',
+      silent: false,
       summary: sharedSummary,
       reason: 'Objeção do cliente ainda em aberto na leitura atual.',
       recommended_action: 'Tratar a objeção antes de avançar a conversa.',
@@ -669,6 +677,7 @@ test('follow_up: compromisso correto resolvido por memory_id', async () => {
     primary_decision: {
       kind: 'follow_up',
       source: 'cycle_commitment',
+      silent: false,
       summary: commitment.summary,
       reason: 'Compromisso agendado já venceu.',
       recommended_action: 'Confirmar com o cliente o andamento do compromisso.',
@@ -704,6 +713,7 @@ test('reschedule_requested: constraint de reconciliação, horário antigo não 
     primary_decision: {
       kind: 'follow_up',
       source: 'cycle_commitment',
+      silent: false,
       summary: commitment.summary,
       reason: 'Pedido de reagendamento pendente.',
       recommended_action: 'Confirmar com o cliente o novo horário do compromisso.',
@@ -729,6 +739,7 @@ test('customer_waiting: communication_goal é responder', async () => {
     primary_decision: {
       kind: 'respond',
       source: 'customer_waiting',
+      silent: false,
       summary: 'Cliente aguardando resposta.',
       reason: 'Cliente aguarda resposta.',
       recommended_action: 'Responder o cliente.',
@@ -749,6 +760,7 @@ test('SLA de estagnação de etapa (escalate): não inventa mensagem pendente do
     primary_decision: {
       kind: 'escalate',
       source: 'client_sla',
+      silent: false,
       summary: 'Etapa estagnada.',
       reason: 'SLA da etapa vencido, sem mensagem pendente do cliente.',
       recommended_action: 'Avaliar o próximo passo da oportunidade — não é uma mensagem do cliente aguardando resposta.',
@@ -783,6 +795,7 @@ test('escalate vindo do passthrough de best_approach (sem candidato de SLA) perm
     primary_decision: {
       kind: 'escalate',
       source: null,
+      silent: false,
       summary: 'Exceção comercial em análise.',
       reason: 'Cliente pediu uma condição fora do padrão configurado.',
       recommended_action: 'Canal recomendado: text.',
@@ -808,6 +821,7 @@ test('escalate de origem client_sla usa o objetivo operacional fixo, não o summ
     primary_decision: {
       kind: 'escalate',
       source: 'client_sla',
+      silent: false,
       summary: 'Etapa estagnada.',
       reason: 'SLA da etapa vencido, sem mensagem pendente do cliente.',
       recommended_action: 'Avaliar o próximo passo da oportunidade.',
@@ -821,12 +835,79 @@ test('escalate de origem client_sla usa o objetivo operacional fixo, não o summ
   assert.equal(context.communication_goal, 'Agir sobre a estagnação operacional.')
 })
 
+test('give_space marcado como silent pela leitura (intervention_needed: false) não gera, mesmo não sendo no_intervention/wait', async () => {
+  // Achado do Codex (PR #281, rodada 10): o corpus validado
+  // (commercial-reading-handoff-corpus.test.mjs:597-620) prova que
+  // `give_space` pode coexistir com `communication.intervention_needed
+  // === false` (cliente pediu espaço explicitamente) — um sinal de
+  // silêncio da leitura independente de `kind`. Sem checar `silent`,
+  // `do_not_generate` ficava `false` para esse caso.
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'give_space',
+      source: null,
+      silent: true,
+      summary: 'Cliente pediu espaço explicitamente.',
+      reason: 'Cliente pediu espaço explicitamente.',
+      recommended_action: 'Canal recomendado: wait.',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+  })
+
+  const context = await load({ decision_state: decisionState })
+
+  assert.equal(context.decision_kind, 'give_space')
+  assert.equal(context.do_not_generate, true)
+})
+
+test('insufficient_information/close marcados como silent também não geram', async () => {
+  for (const kind of ['insufficient_information', 'close']) {
+    const decisionState = buildDecisionState({
+      primary_decision: {
+        kind,
+        source: null,
+        silent: true,
+        summary: 'Recusa definitiva já registrada.',
+        reason: 'Recusa definitiva já registrada.',
+        recommended_action: 'Canal recomendado: none.',
+        evidence_message_ids: ['m1'],
+        memory_ids: [],
+      },
+    })
+
+    const context = await load({ decision_state: decisionState })
+
+    assert.equal(context.do_not_generate, true, `kind=${kind}`)
+  }
+})
+
+test('give_space NÃO marcado como silent (padrão) continua executável e gerável', async () => {
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'give_space',
+      source: null,
+      silent: false,
+      summary: 'Sessão atual não é comercial.',
+      reason: 'Preservar naturalidade.',
+      recommended_action: 'Responder no tom da conversa atual.',
+      evidence_message_ids: [],
+      memory_ids: [],
+    },
+  })
+
+  const context = await load({ decision_state: decisionState })
+
+  assert.equal(context.do_not_generate, false)
+})
+
 // 11. Method deviation: vira restrição de abordagem, não jargão interno.
 test('desvio de método vira approach_constraint, com texto seller-facing (não jargão para o cliente)', async () => {
   const decisionState = buildDecisionState({
     primary_decision: {
       kind: 'deepen_discovery',
       source: 'method_adherence',
+      silent: false,
       summary: 'Desvio de método relevante agora.',
       reason: 'Pulou etapa de diagnóstico.',
       recommended_action: 'Aprofundar a descoberta antes de avançar para a próxima etapa.',
@@ -851,6 +932,7 @@ test('missing_information do method_coaching suprido é exposta em method_contex
     primary_decision: {
       kind: 'insufficient_information',
       source: 'insufficient_information',
+      silent: false,
       summary: 'Descoberta insuficiente para decidir o próximo passo.',
       reason: 'Faltam impacto e critérios de decisão.',
       recommended_action: 'Aprofundar a descoberta antes de avançar para a próxima etapa.',
@@ -905,6 +987,7 @@ test('missing_information NÃO vaza quando nenhum candidato de método/coaching 
     primary_decision: {
       kind: 'respond',
       source: 'client_sla',
+      silent: false,
       summary: 'SLA crítico.',
       reason: 'SLA vencido.',
       recommended_action: 'Responder o cliente.',
@@ -1080,6 +1163,7 @@ test('reschedule_requested em intervenção secundária gera constraint mesmo qu
     primary_decision: {
       kind: 'follow_up',
       source: 'cycle_commitment',
+      silent: false,
       summary: overdueCommitment.summary,
       reason: 'Compromisso vencido.',
       recommended_action: 'Confirmar com o cliente.',
@@ -1130,6 +1214,7 @@ test('give_space com intervenção de reschedule_requested: prohibited_moves inc
     primary_decision: {
       kind: 'give_space',
       source: null,
+      silent: false,
       summary: 'Sessão atual não é comercial.',
       reason: 'Preservar naturalidade.',
       recommended_action: 'Responder no tom da conversa atual.',
@@ -1163,6 +1248,7 @@ test('decision wait: do_not_generate verdadeiro (não gerar contrariando a decis
     primary_decision: {
       kind: 'wait',
       source: null,
+      silent: false,
       summary: 'Aguardar antes de agir.',
       reason: 'Nada novo sustentado pelo contexto atual.',
       recommended_action: 'Canal recomendado: none.',
@@ -1283,6 +1369,7 @@ test('person memory permanece NOT_AVAILABLE, distinta da origem cycle_memory dos
     primary_decision: {
       kind: 'follow_up',
       source: 'cycle_commitment',
+      silent: false,
       summary: commitment.summary,
       reason: 'Compromisso vencido.',
       recommended_action: 'Confirmar com o cliente.',
@@ -1313,6 +1400,7 @@ test('current_moment do Decision State é reaproveitado verbatim, domina a comun
     primary_decision: {
       kind: 'give_space',
       source: null,
+      silent: false,
       summary: 'Sessão atual não é comercial.',
       reason: 'Preservar naturalidade.',
       recommended_action: 'Responder no tom da conversa atual.',
@@ -1392,6 +1480,7 @@ test('cycle_memory com commitments malformado (não-array) degrada sem quebrar',
     primary_decision: {
       kind: 'follow_up',
       source: 'cycle_commitment',
+      silent: false,
       summary: 'Compromisso qualquer.',
       reason: 'Vencido.',
       recommended_action: 'Confirmar.',
@@ -1486,6 +1575,7 @@ test('give_space com objeção histórica na leitura: objeção não referenciad
     primary_decision: {
       kind: 'give_space',
       source: null,
+      silent: false,
       summary: 'Sessão atual não é comercial.',
       reason: 'Preservar naturalidade.',
       recommended_action: 'Responder no tom da conversa atual.',
@@ -1512,6 +1602,7 @@ test('primary + 2 interventions: supporting_context não é obrigado a ser consu
     primary_decision: {
       kind: 'respond',
       source: 'client_sla',
+      silent: false,
       summary: 'SLA crítico.',
       reason: 'SLA vencido.',
       recommended_action: 'Responder o cliente.',
@@ -1539,6 +1630,7 @@ test('sem cycle_memory disponível, contexto continua executável', async () => 
     primary_decision: {
       kind: 'respond',
       source: 'customer_waiting',
+      silent: false,
       summary: 'Cliente aguardando resposta.',
       reason: 'Cliente aguarda resposta.',
       recommended_action: 'Responder o cliente.',
@@ -1626,6 +1718,7 @@ test('evidence agrega e deduplica evidence_message_ids/memory_ids', async () => 
     primary_decision: {
       kind: 'respond',
       source: 'client_sla',
+      silent: false,
       summary: 'SLA crítico.',
       reason: 'SLA vencido.',
       recommended_action: 'Responder o cliente.',

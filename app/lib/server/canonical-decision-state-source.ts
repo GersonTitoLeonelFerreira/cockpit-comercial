@@ -183,6 +183,23 @@ export type DecisionStatePrimaryDecision = {
   // comportamento de todo consumidor existente inalterado.
   source: DecisionStateInterventionSource | null
 
+  // `true` quando a leitura comercial subjacente marcou explicitamente
+  // `communication.intervention_needed: false` — um sinal de silêncio
+  // da Commercial Reading (16.3B) independente de `kind`: um `kind`
+  // como `give_space`/`insufficient_information`/`close` pode
+  // coexistir com "nenhuma comunicação necessária agora" (ex.: cliente
+  // pediu espaço explicitamente, recusa definitiva já registrada). Só
+  // é computado no passthrough de `best_approach` — nos demais ramos
+  // (candidato priorizado, síntese de `give_space` em sessão pessoal,
+  // fallback sem fonte) é sempre `false`, já que `intervention_needed`
+  // só existe como sinal por conversa em `CommercialReading`, e um
+  // candidato já vencedor por definição representa algo a comunicar.
+  // Adicionado na FASE 16.3F (Communication Context) — achado do
+  // Codex, PR #281, rodada 10: sem isso, um `do_not_generate` baseado
+  // só em `kind` deixava passar geração para decisões que a própria
+  // leitura já classificou como silenciosas.
+  silent: boolean
+
   summary: string
   reason: string
   recommended_action: string
@@ -1445,6 +1462,7 @@ export async function loadCanonicalDecisionState({
     primaryDecision = {
       kind: 'give_space',
       source: null,
+      silent: false,
 
       summary:
         'Sessão atual não é comercial.',
@@ -1468,6 +1486,7 @@ export async function loadCanonicalDecisionState({
     primaryDecision = {
       kind: top.kind,
       source: top.source,
+      silent: false,
       summary: top.summary,
       reason: top.reason,
       recommended_action: top.recommended_action,
@@ -1481,6 +1500,17 @@ export async function loadCanonicalDecisionState({
     primaryDecision = {
       kind: bestApproach.decision,
       source: null,
+
+      // Achado do Codex, PR #281, rodada 10: `intervention_needed`
+      // (CommercialReading.communication) é um sinal de silêncio
+      // independente de `kind` — a leitura pode classificar
+      // `give_space`/`insufficient_information`/`close` e ainda assim
+      // marcar que nenhuma comunicação é necessária agora (ex.: cliente
+      // pediu espaço explicitamente, recusa definitiva já registrada).
+      silent:
+        current_reading?.reading.communication
+          .intervention_needed === false,
+
       summary: bestApproach.reason,
       reason: bestApproach.reason,
 
@@ -1501,6 +1531,7 @@ export async function loadCanonicalDecisionState({
     primaryDecision = {
       kind: 'no_intervention',
       source: null,
+      silent: false,
 
       summary:
         'Nenhuma leitura comercial disponível e nenhum sinal operacional pendente.',

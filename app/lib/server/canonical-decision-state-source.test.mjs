@@ -434,6 +434,11 @@ test('sessão comercial ativa com ação clara: primary_decision reflete o best_
       evidence_message_ids: ['m10'],
       memory_ids: [],
     },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: null,
+    },
   })
 
   const state = await load({
@@ -442,6 +447,63 @@ test('sessão comercial ativa com ação clara: primary_decision reflete o best_
 
   assert.equal(state.primary_decision.kind, 'send_material')
   assert.deepEqual(state.interventions, [])
+  assert.equal(state.primary_decision.silent, false)
+})
+
+test('passthrough de best_approach preserva intervention_needed=false como silent, independente do kind', async () => {
+  // Achado do Codex (PR #281, rodada 10): `communication.intervention_needed`
+  // é um sinal de silêncio da Commercial Reading independente do
+  // `kind` decidido — `give_space` pode coexistir com "nenhuma
+  // comunicação necessária agora" (ex.: cliente pediu espaço
+  // explicitamente). Sem preservar esse sinal em `primary_decision`,
+  // um consumidor como o Communication Context (FASE 16.3F) não tinha
+  // como saber disso além do `kind`.
+  const reading = buildReading({
+    commercial_relevance: 'commercial',
+    best_approach: {
+      decision: 'give_space',
+      reason: 'Cliente pediu espaço explicitamente.',
+      channel: 'wait',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: false,
+      recommended_question: null,
+      recommended_message: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'give_space')
+  assert.equal(state.primary_decision.silent, true)
+})
+
+test('passthrough de best_approach com intervention_needed=true não marca silent', async () => {
+  const reading = buildReading({
+    commercial_relevance: 'commercial',
+    best_approach: {
+      decision: 'present_solution',
+      reason: 'Cliente pediu a proposta.',
+      channel: 'text',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: 'Segue a proposta comercial.',
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.silent, false)
 })
 
 // 2. Sessão pessoal + oportunidade ativa: sem pitch forçado, oportunidade preservada.

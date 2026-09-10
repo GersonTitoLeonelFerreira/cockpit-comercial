@@ -973,12 +973,22 @@ export async function loadCanonicalCommunicationContext({
   // (achado do Codex, PR #281, rodada 8) — a supressão precisa ficar
   // restrita à origem operacional (`client_sla`), nunca ao `kind`
   // sozinho.
+  // `silent` (Decision State, FASE 16.3F — extensão aditiva) preserva o
+  // sinal explícito de "nenhuma comunicação necessária"
+  // (`CommercialReading.communication.intervention_needed === false`)
+  // independente de `kind` — o corpus validado prova que `give_space`/
+  // `insufficient_information`/`close` podem coexistir com esse sinal
+  // (ex.: cliente pediu espaço explicitamente, recusa definitiva já
+  // registrada). Inferir silêncio só do `kind` deixava passar geração
+  // para decisões que a própria leitura já classificou como silenciosas
+  // (achado do Codex, PR #281, rodada 10).
   const doNotGenerate =
     decisionKind === 'no_intervention' ||
     decisionKind === 'wait' ||
     (decisionKind === 'escalate' &&
       decision_state.primary_decision.source ===
-        'client_sla')
+        'client_sla') ||
+    decision_state.primary_decision.silent === true
 
   const referencedCommitments =
     resolveAllReferencedCommitments(
