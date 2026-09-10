@@ -930,19 +930,27 @@ export async function loadCanonicalCommunicationContext({
   // mensagem contrariando a própria decisão do Decision State (achado do
   // Codex, PR #281, rodada 1).
   //
-  // `escalate` tem uma única origem em todo o Decision State
-  // (`buildClientSlaCandidate`, ramo de SLA crítico sem cliente
-  // aguardando) e seu próprio texto já é explícito: "Avaliar a
-  // oportunidade e decidir o próximo passo... não é uma mensagem do
-  // cliente aguardando resposta" — é uma ação operacional interna
-  // (revisar a oportunidade, decidir próximo passo), nunca um pedido de
-  // mensagem ao cliente. Sem essa exclusão, um gerador futuro poderia
-  // produzir uma mensagem não solicitada ao cliente só por causa da
-  // idade da etapa no CRM (achado do Codex, PR #281, rodada 7).
+  // `escalate` originado do candidato de SLA (`source: 'client_sla'`,
+  // ramo de SLA crítico sem cliente aguardando) é uma ação operacional
+  // interna — seu próprio texto já diz "não é uma mensagem do cliente
+  // aguardando resposta" (achado do Codex, PR #281, rodada 7). MAS
+  // `escalate` também pode vir do passthrough de
+  // `CommercialReading.best_approach.decision` (`source: null`, sem
+  // candidato priorizado) — nesse caso é uma decisão real da leitura
+  // comercial, que pode ter mensagem ao cliente legítima associada (ex.:
+  // corpus validado `commercial-reading-handoff-corpus.test.mjs:851-865`,
+  // "Vou validar essa condição internamente antes de te confirmar
+  // qualquer exceção."). Suprimir TODO `escalate` sem checar a origem
+  // descartava esse segundo caso como não executável incorretamente
+  // (achado do Codex, PR #281, rodada 8) — a supressão precisa ficar
+  // restrita à origem operacional (`client_sla`), nunca ao `kind`
+  // sozinho.
   const doNotGenerate =
     decisionKind === 'no_intervention' ||
     decisionKind === 'wait' ||
-    decisionKind === 'escalate'
+    (decisionKind === 'escalate' &&
+      decision_state.primary_decision.source ===
+        'client_sla')
 
   const referencedCommitments =
     resolveAllReferencedCommitments(

@@ -769,6 +769,34 @@ test('SLA de estagnação de etapa (escalate): não inventa mensagem pendente do
   assert.equal(context.do_not_generate, true)
 })
 
+test('escalate vindo do passthrough de best_approach (sem candidato de SLA) permanece executável e gerável', async () => {
+  // Achado do Codex (PR #281, rodada 8): `escalate` também pode vir do
+  // passthrough de `CommercialReading.best_approach.decision`
+  // (`source: null`, sem candidato priorizado) — nesse caso é uma
+  // decisão real da leitura comercial que pode ter mensagem ao cliente
+  // legítima associada (corpus validado
+  // commercial-reading-handoff-corpus.test.mjs:851-865: "Vou validar
+  // essa condição internamente antes de te confirmar qualquer
+  // exceção."). Suprimir por `kind` sozinho, sem checar `source`,
+  // descartaria esse caso incorretamente.
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'escalate',
+      source: null,
+      summary: 'Exceção comercial em análise.',
+      reason: 'Cliente pediu uma condição fora do padrão configurado.',
+      recommended_action: 'Canal recomendado: text.',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+  })
+
+  const context = await load({ decision_state: decisionState })
+
+  assert.equal(context.decision_kind, 'escalate')
+  assert.equal(context.do_not_generate, false)
+})
+
 // 11. Method deviation: vira restrição de abordagem, não jargão interno.
 test('desvio de método vira approach_constraint, com texto seller-facing (não jargão para o cliente)', async () => {
   const decisionState = buildDecisionState({
