@@ -192,14 +192,17 @@ test(
 test(
   'minimizado reutiliza a mesma prioridade de AGORA e mantém um único indicador',
   () => {
-    // FASE 16.5 (recalibração seller-facing do AGORA): o rail
-    // minimizado não reconstrói mais a prioridade a partir da leitura
-    // crua — ele lê o mesmo `primary` do AGORA seller-facing view model
-    // (Decision State, FASE 16.3E) que o painel expandido usa, nunca uma
-    // segunda decisão independente.
+    // FASE 16.5 (recalibração seller-facing do AGORA + achado do Codex,
+    // PR #283, rodada 3): o rail minimizado não reconstrói mais a
+    // prioridade a partir da leitura crua — ele lê o mesmo sinal
+    // acionável do AGORA seller-facing view model (Decision State,
+    // FASE 16.3E) que o painel expandido usa (primary quando não é
+    // no_intervention, senão o primeiro secondary — ver
+    // pickActionableAgoraSignal), nunca uma segunda decisão
+    // independente.
     assert.match(
       b5Block,
-      /state\.agoraDecisionState\.data\?\.primary/,
+      /pickActionableAgoraSignal\(\s*\n?\s*state\.agoraDecisionState\.data,/,
     )
 
     assert.match(

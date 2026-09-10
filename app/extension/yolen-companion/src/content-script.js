@@ -578,6 +578,12 @@
     },
     agoraDecisionStateCycleId: null,
     agoraDecisionStateConversationKey: null,
+    // FASE 16.5 (rodada 3 do Codex): identidade da EMPRESA sob a qual o
+    // AGORA atual foi carregado — mesmo par cycleId/conversationKey não
+    // basta para provar que o dado pertence à empresa ativa (achado do
+    // Codex, PR #283): ver loadAgoraDecisionStateForCurrentCycle e o
+    // bloco companyChanged de loadYolenSession.
+    agoraDecisionStateCompanyId: null,
     companionLeadSummary: {
       status: 'idle',
     },
@@ -6062,6 +6068,7 @@
       },
       agoraDecisionStateCycleId: null,
       agoraDecisionStateConversationKey: null,
+      agoraDecisionStateCompanyId: null,
       companionLeadSummary: {
         status: 'idle',
       },
@@ -11693,6 +11700,20 @@
     const conversationKey =
       getCaptureConversationKey()
 
+    // Identidade da EMPRESA no momento da requisição (mesmo padrão de
+    // companyIdAtRequest usado por scheduleConversationAnalysis/
+    // startDeepAnalysisPolling): cycleId/conversationKey sozinhos não
+    // provam que o dado pertence à empresa ativa — uma troca de empresa
+    // ativa (loadYolenSession) enquanto o mesmo chat do WhatsApp
+    // permanece selecionado não muda, por si só, cycleId/conversationKey
+    // (achado do Codex, PR #283, rodada 3). Guardado tanto no closure
+    // (isStillCurrentContext) quanto em `state`, para que uma resposta
+    // "já pronta" (alreadyReady) de uma empresa anterior nunca seja
+    // reaproveitada silenciosamente para a empresa nova.
+    const companyIdAtRequest =
+      state.companyId ||
+      null
+
     if (!cycleId || !conversationKey) {
       state = {
         ...state,
@@ -11702,6 +11723,8 @@
         agoraDecisionStateCycleId:
           null,
         agoraDecisionStateConversationKey:
+          null,
+        agoraDecisionStateCompanyId:
           null,
       }
 
@@ -11713,7 +11736,9 @@
       state.agoraDecisionStateCycleId ===
         cycleId &&
       state.agoraDecisionStateConversationKey ===
-        conversationKey
+        conversationKey &&
+      state.agoraDecisionStateCompanyId ===
+        companyIdAtRequest
 
     const alreadyReady =
       isSameContext &&
@@ -11730,6 +11755,8 @@
         cycleId,
       agoraDecisionStateConversationKey:
         conversationKey,
+      agoraDecisionStateCompanyId:
+        companyIdAtRequest,
     }
 
     const isStillCurrentContext =
@@ -11739,7 +11766,14 @@
         state.agoraDecisionStateCycleId ===
           cycleId &&
         state.agoraDecisionStateConversationKey ===
-          conversationKey
+          conversationKey &&
+        state.agoraDecisionStateCompanyId ===
+          companyIdAtRequest &&
+        companyIdAtRequest ===
+          (
+            state.companyId ||
+            null
+          )
 
     try {
       const result =
@@ -12363,7 +12397,9 @@
       state.agoraDecisionStateCycleId ===
         cycleId &&
       state.agoraDecisionStateConversationKey ===
-        conversationKey
+        conversationKey &&
+      state.agoraDecisionStateCompanyId ===
+        (state.companyId || null)
 
     if (!isCurrentContext) {
       return ''
@@ -13658,6 +13694,40 @@
     }
   }
 
+  // FASE 16.5 (achado do Codex, PR #283, rodada 3) — o rail minimizado
+  // (getCollapsedCompanionAttentionSnapshot) e a aba AGORA expandida
+  // (getNowAttentionSnapshotHtml/renderAgoraViewModelSnapshot) precisam
+  // concordar sobre qual é "o" sinal acionável do momento: nem sempre é
+  // `primary` — ver AgoraViewModel.primary/secondary em
+  // app/lib/server/agora-view-model.ts. `status: 'no_intervention'` (seja
+  // por `wait` mapeado para essa categoria de tom, seja em teoria por
+  // qualquer outro kind que caia nela) nunca é "ação recomendada agora",
+  // então nunca deve ser promovido a ponto de atenção no rail.
+  function pickActionableAgoraSignal(agoraData) {
+    const primary =
+      agoraData?.primary
+
+    if (
+      primary &&
+      primary.status !== 'no_intervention'
+    ) {
+      return primary
+    }
+
+    const secondary =
+      Array.isArray(agoraData?.secondary)
+        ? agoraData.secondary
+        : []
+
+    return (
+      secondary.find(
+        (signal) =>
+          signal &&
+          signal.status !== 'no_intervention',
+      ) || null
+    )
+  }
+
   // B5_MINIMIZED_INTELLIGENCE_START
   function getCollapsedCompanionAttentionSnapshot() {
     if (
@@ -13732,14 +13802,33 @@
       state.agoraDecisionStateCycleId ===
         state.leadResolution?.cycle?.id &&
       state.agoraDecisionStateConversationKey ===
-        getCaptureConversationKey()
+        getCaptureConversationKey() &&
+      state.agoraDecisionStateCompanyId ===
+        (state.companyId || null)
 
-    const agoraPrimary =
+    // FASE 16.5 (achado do Codex, PR #283, rodada 3): ler só `primary`
+    // desalinha o rail da aba AGORA expandida em dois casos reais —
+    // (a) a decisão principal foi suprimida (`primary === null`,
+    // `primaryIsSuppressed` em agora-view-model.ts) mas um sinal
+    // secundário real sobrevive (ex.: `customer_waiting`), e o rail
+    // ficava mudo mesmo com AGORA mostrando um sinal visível; (b) um
+    // `primary` não-suprimido pode ainda assim carregar `kind: 'wait'`
+    // (passthrough de `best_approach`, sem candidato operacional/risco
+    // priorizado por cima) — mapeado para o status `no_intervention`
+    // (não é uma recomendação de ação) com `priority: null`, que o
+    // fallback de `ranks` abaixo promovia para um ponto de
+    // "recomendação" indevido. `pickActionableAgoraSignal` escolhe o
+    // primeiro sinal realmente acionável — primary quando não é
+    // `no_intervention`, senão o primeiro item de secondary — igual ao
+    // que a aba expandida já mostra.
+    const agoraSignal =
       isCurrentAgoraContext
-        ? state.agoraDecisionState.data?.primary
+        ? pickActionableAgoraSignal(
+            state.agoraDecisionState.data,
+          )
         : null
 
-    if (agoraPrimary) {
+    if (agoraSignal) {
       const levels = {
         critical: 'risk',
         high: 'attention',
@@ -13756,21 +13845,33 @@
 
       addCandidate({
         level:
-          levels[agoraPrimary.priority] ||
+          levels[agoraSignal.priority] ||
           'recommendation',
+        // FASE 16.5 (achado do Codex, PR #283, rodada 3): a chave NÃO
+        // pode incluir o timestamp de recálculo do Decision State — o
+        // refresh periódico (startCompanionClientContextTicker, a cada
+        // 60s) gera um timestamp novo mesmo quando o sinal em si não
+        // mudou nada, o que fazia a chave divergir de
+        // `lastAcknowledgedCollapsedAttentionKey` a cada tick e reacender
+        // o ponto de notificação para um vendedor que já tinha aberto/
+        // fechado o painel. A identidade do sinal (decision_kind/source/
+        // status/priority/headline, via provenance) só muda quando a
+        // decisão em si muda.
         key:
           [
             'seller-attention',
             state.conversationKey,
-            state.agoraDecisionState.data.reference_time,
-            agoraPrimary.status,
-            agoraPrimary.priority,
+            agoraSignal.status,
+            agoraSignal.priority,
+            agoraSignal.provenance?.decision_kind,
+            agoraSignal.provenance?.source,
+            agoraSignal.headline,
           ]
             .filter(Boolean)
             .join(':'),
         label:
-          agoraPrimary.headline,
-      }, ranks[agoraPrimary.priority] || 200)
+          agoraSignal.headline,
+      }, ranks[agoraSignal.priority] || 200)
     }
 
     if (
@@ -14588,6 +14689,22 @@
               deepAnalysisResult: null,
               lastKnownCommercialReading: null,
               lastKnownCommercialReadingContext: null,
+              // FASE 16.5 (achado do Codex, PR #283, rodada 3): sem isto,
+              // um AGORA "ready" carregado sob a empresa anterior fica
+              // renderável até a próxima resolução de lead da empresa
+              // nova terminar — cycleId/conversationKey sozinhos não
+              // mudam só porque a empresa ativa mudou, e o mesmo chat do
+              // WhatsApp pode continuar selecionado. Zerar aqui força
+              // getNowAttentionSnapshotHtml/getCollapsedCompanionAttentionSnapshot
+              // a ficarem quietos até loadAgoraDecisionStateForCurrentCycle
+              // buscar dado novo, já sob companyIdAtRequest da empresa
+              // nova.
+              agoraDecisionState: {
+                status: 'idle',
+              },
+              agoraDecisionStateCycleId: null,
+              agoraDecisionStateConversationKey: null,
+              agoraDecisionStateCompanyId: null,
             }
           : {}),
       }

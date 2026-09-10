@@ -32,10 +32,12 @@ import {
   buildMessageHtml,
   buildWhatsAppPageHtml,
   defaultLeadResolution,
+  defaultAgoraDecisionState,
   loadContentScript,
   resolveLeadCalls,
   ingestCalls,
   analysisJobStatusCalls,
+  decisionStateCalls,
   waitFor,
 } from '../e3-test-support/load-content-script.mjs'
 
@@ -976,6 +978,154 @@ test('COMPANY_IN_FLIGHT_RECOVERY: depois que a empresa ativa muda, a tentativa p
   await openSellerPanel(document, 'client')
   await waitFor(
     () => getSellerPanelText(document, 'client').includes('CONHECIMENTO DA EMPRESA B'),
+    { timeoutMs: 8000 },
+  )
+})
+
+// FASE 16.5 — AGORA (Decision State canônico, app/lib/server/
+// agora-view-model.ts) tem seu próprio caminho de carregamento
+// (loadAgoraDecisionStateForCurrentCycle), paralelo ao de CLIENTE/ANÁLISE
+// acima, e sofria da mesma lacuna que os testes COMPANY_IN_FLIGHT_* acima
+// já provavam para a análise: o guard de atualidade validava só
+// requestSequence/cycle/conversation, nunca a empresa ativa — achado do
+// Codex, PR #283, rodada 3. Mesma armadilha exposta pelo mesmo desenho de
+// teste: cycle_id/conversation_key continuam IDÊNTICOS antes e depois da
+// troca de empresa (resolutionsByPhone não varia por company_id neste
+// harness), então só a checagem explícita de company_id pode pegar o
+// problema.
+test('AGORA_COMPANY_IN_FLIGHT_ISOLATION: decisão de Decision State iniciada na empresa A nunca é aplicada (nem cache, nem resposta tardia) depois que a sessão ativa muda para a empresa B', async () => {
+  let activeCompanyId = 'company-1'
+  let getMeCallCount = 0
+
+  let releaseDecisionA
+  const decisionAGate = new Promise((resolve) => {
+    releaseDecisionA = resolve
+  })
+
+  function getMeResponse(companyId) {
+    return {
+      ok: true,
+      statusCode: 200,
+      origin: 'https://cockpit-comercial-vocn.vercel.app',
+      payload: {
+        ok: true,
+        user: { full_name: 'Vendedor Teste' },
+        active_company: { id: companyId, name: 'Empresa Teste', role: 'member' },
+      },
+    }
+  }
+
+  function decisionStateFor(headline) {
+    return defaultAgoraDecisionState({
+      silent: false,
+      silent_reason: null,
+      primary: {
+        status: 'escalate',
+        priority: 'critical',
+        headline,
+        action: 'Ação recomendada de teste.',
+        provenance: {
+          decision_kind: 'escalate',
+          source: 'commercial_risk',
+          evidence_message_ids: ['msg-a1'],
+          memory_ids: [],
+        },
+      },
+    })
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Olá, quero saber mais sobre o plano mensal.',
+    }),
+    getMeResult: () => {
+      getMeCallCount += 1
+      return getMeResponse(activeCompanyId)
+    },
+    // Mesma resolução de ciclo o tempo todo — como nos testes
+    // COMPANY_IN_FLIGHT_* acima, isola exclusivamente a variável
+    // company_id: cycle_id/conversation_key continuam idênticos antes e
+    // depois da troca de empresa.
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    decisionStateResult: async (callCount) => {
+      if (callCount === 1) {
+        // A primeira requisição de AGORA (disparada ainda com a empresa A
+        // ativa) só resolve depois que o teste chamar releaseDecisionA()
+        // explicitamente, depois da troca de empresa abaixo.
+        await decisionAGate
+
+        return decisionStateFor('DECISAO EMPRESA A')
+      }
+
+      return decisionStateFor('DECISAO EMPRESA B')
+    },
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+
+  // Requisição de AGORA da empresa A fica em voo: garante que ela já foi
+  // disparada (presa no gate) antes de trocar de empresa.
+  await waitFor(() => decisionStateCalls(calls).length > 0)
+
+  const resolveLeadCountBeforeRefresh = resolveLeadCalls(calls).length
+  const getMeCallCountBeforeRefresh = getMeCallCount
+
+  // Sessão ativa muda para company-2 enquanto a requisição da empresa A
+  // ainda está em voo — mesma conversation_key, mesmo cycle_id, só a
+  // empresa ativa da sessão muda (botão global "Atualizar").
+  activeCompanyId = 'company-2'
+
+  const refreshButton = getRefreshButton(document)
+  assert.ok(refreshButton, 'esperava o botão global de atualizar no painel')
+
+  refreshButton.dispatchEvent(
+    new document.defaultView.Event('click', { bubbles: true }),
+  )
+
+  await waitFor(() => getMeCallCount > getMeCallCountBeforeRefresh)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > resolveLeadCountBeforeRefresh,
+  )
+
+  await new Promise((resolve) => setTimeout(resolve, 200))
+
+  // A troca de empresa por si só já precisa ter tirado AGORA do cache da
+  // empresa anterior — sem esperar o resultado de A ser liberado.
+  await openSellerPanel(document, 'now')
+  assert.doesNotMatch(
+    getSellerPanelText(document, 'now'),
+    /DECISAO EMPRESA A/,
+    'AGORA não pode continuar mostrando a decisão em cache da empresa anterior só porque a busca da decisão da empresa nova ainda não terminou',
+  )
+
+  // Só agora libera o resultado (tardio) da empresa A.
+  releaseDecisionA()
+
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  // ISOLATION: o resultado tardio de A nunca pode ser aplicado, mesmo
+  // chegando depois — cycle_id/conversation_key batem, só a empresa ativa
+  // no momento em que a resposta chega já não é mais a mesma da
+  // requisição.
+  await openSellerPanel(document, 'now')
+  assert.doesNotMatch(
+    getSellerPanelText(document, 'now'),
+    /DECISAO EMPRESA A/,
+    'resultado tardio de Decision State da empresa A não pode ser aplicado depois da troca para a empresa B',
+  )
+
+  // RECOVERY: a decisão real da empresa B (segunda chamada, sem gate)
+  // acaba aparecendo normalmente — a troca de empresa não deixa AGORA
+  // travado em silêncio para sempre.
+  await waitFor(
+    () => getSellerPanelText(document, 'now').includes('DECISAO EMPRESA B'),
     { timeoutMs: 8000 },
   )
 })

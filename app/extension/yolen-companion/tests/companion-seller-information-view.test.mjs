@@ -160,7 +160,7 @@ test('sessões non-commercial e uncertain permanecem neutras', () => {
   assert.equal(view.isNeutralCommercialSession(uncertain), true)
   assert.match(view.getNeutralSessionCopy(nonCommercial).title, /sem evidência comercial relevante/i)
   assert.match(view.getNeutralSessionCopy(uncertain).title, /evidência comercial suficiente/i)
-  assert.match(view.renderAnalysisArea(nonCommercial), /não possui análise comercial atual/i)
+  assert.match(view.renderAnalysisArea(nonCommercial), /sem evidência comercial relevante/i)
   assert.doesNotMatch(view.renderAnalysisArea(nonCommercial), /Pontos de melhoria|Método Consultivo/)
 })
 
