@@ -171,6 +171,18 @@ export type DecisionStateCurrentMoment = {
 export type DecisionStatePrimaryDecision = {
   kind: CommercialReadingDecision
 
+  // Fonte do candidato que originou esta decisão — `null` quando a
+  // decisão não veio de um candidato priorizado (síntese de
+  // `give_space` em sessão pessoal, passthrough de `best_approach` da
+  // leitura atual sem nenhum candidato elegível, ou o fallback de
+  // `no_intervention` sem nenhuma fonte disponível). Adicionado na
+  // FASE 16.3F (Communication Context) para permitir que um
+  // consumidor resolva o candidato original (compromisso, objeção,
+  // método) contra as fontes suplementares sem reinterpretar/adivinhar
+  // a origem por correspondência de texto — extensão aditiva,
+  // comportamento de todo consumidor existente inalterado.
+  source: DecisionStateInterventionSource | null
+
   summary: string
   reason: string
   recommended_action: string
@@ -1418,6 +1430,7 @@ export async function loadCanonicalDecisionState({
     // fazendo AGORA parecer que a sessão pessoal nunca existiu).
     primaryDecision = {
       kind: 'give_space',
+      source: null,
 
       summary:
         'Sessão atual não é comercial.',
@@ -1440,6 +1453,7 @@ export async function loadCanonicalDecisionState({
 
     primaryDecision = {
       kind: top.kind,
+      source: top.source,
       summary: top.summary,
       reason: top.reason,
       recommended_action: top.recommended_action,
@@ -1452,6 +1466,7 @@ export async function loadCanonicalDecisionState({
   } else if (bestApproach) {
     primaryDecision = {
       kind: bestApproach.decision,
+      source: null,
       summary: bestApproach.reason,
       reason: bestApproach.reason,
 
@@ -1471,6 +1486,7 @@ export async function loadCanonicalDecisionState({
   } else {
     primaryDecision = {
       kind: 'no_intervention',
+      source: null,
 
       summary:
         'Nenhuma leitura comercial disponível e nenhum sinal operacional pendente.',
