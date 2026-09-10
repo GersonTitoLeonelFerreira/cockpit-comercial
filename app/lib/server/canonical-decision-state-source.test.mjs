@@ -434,6 +434,11 @@ test('sessão comercial ativa com ação clara: primary_decision reflete o best_
       evidence_message_ids: ['m10'],
       memory_ids: [],
     },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: null,
+    },
   })
 
   const state = await load({
@@ -442,6 +447,63 @@ test('sessão comercial ativa com ação clara: primary_decision reflete o best_
 
   assert.equal(state.primary_decision.kind, 'send_material')
   assert.deepEqual(state.interventions, [])
+  assert.equal(state.primary_decision.silent, false)
+})
+
+test('passthrough de best_approach preserva intervention_needed=false como silent, independente do kind', async () => {
+  // Achado do Codex (PR #281, rodada 10): `communication.intervention_needed`
+  // é um sinal de silêncio da Commercial Reading independente do
+  // `kind` decidido — `give_space` pode coexistir com "nenhuma
+  // comunicação necessária agora" (ex.: cliente pediu espaço
+  // explicitamente). Sem preservar esse sinal em `primary_decision`,
+  // um consumidor como o Communication Context (FASE 16.3F) não tinha
+  // como saber disso além do `kind`.
+  const reading = buildReading({
+    commercial_relevance: 'commercial',
+    best_approach: {
+      decision: 'give_space',
+      reason: 'Cliente pediu espaço explicitamente.',
+      channel: 'wait',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: false,
+      recommended_question: null,
+      recommended_message: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'give_space')
+  assert.equal(state.primary_decision.silent, true)
+})
+
+test('passthrough de best_approach com intervention_needed=true não marca silent', async () => {
+  const reading = buildReading({
+    commercial_relevance: 'commercial',
+    best_approach: {
+      decision: 'present_solution',
+      reason: 'Cliente pediu a proposta.',
+      channel: 'text',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: 'Segue a proposta comercial.',
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.silent, false)
 })
 
 // 2. Sessão pessoal + oportunidade ativa: sem pitch forçado, oportunidade preservada.
@@ -476,6 +538,39 @@ test('sessão pessoal preserva oportunidade: primary_decision não força venda'
   assert.equal(state.primary_decision.kind, 'give_space')
   assert.deepEqual(state.interventions, [])
   assert.equal(state.current_moment.commercial_relevance, 'non_commercial')
+  // `communication.intervention_needed` não foi sobrescrito neste
+  // fixture — permanece no padrão `false` de `buildReading()`, então a
+  // síntese de `give_space` preserva esse silêncio.
+  assert.equal(state.primary_decision.silent, true)
+})
+
+test('sessão pessoal ativa com intervention_needed=true: give_space sintetizado não é silent', async () => {
+  // Achado do Codex (PR #281, rodada 12): a síntese de `give_space`
+  // também precisa refletir `intervention_needed` da leitura — quando a
+  // própria leitura diz que HÁ algo a comunicar (ex.: resposta factual
+  // necessária, mandato §12), `silent` deve ser `false`, não hard-coded.
+  const reading = buildReading({
+    commercial_relevance: 'non_commercial',
+    best_approach: {
+      decision: 'respond',
+      reason: 'Cliente fez uma pergunta factual simples.',
+      channel: 'text',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: 'Sim, funcionamos também aos sábados.',
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'give_space')
+  assert.equal(state.primary_decision.silent, false)
 })
 
 // 3. Nada relevante agora: silêncio explícito.
@@ -513,6 +608,45 @@ test('objeção aberta bloqueadora sobe como decisão principal', async () => {
     state.primary_decision.summary,
     'Cliente acha o preço alto e ameaça desistir.',
   )
+  // Revisão adversarial própria (rodada 14, PR #281 — Codex bloqueado
+  // por limite de uso): o candidato vencedor é derivado da MESMA
+  // leitura que também carrega `communication.intervention_needed`
+  // (aqui, o default `false` do fixture, nunca sobrescrito) — uma
+  // objeção de alta severidade pode legitimamente coexistir com
+  // "nenhuma comunicação necessária agora" (ex.: objeção histórica
+  // ainda em aberto, mas sem nova mensagem pendente do cliente neste
+  // instante).
+  assert.equal(state.primary_decision.silent, true)
+})
+
+test('objeção aberta bloqueadora com intervention_needed=true não é silent', async () => {
+  // Caso simétrico ao teste anterior: quando a leitura explicitamente
+  // marca que HÁ algo a comunicar, o candidato vencedor de fonte
+  // derivada da leitura (commercial_risk) não deve ser silenciado.
+  const reading = buildReading({
+    risks: {
+      customer_objections: [{
+        kind: 'price',
+        severity: 'high',
+        summary: 'Cliente acha o preço alto e ameaça desistir.',
+        evidence_message_ids: ['m5'],
+        memory_ids: [],
+      }],
+      service_risks: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: 'Posso te mostrar as condições especiais para esse caso.',
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'handle_objection')
+  assert.equal(state.primary_decision.silent, false)
 })
 
 // 5. Objeção histórica já resolvida: não sobe.
@@ -539,6 +673,11 @@ test('descoberta incompleta sobe quando best_approach é insufficient_informatio
       evidence_message_ids: ['m2'],
       memory_ids: [],
     },
+    communication: {
+      intervention_needed: true,
+      recommended_question: 'Qual o orçamento disponível?',
+      recommended_message: null,
+    },
   })
 
   const state = await load({
@@ -546,6 +685,37 @@ test('descoberta incompleta sobe quando best_approach é insufficient_informatio
   })
 
   assert.equal(state.primary_decision.kind, 'insufficient_information')
+  assert.equal(state.primary_decision.silent, false)
+})
+
+test('insufficient_information com intervention_needed=false não vira candidato — cai para o passthrough, preservando silent', async () => {
+  // Achado do Codex (PR #281, rodada 11): `buildInsufficientInformationCandidate`
+  // disparava incondicionalmente para `decision: 'insufficient_information'`,
+  // ignorando `communication.intervention_needed` — o candidato sempre
+  // vencia antes do passthrough (onde `silent` é computado), perdendo o
+  // sinal de silêncio do cenário validado no corpus mesmo depois da
+  // correção da rodada 10.
+  const reading = buildReading({
+    best_approach: {
+      decision: 'insufficient_information',
+      reason: 'Descoberta insuficiente, mas sem necessidade de contato agora.',
+      channel: 'none',
+      evidence_message_ids: ['m2'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: false,
+      recommended_question: null,
+      recommended_message: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'insufficient_information')
+  assert.equal(state.primary_decision.silent, true)
 })
 
 test('descoberta incompleta que não bloqueia o próximo passo não sobe via essa via', async () => {
@@ -617,6 +787,10 @@ test('desvio de método na leitura atual sobe como intervenção relevante', asy
     state.primary_decision.recommended_action,
     'Perguntar qual o impacto do problema hoje.',
   )
+  // Revisão adversarial própria (rodada 14, PR #281): candidato de
+  // method_adherence também é derivado da leitura atual — mesma
+  // disciplina do teste de commercial_risk acima.
+  assert.equal(state.primary_decision.silent, true)
 })
 
 // 8. Method divergence não confiável: não criar intervenção falsa.
@@ -703,6 +877,10 @@ test('coaching de preço prematuro sobe quando o vendedor está negociando agora
     state.primary_decision.recommended_action,
     'Retomar contexto de impacto antes de negociar condição.',
   )
+  // Revisão adversarial própria (rodada 14, PR #281): candidato de
+  // seller_coaching também é derivado da leitura atual — mesma
+  // disciplina do teste de commercial_risk acima.
+  assert.equal(state.primary_decision.silent, true)
 })
 
 test('coaching de preço prematuro NÃO sobe quando a análise não recomenda avançar agora', async () => {
@@ -747,6 +925,10 @@ test('compromisso vencido na memória canônica do ciclo sobe como intervenção
     state.primary_decision.summary,
     'Enviar a proposta comercial até quinta.',
   )
+  // Revisão adversarial própria (rodada 14, PR #281): `cycle_commitment`
+  // é fonte OPERACIONAL (cycle_memory), independente da leitura atual —
+  // mesma disciplina do teste de client_sla acima.
+  assert.equal(state.primary_decision.silent, false)
 })
 
 // 12. Customer memory irrelevante agora: fica fora.
@@ -1159,6 +1341,13 @@ test('SLA em risco alto sobe como decisão principal mesmo sem nova mensagem, se
     state.operational_signal_availability.sla,
     'AVAILABLE_NOW',
   )
+  // Revisão adversarial própria (rodada 14, PR #281): `client_sla` é
+  // fonte OPERACIONAL (client_context), independente da leitura atual
+  // (aqui com o default intervention_needed: false, nunca
+  // sobrescrito) — nunca deve ser silenciada por esse sinal, ao
+  // contrário de fontes derivadas da leitura (commercial_risk/
+  // method_adherence/seller_coaching/insufficient_information).
+  assert.equal(state.primary_decision.silent, false)
 })
 
 test('SLA em risco alto com cliente de fato aguardando resposta sobe como respond', async () => {

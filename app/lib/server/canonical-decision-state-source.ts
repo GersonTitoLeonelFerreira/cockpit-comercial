@@ -144,6 +144,23 @@ function isPitchAdvancingCandidate(
   )
 }
 
+// Fontes cujo candidato é derivado diretamente da leitura atual
+// (`current_reading.reading.*`) — o mesmo objeto que também carrega
+// `communication.intervention_needed`. Usado só para decidir se
+// `silent` (em `DecisionStatePrimaryDecision`, ver docstring do campo)
+// deve refletir esse sinal quando um candidato dessas fontes vence a
+// disputa e vira a decisão principal. `client_sla`/`customer_waiting`/
+// `cycle_commitment` ficam de fora deliberadamente: vêm de
+// `client_context`/`cycle_memory`, sinais objetivos e independentes da
+// leitura atual (achado da revisão adversarial própria, rodada 14, PR
+// #281 — Codex bloqueado por limite de uso).
+const READING_DERIVED_INTERVENTION_SOURCES: readonly DecisionStateInterventionSource[] = [
+  'commercial_risk',
+  'method_adherence',
+  'seller_coaching',
+  'insufficient_information',
+]
+
 const PRIORITY_RANK: Record<
   DecisionStateInterventionPriority,
   number
@@ -171,6 +188,48 @@ export type DecisionStateCurrentMoment = {
 export type DecisionStatePrimaryDecision = {
   kind: CommercialReadingDecision
 
+  // Fonte do candidato que originou esta decisão — `null` quando a
+  // decisão não veio de um candidato priorizado (síntese de
+  // `give_space` em sessão pessoal, passthrough de `best_approach` da
+  // leitura atual sem nenhum candidato elegível, ou o fallback de
+  // `no_intervention` sem nenhuma fonte disponível). Adicionado na
+  // FASE 16.3F (Communication Context) para permitir que um
+  // consumidor resolva o candidato original (compromisso, objeção,
+  // método) contra as fontes suplementares sem reinterpretar/adivinhar
+  // a origem por correspondência de texto — extensão aditiva,
+  // comportamento de todo consumidor existente inalterado.
+  source: DecisionStateInterventionSource | null
+
+  // `true` quando a leitura comercial subjacente marcou explicitamente
+  // `communication.intervention_needed: false` — um sinal de silêncio
+  // da Commercial Reading (16.3B) independente de `kind`: um `kind`
+  // como `give_space`/`insufficient_information`/`close` pode
+  // coexistir com "nenhuma comunicação necessária agora" (ex.: cliente
+  // pediu espaço explicitamente, recusa definitiva já registrada).
+  // Computado em todo ramo cuja decisão é derivada da leitura atual —
+  // passthrough de `best_approach`, síntese de `give_space` em sessão
+  // pessoal, e candidato vencedor de fonte também derivada da leitura
+  // (`commercial_risk`/`method_adherence`/`seller_coaching`/
+  // `insufficient_information`, ver
+  // READING_DERIVED_INTERVENTION_SOURCES) — já que o candidato e o
+  // sinal de silêncio vêm do MESMO objeto de leitura, e nada no
+  // contrato impede uma objeção/desvio de método relevante de coexistir
+  // com "nenhuma comunicação necessária agora". Permanece sempre
+  // `false` para candidato vencedor de fonte OPERACIONAL
+  // (`client_sla`/`customer_waiting`/`cycle_commitment` — sinais
+  // objetivos de `client_context`/`cycle_memory`, independentes da
+  // leitura atual: um cliente SLA-crítico ou efetivamente aguardando
+  // resposta continua exigindo comunicação mesmo que a leitura diga o
+  // contrário) e para o fallback sem nenhuma fonte disponível.
+  // Adicionado na FASE 16.3F (Communication Context) — achado do
+  // Codex, PR #281, rodada 10 (passthrough), rodada 11 (candidato de
+  // insufficient_information não deve competir e mascarar o
+  // passthrough), rodada 12 (síntese de give_space), e revisão
+  // adversarial própria rodada 14 (candidato vencedor de fonte
+  // derivada da leitura — Codex bloqueado por limite de uso nesta
+  // rodada; ver relatório da FASE 16.3F).
+  silent: boolean
+
   summary: string
   reason: string
   recommended_action: string
@@ -181,6 +240,19 @@ export type DecisionStatePrimaryDecision = {
 
 export type DecisionStateInterventionCard = {
   source: DecisionStateInterventionSource
+
+  // Um único `source` pode cobrir subtipos distintos (ex.:
+  // `commercial_risk` cobre tanto objeção do cliente,
+  // `kind: 'handle_objection'`, quanto risco de atendimento,
+  // `kind: 'confirm_information'`) — sem isso, um consumidor não
+  // consegue distinguir os dois de forma estrutural, só por
+  // correspondência de texto (frágil e arriscado: um consumidor poderia
+  // resolver a intervenção errada, inclusive ressuscitar uma objeção
+  // suprimida cujo texto colida com o de um risco de atendimento
+  // sobrevivente). Adicionado na FASE 16.3F (Communication Context),
+  // mesmo padrão aditivo do campo `source` em `DecisionStatePrimaryDecision`.
+  kind: CommercialReadingDecision
+
   priority: DecisionStateInterventionPriority
 
   // O assunto concreto do candidato (ex.: qual compromisso, qual
@@ -1022,6 +1094,21 @@ function buildInsufficientInformationCandidate(
     return null
   }
 
+  // Achado do Codex, PR #281, rodada 11: quando a própria leitura já
+  // marca `intervention_needed: false` (nenhuma comunicação necessária
+  // agora, mesmo com descoberta insuficiente identificada — corpus
+  // validado, cenário silencioso), este candidato NÃO deve competir por
+  // prioridade — isso faria a decisão vencer aqui, pulando o passthrough
+  // de `best_approach` (onde `silent` é de fato computado) e perdendo o
+  // sinal de silêncio por completo. Sem candidato aqui, a decisão cai
+  // para o passthrough, que preserva `silent` corretamente.
+  if (
+    currentReading.reading.communication
+      .intervention_needed === false
+  ) {
+    return null
+  }
+
   return {
     source: 'insufficient_information',
     priority: 'medium',
@@ -1392,6 +1479,7 @@ export async function loadCanonicalDecisionState({
   ): DecisionStateInterventionCard {
     return {
       source: candidate.source,
+      kind: candidate.kind,
       priority: candidate.priority,
       summary: candidate.summary,
       reason: candidate.reason,
@@ -1418,6 +1506,19 @@ export async function loadCanonicalDecisionState({
     // fazendo AGORA parecer que a sessão pessoal nunca existiu).
     primaryDecision = {
       kind: 'give_space',
+      source: null,
+
+      // Achado do Codex, PR #281, rodada 12: a síntese de `give_space`
+      // também precisa preservar `intervention_needed === false` da
+      // leitura atual — uma sessão não comercial ATIVA cuja própria
+      // leitura já diz "nenhuma comunicação necessária agora" é um
+      // sinal de silêncio ainda mais forte, não menos, do que o
+      // passthrough (rodada 10) já tratava. Não afeta os cards
+      // operacionais sobreviventes em `interventions` — só a resposta
+      // de continuidade natural do `primary_decision`.
+      silent:
+        current_reading?.reading.communication
+          .intervention_needed === false,
 
       summary:
         'Sessão atual não é comercial.',
@@ -1440,6 +1541,15 @@ export async function loadCanonicalDecisionState({
 
     primaryDecision = {
       kind: top.kind,
+      source: top.source,
+
+      silent:
+        READING_DERIVED_INTERVENTION_SOURCES.includes(
+          top.source,
+        ) &&
+        current_reading?.reading.communication
+          .intervention_needed === false,
+
       summary: top.summary,
       reason: top.reason,
       recommended_action: top.recommended_action,
@@ -1452,6 +1562,18 @@ export async function loadCanonicalDecisionState({
   } else if (bestApproach) {
     primaryDecision = {
       kind: bestApproach.decision,
+      source: null,
+
+      // Achado do Codex, PR #281, rodada 10: `intervention_needed`
+      // (CommercialReading.communication) é um sinal de silêncio
+      // independente de `kind` — a leitura pode classificar
+      // `give_space`/`insufficient_information`/`close` e ainda assim
+      // marcar que nenhuma comunicação é necessária agora (ex.: cliente
+      // pediu espaço explicitamente, recusa definitiva já registrada).
+      silent:
+        current_reading?.reading.communication
+          .intervention_needed === false,
+
       summary: bestApproach.reason,
       reason: bestApproach.reason,
 
@@ -1471,6 +1593,8 @@ export async function loadCanonicalDecisionState({
   } else {
     primaryDecision = {
       kind: 'no_intervention',
+      source: null,
+      silent: false,
 
       summary:
         'Nenhuma leitura comercial disponível e nenhum sinal operacional pendente.',
