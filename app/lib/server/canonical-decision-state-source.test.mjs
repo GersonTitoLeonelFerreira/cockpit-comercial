@@ -601,6 +601,11 @@ test('descoberta incompleta sobe quando best_approach é insufficient_informatio
       evidence_message_ids: ['m2'],
       memory_ids: [],
     },
+    communication: {
+      intervention_needed: true,
+      recommended_question: 'Qual o orçamento disponível?',
+      recommended_message: null,
+    },
   })
 
   const state = await load({
@@ -608,6 +613,37 @@ test('descoberta incompleta sobe quando best_approach é insufficient_informatio
   })
 
   assert.equal(state.primary_decision.kind, 'insufficient_information')
+  assert.equal(state.primary_decision.silent, false)
+})
+
+test('insufficient_information com intervention_needed=false não vira candidato — cai para o passthrough, preservando silent', async () => {
+  // Achado do Codex (PR #281, rodada 11): `buildInsufficientInformationCandidate`
+  // disparava incondicionalmente para `decision: 'insufficient_information'`,
+  // ignorando `communication.intervention_needed` — o candidato sempre
+  // vencia antes do passthrough (onde `silent` é computado), perdendo o
+  // sinal de silêncio do cenário validado no corpus mesmo depois da
+  // correção da rodada 10.
+  const reading = buildReading({
+    best_approach: {
+      decision: 'insufficient_information',
+      reason: 'Descoberta insuficiente, mas sem necessidade de contato agora.',
+      channel: 'none',
+      evidence_message_ids: ['m2'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: false,
+      recommended_question: null,
+      recommended_message: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'insufficient_information')
+  assert.equal(state.primary_decision.silent, true)
 })
 
 test('descoberta incompleta que não bloqueia o próximo passo não sobe via essa via', async () => {

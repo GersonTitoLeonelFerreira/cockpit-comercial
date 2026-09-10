@@ -1064,6 +1064,21 @@ function buildInsufficientInformationCandidate(
     return null
   }
 
+  // Achado do Codex, PR #281, rodada 11: quando a própria leitura já
+  // marca `intervention_needed: false` (nenhuma comunicação necessária
+  // agora, mesmo com descoberta insuficiente identificada — corpus
+  // validado, cenário silencioso), este candidato NÃO deve competir por
+  // prioridade — isso faria a decisão vencer aqui, pulando o passthrough
+  // de `best_approach` (onde `silent` é de fato computado) e perdendo o
+  // sinal de silêncio por completo. Sem candidato aqui, a decisão cai
+  // para o passthrough, que preserva `silent` corretamente.
+  if (
+    currentReading.reading.communication
+      .intervention_needed === false
+  ) {
+    return null
+  }
+
   return {
     source: 'insufficient_information',
     priority: 'medium',
