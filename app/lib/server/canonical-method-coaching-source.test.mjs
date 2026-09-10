@@ -338,6 +338,7 @@ function load({
   conversation_key = CONVERSATION_KEY,
   reference_time = REFERENCE_TIME,
   current_reading = buildCurrentReading(),
+  cycle_memory,
 }) {
   return loadCanonicalMethodCoachingSource({
     admin,
@@ -346,6 +347,7 @@ function load({
     conversation_key,
     reference_time,
     current_reading,
+    cycle_memory,
   })
 }
 
@@ -1179,4 +1181,124 @@ test('provenance preserva conversation_key, agora updated_at e identidade da lei
     analise_state_record_id: 'state-record-1',
     analise_state_version: 3,
   })
+})
+
+test('cycle_memory fornecido pelo chamador é reaproveitado, sem nova consulta a companion_commercial_states', async () => {
+  // Achado do Codex (PR #280, rodada 3): sem repasse, esta função
+  // paginava companion_commercial_states de novo internamente mesmo
+  // quando o chamador (Decision State, FASE 16.3E) já tinha acabado
+  // de carregar a mesma memória de ciclo para o mesmo
+  // (company_id, cycle_id, reference_time).
+  const admin = createAdmin({
+    agoraRows: [],
+    eventRows: [],
+  })
+
+  let stateTableQueries = 0
+  const originalFrom = admin.from.bind(admin)
+
+  admin.from = (table) => {
+    if (table === 'companion_commercial_states') {
+      stateTableQueries += 1
+    }
+
+    return originalFrom(table)
+  }
+
+  const suppliedCycleMemory = {
+    company_id: COMPANY_ID,
+    cycle_id: CYCLE_ID,
+    reference_time: REFERENCE_TIME,
+    conversation_keys: [CONVERSATION_KEY, OTHER_CONVERSATION_KEY],
+    facts: [],
+    needs: [],
+    open_loops: [],
+    objections: [],
+    commitments: [],
+    signals: [],
+    uncertainties: [],
+  }
+
+  const source = await load({
+    admin,
+    cycle_memory: suppliedCycleMemory,
+  })
+
+  assert.equal(stateTableQueries, 0)
+  assert.ok(source)
+})
+
+test('cycle_memory de escopo diferente do chamador é ignorado, cai para carga interna', async () => {
+  const admin = createAdmin({
+    agoraRows: [],
+    eventRows: [],
+    stateRows: [buildStateRow({})],
+  })
+
+  let stateTableQueries = 0
+  const originalFrom = admin.from.bind(admin)
+
+  admin.from = (table) => {
+    if (table === 'companion_commercial_states') {
+      stateTableQueries += 1
+    }
+
+    return originalFrom(table)
+  }
+
+  const mismatchedCycleMemory = {
+    company_id: OTHER_COMPANY_ID,
+    cycle_id: CYCLE_ID,
+    reference_time: REFERENCE_TIME,
+    conversation_keys: [CONVERSATION_KEY],
+    facts: [],
+    needs: [],
+    open_loops: [],
+    objections: [],
+    commitments: [],
+    signals: [],
+    uncertainties: [],
+  }
+
+  const source = await load({
+    admin,
+    cycle_memory: mismatchedCycleMemory,
+  })
+
+  assert.ok(stateTableQueries > 0)
+  assert.ok(source)
+})
+
+test('cycle_memory explicitamente null (chamador já tentou e falhou) é respeitado, sem nova consulta a companion_commercial_states', async () => {
+  // Achado do Codex (PR #280, rodada 4): `cycle_memory != null` tratava
+  // "não fornecido" (undefined) e "fornecido como null" (o chamador —
+  // Decision State — já tentou carregar e falhou) da mesma forma,
+  // disparando uma nova consulta interna nos dois casos. Isso
+  // reproduzia o double-scan que o parâmetro foi criado para eliminar,
+  // e podia produzir um resultado inconsistente com o que o chamador
+  // já registrou como indisponível caso o retry tivesse sucesso.
+  const admin = createAdmin({
+    agoraRows: [],
+    eventRows: [],
+    stateRows: [buildStateRow({})],
+  })
+
+  let stateTableQueries = 0
+  const originalFrom = admin.from.bind(admin)
+
+  admin.from = (table) => {
+    if (table === 'companion_commercial_states') {
+      stateTableQueries += 1
+    }
+
+    return originalFrom(table)
+  }
+
+  const source = await load({
+    admin,
+    cycle_memory: null,
+  })
+
+  assert.equal(stateTableQueries, 0)
+  assert.ok(source)
 })
