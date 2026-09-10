@@ -911,6 +911,14 @@
       }
     }
 
+    // Sem reordenar por severidade aqui de propósito (mesma lição da
+    // FASE 16.5 — ver comentário logo acima, ATTENTION_PRIORITY_RANK):
+    // um segundo critério de priorização no cliente duplicaria o mesmo
+    // julgamento que o presenter server-side já faz
+    // (RISK_SEVERITY_RANK, analysis-view-model.ts) e poderia divergir
+    // dele silenciosamente. Este fallback só filtra severidade baixa e
+    // limita a quantidade — a ordem/priorização fina só vem do view
+    // model canônico, quando ele chega.
     const risks = [
       ...(reading.risks?.customer_objections || []).map((risk) => ({ source: 'customer_objection', ...risk })),
       ...(reading.risks?.service_risks || []).map((risk) => ({ source: 'service_risk', ...risk })),
