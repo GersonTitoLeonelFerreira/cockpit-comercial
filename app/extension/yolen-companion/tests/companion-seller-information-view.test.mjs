@@ -383,11 +383,12 @@ test('not_configured e insufficient_evidence não inventam erro ou metodologia',
 // `risks.customer_objections`, mesmo sendo um risco estruturado com
 // severidade (mandato §12: "resistência real" é um risco comercial
 // legítimo). Agora os dois grupos aparecem, rotulados de forma
-// distinta — CLIENTE continua sendo o lugar da lista completa de
-// objeções da conversa (`customer.objections`, sem severidade),
-// enquanto ANÁLISE mostra só as com risco (`risks.customer_objections`,
-// severidade medium/high) junto do risco de condução.
-test('ANÁLISE mostra risco de objeção e risco de condução como grupos distintos; CLIENTE mantém a lista completa de objeções', () => {
+// distinta — e desde a FASE 16.7, objeção deixou de aparecer em
+// CLIENTE por completo (mandato §17: objeção atual é conteúdo de
+// ANÁLISE, nunca de CLIENTE — mesmo que já existisse evidência de
+// severidade, o texto puro `customer.objections` duplicaria o mesmo
+// fato que `risks.customer_objections` já cobre em ANÁLISE).
+test('ANÁLISE mostra risco de objeção e risco de condução como grupos distintos; CLIENTE nunca mostra objeção', () => {
   const reading = buildReading()
   reading.risks.service_risks = [
     {
@@ -400,15 +401,15 @@ test('ANÁLISE mostra risco de objeção e risco de condução como grupos disti
   ]
 
   const analysisHtml = view.renderAnalysisViewModel(analysisViewModelFromReading(reading))
-  const clientHtml = view.renderClientCommercialArea(reading)
+  const clientHtml = view.renderCustomerViewModel(view.buildCustomerViewModelFromReading(reading))
 
   assert.match(analysisHtml, /data-yolen-risk-group="objection"/)
   assert.match(analysisHtml, /considera o preço alto/i)
   assert.match(analysisHtml, /data-yolen-risk-group="service"/)
   assert.match(analysisHtml, /Risco no atendimento/)
   assert.match(analysisHtml, /pressão excessiva/)
-  assert.match(clientHtml, /Objeções atuais do cliente/)
-  assert.match(clientHtml, /Considera o preço alto/)
+  assert.doesNotMatch(clientHtml, /Considera o preço alto/)
+  assert.doesNotMatch(clientHtml, /Objeç/i)
 
   // Severidade traduzida para linguagem humana, nunca o enum técnico
   // exposto ao vendedor (mandato §21: "sem jargon interno").
@@ -417,15 +418,18 @@ test('ANÁLISE mostra risco de objeção e risco de condução como grupos disti
   assert.doesNotMatch(analysisHtml, /"medium"|"high"/)
 })
 
+// FASE 16.7 — needs/interests/decision_criteria/open_questions viraram
+// contexto secundário da oportunidade ou lacuna de descoberta (mandato
+// §7/§13/§22); objeção nunca aparece (mandato §17).
 test('Cliente agrupa somente dados existentes e mantém detalhe sob demanda', () => {
-  const html = view.renderClientCommercialArea(buildReading())
+  const html = view.renderCustomerViewModel(view.buildCustomerViewModelFromReading(buildReading()))
 
-  assert.match(html, /O que ele quer/)
+  assert.match(html, /Contexto desta oportunidade/)
   assert.match(html, /Necessidades/)
   assert.match(html, /Critérios de decisão/)
-  assert.match(html, /Outros pontos em aberto/)
-  assert.match(html, /Perguntas em aberto/)
-  assert.match(html, /Objeções atuais do cliente/)
+  assert.match(html, /O que falta descobrir/)
+  assert.match(html, /Qual é o prazo de implantação\?/)
+  assert.doesNotMatch(html, /Objeç/i)
   assert.doesNotMatch(html, /data-yolen-client-field="discussed_products"/)
   assert.doesNotMatch(html, /data-yolen-client-field="missing_discovery"/)
   assert.doesNotMatch(html, /data-yolen-client-field="resolved_information"/)
@@ -439,7 +443,10 @@ test('Cliente agrupa somente dados existentes e mantém detalhe sob demanda', ()
   empty.customer.objections = []
   empty.customer.uncertainties = []
 
-  assert.equal(view.renderClientCommercialArea(empty), '')
+  assert.match(
+    view.renderCustomerViewModel(view.buildCustomerViewModelFromReading(empty)),
+    /data-yolen-customer-empty/,
+  )
 })
 
 // FASE 16.5 (recalibração seller-facing do AGORA): resolveSellerAttentionSnapshot
@@ -664,6 +671,8 @@ test('todo conteúdo seller-facing escapa HTML não confiável', () => {
   const analysisHtml = view.renderAnalysisViewModel(analysisViewModelFromReading(reading))
   assert.doesNotMatch(analysisHtml, /<img/)
   assert.match(analysisHtml, /&lt;img/)
-  assert.doesNotMatch(view.renderClientCommercialArea(reading), /<script>/)
-  assert.match(view.renderClientCommercialArea(reading), /&lt;script&gt;/)
+
+  const clientHtml = view.renderCustomerViewModel(view.buildCustomerViewModelFromReading(reading))
+  assert.doesNotMatch(clientHtml, /<script>/)
+  assert.match(clientHtml, /&lt;script&gt;/)
 })

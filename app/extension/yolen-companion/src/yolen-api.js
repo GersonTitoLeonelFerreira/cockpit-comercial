@@ -951,6 +951,16 @@
     )
   }
 
+  // FASE 16.7 — CLIENTE seller-facing view model (Commercial Reading
+  // canônica atual, traduzida por app/lib/server/customer-view-model.ts).
+  // Read-only, mesmo padrão de loadAnalysisViewModel acima.
+  async function loadCustomerViewModel(payload) {
+    return sendToBackground(
+      'LOAD_CUSTOMER_VIEW_MODEL',
+      payload,
+    )
+  }
+
   async function registerMessageAction(payload) {
     return sendToBackground('REGISTER_MESSAGE_ACTION', payload)
   }
@@ -1018,6 +1028,7 @@
     loadClientContext,
     loadDecisionState,
     loadAnalysisViewModel,
+    loadCustomerViewModel,
     registerMessageAction,
     registerActionEvent,
     transcribeAudio,

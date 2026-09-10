@@ -121,30 +121,6 @@
     other: 'Outro ponto',
   }
 
-  const COMMITMENT_STATUS_LABELS = {
-    proposed: 'Proposto',
-    confirmed: 'Confirmado',
-    reschedule_requested: 'Reagendamento solicitado',
-    cancelled: 'Cancelado',
-    completed: 'Concluído',
-  }
-
-  const CUSTOMER_HISTORY_CATEGORY_LABELS = {
-    objective: 'Objetivo',
-    problem: 'Problema',
-    impact: 'Impacto',
-    need: 'Necessidade',
-    interest: 'Interesse',
-    decision_criterion: 'Critério de decisão',
-    preference: 'Preferência',
-    open_question: 'Pergunta em aberto',
-    objection: 'Objeção',
-    uncertainty: 'Incerteza',
-    missing_discovery: 'Descoberta',
-    product: 'Produto',
-    competitor: 'Concorrente',
-  }
-
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -167,29 +143,6 @@
     return Array.isArray(items)
       ? items.filter((item) => item && typeof item === 'object')
       : []
-  }
-
-  function displayDateTime(value) {
-    const clean = displayText(value)
-
-    if (!clean) {
-      return null
-    }
-
-    const date = new Date(clean)
-
-    if (Number.isNaN(date.getTime())) {
-      return clean
-    }
-
-    try {
-      return new Intl.DateTimeFormat('pt-BR', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-      }).format(date)
-    } catch {
-      return clean
-    }
   }
 
   function isNeutralCommercialSession(reading) {
@@ -1065,40 +1018,6 @@
     `
   }
 
-  function renderCustomerGroup({
-    key,
-    title,
-    sections,
-    count,
-  }) {
-    const content = sections.filter(Boolean)
-
-    if (content.length === 0 || count <= 0) {
-      return ''
-    }
-
-    return `
-      <details
-        class="yolen-client-intelligence-group"
-        data-yolen-client-intelligence-group="${escapeHtml(key)}"
-      >
-        <summary>
-          <span>${escapeHtml(title)}</span>
-          <span class="yolen-client-group-count">${escapeHtml(count)}</span>
-        </summary>
-        <div class="yolen-client-intelligence-group-content">
-          ${content.join('')}
-        </div>
-      </details>
-    `
-  }
-
-  function customerItemCount(items) {
-    return displayItems(items)
-      .filter((item) => displayText(item.summary))
-      .length
-  }
-
   function uniqueProducts(customer) {
     const products = displayItems(customer?.discussed_products)
       .filter((item) => displayText(item.name) || displayText(item.summary))
@@ -1218,68 +1137,261 @@
     `
   }
 
-  function renderMissingDiscovery(item) {
-    const summary = displayText(item?.summary)
-    const topicLabel = MISSING_DISCOVERY_LABELS[item?.topic]
+  // FASE 16.7 — traduz uma lacuna de conhecimento (missing_discovery, ou
+  // open_questions/uncertainties como fallback — ver buildKnowledgeGaps,
+  // customer-view-model.ts) em HTML. Ao contrário do antigo
+  // renderMissingDiscovery, aceita `topic: null` sem descartar o item —
+  // o fallback nunca tem topic, mas ainda é uma lacuna específica válida
+  // (mandato §22/§23: nunca genérica, mas também nunca escondida só por
+  // faltar categoria).
+  function renderKnowledgeGap(gap) {
+    const summary = displayText(gap?.summary)
 
-    if (!summary || !topicLabel) {
+    if (!summary) {
       return ''
     }
+
+    const topicLabel = MISSING_DISCOVERY_LABELS[gap?.topic] || null
 
     return `
       <article
         class="yolen-client-rich-item yolen-client-rich-item--attention"
-        data-yolen-client-missing-topic="${escapeHtml(item.topic)}"
+        data-yolen-customer-gap-topic="${escapeHtml(gap.topic || 'unspecified')}"
       >
-        <div class="yolen-client-rich-item-meta">${escapeHtml(topicLabel)}</div>
+        ${topicLabel ? `<div class="yolen-client-rich-item-meta">${escapeHtml(topicLabel)}</div>` : ''}
         <div class="yolen-client-rich-item-title">${escapeHtml(summary)}</div>
       </article>
     `
   }
 
-  function renderCommitment(commitment) {
-    const summary = displayText(commitment?.summary)
-    const statusLabel = COMMITMENT_STATUS_LABELS[commitment?.status]
+  // "Como prefere interagir" (mandato §37/§12) — preferências +
+  // padrões de comunicação, sempre como observação da leitura atual,
+  // nunca como traço confirmado entre ciclos (não há memória durável
+  // para provar recorrência — mandato §8).
+  function renderCustomerPreferences(preferences, communicationPatterns) {
+    const sections = [
+      renderCustomerItems('Preferências observadas', preferences, 'preferences'),
+      renderCustomerRichItems('Padrões de comunicação', communicationPatterns, renderCommunicationObservation, 'communication_patterns'),
+    ].filter(Boolean)
 
-    if (!summary || !statusLabel) {
-      return ''
-    }
-
-    const scheduledAt = displayDateTime(commitment.scheduled_at)
-
-    return `
-      <article
-        class="yolen-client-rich-item"
-        data-yolen-client-commitment-status="${escapeHtml(commitment.status)}"
-      >
-        <div class="yolen-client-rich-item-meta">${escapeHtml(statusLabel)}</div>
-        <div class="yolen-client-rich-item-title">${escapeHtml(summary)}</div>
-        ${scheduledAt ? `<div class="yolen-client-rich-item-copy">Data combinada: ${escapeHtml(scheduledAt)}</div>` : ''}
-      </article>
-    `
-  }
-
-  function renderCustomerHistoryItem(item, state) {
-    const summary = displayText(item?.summary)
-    const categoryLabel = CUSTOMER_HISTORY_CATEGORY_LABELS[item?.category]
-
-    if (!summary || !categoryLabel) {
+    if (sections.length === 0) {
       return ''
     }
 
     return `
-      <article
-        class="yolen-client-rich-item yolen-client-rich-item--history"
-        data-yolen-client-history-state="${escapeHtml(state)}"
-        data-yolen-client-history-category="${escapeHtml(item.category)}"
-      >
-        <div class="yolen-client-rich-item-meta">${escapeHtml(categoryLabel)}</div>
-        <div class="yolen-client-rich-item-copy">${escapeHtml(summary)}</div>
-      </article>
+      <section class="yolen-seller-section" data-yolen-customer-section="preferences">
+        <div class="yolen-seller-section-heading">
+          <div>
+            <div class="yolen-seller-section-eyebrow">Como prefere interagir</div>
+            <h3>Preferências</h3>
+          </div>
+        </div>
+        <div class="yolen-seller-detail-copy">Observado nesta conversa — ainda não confirmado como padrão permanente.</div>
+        ${sections.join('')}
+      </section>
     `
   }
 
-  function hasSharedMemoryId(item, historyItems) {
+  // "O que ainda falta descobrir" (mandato §22/§23) — 1 lacuna principal
+  // em destaque + até 2 secundárias, nunca uma lista genérica.
+  function renderCustomerKnowledgeGaps(gaps) {
+    const items = displayItems(gaps).filter((item) => displayText(item.summary))
+
+    if (items.length === 0) {
+      return ''
+    }
+
+    const [principal, ...secondary] = items
+
+    return `
+      <section class="yolen-seller-section" data-yolen-customer-section="knowledge-gaps">
+        <div class="yolen-seller-section-heading">
+          <div>
+            <div class="yolen-seller-section-eyebrow">Ainda não sabemos</div>
+            <h3>O que falta descobrir</h3>
+          </div>
+        </div>
+        <div class="yolen-seller-stack" data-yolen-customer-gap="principal">
+          ${renderKnowledgeGap(principal)}
+        </div>
+        ${secondary.length > 0 ? `
+          <div class="yolen-client-rich-list" data-yolen-customer-gap="secondary">
+            ${secondary.map(renderKnowledgeGap).join('')}
+          </div>
+        ` : ''}
+      </section>
+    `
+  }
+
+  // "Contexto desta oportunidade" — secundário, recolhido, subordinado
+  // (mandato §7/§13, opção "Balanceado" do Controle Mestre FASE 16.7):
+  // tudo aqui é específico deste ciclo, nunca oferecido como traço
+  // durável da pessoa nem como bloco principal da aba.
+  function renderCustomerOpportunityContext(context) {
+    if (!context || typeof context !== 'object') {
+      return ''
+    }
+
+    const products = uniqueProducts({
+      discussed_products: context.discussed_products,
+      primary_product_interest: context.primary_product_interest,
+    })
+
+    const groups = [
+      renderCustomerItems('Objetivos', context.objectives, 'objectives'),
+      renderCustomerItems('Necessidades', context.needs, 'needs'),
+      renderCustomerItems('Interesses', context.interests, 'interests'),
+      renderCustomerItems('Problemas', context.problems, 'problems'),
+      renderCustomerItems('Impactos', context.impacts, 'impacts'),
+      renderCustomerItems('Critérios de decisão', context.decision_criteria, 'decision_criteria'),
+      renderCustomerRichItems('Produtos avaliados', products, renderProduct, 'discussed_products'),
+      renderCustomerRichItems('Concorrentes e alternativas', context.competitors, renderCompetitor, 'competitors'),
+      renderCustomerRichItems('Observações recentes', context.communication_events, renderCommunicationObservation, 'communication_events'),
+    ].filter(Boolean)
+
+    if (groups.length === 0) {
+      return ''
+    }
+
+    return `
+      <details class="yolen-seller-secondary-details" data-yolen-customer-section="opportunity-context" data-yolen-preserve-details="customer-opportunity-context">
+        <summary>Contexto desta oportunidade</summary>
+        <div class="yolen-seller-detail-copy">Específico desta oportunidade — não é uma característica permanente confirmada deste cliente.</div>
+        <div class="yolen-client-intelligence-groups">
+          ${groups.join('')}
+        </div>
+      </details>
+    `
+  }
+
+  // FASE 16.7 (recalibração seller-facing de CLIENTE): ponto único de
+  // renderização — traduz o CustomerViewModel (Commercial Reading
+  // canônica atual, via app/lib/server/customer-view-model.ts) em HTML.
+  // Nunca decide disponibilidade por conta própria —
+  // `available`/`unavailable_reason` já vieram prontos do presenter
+  // server-side (ou do fallback local equivalente,
+  // buildCustomerViewModelFromReading, logo abaixo). Ao contrário de
+  // renderAnalysisViewModel/renderAgoraViewModelSnapshot, não tem branch
+  // `neutral` — mandato §19, regra não-negociável: uma sessão pessoal
+  // nunca apaga o que já sabemos sobre o cliente.
+  function renderCustomerViewModel(customerViewModel) {
+    if (!customerViewModel || typeof customerViewModel !== 'object') {
+      return ''
+    }
+
+    if (!customerViewModel.available) {
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-customer-unavailable>
+          Ainda não há informações suficientes sobre este cliente.
+        </div>
+      `
+    }
+
+    const sections = [
+      renderCustomerPreferences(customerViewModel.preferences, customerViewModel.communication_patterns),
+      renderCustomerKnowledgeGaps(customerViewModel.knowledge_gaps),
+      renderCustomerOpportunityContext(customerViewModel.opportunity_context),
+    ].filter(Boolean)
+
+    if (sections.length === 0) {
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-customer-empty>
+          Ainda não há informações suficientes sobre preferências ou contexto deste cliente.
+        </div>
+      `
+    }
+
+    return `
+      <div class="yolen-card yolen-client-commercial-card" data-yolen-client-intelligence>
+        <div class="yolen-client-intelligence-heading">
+          <div class="yolen-section-label">O que sabemos</div>
+          <h3>Cliente</h3>
+        </div>
+        ${sections.join('')}
+      </div>
+    `
+  }
+
+  // FASE 16.7 — adaptador de fallback (nunca o presenter canônico):
+  // mesma razão de buildAnalysisViewModelFromReading (FASE 16.6) — a
+  // leitura comercial da tentativa corrente já pode estar disponível
+  // localmente (via getLastKnownClientCommercialReading, o mesmo
+  // snapshot com identidade que CLIENTE já usava antes desta fase)
+  // antes de o CustomerViewModel canônico (fetch separado) voltar do
+  // servidor. Sem este adaptador, uma leitura já pronta desapareceria
+  // artificialmente da tela por um instante (regressão de UX — mesma
+  // lição da FASE 16.6). Replica exatamente a mesma classificação
+  // person/cycle do presenter server-side (customer-view-model.ts) —
+  // nunca uma segunda interpretação diferente.
+  function buildClientKnowledgeGaps(customer) {
+    const activeMissingDiscovery = (customer.missing_discovery || [])
+      .filter((item) => !hasClientSharedMemoryId(
+        item,
+        [
+          ...(customer.resolved_information || []),
+          ...(customer.superseded_information || []),
+        ],
+      ))
+
+    if (activeMissingDiscovery.length > 0) {
+      return activeMissingDiscovery.slice(0, 3).map((item) => ({
+        summary: item.summary,
+        topic: item.topic || null,
+        evidence_message_ids: item.evidence_message_ids || [],
+        memory_ids: item.memory_ids || [],
+      }))
+    }
+
+    // Fallback (mandato §22): sem lacuna específica de descoberta,
+    // perguntas em aberto/incertezas ainda podem apontar uma lacuna
+    // concreta — mesma regra de buildKnowledgeGaps, customer-view-model.ts.
+    return [
+      ...(customer.open_questions || []),
+      ...(customer.uncertainties || []),
+    ].slice(0, 3).map((item) => ({
+      summary: item.summary,
+      topic: null,
+      evidence_message_ids: item.evidence_message_ids || [],
+      memory_ids: item.memory_ids || [],
+    }))
+  }
+
+  function buildCustomerViewModelFromReading(reading) {
+    const customer = reading?.customer
+
+    if (!customer || typeof customer !== 'object') {
+      return null
+    }
+
+    return {
+      available: true,
+      unavailable_reason: null,
+
+      preferences: (customer.preferences || []).slice(0, 5),
+
+      communication_patterns:
+        (customer.communication?.patterns || []).slice(0, 5),
+
+      knowledge_gaps: buildClientKnowledgeGaps(customer),
+
+      opportunity_context: {
+        objectives: (customer.objectives || []).slice(0, 5),
+        needs: (customer.needs || []).slice(0, 5),
+        interests: (customer.interests || []).slice(0, 5),
+        problems: (customer.problems || []).slice(0, 5),
+        impacts: (customer.impacts || []).slice(0, 5),
+        decision_criteria: (customer.decision_criteria || []).slice(0, 5),
+        discussed_products: (customer.discussed_products || []).slice(0, 5),
+        primary_product_interest: customer.primary_product_interest || null,
+        competitors: (customer.competitors || []).slice(0, 5),
+        communication_events: (customer.communication?.events || []).slice(0, 5),
+      },
+
+      provenance: {},
+    }
+  }
+
+  function hasClientSharedMemoryId(item, historyItems) {
     const memoryIds = Array.isArray(item?.memory_ids)
       ? item.memory_ids.filter(displayText)
       : []
@@ -1293,248 +1405,6 @@
       Array.isArray(history.memory_ids) &&
       history.memory_ids.some((id) => memoryIds.includes(id))
     ))
-  }
-
-  function getActiveMissingDiscovery(customer) {
-    const history = [
-      ...displayItems(customer?.resolved_information),
-      ...displayItems(customer?.superseded_information),
-    ]
-
-    return displayItems(customer?.missing_discovery)
-      .filter((item) => !hasSharedMemoryId(item, history))
-  }
-
-  function renderCustomerSummary(customer, products, missingDiscovery) {
-    const summaryItems = []
-    const objective = displayItems(customer.objectives)
-      .map((item) => displayText(item.summary))
-      .find(Boolean)
-
-    if (objective) {
-      summaryItems.push({
-        label: 'Objetivo',
-        value: objective,
-      })
-    }
-
-    const primary = customer.primary_product_interest
-    const primaryName = displayText(primary?.name)
-
-    if (primaryName) {
-      summaryItems.push({
-        label: primary.canonical_product_id
-          ? 'Produto principal'
-          : 'Maior interesse observado',
-        value: primaryName,
-      })
-    }
-
-    const openCommitment = displayItems(customer.commitments)
-      .find((item) => (
-        displayText(item.summary) &&
-        item.status !== 'completed' &&
-        item.status !== 'cancelled'
-      ))
-
-    if (openCommitment) {
-      summaryItems.push({
-        label: 'Pendência',
-        value: displayText(openCommitment.summary),
-      })
-    }
-
-    if (summaryItems.length === 0) {
-      const fallbacks = [
-        ['Necessidade', customer.needs],
-        ['Problema', customer.problems],
-        ['Interesse', customer.interests],
-        ['Objeção atual', customer.objections],
-      ]
-
-      for (const [label, items] of fallbacks) {
-        const value = displayItems(items)
-          .map((item) => displayText(item.summary))
-          .find(Boolean)
-
-        if (value) {
-          summaryItems.push({ label, value })
-          break
-        }
-      }
-    }
-
-    if (missingDiscovery.length > 0) {
-      summaryItems.push({
-        label: 'Descoberta',
-        value: `${missingDiscovery.length} ${missingDiscovery.length === 1 ? 'ponto ainda precisa' : 'pontos ainda precisam'} ser confirmado${missingDiscovery.length === 1 ? '' : 's'}.`,
-      })
-    }
-
-    if (summaryItems.length === 0 && products.length > 0) {
-      const productName = displayText(products[0].name)
-
-      if (productName) {
-        summaryItems.push({
-          label: products[0].canonical_product_id
-            ? 'Produto identificado'
-            : 'Menção observada',
-          value: productName,
-        })
-      }
-    }
-
-    if (summaryItems.length === 0) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-client-intelligence-summary" data-yolen-client-summary>
-        ${summaryItems.slice(0, 3).map(({ label, value }) => `
-          <div class="yolen-client-summary-item">
-            <div class="yolen-client-summary-label">${escapeHtml(label)}</div>
-            <div class="yolen-client-summary-copy">${escapeHtml(value)}</div>
-          </div>
-        `).join('')}
-      </div>
-    `
-  }
-
-  function renderClientCommercialArea(reading) {
-    const customer = reading?.customer
-
-    if (!customer || typeof customer !== 'object') {
-      return ''
-    }
-
-    const products = uniqueProducts(customer)
-    const communicationPatterns = displayItems(customer.communication?.patterns)
-    const communicationEvents = displayItems(customer.communication?.events)
-    const missingDiscovery = getActiveMissingDiscovery(customer)
-    const resolvedInformation = displayItems(customer.resolved_information)
-    const supersededInformation = displayItems(customer.superseded_information)
-
-    const groups = [
-      renderCustomerGroup({
-        key: 'wants',
-        title: 'O que ele quer',
-        count:
-          customerItemCount(customer.objectives) +
-          customerItemCount(customer.needs) +
-          customerItemCount(customer.interests),
-        sections: [
-          renderCustomerItems('Objetivos', customer.objectives, 'objectives'),
-          renderCustomerItems('Necessidades', customer.needs, 'needs'),
-          renderCustomerItems('Interesses', customer.interests, 'interests'),
-        ],
-      }),
-      renderCustomerGroup({
-        key: 'context',
-        title: 'Contexto e problema',
-        count:
-          customerItemCount(customer.problems) +
-          customerItemCount(customer.impacts),
-        sections: [
-          renderCustomerItems('Problemas', customer.problems, 'problems'),
-          renderCustomerItems('Impactos', customer.impacts, 'impacts'),
-        ],
-      }),
-      renderCustomerGroup({
-        key: 'decision',
-        title: 'Como ele decide',
-        count:
-          customerItemCount(customer.decision_criteria) +
-          customerItemCount(customer.preferences) +
-          products.length +
-          displayItems(customer.competitors).length,
-        sections: [
-          renderCustomerItems('Critérios de decisão', customer.decision_criteria, 'decision_criteria'),
-          renderCustomerItems('Preferências comerciais', customer.preferences, 'preferences'),
-          renderCustomerRichItems('Produtos avaliados', products, renderProduct, 'discussed_products'),
-          renderCustomerRichItems('Concorrentes e alternativas', customer.competitors, renderCompetitor, 'competitors'),
-        ],
-      }),
-      renderCustomerGroup({
-        key: 'communication',
-        title: 'Comunicação observada',
-        count: communicationPatterns.length + communicationEvents.length,
-        sections: [
-          renderCustomerRichItems('Padrões e preferências', communicationPatterns, renderCommunicationObservation, 'communication_patterns'),
-          renderCustomerRichItems('Observações recentes', communicationEvents, renderCommunicationObservation, 'communication_events'),
-        ],
-      }),
-      renderCustomerGroup({
-        key: 'missing-discovery',
-        title: 'Ainda precisamos descobrir',
-        count: missingDiscovery.length,
-        sections: [
-          renderCustomerRichItems('Pontos de descoberta', missingDiscovery, renderMissingDiscovery, 'missing_discovery'),
-        ],
-      }),
-      renderCustomerGroup({
-        key: 'open',
-        title: 'Outros pontos em aberto',
-        count:
-          customerItemCount(customer.open_questions) +
-          customerItemCount(customer.uncertainties),
-        sections: [
-          renderCustomerItems('Perguntas em aberto', customer.open_questions, 'open_questions'),
-          renderCustomerItems('Incertezas', customer.uncertainties, 'uncertainties'),
-        ],
-      }),
-      renderCustomerGroup({
-        key: 'objections',
-        title: 'Objeções atuais do cliente',
-        count: customerItemCount(customer.objections),
-        sections: [
-          renderCustomerItems('Objeções', customer.objections, 'objections'),
-        ],
-      }),
-      renderCustomerGroup({
-        key: 'commitments',
-        title: 'Compromissos comerciais',
-        count: customerItemCount(customer.commitments),
-        sections: [
-          renderCustomerRichItems('Compromissos', customer.commitments, renderCommitment, 'commitments'),
-        ],
-      }),
-      renderCustomerGroup({
-        key: 'history',
-        title: 'Informações resolvidas e atualizadas',
-        count: resolvedInformation.length + supersededInformation.length,
-        sections: [
-          renderCustomerRichItems(
-            'O que já foi resolvido',
-            resolvedInformation,
-            (item) => renderCustomerHistoryItem(item, 'resolved'),
-            'resolved_information',
-          ),
-          renderCustomerRichItems(
-            'Informações anteriores substituídas',
-            supersededInformation,
-            (item) => renderCustomerHistoryItem(item, 'superseded'),
-            'superseded_information',
-          ),
-        ],
-      }),
-    ].filter(Boolean)
-
-    if (groups.length === 0) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-card yolen-client-commercial-card" data-yolen-client-intelligence>
-        <div class="yolen-client-intelligence-heading">
-          <div class="yolen-section-label">Inteligência comercial</div>
-          <h3>Cliente</h3>
-        </div>
-        ${renderCustomerSummary(customer, products, missingDiscovery)}
-        <div class="yolen-client-intelligence-groups">
-          ${groups.join('')}
-        </div>
-      </div>
-    `
   }
 
   // FASE 16.5 (recalibração seller-facing do AGORA): renderAttentionItem
@@ -1640,9 +1510,10 @@
     getNeutralSessionCopy,
     isNeutralCommercialSession,
     buildAnalysisViewModelFromReading,
+    buildCustomerViewModelFromReading,
     renderAgoraViewModelSnapshot,
     renderAnalysisViewModel,
-    renderClientCommercialArea,
+    renderCustomerViewModel,
   })
 
   root.YolenCompanionSellerInformationView = api

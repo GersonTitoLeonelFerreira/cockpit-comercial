@@ -64,7 +64,7 @@ function analysisViewModelWithHistory(history) {
 }
 
 test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AGORA', () => {
-  const clientHtml = sellerView.renderClientCommercialArea(reading({
+  const clientViewModel = sellerView.buildCustomerViewModelFromReading(reading({
     needs: [fact('Precisa reduzir perdas.')],
     interests: [fact('Interesse em automação.')],
     decision_criteria: [],
@@ -73,6 +73,7 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
     objections: [],
     uncertainties: [],
   }))
+  const clientHtml = sellerView.renderCustomerViewModel(clientViewModel)
 
   const analysisHtml = sellerView.renderAnalysisViewModel(analysisViewModelWithHistory([
     {
@@ -82,8 +83,14 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
     },
   ]))
 
-  assert.match(clientHtml, /O que ele quer/)
-  assert.match(clientHtml, /Outros pontos em aberto/)
+  // FASE 16.7 — needs/interests ficam no contexto secundário da
+  // oportunidade (mandato §7/§13), open_questions vira lacuna de
+  // descoberta (mandato §22) — ambos ainda distintos de AGORA/ANÁLISE.
+  assert.match(clientHtml, /Contexto desta oportunidade/)
+  assert.match(clientHtml, /Precisa reduzir perdas/)
+  assert.match(clientHtml, /Interesse em automação/)
+  assert.match(clientHtml, /O que falta descobrir/)
+  assert.match(clientHtml, /Qual é o prazo\?/)
   assert.match(analysisHtml, /<details class="yolen-seller-secondary-details"[^>]*>/)
   assert.match(analysisHtml, /evolução comercial/i)
   assert.doesNotMatch(analysisHtml, /<details[^>]*open/)
@@ -94,13 +101,12 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
 })
 
 test('B3.2 consome os campos seller-facing consolidados pelo contrato do cliente', () => {
-  const html = sellerView.renderClientCommercialArea(reading({
+  const vm = sellerView.buildCustomerViewModelFromReading(reading({
     needs: [fact('Necessidade')],
     interests: [fact('Interesse')],
     decision_criteria: [fact('Critério')],
     preferences: [fact('Preferência')],
     open_questions: [fact('Pergunta')],
-    objections: [fact('Objeção')],
     uncertainties: [fact('Incerteza')],
     objectives: [fact('Objetivo')],
     discussed_products: [{
@@ -113,27 +119,28 @@ test('B3.2 consome os campos seller-facing consolidados pelo contrato do cliente
       ...fact('Orçamento em aberto'),
       topic: 'budget',
     }],
-    resolved_information: [{
-      ...fact('Informação resolvida'),
-      category: 'objection',
-    }],
   }))
+  const html = sellerView.renderCustomerViewModel(vm)
 
+  // FASE 16.7 — 'Pergunta'/'Incerteza' não aparecem aqui porque
+  // missing_discovery tem prioridade sobre o fallback open_questions/
+  // uncertainties (mandato §22) quando ambos existem.
   for (const copy of [
     'Objetivo',
     'Necessidade',
     'Interesse',
     'Critério',
     'Preferência',
-    'Pergunta',
-    'Objeção',
-    'Incerteza',
     'Yolen',
     'Orçamento em aberto',
-    'Informação resolvida',
   ]) {
     assert.match(html, new RegExp(copy))
   }
+
+  // Mandato §17 — objeção nunca aparece em CLIENTE (território de
+  // ANÁLISE); resolved_information não vira seção própria (mandato §7).
+  assert.doesNotMatch(html, /Objeção/)
+  assert.doesNotMatch(html, /Informação resolvida/)
 
   assert.doesNotMatch(html, /evidence_message_ids|memory_ids|contract_version|engine_source/)
 })
@@ -169,7 +176,10 @@ test('B3.2 preserva os status conhecidos da evolução comercial', () => {
 })
 
 test('B3.2 omite grupos vazios e mantém detalhe sob demanda sem alterar largura do painel', () => {
-  assert.equal(sellerView.renderClientCommercialArea(reading({})), '')
+  const emptyVm = sellerView.buildCustomerViewModelFromReading(reading({}))
+  // Sem nenhum dado, o empty state ajuda (mandato §36) em vez de
+  // simplesmente desaparecer — nunca reaparece uma seção vazia.
+  assert.match(sellerView.renderCustomerViewModel(emptyVm), /data-yolen-customer-empty/)
   assert.match(styles, /\.yolen-seller-secondary-details/)
   assert.match(styles, /\.yolen-client-intelligence-group/)
   assert.match(styles, /\.yolen-seller-workspace/)

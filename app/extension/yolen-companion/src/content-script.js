@@ -229,6 +229,9 @@
   // FASE 16.6 — mesmo padrão de agoraDecisionStateRequestSequence acima,
   // para o ANÁLISE seller-facing view model.
   let analysisViewModelRequestSequence = 0
+  // FASE 16.7 — mesmo padrão acima, para o CLIENTE seller-facing view
+  // model.
+  let customerViewModelRequestSequence = 0
   // Identidade explícita da tentativa que hoje é dona do loading —
   // { requestSequence, cycleId, conversationKey, source: 'manual'|'automatic' }
   // ou null quando não há nenhuma em voo. Preenchida no início de
@@ -600,6 +603,16 @@
     analysisViewModelCycleId: null,
     analysisViewModelConversationKey: null,
     analysisViewModelCompanyId: null,
+    // FASE 16.7 — CLIENTE seller-facing view model (Commercial Reading
+    // canônica atual). Mesmo padrão de quatro campos de
+    // analysisViewModel acima — company/cycle/conversation isolation
+    // aplicados desde o início (mesma lição da FASE 16.5/16.6).
+    customerViewModel: {
+      status: 'idle',
+    },
+    customerViewModelCycleId: null,
+    customerViewModelConversationKey: null,
+    customerViewModelCompanyId: null,
     companionLeadSummary: {
       status: 'idle',
     },
@@ -6091,6 +6104,12 @@
       analysisViewModelCycleId: null,
       analysisViewModelConversationKey: null,
       analysisViewModelCompanyId: null,
+      customerViewModel: {
+        status: 'idle',
+      },
+      customerViewModelCycleId: null,
+      customerViewModelConversationKey: null,
+      customerViewModelCompanyId: null,
       companionLeadSummary: {
         status: 'idle',
       },
@@ -10101,6 +10120,13 @@
         void loadAnalysisViewModelForCurrentCycle({
           force: true,
         })
+
+        // FASE 16.7 — mesmo raciocínio para CLIENTE: uma preferência,
+        // padrão de comunicação ou lacuna de descoberta pode mudar sem
+        // nenhuma reanálise semântica manual ter rodado ainda.
+        void loadCustomerViewModelForCurrentCycle({
+          force: true,
+        })
       }, COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS)
   }
 
@@ -10568,6 +10594,153 @@
     }
   }
 
+  // FASE 16.7 — CLIENTE seller-facing view model (Commercial Reading
+  // canônica atual, traduzida por app/lib/server/customer-view-model.ts).
+  // Mesmo desenho de loadAnalysisViewModelForCurrentCycle acima (FASE
+  // 16.6) — três estados, requestSequence monotônico contra respostas
+  // stale, e guard de escopo por cycleId/conversationKey/companyId
+  // aplicado desde o início (mandato FASE 16.7 §33/§34: cross-
+  // conversation/cross-company stale render é o mesmo risco de
+  // segurança em qualquer aba seller-facing, e para CLIENTE é
+  // explicitamente safety-critical).
+  async function loadCustomerViewModelForCurrentCycle(
+    options = {},
+  ) {
+    const force =
+      options.force === true
+
+    const requestSequence =
+      ++customerViewModelRequestSequence
+
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    const companyIdAtRequest =
+      state.companyId ||
+      null
+
+    if (!cycleId || !conversationKey) {
+      state = {
+        ...state,
+        customerViewModel: {
+          status: 'idle',
+        },
+        customerViewModelCycleId:
+          null,
+        customerViewModelConversationKey:
+          null,
+        customerViewModelCompanyId:
+          null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    const isSameContext =
+      state.customerViewModelCycleId ===
+        cycleId &&
+      state.customerViewModelConversationKey ===
+        conversationKey &&
+      state.customerViewModelCompanyId ===
+        companyIdAtRequest
+
+    const alreadyReady =
+      isSameContext &&
+      state.customerViewModel
+        ?.status === 'ready'
+
+    if (alreadyReady && !force) {
+      return
+    }
+
+    state = {
+      ...state,
+      customerViewModelCycleId:
+        cycleId,
+      customerViewModelConversationKey:
+        conversationKey,
+      customerViewModelCompanyId:
+        companyIdAtRequest,
+    }
+
+    const isStillCurrentContext =
+      () =>
+        requestSequence ===
+          customerViewModelRequestSequence &&
+        state.customerViewModelCycleId ===
+          cycleId &&
+        state.customerViewModelConversationKey ===
+          conversationKey &&
+        state.customerViewModelCompanyId ===
+          companyIdAtRequest &&
+        companyIdAtRequest ===
+          (
+            state.companyId ||
+            null
+          )
+
+    try {
+      const result =
+        await window.YolenCompanionApi
+          .loadCustomerViewModel({
+            cycle_id: cycleId,
+            conversation_key:
+              conversationKey,
+          })
+
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (
+        !result?.ok ||
+        !result.payload?.ok
+      ) {
+        if (!alreadyReady) {
+          state = {
+            ...state,
+            customerViewModel: {
+              status: 'idle',
+            },
+          }
+
+          renderPanel()
+        }
+
+        return
+      }
+
+      state = {
+        ...state,
+        customerViewModel: {
+          status: 'ready',
+          data: result.payload.data,
+        },
+      }
+
+      renderPanel()
+    } catch {
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (!alreadyReady) {
+        state = {
+          ...state,
+          customerViewModel: {
+            status: 'idle',
+          },
+        }
+
+        renderPanel()
+      }
+    }
+  }
+
   // Carrega o working summary factual do lead. A rota combina memória
   // persistente, registros históricos confirmados e mensagens canônicas;
   // somente o salvamento da memória consolidada continua dependendo de ação
@@ -10879,6 +11052,17 @@
             force: true,
           })
         }
+
+        // FASE 16.7 — mesmo raciocínio para CLIENTE: também é uma
+        // fotografia do servidor (Commercial Reading canônica atual).
+        if (
+          state.customerViewModel
+            ?.status === 'ready'
+        ) {
+          void loadCustomerViewModelForCurrentCycle({
+            force: true,
+          })
+        }
       }, COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS)
   }
 
@@ -11041,29 +11225,61 @@
   }
 
   function getClientInformationAreaHtml() {
-    // CLIENTE usa exclusivamente o snapshot com identidade
-    // (getLastKnownClientCommercialReading), nunca getActiveCommercialReading()
-    // direto — ANÁLISE/AGORA continuam usando getActiveCommercialReading()
-    // sozinho, sem nenhuma mudança de comportamento. Dois motivos:
-    // 1) conversationAnalysis não carrega identidade de requisição (cycle/
-    //    conversation/company) — só o snapshot carrega, capturada no exato
-    //    momento da promoção bem-sucedida — então só o snapshot pode
-    //    recusar corretamente um resultado cuja identidade não bate mais
-    //    com o contexto atual (ex.: mesma conversation_key resolvendo para
-    //    um cycle_id novo, sem nenhuma mensagem nova mudar o fingerprint).
-    // 2) toda vez que a leitura ao vivo é válida, o snapshot já foi
-    //    atualizado com o mesmo conteúdo no mesmo evento de sucesso — não
-    //    há perda de informação em usar só o snapshot aqui.
-    const commercialReading =
-      getLastKnownClientCommercialReading()
+    // FASE 16.7 (recalibração seller-facing de CLIENTE): o conteúdo de
+    // "o que sabemos" não vem mais de renderClientCommercialArea (o
+    // dump completo de commercial_reading.customer.*, sem distinção
+    // person/cycle) — vem pronto do CLIENTE seller-facing view model
+    // (Commercial Reading canônica atual, traduzida por
+    // app/lib/server/customer-view-model.ts e buscada por
+    // loadCustomerViewModelForCurrentCycle). RELACIONAMENTO continua
+    // vindo do client-context já existente e testado (mandato §29/§31 —
+    // nunca duplicar um presenter equivalente já correto).
+    const isCurrentCustomerViewModelContext =
+      state.customerViewModelCycleId ===
+        state.leadResolution?.cycle?.id &&
+      state.customerViewModelConversationKey ===
+        getCaptureConversationKey() &&
+      state.customerViewModelCompanyId ===
+        (state.companyId || null)
 
-    const commercialHtml =
-      commercialReading
-        ? sellerInformationViewTools
-            .renderClientCommercialArea(
-              commercialReading,
-            )
-        : ''
+    let commercialHtml = ''
+
+    if (
+      state.customerViewModel?.status === 'ready' &&
+      isCurrentCustomerViewModelContext
+    ) {
+      commercialHtml =
+        sellerInformationViewTools
+          .renderCustomerViewModel(
+            state.customerViewModel.data,
+          )
+    } else {
+      // Fallback: a mesma leitura comercial já resolvida localmente com
+      // identidade (getLastKnownClientCommercialReading — CLIENTE usa
+      // exclusivamente este snapshot, nunca getActiveCommercialReading()
+      // direto, porque só o snapshot recusa corretamente um resultado
+      // cuja identidade não bate mais com o contexto atual) nunca deve
+      // desaparecer da tela só porque o fetch do view model canônico
+      // ainda está em voo — mesma lição da FASE 16.6 (ANÁLISE).
+      const commercialReading =
+        getLastKnownClientCommercialReading()
+
+      const fallbackViewModel =
+        commercialReading
+          ? sellerInformationViewTools
+              .buildCustomerViewModelFromReading(
+                commercialReading,
+              )
+          : null
+
+      commercialHtml =
+        fallbackViewModel
+          ? sellerInformationViewTools
+              .renderCustomerViewModel(
+                fallbackViewModel,
+              )
+          : ''
+    }
 
     const relationshipHtml =
       getCompanionClientRelationshipCardHtml()
@@ -13477,6 +13693,16 @@
               analysisViewModelCycleId: null,
               analysisViewModelConversationKey: null,
               analysisViewModelCompanyId: null,
+              // FASE 16.7 — mesmo raciocínio para CLIENTE: um view model
+              // "ready" da empresa anterior não pode continuar
+              // renderável só porque cycleId/conversationKey não
+              // mudaram sozinhos (mandato §34, safety-critical).
+              customerViewModel: {
+                status: 'idle',
+              },
+              customerViewModelCycleId: null,
+              customerViewModelConversationKey: null,
+              customerViewModelCompanyId: null,
             }
           : {}),
       }
@@ -13855,6 +14081,9 @@
           // persistida aparece de imediato, sem esperar uma nova
           // análise semântica.
           void loadAnalysisViewModelForCurrentCycle()
+
+          // FASE 16.7 — mesmo raciocínio para CLIENTE.
+          void loadCustomerViewModelForCurrentCycle()
         })
     } catch (error) {
       retainedPreResolutionCaptures.delete(
@@ -14578,6 +14807,13 @@
         // Context/ANÁLISE: uma nova leitura persistida muda estado da
         // venda, riscos, condução, coaching.
         void loadAnalysisViewModelForCurrentCycle({
+          force: true,
+        })
+
+        // FASE 16.7 — mesmo raciocínio para CLIENTE: uma nova leitura
+        // persistida pode mudar preferências, padrões de comunicação e
+        // lacunas de descoberta.
+        void loadCustomerViewModelForCurrentCycle({
           force: true,
         })
 

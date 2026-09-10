@@ -503,6 +503,17 @@ async function handleCompanionMessage(message) {
 
   if (
     message.action ===
+    'LOAD_CUSTOMER_VIEW_MODEL'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/customer-view-model',
+      message.payload,
+    )
+  }
+
+  if (
+    message.action ===
     'LOAD_METHOD_GUIDANCE'
   ) {
     return requestYolenWithToken(
