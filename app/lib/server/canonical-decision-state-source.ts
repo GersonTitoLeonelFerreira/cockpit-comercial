@@ -144,6 +144,23 @@ function isPitchAdvancingCandidate(
   )
 }
 
+// Fontes cujo candidato é derivado diretamente da leitura atual
+// (`current_reading.reading.*`) — o mesmo objeto que também carrega
+// `communication.intervention_needed`. Usado só para decidir se
+// `silent` (em `DecisionStatePrimaryDecision`, ver docstring do campo)
+// deve refletir esse sinal quando um candidato dessas fontes vence a
+// disputa e vira a decisão principal. `client_sla`/`customer_waiting`/
+// `cycle_commitment` ficam de fora deliberadamente: vêm de
+// `client_context`/`cycle_memory`, sinais objetivos e independentes da
+// leitura atual (achado da revisão adversarial própria, rodada 14, PR
+// #281 — Codex bloqueado por limite de uso).
+const READING_DERIVED_INTERVENTION_SOURCES: readonly DecisionStateInterventionSource[] = [
+  'commercial_risk',
+  'method_adherence',
+  'seller_coaching',
+  'insufficient_information',
+]
+
 const PRIORITY_RANK: Record<
   DecisionStateInterventionPriority,
   number
@@ -188,16 +205,29 @@ export type DecisionStatePrimaryDecision = {
   // da Commercial Reading (16.3B) independente de `kind`: um `kind`
   // como `give_space`/`insufficient_information`/`close` pode
   // coexistir com "nenhuma comunicação necessária agora" (ex.: cliente
-  // pediu espaço explicitamente, recusa definitiva já registrada). Só
-  // é computado no passthrough de `best_approach` — nos demais ramos
-  // (candidato priorizado, síntese de `give_space` em sessão pessoal,
-  // fallback sem fonte) é sempre `false`, já que `intervention_needed`
-  // só existe como sinal por conversa em `CommercialReading`, e um
-  // candidato já vencedor por definição representa algo a comunicar.
+  // pediu espaço explicitamente, recusa definitiva já registrada).
+  // Computado em todo ramo cuja decisão é derivada da leitura atual —
+  // passthrough de `best_approach`, síntese de `give_space` em sessão
+  // pessoal, e candidato vencedor de fonte também derivada da leitura
+  // (`commercial_risk`/`method_adherence`/`seller_coaching`/
+  // `insufficient_information`, ver
+  // READING_DERIVED_INTERVENTION_SOURCES) — já que o candidato e o
+  // sinal de silêncio vêm do MESMO objeto de leitura, e nada no
+  // contrato impede uma objeção/desvio de método relevante de coexistir
+  // com "nenhuma comunicação necessária agora". Permanece sempre
+  // `false` para candidato vencedor de fonte OPERACIONAL
+  // (`client_sla`/`customer_waiting`/`cycle_commitment` — sinais
+  // objetivos de `client_context`/`cycle_memory`, independentes da
+  // leitura atual: um cliente SLA-crítico ou efetivamente aguardando
+  // resposta continua exigindo comunicação mesmo que a leitura diga o
+  // contrário) e para o fallback sem nenhuma fonte disponível.
   // Adicionado na FASE 16.3F (Communication Context) — achado do
-  // Codex, PR #281, rodada 10: sem isso, um `do_not_generate` baseado
-  // só em `kind` deixava passar geração para decisões que a própria
-  // leitura já classificou como silenciosas.
+  // Codex, PR #281, rodada 10 (passthrough), rodada 11 (candidato de
+  // insufficient_information não deve competir e mascarar o
+  // passthrough), rodada 12 (síntese de give_space), e revisão
+  // adversarial própria rodada 14 (candidato vencedor de fonte
+  // derivada da leitura — Codex bloqueado por limite de uso nesta
+  // rodada; ver relatório da FASE 16.3F).
   silent: boolean
 
   summary: string
@@ -1512,7 +1542,14 @@ export async function loadCanonicalDecisionState({
     primaryDecision = {
       kind: top.kind,
       source: top.source,
-      silent: false,
+
+      silent:
+        READING_DERIVED_INTERVENTION_SOURCES.includes(
+          top.source,
+        ) &&
+        current_reading?.reading.communication
+          .intervention_needed === false,
+
       summary: top.summary,
       reason: top.reason,
       recommended_action: top.recommended_action,

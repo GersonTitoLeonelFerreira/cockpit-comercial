@@ -608,6 +608,45 @@ test('objeção aberta bloqueadora sobe como decisão principal', async () => {
     state.primary_decision.summary,
     'Cliente acha o preço alto e ameaça desistir.',
   )
+  // Revisão adversarial própria (rodada 14, PR #281 — Codex bloqueado
+  // por limite de uso): o candidato vencedor é derivado da MESMA
+  // leitura que também carrega `communication.intervention_needed`
+  // (aqui, o default `false` do fixture, nunca sobrescrito) — uma
+  // objeção de alta severidade pode legitimamente coexistir com
+  // "nenhuma comunicação necessária agora" (ex.: objeção histórica
+  // ainda em aberto, mas sem nova mensagem pendente do cliente neste
+  // instante).
+  assert.equal(state.primary_decision.silent, true)
+})
+
+test('objeção aberta bloqueadora com intervention_needed=true não é silent', async () => {
+  // Caso simétrico ao teste anterior: quando a leitura explicitamente
+  // marca que HÁ algo a comunicar, o candidato vencedor de fonte
+  // derivada da leitura (commercial_risk) não deve ser silenciado.
+  const reading = buildReading({
+    risks: {
+      customer_objections: [{
+        kind: 'price',
+        severity: 'high',
+        summary: 'Cliente acha o preço alto e ameaça desistir.',
+        evidence_message_ids: ['m5'],
+        memory_ids: [],
+      }],
+      service_risks: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: 'Posso te mostrar as condições especiais para esse caso.',
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'handle_objection')
+  assert.equal(state.primary_decision.silent, false)
 })
 
 // 5. Objeção histórica já resolvida: não sobe.
@@ -748,6 +787,10 @@ test('desvio de método na leitura atual sobe como intervenção relevante', asy
     state.primary_decision.recommended_action,
     'Perguntar qual o impacto do problema hoje.',
   )
+  // Revisão adversarial própria (rodada 14, PR #281): candidato de
+  // method_adherence também é derivado da leitura atual — mesma
+  // disciplina do teste de commercial_risk acima.
+  assert.equal(state.primary_decision.silent, true)
 })
 
 // 8. Method divergence não confiável: não criar intervenção falsa.
@@ -834,6 +877,10 @@ test('coaching de preço prematuro sobe quando o vendedor está negociando agora
     state.primary_decision.recommended_action,
     'Retomar contexto de impacto antes de negociar condição.',
   )
+  // Revisão adversarial própria (rodada 14, PR #281): candidato de
+  // seller_coaching também é derivado da leitura atual — mesma
+  // disciplina do teste de commercial_risk acima.
+  assert.equal(state.primary_decision.silent, true)
 })
 
 test('coaching de preço prematuro NÃO sobe quando a análise não recomenda avançar agora', async () => {
@@ -878,6 +925,10 @@ test('compromisso vencido na memória canônica do ciclo sobe como intervenção
     state.primary_decision.summary,
     'Enviar a proposta comercial até quinta.',
   )
+  // Revisão adversarial própria (rodada 14, PR #281): `cycle_commitment`
+  // é fonte OPERACIONAL (cycle_memory), independente da leitura atual —
+  // mesma disciplina do teste de client_sla acima.
+  assert.equal(state.primary_decision.silent, false)
 })
 
 // 12. Customer memory irrelevante agora: fica fora.
@@ -1290,6 +1341,13 @@ test('SLA em risco alto sobe como decisão principal mesmo sem nova mensagem, se
     state.operational_signal_availability.sla,
     'AVAILABLE_NOW',
   )
+  // Revisão adversarial própria (rodada 14, PR #281): `client_sla` é
+  // fonte OPERACIONAL (client_context), independente da leitura atual
+  // (aqui com o default intervention_needed: false, nunca
+  // sobrescrito) — nunca deve ser silenciada por esse sinal, ao
+  // contrário de fontes derivadas da leitura (commercial_risk/
+  // method_adherence/seller_coaching/insufficient_information).
+  assert.equal(state.primary_decision.silent, false)
 })
 
 test('SLA em risco alto com cliente de fato aguardando resposta sobe como respond', async () => {
