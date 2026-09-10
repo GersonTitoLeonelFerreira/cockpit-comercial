@@ -569,6 +569,63 @@ test('duas objeções com o mesmo resumo mas evidência diferente: resolve a que
   )
 })
 
+test('duas objeções com resumo E evidência idênticos (só severidade/kind diferentes): match ambíguo não é resolvido', async () => {
+  // Achado do Codex (PR #281, rodada 6): `CommercialReadingRisk` não tem
+  // identificador estável próprio — mesmo summary+evidence_message_ids+
+  // memory_ids iguais não impedem duas objeções distintas (severidade ou
+  // kind diferentes, nenhum dos dois preservado no candidato) de
+  // coincidir nesses campos. Sem uma identidade totalmente inequívoca,
+  // resolver a primeira seria adivinhar — o correto é tratar como não
+  // resolvível.
+  const sharedSummary = 'Objeção de preço.'
+  const sharedEvidence = ['m-shared']
+  const sharedMemory = ['mem-shared']
+
+  const objectionA = {
+    kind: 'price',
+    severity: 'medium',
+    summary: sharedSummary,
+    evidence_message_ids: sharedEvidence,
+    memory_ids: sharedMemory,
+  }
+
+  const objectionB = {
+    kind: 'timing',
+    severity: 'high',
+    summary: sharedSummary,
+    evidence_message_ids: sharedEvidence,
+    memory_ids: sharedMemory,
+  }
+
+  const currentReading = buildCurrentReading({
+    reading: buildReading({
+      risks: {
+        customer_objections: [objectionA, objectionB],
+        service_risks: [],
+      },
+    }),
+  })
+
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'handle_objection',
+      source: 'commercial_risk',
+      summary: sharedSummary,
+      reason: 'Objeção do cliente ainda em aberto na leitura atual.',
+      recommended_action: 'Tratar a objeção antes de avançar a conversa.',
+      evidence_message_ids: sharedEvidence,
+      memory_ids: sharedMemory,
+    },
+  })
+
+  const context = await load({
+    decision_state: decisionState,
+    current_reading: currentReading,
+  })
+
+  assert.equal(context.opportunity_context.referenced_objection, null)
+})
+
 // 6. Objeção histórica resolvida: não ressuscitar.
 test('objeção resolvida (fora da leitura atual) não é ressuscitada', async () => {
   // A objeção só existe em `resolved_information`/histórico — a leitura

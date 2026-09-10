@@ -427,8 +427,19 @@ function resolveReferencedObjection(
     // resumo com evidência diferente. `buildCommercialRiskCandidates`
     // (16.3E) copia `evidence_message_ids`/`memory_ids` verbatim da
     // objeção original para o candidato — exigir que também batam
-    // desambigua duplicatas de texto (achado do Codex, PR #281, rodada 5).
-    const match = objections.find(
+    // desambigua a maioria das duplicatas de texto (achado do Codex, PR
+    // #281, rodada 5).
+    //
+    // `CommercialReadingRisk` não tem um identificador estável próprio
+    // (ao contrário de um compromisso, que tem `memory_id`) — mesmo
+    // `summary`+evidência+memória iguais não impedem duas objeções
+    // diferentes (`kind`/`severity` distintos) de coincidir nesses campos,
+    // e nenhum deles é preservado no candidato. Sem uma identidade
+    // totalmente inequívoca disponível, mais de um match é ambíguo — em
+    // vez de adivinhar (retornar o primeiro), trato como não resolvível
+    // aqui (achado do Codex, PR #281, rodada 6). Nunca inventar qual das
+    // duas é a correta.
+    const matches = objections.filter(
       (objection) =>
         objection.summary === candidate.summary &&
         sameStringSet(
@@ -441,10 +452,10 @@ function resolveReferencedObjection(
         ),
     )
 
-    if (match) {
+    if (matches.length === 1) {
       return {
         origin: 'commercial_reading',
-        risk: match,
+        risk: matches[0],
       }
     }
   }
