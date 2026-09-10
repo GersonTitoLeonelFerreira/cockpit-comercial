@@ -50,6 +50,20 @@ export type CanonicalCommercialReadingSource = {
 
   source_event_id: string
   generated_at: string
+
+  // Instante semântico real da análise (o `reference_time` com que o
+  // estado persistido foi computado) — não confundir com `generated_at`
+  // (quando o evento foi GRAVADO, que pode atrasar por fila/retry;
+  // `stateful-copilot-persistence-plan.ts:568-578` só exige
+  // `generated_at >= reference_time`, nunca `=`). Repassado direto de
+  // `state_read.state_updated_at`, já validado pelo chamador e
+  // garantido pela CHECK constraint em `companion_commercial_states`
+  // (`state_updated_at = (state_snapshot->>'updated_at')::timestamptz`)
+  // — nenhuma consulta nova, nenhum dado novo, só exposto para que
+  // consumidores como o canonical method/coaching source (FASE 16.3D)
+  // possam provar temporalmente contra outras fontes sem depender de
+  // `generated_at` (achado do Codex, PR #278, rodada 7).
+  state_updated_at: string
 }
 
 function isRecord(
@@ -275,6 +289,8 @@ export async function loadCanonicalCommercialReadingSource({
         event.id,
       generated_at:
         generatedAt,
+      state_updated_at:
+        state_read.state_updated_at,
     }
   } catch (error) {
     console.error(
