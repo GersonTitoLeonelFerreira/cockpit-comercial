@@ -407,35 +407,50 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   await waitFor(() => !runtime.document.querySelector('[data-yolen-seller-panel="client"]').hidden)
   await waitFor(() => runtime.document.querySelector('.yolen-client-relationship-card'))
 
+  // FASE 16.7 (recalibração seller-facing de CLIENTE): objetivos/
+  // necessidades/interesses/critérios/produtos/concorrentes/eventos de
+  // comunicação viraram contexto secundário da oportunidade (mandato
+  // §7/§13); preferências e padrões de comunicação viraram a seção
+  // primária "como prefere interagir" (mandato §12); missing_discovery
+  // virou "o que falta descobrir" (mandato §22); objeções e compromissos
+  // deixaram de aparecer por completo (mandato §17/§18); informações
+  // resolvidas/substituídas não têm mais seção própria (mandato §7).
   const clientPanel = runtime.document.querySelector('[data-yolen-seller-panel="client"]')
+  assert.match(clientPanel.textContent, /Como prefere interagir/)
+  assert.match(clientPanel.textContent, /Prefere mensagens objetivas/)
+  assert.match(clientPanel.textContent, /Busca dados ou números/)
+  assert.match(clientPanel.textContent, /Contexto desta oportunidade/)
   assert.match(clientPanel.textContent, /Aumentar a conversão comercial/)
-  assert.match(clientPanel.textContent, /O que ele quer/)
-  assert.match(clientPanel.textContent, /Contexto e problema/)
-  assert.match(clientPanel.textContent, /Como ele decide/)
-  assert.match(clientPanel.textContent, /Comunicação observada/)
-  assert.match(clientPanel.textContent, /Ainda precisamos descobrir/)
-  assert.match(clientPanel.textContent, /Objeções atuais do cliente/)
-  assert.match(clientPanel.textContent, /Considera o preço alto/)
-  assert.match(clientPanel.textContent, /Compromissos comerciais/)
-  assert.match(clientPanel.textContent, /Informações resolvidas e atualizadas/)
+  assert.match(clientPanel.textContent, /O que falta descobrir/)
+  assert.match(clientPanel.textContent, /O impacto financeiro ainda precisa ser confirmado/)
+  assert.doesNotMatch(clientPanel.textContent, /Objeções atuais do cliente/)
+  assert.doesNotMatch(clientPanel.textContent, /Considera o preço alto/)
+  assert.doesNotMatch(clientPanel.textContent, /Compromissos comerciais/)
+  assert.doesNotMatch(clientPanel.textContent, /Informações resolvidas e atualizadas/)
   assert.ok(clientPanel.querySelector('[data-yolen-client-product-source="catalog"]'))
   assert.ok(clientPanel.querySelector('[data-yolen-client-competitor-type="named"]'))
   assert.ok(clientPanel.querySelector('[data-yolen-client-competitor-type="unnamed_alternative"]'))
   assert.ok(clientPanel.querySelector('[data-yolen-client-communication="requests_data_or_numbers"]'))
-  assert.ok(clientPanel.querySelector('[data-yolen-client-missing-topic="impact"]'))
+  assert.ok(clientPanel.querySelector('[data-yolen-customer-gap-topic="impact"]'))
   assert.match(clientPanel.textContent, /Relacionamento e histórico/)
   assert.match(clientPanel.textContent, /Cliente aguardando você/)
   assert.match(clientPanel.textContent, /Risco alto/)
   assert.match(clientPanel.textContent, /Ver histórico/)
   assert.ok(clientPanel.querySelector('details.yolen-client-timeline'))
 
-  const wants = clientPanel.querySelector('[data-yolen-client-intelligence-group="wants"]')
-  assert.equal(wants.open, false)
+  // FASE 16.7 — o antigo grupo `data-yolen-client-intelligence-group=
+  // "wants"` (um <details> por campo, via renderCustomerGroup) foi
+  // substituído por um único <details> secundário para todo o contexto
+  // da oportunidade (renderCustomerOpportunityContext). O invariante
+  // testado (estado aberto/fechado do <details> sobrevive a um
+  // rerender de fundo) continua valendo, agora sobre esse elemento.
+  const opportunityContext = clientPanel.querySelector('[data-yolen-customer-section="opportunity-context"]')
+  assert.equal(opportunityContext.open, false)
 
-  const wantsSummary =
-    wants.querySelector('summary')
+  const opportunitySummary =
+    opportunityContext.querySelector('summary')
 
-  wantsSummary.dispatchEvent(
+  opportunitySummary.dispatchEvent(
     new runtime.dom.window.Event(
       'pointerdown',
       {
@@ -444,11 +459,11 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
     ),
   )
 
-  wantsSummary.click()
+  opportunitySummary.click()
 
   assert.equal(
     clientPanel
-      .querySelector('[data-yolen-client-intelligence-group="wants"]')
+      .querySelector('[data-yolen-customer-section="opportunity-context"]')
       .open,
     true,
   )
@@ -459,18 +474,18 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
 
   assert.equal(
     runtime.document
-      .querySelector('[data-yolen-client-intelligence-group="wants"]')
+      .querySelector('[data-yolen-customer-section="opportunity-context"]')
       ?.open,
     true,
   )
 
-  const liveWants =
+  const liveOpportunityContext =
     runtime.document.querySelector(
-      '[data-yolen-client-intelligence-group="wants"]',
+      '[data-yolen-customer-section="opportunity-context"]',
     )
 
   const liveSummary =
-    liveWants.querySelector('summary')
+    liveOpportunityContext.querySelector('summary')
 
   liveSummary.dispatchEvent(
     new runtime.dom.window.Event(
@@ -484,7 +499,7 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   liveSummary.click()
 
   assert.equal(
-    liveWants.open,
+    liveOpportunityContext.open,
     false,
   )
 
@@ -505,7 +520,7 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
 
   assert.equal(
     runtime.document
-      .querySelector('[data-yolen-client-intelligence-group="wants"]')
+      .querySelector('[data-yolen-customer-section="opportunity-context"]')
       ?.open,
     true,
   )

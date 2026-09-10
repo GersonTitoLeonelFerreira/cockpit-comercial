@@ -213,6 +213,7 @@ function createFakeBackground({
   clientContextResult,
   decisionStateResult,
   analysisViewModelResult,
+  customerViewModelResult,
   analysisResult,
   analysisJobStatusResult,
   leadSummaryResult,
@@ -401,6 +402,32 @@ function createFakeBackground({
         payload: payload ?? {
           ok: false,
           error: 'Análise view model não configurada neste cenário de teste.',
+        },
+      }
+    },
+    // FASE 16.7 — mesmo padrão function-per-call e mesmo motivo de
+    // LOAD_ANALYSIS_VIEW_MODEL acima: sem override, devolve
+    // explicitamente "não configurado" em vez de cair no stub genérico
+    // (`{ok:true, payload:{ok:true}}`), que faria
+    // loadCustomerViewModelForCurrentCycle marcar `status: 'ready'` com
+    // `data: undefined`. Cenários sem customerViewModelResult continuam
+    // exercitando o fallback local
+    // (buildCustomerViewModelFromReading, companion-seller-information-view.js)
+    // a partir de getLastKnownClientCommercialReading() — exatamente o
+    // que acontecia antes da FASE 16.7.
+    LOAD_CUSTOMER_VIEW_MODEL: async (requestPayload) => {
+      const payload = await (
+        typeof customerViewModelResult === 'function'
+          ? customerViewModelResult(requestPayload)
+          : customerViewModelResult
+      )
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: payload ?? {
+          ok: false,
+          error: 'Cliente view model não configurado neste cenário de teste.',
         },
       }
     },
@@ -601,6 +628,7 @@ export function loadContentScript({
   clientContextResult,
   decisionStateResult,
   analysisViewModelResult,
+  customerViewModelResult,
   analysisResult,
   analysisJobStatusResult,
   leadSummaryResult,
@@ -620,6 +648,7 @@ export function loadContentScript({
     clientContextResult,
     decisionStateResult,
     analysisViewModelResult,
+    customerViewModelResult,
     analysisResult,
     analysisJobStatusResult,
     leadSummaryResult,
@@ -752,6 +781,10 @@ export function loadContentScript({
 
 export function analysisViewModelCalls(calls) {
   return calls.filter((call) => call.action === 'LOAD_ANALYSIS_VIEW_MODEL')
+}
+
+export function customerViewModelCalls(calls) {
+  return calls.filter((call) => call.action === 'LOAD_CUSTOMER_VIEW_MODEL')
 }
 
 export function ingestCalls(calls) {

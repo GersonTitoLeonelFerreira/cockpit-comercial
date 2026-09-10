@@ -238,7 +238,16 @@ function objectionReading() {
       objectives: [],
       problems: [],
       impacts: [],
-      needs: [],
+      // FASE 16.7 — o mesmo marcador também aparece aqui: desde a
+      // recalibração seller-facing de CLIENTE, `customer.objections`
+      // deixou de ser renderizado em CLIENTE (mandato §17 — objeção
+      // atual é conteúdo exclusivo de ANÁLISE/risks.customer_objections,
+      // nunca duplicado em CLIENTE como fato "acumulado"). Os testes
+      // abaixo continuam precisando de um marcador visível em CLIENTE
+      // para provar persistência/isolamento — `needs` é o campo real
+      // (contexto secundário da oportunidade) que carrega esse papel
+      // agora.
+      needs: [evidence('OBJECAO_PRECO_ALTO_DEMAIS')],
       interests: [],
       decision_criteria: [],
       preferences: [],
@@ -454,7 +463,7 @@ test(
     assert.match(
       clientText,
       /OBJECAO_PRECO_ALTO_DEMAIS/,
-      'CLIENTE precisa registrar a objeção como conhecimento comercial acumulado',
+      'CLIENTE precisa registrar o conhecimento comercial acumulado (needs, desde a FASE 16.7 — objeção em si não é mais conteúdo de CLIENTE, mandato §17)',
     )
 
     assert.doesNotMatch(
