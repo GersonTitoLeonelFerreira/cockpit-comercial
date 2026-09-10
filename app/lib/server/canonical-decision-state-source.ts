@@ -17,10 +17,12 @@ import type {
 
 import {
   loadCanonicalMethodCoachingSource,
+  type CanonicalMethodCoachingSource,
 } from './canonical-method-coaching-source'
 
 import {
   loadCanonicalCycleCommercialMemory,
+  type CanonicalCycleCommercialMemory,
 } from './canonical-cycle-commercial-memory-source'
 
 import type {
@@ -1291,6 +1293,18 @@ function buildOperationalSignalAvailability({
  * indisponível em qualquer mismatch, sem derrubar o restante. Nenhuma
  * prova temporal usa `generated_at` como instante semântico — sempre
  * `state_updated_at` (lição do HOTFIX 16.3D.1).
+ *
+ * `cycle_memory`/`method_coaching` (FASE 16.4): parâmetros
+ * suplementares opcionais, mesma disciplina de três casos já usada por
+ * `loadCanonicalMethodCoachingSource`/`loadCanonicalCommunicationContext`
+ * — permitem que um chamador que já carregou essas fontes para outro
+ * propósito (o orquestrador `canonical-integrated-commercial-context-
+ * source.ts`) as repasse aqui sem pagar uma segunda paginação completa
+ * de `companion_commercial_states`/coaching cross-conversation. Nunca
+ * expostos de volta no retorno — Decision State continua sem se tornar
+ * um agregador de campos que já pertencem a outras fontes canônicas
+ * (mandato §23); um chamador que precisa dos objetos completos os
+ * mantém ele mesmo, já que ele mesmo os carregou primeiro.
  */
 export async function loadCanonicalDecisionState({
   admin,
@@ -1300,6 +1314,8 @@ export async function loadCanonicalDecisionState({
   reference_time,
   current_reading,
   client_context,
+  cycle_memory,
+  method_coaching,
 }: {
   admin: SupabaseClient
   company_id: string
@@ -1312,6 +1328,26 @@ export async function loadCanonicalDecisionState({
 
   client_context:
     CompanionClientContext | null
+
+  // Opcional — mesma disciplina de três casos já usada por
+  // loadCanonicalMethodCoachingSource (cycle_memory) e
+  // loadCanonicalCommunicationContext (cycle_memory/method_coaching):
+  // não fornecido (`undefined`) carrega internamente; fornecido de
+  // escopo/instante divergente é tratado como não fornecido; fornecido
+  // explicitamente como `null` é respeitado como "confirmadamente
+  // indisponível", sem retry. Sem isto, um chamador que precisa de
+  // Decision State E de Cycle Memory/Method Coaching para outro
+  // propósito (ex.: o orquestrador da FASE 16.4) pagava o custo de
+  // paginar companion_commercial_states (e, por consequência, a
+  // descoberta de coaching cross-conversation) DUAS VEZES na mesma
+  // execução — Decision State sempre recarregava as duas fontes
+  // internamente, mesmo quando o chamador já as tinha em mãos (achado
+  // da FASE 16.4, mandato §25: "double-scan").
+  cycle_memory?:
+    CanonicalCycleCommercialMemory | null
+
+  method_coaching?:
+    CanonicalMethodCoachingSource | null
 }): Promise<DecisionState | null> {
   const referenceTime =
     normalizeDateOrNull(reference_time)
@@ -1374,54 +1410,97 @@ export async function loadCanonicalDecisionState({
     clientContext = null
   }
 
-  // Carregada UMA vez aqui e repassada para
-  // loadCanonicalMethodCoachingSource() abaixo — esse agregador também
-  // precisa de conversation_keys do ciclo para descobrir coaching
-  // cross-conversation, e sem repasse ele paginaria a mesma consulta
-  // de novo internamente (achado do Codex, PR #280, rodada 3).
+  // Três casos distintos para `cycle_memory` — mesma disciplina de
+  // `suppliedCycleMemoryMatchesScope` em
+  // canonical-method-coaching-source.ts: não fornecido (`undefined`)
+  // carrega internamente; fornecido mas de escopo/instante divergente
+  // cai para a carga interna (nunca vira `null` direto); fornecido
+  // explicitamente como `null` é respeitado como "confirmadamente
+  // indisponível", sem retry.
+  const suppliedCycleMemoryMatchesScope =
+    cycle_memory != null &&
+    cycle_memory.company_id === company_id &&
+    cycle_memory.cycle_id === cycle_id &&
+    cycle_memory.reference_time === referenceTime
+
   let cycleMemory:
     Awaited<ReturnType<typeof loadCanonicalCycleCommercialMemory>> =
       null
 
-  try {
-    cycleMemory =
-      await loadCanonicalCycleCommercialMemory({
-        admin,
-        company_id,
-        cycle_id,
-        reference_time: referenceTime,
-      })
-  } catch (error) {
-    console.error(
-      '[CANONICAL_DECISION_STATE] cycle memory lookup failed, continuing without it',
-      { company_id, cycle_id, error },
-    )
-
+  if (suppliedCycleMemoryMatchesScope) {
+    cycleMemory = cycle_memory as
+      CanonicalCycleCommercialMemory
+  } else if (cycle_memory === null) {
     cycleMemory = null
+  } else {
+    try {
+      cycleMemory =
+        await loadCanonicalCycleCommercialMemory({
+          admin,
+          company_id,
+          cycle_id,
+          reference_time: referenceTime,
+        })
+    } catch (error) {
+      console.error(
+        '[CANONICAL_DECISION_STATE] cycle memory lookup failed, continuing without it',
+        { company_id, cycle_id, error },
+      )
+
+      cycleMemory = null
+    }
   }
+
+  // Mesma disciplina de três casos para `method_coaching`, mas a
+  // verificação de escopo também precisa provar que o suprido foi
+  // computado contra o MESMO `current_reading` desta chamada — mesma
+  // amarração por provenance já exigida de `method_coaching` em
+  // loadCanonicalCommunicationContext (achado do Codex, PR #281, rodada
+  // 2): escopo batendo sozinho não prova que veio da mesma análise,
+  // só `provenance.analise_*` (copiado verbatim de `current_reading`
+  // por loadCanonicalMethodCoachingSource) prova isso.
+  const suppliedMethodCoachingMatchesScope =
+    method_coaching != null &&
+    method_coaching.company_id === company_id &&
+    method_coaching.cycle_id === cycle_id &&
+    method_coaching.conversation_key === conversation_key &&
+    method_coaching.reference_time === referenceTime &&
+    method_coaching.provenance.analise_source_event_id ===
+      (current_reading?.source_event_id ?? null) &&
+    method_coaching.provenance.analise_state_record_id ===
+      (current_reading?.state_record_id ?? null) &&
+    method_coaching.provenance.analise_state_version ===
+      (current_reading?.state_version ?? null)
 
   let methodCoaching:
     Awaited<ReturnType<typeof loadCanonicalMethodCoachingSource>> =
       null
 
-  try {
-    methodCoaching =
-      await loadCanonicalMethodCoachingSource({
-        admin,
-        company_id,
-        cycle_id,
-        conversation_key,
-        reference_time: referenceTime,
-        current_reading,
-        cycle_memory: cycleMemory,
-      })
-  } catch (error) {
-    console.error(
-      '[CANONICAL_DECISION_STATE] method/coaching lookup failed, continuing without it',
-      { company_id, cycle_id, conversation_key, error },
-    )
-
+  if (suppliedMethodCoachingMatchesScope) {
+    methodCoaching = method_coaching as
+      CanonicalMethodCoachingSource
+  } else if (method_coaching === null) {
     methodCoaching = null
+  } else {
+    try {
+      methodCoaching =
+        await loadCanonicalMethodCoachingSource({
+          admin,
+          company_id,
+          cycle_id,
+          conversation_key,
+          reference_time: referenceTime,
+          current_reading,
+          cycle_memory: cycleMemory,
+        })
+    } catch (error) {
+      console.error(
+        '[CANONICAL_DECISION_STATE] method/coaching lookup failed, continuing without it',
+        { company_id, cycle_id, conversation_key, error },
+      )
+
+      methodCoaching = null
+    }
   }
 
   const currentMoment =

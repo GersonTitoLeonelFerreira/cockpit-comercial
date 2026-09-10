@@ -411,6 +411,8 @@ function load({
   reference_time = REFERENCE_TIME,
   current_reading = buildCurrentReading(),
   client_context = buildClientContext(),
+  cycle_memory,
+  method_coaching,
 } = {}) {
   return loadCanonicalDecisionState({
     admin,
@@ -420,6 +422,8 @@ function load({
     reference_time,
     current_reading,
     client_context,
+    cycle_memory,
+    method_coaching,
   })
 }
 
@@ -1920,4 +1924,276 @@ test('erro na leitura de cycle memory não derruba a leitura combinada (best-eff
 
   assert.ok(state)
   assert.equal(state.operational_signal_availability.commitments, 'NOT_AVAILABLE')
+})
+
+// ---------------------------------------------------------------------------
+// FASE 16.4 — parâmetros suplementares opcionais cycle_memory/method_coaching
+//
+// Sem estes parâmetros, um chamador que precisa de Decision State E de
+// Cycle Memory/Method Coaching para outro propósito (o orquestrador da
+// FASE 16.4) pagava o custo de paginar companion_commercial_states (e a
+// descoberta de coaching cross-conversation) DUAS VEZES na mesma
+// execução, porque Decision State sempre recarregava as duas fontes
+// internamente. Mesma disciplina de três casos já provada em
+// canonical-method-coaching-source.test.mjs (cycle_memory) e
+// canonical-communication-context-source.test.mjs
+// (cycle_memory/method_coaching): não fornecido carrega internamente;
+// escopo/instante divergente cai para carga interna; `null` explícito é
+// respeitado sem retry.
+// ---------------------------------------------------------------------------
+
+function buildCycleMemory({
+  company_id = COMPANY_ID,
+  cycle_id = CYCLE_ID,
+  reference_time = REFERENCE_TIME,
+  conversation_keys = [CONVERSATION_KEY],
+  commitments = [],
+} = {}) {
+  return {
+    company_id,
+    cycle_id,
+    reference_time,
+    conversation_keys,
+    facts: [],
+    needs: [],
+    open_loops: [],
+    objections: [],
+    commitments,
+    signals: [],
+    uncertainties: [],
+  }
+}
+
+function buildMethodCoaching({
+  company_id = COMPANY_ID,
+  cycle_id = CYCLE_ID,
+  conversation_key = CONVERSATION_KEY,
+  reference_time = REFERENCE_TIME,
+  analise_source_event_id = 'event-current-1',
+  analise_state_record_id = 'state-record-1',
+  analise_state_version = 3,
+} = {}) {
+  return {
+    company_id,
+    cycle_id,
+    conversation_key,
+    reference_time,
+
+    method: {
+      configured: false,
+      name: null,
+      stages: [],
+      agora_stage: null,
+      analise_stage: null,
+      stage_divergence: false,
+      stage_comparison_reliable: false,
+      adherence: null,
+      recovery_guidance: null,
+    },
+
+    coaching: {
+      seller_strengths: [],
+      improvement_points: [],
+      source_event_id: null,
+      generated_at: null,
+    },
+
+    cross_conversation_coaching: [],
+
+    provenance: {
+      conversation_key,
+      agora_updated_at: null,
+      analise_source_event_id,
+      analise_state_record_id,
+      analise_state_version,
+    },
+  }
+}
+
+function createThrowingAdmin() {
+  return {
+    from(table) {
+      assert.fail(
+        `admin.from('${table}') não deveria ser chamado quando cycle_memory e method_coaching já foram fornecidos`,
+      )
+    },
+  }
+}
+
+test('cycle_memory e method_coaching supridos pelo chamador são reaproveitados, sem nenhuma consulta ao banco', async () => {
+  const cycleMemory = buildCycleMemory()
+  const methodCoaching = buildMethodCoaching()
+
+  const state = await loadCanonicalDecisionState({
+    admin: createThrowingAdmin(),
+    company_id: COMPANY_ID,
+    cycle_id: CYCLE_ID,
+    conversation_key: CONVERSATION_KEY,
+    reference_time: REFERENCE_TIME,
+    current_reading: buildCurrentReading(),
+    client_context: buildClientContext(),
+    cycle_memory: cycleMemory,
+    method_coaching: methodCoaching,
+  })
+
+  assert.ok(state)
+  assert.equal(
+    state.operational_signal_availability.commitments,
+    'AVAILABLE_NOW',
+  )
+})
+
+test('cycle_memory suprido é reaproveitado por Decision State e por Method/Coaching internamente — companion_commercial_states nunca é consultado', async () => {
+  let commercialStatesCalls = 0
+
+  const admin = createAdmin()
+  const baseFrom = admin.from.bind(admin)
+
+  admin.from = (table) => {
+    if (table === 'companion_commercial_states') {
+      commercialStatesCalls += 1
+    }
+
+    return baseFrom(table)
+  }
+
+  const cycleMemory = buildCycleMemory({
+    commitments: [
+      {
+        memory_id: `${CONVERSATION_KEY}::commit-1`,
+        origin_id: 'commit-1',
+        kind: 'commitment',
+        summary: 'Enviar proposta amanhã.',
+        evidence_message_ids: ['m1'],
+        memory_status: 'active',
+        created_in_state_version: 1,
+        updated_in_state_version: 1,
+        closed_in_state_version: null,
+        commitment_status: 'confirmed',
+        scheduled_at: '2026-09-10T12:00:00.000Z',
+        proposed_at: null,
+        provenance: {
+          conversation_key: CONVERSATION_KEY,
+          state_record_id: 'state-record-1',
+          state_version: 1,
+        },
+      },
+    ],
+  })
+
+  const state = await load({
+    admin,
+    cycle_memory: cycleMemory,
+  })
+
+  assert.equal(commercialStatesCalls, 0)
+  assert.ok(state)
+  assert.equal(
+    state.operational_signal_availability.commitments,
+    'AVAILABLE_NOW',
+  )
+})
+
+test('cycle_memory suprido de escopo diferente é ignorado, cai para carga interna', async () => {
+  const admin = createAdmin()
+
+  const mismatchedCycleMemory = buildCycleMemory({
+    cycle_id: OTHER_CYCLE_ID,
+  })
+
+  const state = await load({
+    admin,
+    cycle_memory: mismatchedCycleMemory,
+  })
+
+  assert.ok(state)
+
+  // createAdmin() por padrão devolve uma linha de estado válida para
+  // CYCLE_ID (não OTHER_CYCLE_ID) — se o valor divergente tivesse sido
+  // aceito diretamente, a leitura interna nunca teria acontecido e
+  // commitments ficaria indisponível pela ausência de dados no objeto
+  // divergente.
+  assert.equal(
+    state.operational_signal_availability.commitments,
+    'AVAILABLE_NOW',
+  )
+})
+
+test('cycle_memory suprido explicitamente como null é respeitado, sem nova consulta a companion_commercial_states', async () => {
+  let commercialStatesCalls = 0
+
+  const admin = createAdmin()
+  const baseFrom = admin.from.bind(admin)
+
+  admin.from = (table) => {
+    if (table === 'companion_commercial_states') {
+      commercialStatesCalls += 1
+    }
+
+    return baseFrom(table)
+  }
+
+  const state = await load({
+    admin,
+    cycle_memory: null,
+  })
+
+  assert.equal(commercialStatesCalls, 0)
+  assert.ok(state)
+  assert.equal(
+    state.operational_signal_availability.commitments,
+    'NOT_AVAILABLE',
+  )
+})
+
+test('method_coaching suprido de outro current_reading (provenance divergente) é ignorado, cai para carga interna', async () => {
+  const admin = createAdmin()
+
+  const methodCoachingFromAnotherReading =
+    buildMethodCoaching({
+      analise_source_event_id: 'event-current-OTHER',
+      analise_state_record_id: 'state-record-OTHER',
+      analise_state_version: 99,
+    })
+
+  const state = await load({
+    admin,
+    method_coaching: methodCoachingFromAnotherReading,
+  })
+
+  assert.ok(state)
+
+  // A carga interna usa loadCompanionMethodStage/published method config
+  // reais do admin fake (agoraRows vazio por padrão) — o ponto do teste
+  // é só provar que o objeto divergente NUNCA aparece no provenance
+  // devolvido (analise_source_event_id continua vindo de
+  // current_reading, nunca do method_coaching suprido).
+  assert.equal(
+    state.provenance.analise_source_event_id,
+    'event-current-1',
+  )
+})
+
+test('method_coaching suprido explicitamente como null é respeitado, sem nova consulta a companion_method_stage_state', async () => {
+  let agoraCalls = 0
+
+  const admin = createAdmin()
+  const baseFrom = admin.from.bind(admin)
+
+  admin.from = (table) => {
+    if (table === 'companion_method_stage_state') {
+      agoraCalls += 1
+    }
+
+    return baseFrom(table)
+  }
+
+  const state = await load({
+    admin,
+    method_coaching: null,
+  })
+
+  assert.equal(agoraCalls, 0)
+  assert.ok(state)
+  assert.equal(state.provenance.agora_updated_at, null)
 })

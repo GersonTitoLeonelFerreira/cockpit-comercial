@@ -34,6 +34,17 @@ const MAX_LEDGER_ROWS =
 const MAX_CANONICAL_MESSAGES =
   1000
 
+// Mesma janela de 4h documentada como política de "gap de sessão" em
+// stateful-copilot-execution-plan.ts (CURRENT_SESSION_GAP_MS),
+// message-intelligence/context-assembler.ts
+// (MESSAGE_CONTEXT_CURRENT_INTERACTION_GAP_MS) e
+// canonical-decision-state-source.ts (DECISION_STATE_SESSION_GAP_MS) —
+// aqui usada para agrupar por burst de atividade quais mensagens do
+// modo diagnostic/preview entram no prompt (mesma semântica de seleção
+// de mensagens de CURRENT_SESSION_GAP_MS, não a classificação de
+// frescor de sessão do Decision State/AGORA). Auditado na FASE 16.4
+// (mandato §4) — mesmo valor, mecanismos legitimamente distintos; ver
+// canonical-decision-state-source.ts para a decisão de não centralizar.
 const STATEFUL_DIAGNOSTIC_SESSION_GAP_MS =
   4 * 60 * 60 * 1000
 
