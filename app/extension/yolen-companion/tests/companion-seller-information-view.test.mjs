@@ -523,6 +523,28 @@ test('give_space e escalate recebem tom visual distinto de respond/follow_up/han
   assert.match(respondHtml, /yolen-now-attention--warning/)
 })
 
+// Achado do Codex (PR #283, rodada 1): `wait` mapeado para o status
+// `follow_up` renderizava "Retomar contato" — o oposto do que a decisão
+// `wait` significa (não agir/não comunicar agora). Prova fim-a-fim (view
+// model → HTML renderizado) de que isso não volta a acontecer.
+test('wait nunca renderiza "Retomar contato" nem tom de urgência — sempre "Nada a fazer agora", informativo', () => {
+  const html = view.renderAgoraViewModelSnapshot(
+    buildAgoraViewModel({
+      primary: buildAgoraSignal({
+        status: 'no_intervention',
+        priority: null,
+        headline: 'Cliente pediu um tempo para decidir.',
+        action: 'Canal recomendado: wait.',
+        provenance: { decision_kind: 'wait', source: null, evidence_message_ids: [], memory_ids: [] },
+      }),
+    }),
+  )
+
+  assert.doesNotMatch(html, /Retomar contato/)
+  assert.match(html, /Nada a fazer agora/)
+  assert.match(html, /yolen-now-attention--information/)
+})
+
 test('todo conteúdo seller-facing escapa HTML não confiável', () => {
   const reading = buildReading()
   reading.seller_strengths[0].summary = '<img src=x onerror=alert(1)>'

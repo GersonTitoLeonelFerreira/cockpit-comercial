@@ -858,6 +858,59 @@ test('wait nunca é apresentado como follow_up (recomendação de agir seria o o
 
   assert.notEqual(vm.primary.status, 'follow_up')
   assert.equal(vm.primary.status, 'no_intervention')
+
+  // decision_kind (provenance) preserva 'wait' intacto — o presenter só
+  // traduz para uma categoria de apresentação (status), nunca reescreve
+  // nem reinterpreta a decisão canônica em si (mandato §31/§6 do Codex:
+  // "presenter deve obedecer Decision State, não reinterpretá-lo").
+  assert.equal(vm.primary.provenance.decision_kind, 'wait')
+})
+
+test('wait não gera CTA comercial: headline/action passam intactos, sem qualificador de urgência inventado', () => {
+  const state = buildDecisionState({
+    primary_decision: buildPrimary({
+      kind: 'wait',
+      source: null,
+      priority: null,
+      summary: 'Cliente pediu um tempo para decidir.',
+      recommended_action: 'Canal recomendado: wait.',
+    }),
+  })
+
+  const vm = buildAgoraViewModel(state)
+
+  assert.equal(vm.primary.headline, 'Cliente pediu um tempo para decidir.')
+  assert.equal(vm.primary.action, 'Canal recomendado: wait.')
+  assert.ok(!containsBannedGenericPhrase(vm.primary.headline))
+  assert.ok(!containsBannedGenericPhrase(vm.primary.action))
+})
+
+test('wait + secondary operacional compatível: primário fica deliberadamente quieto, secondary real continua visível', () => {
+  const state = buildDecisionState({
+    primary_decision: buildPrimary({
+      kind: 'wait',
+      source: null,
+      priority: null,
+      summary: 'Cliente pediu um tempo para decidir.',
+      recommended_action: 'Canal recomendado: wait.',
+    }),
+    interventions: [
+      buildInterventionCard({
+        source: 'cycle_commitment',
+        kind: 'follow_up',
+        priority: 'high',
+        summary: 'Envio da proposta revisada já venceu.',
+      }),
+    ],
+  })
+
+  const vm = buildAgoraViewModel(state)
+
+  assert.equal(vm.silent, false)
+  assert.equal(vm.primary.status, 'no_intervention')
+  assert.equal(vm.secondary.length, 1)
+  assert.equal(vm.secondary[0].status, 'follow_up')
+  assert.equal(vm.secondary[0].headline, 'Envio da proposta revisada já venceu.')
 })
 
 // ---------------------------------------------------------------------------
