@@ -324,16 +324,27 @@ function allSourcedCandidates(
   ]
 }
 
-function resolveReferencedCommitment(
+// Resolve TODOS os compromissos referenciados por candidatos
+// `cycle_commitment` selecionados (decisão principal + intervenções) —
+// não só o primeiro. Necessário porque a decisão principal e uma
+// intervenção secundária podem referenciar compromissos DIFERENTES (ex.:
+// principal aponta um compromisso confirmado vencido, intervenção aponta
+// outro com pedido de reagendamento); parar no primeiro match faria
+// `buildConstraints` nunca enxergar o segundo (achado do Codex, PR #281,
+// rodada 1).
+function resolveAllReferencedCommitments(
   decisionState: DecisionState,
   cycleMemory: CanonicalCycleCommercialMemory | null,
-): CommunicationContextResolvedCommitment | null {
+): CommunicationContextResolvedCommitment[] {
   if (
     !cycleMemory ||
     !Array.isArray(cycleMemory.commitments)
   ) {
-    return null
+    return []
   }
+
+  const resolved: CommunicationContextResolvedCommitment[] =
+    []
 
   for (const candidate of allSourcedCandidates(
     decisionState,
@@ -348,16 +359,23 @@ function resolveReferencedCommitment(
           commitment.memory_id === memoryId,
       )
 
-      if (match) {
-        return {
+      if (
+        match &&
+        !resolved.some(
+          (item) =>
+            item.commitment.memory_id ===
+            match.memory_id,
+        )
+      ) {
+        resolved.push({
           origin: 'cycle_memory',
           commitment: match,
-        }
+        })
       }
     }
   }
 
-  return null
+  return resolved
 }
 
 function resolveReferencedObjection(
@@ -409,9 +427,17 @@ function resolveMethodContext(
       item.source === 'insufficient_information',
   )
 
-  const missingInformation =
-    methodCoaching?.method.recovery_guidance
+  // `missing_information` só é exposta quando existe um `candidate` de
+  // método/coaching/descoberta SELECIONADO pelo Decision State — sem essa
+  // condição, uma `recovery_guidance` presente em Method Coaching mas
+  // preterida por um candidato operacional de maior prioridade (ex.: SLA)
+  // vazaria mesmo sem ter sido escolhida, recriando exatamente o segundo
+  // caminho de decisão que este módulo existe para evitar (achado do
+  // Codex, PR #281, rodada 1).
+  const missingInformation = candidate
+    ? methodCoaching?.method.recovery_guidance
       ?.missing_information ?? []
+    : []
 
   return {
     approach_constraint:
@@ -427,11 +453,11 @@ function resolveMethodContext(
 
 function buildConstraints({
   decisionState,
-  referencedCommitment,
+  referencedCommitments,
 }: {
   decisionState: DecisionState
-  referencedCommitment:
-    CommunicationContextResolvedCommitment | null
+  referencedCommitments:
+    CommunicationContextResolvedCommitment[]
 }): CommunicationContextConstraint[] {
   const constraints: CommunicationContextConstraint[] =
     []
@@ -490,11 +516,19 @@ function buildConstraints({
 
   // Achado da FASE 16.3E (rodada 5, PR #280): `reschedule_requested` não
   // confirma o horário original — o compromisso segue pendente de
-  // reconciliação, nunca tratado como vencido/confirmado.
-  if (
-    referencedCommitment?.commitment
-      .commitment_status === 'reschedule_requested'
-  ) {
+  // reconciliação, nunca tratado como vencido/confirmado. Inspeciona
+  // TODOS os compromissos referenciados por candidatos selecionados
+  // (principal + intervenções), não só o primeiro — a decisão principal
+  // pode referenciar um compromisso diferente do de uma intervenção
+  // secundária (achado do Codex, PR #281, rodada 1).
+  for (const referencedCommitment of referencedCommitments) {
+    if (
+      referencedCommitment.commitment
+        .commitment_status !== 'reschedule_requested'
+    ) {
+      continue
+    }
+
     constraints.push({
       source: 'reschedule_pending',
 
@@ -712,6 +746,19 @@ export async function loadCanonicalCommunicationContext({
   // mismatch de escopo ou leitura do futuro o torna indisponível para
   // enriquecimento, mas nunca derruba a executabilidade — a decisão já
   // foi tomada pelo Decision State.
+  //
+  // Além do escopo, precisa ser LITERALMENTE a mesma leitura que o
+  // Decision State usou para decidir — `decision_state.provenance` já
+  // identifica exatamente `analise_source_event_id`/
+  // `analise_state_record_id`/`analise_state_version`. Sem essa
+  // amarração, um `current_reading` de outra versão (mesmo escopo certo,
+  // mesmo não sendo do futuro) poderia expor preferências ou resolver uma
+  // objeção contra uma fotografia diferente da que produziu a decisão —
+  // um `client_context`/`current_reading` "atual" mas não o MESMO que
+  // decidiu (achado do Codex, PR #281, rodada 1). Quando o Decision State
+  // foi computado SEM nenhuma leitura (`analise_source_event_id: null`),
+  // qualquer `current_reading` fornecido agora não é o que decidiu —
+  // também descartado.
   let currentReading = current_reading ?? null
 
   if (
@@ -722,7 +769,16 @@ export async function loadCanonicalCommunicationContext({
       currentReading.conversation_key !==
         conversation_key ||
       Date.parse(currentReading.generated_at) >
-        Date.parse(referenceTime)
+        Date.parse(referenceTime) ||
+      currentReading.source_event_id !==
+        decision_state.provenance
+          .analise_source_event_id ||
+      currentReading.state_record_id !==
+        decision_state.provenance
+          .analise_state_record_id ||
+      currentReading.state_version !==
+        decision_state.provenance
+          .analise_state_version
     )
   ) {
     currentReading = null
@@ -778,14 +834,23 @@ export async function loadCanonicalCommunicationContext({
   const decisionKind =
     decision_state.primary_decision.kind
 
+  // `wait` (mandato: "aguardar antes de agir") é, assim como
+  // `no_intervention`, uma decisão de NÃO comunicar agora — deixar
+  // `do_not_generate` falso permitiria a um gerador futuro produzir uma
+  // mensagem contrariando a própria decisão do Decision State (achado do
+  // Codex, PR #281, rodada 1).
   const doNotGenerate =
-    decisionKind === 'no_intervention'
+    decisionKind === 'no_intervention' ||
+    decisionKind === 'wait'
 
-  const referencedCommitment =
-    resolveReferencedCommitment(
+  const referencedCommitments =
+    resolveAllReferencedCommitments(
       decision_state,
       cycleMemory,
     )
+
+  const referencedCommitment =
+    referencedCommitments[0] ?? null
 
   const referencedObjection =
     resolveReferencedObjection(
@@ -800,7 +865,7 @@ export async function loadCanonicalCommunicationContext({
 
   const constraints = buildConstraints({
     decisionState: decision_state,
-    referencedCommitment,
+    referencedCommitments,
   })
 
   const moves = buildMoves({

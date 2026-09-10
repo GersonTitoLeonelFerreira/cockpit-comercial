@@ -667,6 +667,179 @@ test('missing_information do method_coaching suprido é exposta em method_contex
   )
 })
 
+test('missing_information NÃO vaza quando nenhum candidato de método/coaching foi selecionado pelo Decision State', async () => {
+  // Achado do Codex (PR #281, rodada 1): recovery_guidance.missing_information
+  // era exposta incondicionalmente, mesmo quando o candidato de método foi
+  // preterido por um sinal operacional de maior prioridade (SLA) — um
+  // gerador futuro agiria sobre um candidato que o Decision State
+  // deliberadamente não selecionou.
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'respond',
+      source: 'client_sla',
+      summary: 'SLA crítico.',
+      reason: 'SLA vencido.',
+      recommended_action: 'Responder o cliente.',
+      evidence_message_ids: [],
+      memory_ids: [],
+    },
+    interventions: [],
+  })
+
+  const methodCoaching = buildMethodCoaching({
+    method: {
+      configured: true,
+      name: 'Método X',
+      stages: [],
+      agora_stage: null,
+      analise_stage: null,
+      stage_divergence: false,
+      stage_comparison_reliable: false,
+      adherence: null,
+      recovery_guidance: {
+        objective: 'Confirmar impacto antes de apresentar solução.',
+        missing_information: ['impacto'],
+        recommended_move: 'Perguntar sobre o impacto do problema.',
+        optional_question: null,
+        evidence_message_ids: ['m1'],
+        memory_ids: [],
+      },
+    },
+  })
+
+  const context = await load({
+    decision_state: decisionState,
+    method_coaching: methodCoaching,
+  })
+
+  assert.equal(context.method_context.approach_constraint, null)
+  assert.deepEqual(context.method_context.missing_information, [])
+})
+
+test('reschedule_requested em intervenção secundária gera constraint mesmo quando a decisão principal referencia OUTRO compromisso', async () => {
+  // Achado do Codex (PR #281, rodada 1): resolver só o primeiro
+  // compromisso referenciado fazia a decisão principal (compromisso
+  // confirmado vencido) "esconder" um pedido de reagendamento numa
+  // intervenção secundária.
+  const overdueCommitment = buildCommitmentItem({
+    memory_id: 'commit-overdue',
+    summary: 'Compromisso confirmado vencido.',
+    commitment_status: 'confirmed',
+  })
+
+  const rescheduleCommitment = buildCommitmentItem({
+    memory_id: 'commit-reschedule-secondary',
+    summary: 'Compromisso com pedido de reagendamento.',
+    commitment_status: 'reschedule_requested',
+  })
+
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'follow_up',
+      source: 'cycle_commitment',
+      summary: overdueCommitment.summary,
+      reason: 'Compromisso vencido.',
+      recommended_action: 'Confirmar com o cliente.',
+      evidence_message_ids: [],
+      memory_ids: [overdueCommitment.memory_id],
+    },
+    interventions: [
+      buildInterventionCard({
+        source: 'cycle_commitment',
+        summary: rescheduleCommitment.summary,
+        memory_ids: [rescheduleCommitment.memory_id],
+      }),
+    ],
+  })
+
+  const context = await load({
+    decision_state: decisionState,
+    cycle_memory: buildCycleMemory({
+      commitments: [overdueCommitment, rescheduleCommitment],
+    }),
+  })
+
+  assert.equal(
+    context.opportunity_context.referenced_commitment.commitment.memory_id,
+    'commit-overdue',
+  )
+
+  const constraint = context.constraints.find((c) => c.source === 'reschedule_pending')
+  assert.ok(constraint)
+  assert.ok(context.prohibited_moves.includes('treat_original_time_as_confirmed'))
+})
+
+test('decision wait: do_not_generate verdadeiro (não gerar contrariando a decisão de aguardar)', async () => {
+  // Achado do Codex (PR #281, rodada 1): `wait` não estava coberto por
+  // `do_not_generate`, permitindo que um gerador futuro produzisse uma
+  // mensagem mesmo quando a decisão foi "aguardar antes de agir".
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'wait',
+      source: null,
+      summary: 'Aguardar antes de agir.',
+      reason: 'Nada novo sustentado pelo contexto atual.',
+      recommended_action: 'Canal recomendado: none.',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+  })
+
+  const context = await load({ decision_state: decisionState })
+
+  assert.equal(context.decision_kind, 'wait')
+  assert.equal(context.do_not_generate, true)
+})
+
+test('current_reading de outra versão do Decision State (mesmo escopo, não do futuro) é descartada', async () => {
+  // Achado do Codex (PR #281, rodada 1): escopo + "não é do futuro" não
+  // provam que é a MESMA leitura que produziu a decisão — só
+  // `decision_state.provenance` identifica isso com precisão.
+  const decisionState = buildDecisionState()
+
+  const mismatchedVersionReading = buildCurrentReading({
+    state_record_id: 'state-record-OTHER',
+    state_version: 99,
+    source_event_id: 'event-OTHER',
+    reading: buildReading({
+      customer: {
+        ...buildReading().customer,
+        preferences: [evidence('Preferência de outra versão da leitura.')],
+      },
+    }),
+  })
+
+  const context = await load({
+    decision_state: decisionState,
+    current_reading: mismatchedVersionReading,
+  })
+
+  assert.deepEqual(context.customer_context.preferences, [])
+  assert.equal(context.provenance.commercial_reading_state_updated_at, null)
+})
+
+test('decision_state sem nenhuma leitura (provenance nula): current_reading fornecido é descartado', async () => {
+  const decisionState = buildDecisionState({
+    provenance: {
+      conversation_key: CONVERSATION_KEY,
+      cycle_id: CYCLE_ID,
+      analise_source_event_id: null,
+      analise_state_record_id: null,
+      analise_state_version: null,
+      analise_state_updated_at: null,
+      agora_updated_at: null,
+      client_context_generated_at: null,
+    },
+  })
+
+  const context = await load({
+    decision_state: decisionState,
+    current_reading: buildCurrentReading(),
+  })
+
+  assert.deepEqual(context.customer_context.preferences, [])
+})
+
 // 12. Seller coaching: vira orientação de comunicação, não texto ao
 // cliente.
 test('seller coaching vira constraint de comunicação interna, não aparece como texto ao cliente', async () => {
