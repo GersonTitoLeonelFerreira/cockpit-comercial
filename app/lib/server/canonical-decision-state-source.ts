@@ -193,6 +193,19 @@ export type DecisionStatePrimaryDecision = {
 
 export type DecisionStateInterventionCard = {
   source: DecisionStateInterventionSource
+
+  // Um único `source` pode cobrir subtipos distintos (ex.:
+  // `commercial_risk` cobre tanto objeção do cliente,
+  // `kind: 'handle_objection'`, quanto risco de atendimento,
+  // `kind: 'confirm_information'`) — sem isso, um consumidor não
+  // consegue distinguir os dois de forma estrutural, só por
+  // correspondência de texto (frágil e arriscado: um consumidor poderia
+  // resolver a intervenção errada, inclusive ressuscitar uma objeção
+  // suprimida cujo texto colida com o de um risco de atendimento
+  // sobrevivente). Adicionado na FASE 16.3F (Communication Context),
+  // mesmo padrão aditivo do campo `source` em `DecisionStatePrimaryDecision`.
+  kind: CommercialReadingDecision
+
   priority: DecisionStateInterventionPriority
 
   // O assunto concreto do candidato (ex.: qual compromisso, qual
@@ -1404,6 +1417,7 @@ export async function loadCanonicalDecisionState({
   ): DecisionStateInterventionCard {
     return {
       source: candidate.source,
+      kind: candidate.kind,
       priority: candidate.priority,
       summary: candidate.summary,
       reason: candidate.reason,

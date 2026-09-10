@@ -208,6 +208,7 @@ function buildDecisionState(overrides = {}) {
 function buildInterventionCard(overrides = {}) {
   return {
     source: 'commercial_risk',
+    kind: 'handle_objection',
     priority: 'medium',
     summary: 'Card padrão.',
     reason: 'Motivo padrão.',
@@ -453,6 +454,62 @@ test('handle_objection: objeção específica resolvida em opportunity_context',
   assert.ok(context.opportunity_context.referenced_objection)
   assert.equal(context.opportunity_context.referenced_objection.origin, 'commercial_reading')
   assert.equal(context.opportunity_context.referenced_objection.risk.summary, objection.summary)
+})
+
+test('risco de atendimento (confirm_information) não é resolvido como objeção, mesmo com texto coincidente', async () => {
+  // Achado do Codex (PR #281, rodada 4): `commercial_risk` cobre tanto
+  // objeção do cliente (`kind: 'handle_objection'`) quanto risco de
+  // atendimento (`kind: 'confirm_information'`) — sem checar `kind`, um
+  // candidato de risco de atendimento com o MESMO texto de uma objeção já
+  // suprimida (ex.: numa sessão não comercial, onde `confirm_information`
+  // sobrevive mas `handle_objection` é suprimido) poderia ressuscitar essa
+  // objeção via correspondência de texto.
+  const sharedSummary = 'Prazo de entrega pode não ser cumprido.'
+
+  const currentReading = buildCurrentReading({
+    reading: buildReading({
+      risks: {
+        customer_objections: [
+          {
+            kind: 'price',
+            severity: 'high',
+            summary: sharedSummary,
+            evidence_message_ids: ['m-objection'],
+            memory_ids: [],
+          },
+        ],
+        service_risks: [
+          {
+            kind: 'delivery',
+            severity: 'high',
+            summary: sharedSummary,
+            evidence_message_ids: ['m-risk'],
+            memory_ids: [],
+          },
+        ],
+      },
+    }),
+  })
+
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'confirm_information',
+      source: 'commercial_risk',
+      summary: sharedSummary,
+      reason: 'Risco de atendimento em aberto.',
+      recommended_action: 'Confirmar prazo de entrega com o time interno.',
+      evidence_message_ids: ['m-risk'],
+      memory_ids: [],
+    },
+  })
+
+  const context = await load({
+    decision_state: decisionState,
+    current_reading: currentReading,
+  })
+
+  assert.equal(context.decision_kind, 'confirm_information')
+  assert.equal(context.opportunity_context.referenced_objection, null)
 })
 
 // 6. Objeção histórica resolvida: não ressuscitar.

@@ -393,7 +393,18 @@ function resolveReferencedObjection(
   for (const candidate of allSourcedCandidates(
     decisionState,
   )) {
-    if (candidate.source !== 'commercial_risk') {
+    // `commercial_risk` cobre tanto objeção do cliente
+    // (`kind: 'handle_objection'`, vem de `customer_objections`) quanto
+    // risco de atendimento (`kind: 'confirm_information'`, vem de
+    // `service_risks`) — só `handle_objection` deve ser resolvido aqui.
+    // Sem essa checagem, um risco de atendimento sobrevivente numa sessão
+    // não comercial (não suprimido, ao contrário de `handle_objection`)
+    // poderia ressuscitar uma objeção JÁ SUPRIMIDA cujo texto colidisse
+    // com o do risco (achado do Codex, PR #281, rodada 4).
+    if (
+      candidate.source !== 'commercial_risk' ||
+      candidate.kind !== 'handle_objection'
+    ) {
       continue
     }
 
