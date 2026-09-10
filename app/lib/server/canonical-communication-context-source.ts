@@ -591,12 +591,20 @@ function buildMoves({
         'factual_response',
       ],
 
+      // give_space não impede um sinal operacional (ex.: compromisso com
+      // pedido de reagendamento) de sobreviver como supporting_context
+      // (mandato §12) — a proibição de reschedule precisa se aplicar aqui
+      // também, não só no ramo genérico abaixo (achado do Codex, PR #281,
+      // rodada 3).
       prohibited_moves: [
         'introduce_pitch',
         'resurface_commercial_objection',
         'commercial_cta',
         'closing_pressure',
         'forced_topic_change',
+        ...(hasReschedulePendingConstraint
+          ? ['treat_original_time_as_confirmed']
+          : []),
       ],
     }
   }

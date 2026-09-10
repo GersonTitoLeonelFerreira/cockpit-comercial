@@ -884,6 +884,49 @@ test('reschedule_requested em intervenção secundária gera constraint mesmo qu
   assert.ok(context.prohibited_moves.includes('treat_original_time_as_confirmed'))
 })
 
+test('give_space com intervenção de reschedule_requested: prohibited_moves inclui treat_original_time_as_confirmed além das proibições de give_space', async () => {
+  // Achado do Codex (PR #281, rodada 3): o ramo `give_space` de
+  // `buildMoves` retornava uma lista fixa de `prohibited_moves`, sem
+  // aplicar `hasReschedulePendingConstraint` — um compromisso com pedido
+  // de reagendamento sobrevivendo como supporting_context numa sessão
+  // pessoal (mandato §12) perdia essa proibição especificamente nesse
+  // ramo, apesar de `buildConstraints` já detectar a constraint
+  // corretamente.
+  const rescheduleCommitment = buildCommitmentItem({
+    memory_id: 'commit-reschedule-give-space',
+    summary: 'Compromisso com pedido de reagendamento durante sessão pessoal.',
+    commitment_status: 'reschedule_requested',
+  })
+
+  const decisionState = buildDecisionState({
+    primary_decision: {
+      kind: 'give_space',
+      source: null,
+      summary: 'Sessão atual não é comercial.',
+      reason: 'Preservar naturalidade.',
+      recommended_action: 'Responder no tom da conversa atual.',
+      evidence_message_ids: [],
+      memory_ids: [],
+    },
+    interventions: [
+      buildInterventionCard({
+        source: 'cycle_commitment',
+        summary: rescheduleCommitment.summary,
+        memory_ids: [rescheduleCommitment.memory_id],
+      }),
+    ],
+  })
+
+  const context = await load({
+    decision_state: decisionState,
+    cycle_memory: buildCycleMemory({ commitments: [rescheduleCommitment] }),
+  })
+
+  assert.equal(context.decision_kind, 'give_space')
+  assert.ok(context.prohibited_moves.includes('introduce_pitch'))
+  assert.ok(context.prohibited_moves.includes('treat_original_time_as_confirmed'))
+})
+
 test('decision wait: do_not_generate verdadeiro (não gerar contrariando a decisão de aguardar)', async () => {
   // Achado do Codex (PR #281, rodada 1): `wait` não estava coberto por
   // `do_not_generate`, permitindo que um gerador futuro produzisse uma
