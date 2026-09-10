@@ -89,14 +89,19 @@ test(
 test(
   'Final Release exibe somente a experiência principal do Yolen Companion',
   () => {
+    // FASE 16.6 — getAnalysisCardHtml() (o pré-16.5 header "Yolen
+    // Companion", uma segunda implementação de card de decisão paralela
+    // a AGORA) foi removida por ser código morto (zero chamadores desde
+    // a recalibração de AGORA na FASE 16.5) — getDetailedAnalysisAreaHtml()
+    // é o ponto de entrada real e atual da experiência principal.
     assert.match(
       contentScript,
-      /getAnalysisCardHtml\(\)/,
+      /getDetailedAnalysisAreaHtml\(\)/,
     )
 
     assert.match(
       contentScript,
-      /<div class="yolen-section-label">\s*Yolen Companion\s*<\/div>/,
+      /data-yolen-ux-build="UX7"/,
     )
 
     assert.doesNotMatch(

@@ -391,9 +391,17 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   assert.ok(analysisPanel.querySelector('[data-yolen-current-method-stage="true"]'))
   assert.ok(analysisPanel.querySelector('[data-yolen-method-adherence="off_method"]'))
   assert.ok(analysisPanel.querySelector('[data-yolen-method-recovery]'))
-  assert.equal(analysisPanel.querySelector('[data-yolen-risk-group="customer"]'), null)
-  assert.doesNotMatch(analysisPanel.textContent, /cliente considera o preço alto/i)
-  assert.match(analysisPanel.querySelector('[data-yolen-risk-group="seller"]').textContent, /condução apressada/)
+  // FASE 16.6 — ANÁLISE agora mostra risks.customer_objections além de
+  // risks.service_risks (mandato §12: um risco comercial real, mesmo
+  // quando a origem é uma objeção do cliente, não pode ficar invisível
+  // para o vendedor só porque CLIENTE também lista a mesma objeção sem
+  // severidade). Os dois grupos são visualmente distintos
+  // ('objection'/'service'), nunca fundidos.
+  assert.match(
+    analysisPanel.querySelector('[data-yolen-risk-group="objection"]').textContent,
+    /cliente considera o preço alto/i,
+  )
+  assert.match(analysisPanel.querySelector('[data-yolen-risk-group="service"]').textContent, /condução apressada/)
 
   runtime.document.querySelector('[data-yolen-seller-area="client"]').click()
   await waitFor(() => !runtime.document.querySelector('[data-yolen-seller-panel="client"]').hidden)

@@ -65,10 +65,11 @@ test(
       /Resumo/,
     )
 
-    assert.match(
-      contentScript,
-      /Leitura da Yolen/,
-    )
+    // FASE 16.6 — "Leitura da Yolen" era o rótulo do badge do card AGORA
+    // pré-16.5 (getRichCommercialReadingBadge), removido por ser código
+    // morto junto com o resto de getRichCommercialReadingCardHtml (zero
+    // chamadores reais desde a recalibração de AGORA na FASE 16.5,
+    // confirmado em b3-commercial-reading-ui.test.mjs).
 
     assert.match(
       contentScript,

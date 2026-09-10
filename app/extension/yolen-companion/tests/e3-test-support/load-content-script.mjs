@@ -212,6 +212,7 @@ function createFakeBackground({
   resolutionsByPhone = {},
   clientContextResult,
   decisionStateResult,
+  analysisViewModelResult,
   analysisResult,
   analysisJobStatusResult,
   leadSummaryResult,
@@ -371,6 +372,36 @@ function createFakeBackground({
         ok: true,
         statusCode: 200,
         payload,
+      }
+    },
+    // FASE 16.6 — mesmo padrão function-per-call acima. Sem override,
+    // devolve explicitamente "não configurado neste cenário" (mesmo
+    // espírito de ANALYZE_CONVERSATION/GET_ANALYSIS_JOB_STATUS) em vez de
+    // cair no stub genérico de ação desconhecida (`{ok:true, payload:
+    // {ok:true}}`): esse stub tem `payload.ok === true` mas nenhum
+    // `payload.data`, o que faria loadAnalysisViewModelForCurrentCycle
+    // (content-script.js) marcar `status: 'ready'` com `data: undefined` —
+    // silenciosamente quebrando o branch canônico de ANÁLISE em qualquer
+    // teste que não conhece este view model. Cenários que não configuram
+    // analysisViewModelResult devem continuar exercitando o fallback local
+    // (buildAnalysisViewModelFromReading, companion-seller-information-view.js)
+    // a partir da leitura já resolvida em state.conversationAnalysis —
+    // exatamente o que acontecia antes da FASE 16.6, quando este fetch
+    // nem existia.
+    LOAD_ANALYSIS_VIEW_MODEL: async (requestPayload) => {
+      const payload = await (
+        typeof analysisViewModelResult === 'function'
+          ? analysisViewModelResult(requestPayload)
+          : analysisViewModelResult
+      )
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: payload ?? {
+          ok: false,
+          error: 'Análise view model não configurada neste cenário de teste.',
+        },
       }
     },
     LOAD_LEAD_SUMMARY: async (requestPayload) => {
@@ -569,6 +600,7 @@ export function loadContentScript({
   resolutionsByPhone,
   clientContextResult,
   decisionStateResult,
+  analysisViewModelResult,
   analysisResult,
   analysisJobStatusResult,
   leadSummaryResult,
@@ -587,6 +619,7 @@ export function loadContentScript({
     resolutionsByPhone,
     clientContextResult,
     decisionStateResult,
+    analysisViewModelResult,
     analysisResult,
     analysisJobStatusResult,
     leadSummaryResult,
@@ -715,6 +748,10 @@ export function loadContentScript({
     window: sandbox.window,
     calls: background.calls,
   }
+}
+
+export function analysisViewModelCalls(calls) {
+  return calls.filter((call) => call.action === 'LOAD_ANALYSIS_VIEW_MODEL')
 }
 
 export function ingestCalls(calls) {

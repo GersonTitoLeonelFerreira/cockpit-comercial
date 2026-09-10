@@ -7,17 +7,32 @@ const require = createRequire(import.meta.url)
 const sellerView = require('../src/companion-seller-information-view.js')
 const contentScript = readFileSync(new URL('../src/content-script.js', import.meta.url), 'utf8')
 
-function reading(method) {
+// FASE 16.6 — `renderAnalysisArea` foi substituída por
+// `renderAnalysisViewModel`, que consome o AnalysisViewModel já pronto
+// em vez de uma CommercialReading crua; `seller_conduct.method` é o
+// campo equivalente a `reading.method` (mesmo formato de
+// CommercialReadingMethod, ver app/lib/server/analysis-view-model.ts).
+function analysisViewModelWithMethod(method) {
   return {
-    commercial_relevance: 'commercial',
-    seller_strengths: [],
-    improvement_points: [],
-    risks: {
-      customer_objections: [],
-      service_risks: [],
+    available: true,
+    unavailable_reason: null,
+    neutral: false,
+    neutral_headline: null,
+    neutral_description: null,
+    opportunity: null,
+    current_moment: { is_active_session: null },
+    risks: [],
+    objections_open: [],
+    commitments: [],
+    seller_conduct: {
+      method,
+      stage_divergence: false,
     },
-    commercial_evolution: [],
-    method,
+    strengths: [],
+    improvements: [],
+    continuity: { cycle_conversation_count: 0, cross_conversation_signals: [] },
+    history: [],
+    provenance: {},
   }
 }
 
@@ -52,7 +67,7 @@ test('B3.3 renderiza método, etapa atual e seis status oficiais', () => {
     'not_applicable',
   ]
 
-  const html = sellerView.renderAnalysisArea(reading(configuredMethod({
+  const html = sellerView.renderAnalysisViewModel(analysisViewModelWithMethod(configuredMethod({
     stages: statuses.map((status, index) => ({
       step_order: index + 1,
       stage_key: `etapa-${index + 1}`,
@@ -81,7 +96,7 @@ test('B3.3 renderiza método, etapa atual e seis status oficiais', () => {
 })
 
 test('B3.3 preserva método não configurado e evidência insuficiente sem inventar erro', () => {
-  const notConfigured = sellerView.renderAnalysisArea(reading({
+  const notConfigured = sellerView.renderAnalysisViewModel(analysisViewModelWithMethod({
     configured: false,
     name: null,
     stages: [],
@@ -93,7 +108,7 @@ test('B3.3 preserva método não configurado e evidência insuficiente sem inven
   assert.match(notConfigured, /Método comercial não configurado/)
   assert.doesNotMatch(notConfigured, /Como voltar para o método/)
 
-  const insufficient = sellerView.renderAnalysisArea(reading(configuredMethod({
+  const insufficient = sellerView.renderAnalysisViewModel(analysisViewModelWithMethod(configuredMethod({
     adherence: {
       status: 'insufficient_evidence',
       summary: 'Poucas mensagens disponíveis.',
@@ -110,14 +125,14 @@ test('B3.3 traduz aderência e mostra recovery somente quando fora do método', 
     ['on_method', 'Dentro do método'],
     ['partially_on_method', 'Parcialmente dentro do método'],
   ]) {
-    const html = sellerView.renderAnalysisArea(reading(configuredMethod({
+    const html = sellerView.renderAnalysisViewModel(analysisViewModelWithMethod(configuredMethod({
       adherence: { status, summary: 'Resumo da aderência.' },
     })))
     assert.match(html, new RegExp(label))
     assert.doesNotMatch(html, /Como voltar para o método/)
   }
 
-  const offMethod = sellerView.renderAnalysisArea(reading(configuredMethod({
+  const offMethod = sellerView.renderAnalysisViewModel(analysisViewModelWithMethod(configuredMethod({
     adherence: {
       status: 'off_method',
       summary: 'A condução saiu do método.',
@@ -147,13 +162,18 @@ test('B3.3 traduz aderência e mostra recovery somente quando fora do método', 
   assert.match(offMethod, /Perguntar sobre impacto/)
 })
 
+// FASE 16.6 — getRichCommercialReadingExpandedHtml (o adaptador fino que
+// só repassava para sellerInformationViewTools.renderAnalysisArea) foi
+// removido junto com renderAnalysisArea em si — getDetailedAnalysisAreaHtml
+// agora chama sellerInformationViewTools.renderAnalysisViewModel
+// diretamente, sem nenhum adaptador intermediário.
 test('B3.3 integra o renderer oficial na área ANÁLISE sem reconstrução por coaching legado', () => {
   assert.match(
     contentScript,
-    /getRichCommercialReadingExpandedHtml[\s\S]*sellerInformationViewTools[\s\S]*renderAnalysisArea/,
+    /getDetailedAnalysisAreaHtml[\s\S]*sellerInformationViewTools\.renderAnalysisViewModel/,
   )
-  assert.match(
+  assert.doesNotMatch(
     contentScript,
-    /getDetailedAnalysisAreaHtml[\s\S]*getRichCommercialReadingExpandedHtml/,
+    /getRichCommercialReadingExpandedHtml/,
   )
 })

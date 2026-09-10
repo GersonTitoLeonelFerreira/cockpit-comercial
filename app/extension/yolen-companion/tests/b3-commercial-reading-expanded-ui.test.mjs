@@ -31,6 +31,38 @@ function reading(customer, commercialEvolution = []) {
   }
 }
 
+// FASE 16.6 — `renderAnalysisArea` foi substituída por
+// `renderAnalysisViewModel`, que consome o AnalysisViewModel já pronto
+// (Integrated Commercial Context) em vez de uma CommercialReading crua;
+// `history` é o campo equivalente a `commercial_evolution` no novo
+// contrato (app/lib/server/analysis-view-model.ts). Este helper monta o
+// menor AnalysisViewModel "disponível e não neutro" que isola a seção
+// de evolução comercial sendo testada, sem depender de nenhum outro
+// campo.
+function analysisViewModelWithHistory(history) {
+  return {
+    available: true,
+    unavailable_reason: null,
+    neutral: false,
+    neutral_headline: null,
+    neutral_description: null,
+    opportunity: null,
+    current_moment: { is_active_session: null },
+    risks: [],
+    objections_open: [],
+    commitments: [],
+    seller_conduct: {
+      method: { configured: false, name: null, stages: [], current_stage: null, adherence: null, recovery_guidance: null },
+      stage_divergence: false,
+    },
+    strengths: [],
+    improvements: [],
+    continuity: { cycle_conversation_count: 0, cross_conversation_signals: [] },
+    history,
+    provenance: {},
+  }
+}
+
 test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AGORA', () => {
   const clientHtml = sellerView.renderClientCommercialArea(reading({
     needs: [fact('Precisa reduzir perdas.')],
@@ -42,7 +74,7 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
     uncertainties: [],
   }))
 
-  const analysisHtml = sellerView.renderAnalysisArea(reading({}, [
+  const analysisHtml = sellerView.renderAnalysisViewModel(analysisViewModelWithHistory([
     {
       label: 'Descoberta',
       status: 'partial',
@@ -117,7 +149,7 @@ test('B3.2 preserva os status conhecidos da evolução comercial', () => {
     'not_applicable',
   ]
 
-  const html = sellerView.renderAnalysisArea(reading({}, statuses.map((status, index) => ({
+  const html = sellerView.renderAnalysisViewModel(analysisViewModelWithHistory(statuses.map((status, index) => ({
     label: `Etapa ${index + 1}`,
     status,
     explanation: `Explicação ${index + 1}`,

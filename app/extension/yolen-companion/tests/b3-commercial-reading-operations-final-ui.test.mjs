@@ -44,13 +44,25 @@ function getBlock(
   )
 }
 
+// FASE 16.6 — getRichOperationalSuggestionHtml (o card HTML rico que
+// lia should_change_crm_stage/should_change_agenda diretamente) foi
+// removido por ser código morto (zero chamadores reais desde a
+// recalibração de AGORA na FASE 16.5 — era exclusivo da cadeia
+// getRichCommercialReadingCardHtml, já confirmada ausente em
+// b3-commercial-reading-ui.test.mjs). Os mesmos campos do contrato A4
+// (should_change_crm_stage/recommended_status/should_change_agenda/
+// expected_next_action_at/requires_human_confirmation) continuam
+// vivos em dois lugares distintos: a checagem de "existe mudança
+// operacional?" (hasRichCommercialReadingOperationalChange, coberta em
+// b3-commercial-reading-ui.test.mjs) e o texto de confirmação humana
+// antes de aplicar (buildRichApplyConfirmationText, testado aqui).
 test(
   'B3.5 apresenta CRM e Agenda como operações distintas do contrato A4',
   () => {
     const operational =
       getBlock(
-        'function getRichOperationalSuggestionHtml(',
-        'function getCommercialReadingDisplayText(',
+        'function buildRichApplyConfirmationText(',
+        'function buildApplyConfirmationText()',
       )
 
     assert.match(
@@ -75,17 +87,12 @@ test(
 
     assert.match(
       operational,
-      /requires_human_confirmation/,
+      /CRM:/,
     )
 
     assert.match(
       operational,
-      />\s*CRM\s*</,
-    )
-
-    assert.match(
-      operational,
-      />\s*Agenda\s*</,
+      /Agenda:/,
     )
 
     assert.match(
@@ -234,38 +241,45 @@ test(
   },
 )
 
+// FASE 16.6 — mesma remoção de código morto do teste acima. A garantia
+// "confirmação humana antes de qualquer escrita" agora é verificada
+// diretamente no gate real de aplicação (applyCurrentSuggestion): ele
+// sempre checa canApplyCurrentSuggestion() e sempre passa por
+// window.confirm(buildApplyConfirmationText()) antes de prosseguir —
+// nenhuma chamada à API acontece fora desse fluxo.
 test(
   'B3.5 mantém confirmação humana e não cria escrita automática na UX rica',
   () => {
-    const operational =
+    const confirmationText =
       getBlock(
-        'function getRichOperationalSuggestionHtml(',
-        'function getCommercialReadingDisplayText(',
+        'function buildRichApplyConfirmationText(',
+        'function buildApplyConfirmationText()',
       )
 
     assert.match(
-      operational,
-      /canApplyCurrentSuggestion/,
-    )
-
-    assert.match(
-      operational,
+      confirmationText,
       /Nada será alterado sem sua confirmação/,
     )
 
-    assert.match(
-      operational,
-      /não está disponível nesta leitura/,
-    )
-
     assert.doesNotMatch(
-      operational,
+      confirmationText,
       /evidence_message_ids|memory_ids|contract_version|engine_source/,
     )
 
-    assert.doesNotMatch(
-      operational,
-      /YolenCompanionApi|fetch\(|applyCurrentSuggestion\(/,
+    const applyGate =
+      getBlock(
+        'async function applyCurrentSuggestion()',
+        'function startSessionAutoRefresh()',
+      )
+
+    assert.match(
+      applyGate,
+      /canApplyCurrentSuggestion\(\)/,
+    )
+
+    assert.match(
+      applyGate,
+      /window\.confirm\(\s*buildApplyConfirmationText\(\)\s*\)/,
     )
 
     const actions =
