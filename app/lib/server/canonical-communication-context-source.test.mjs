@@ -762,6 +762,11 @@ test('SLA de estagnação de etapa (escalate): não inventa mensagem pendente do
   assert.equal(context.decision_kind, 'escalate')
   assert.equal(context.communication_goal, 'Agir sobre a estagnação operacional.')
   assert.notEqual(context.communication_goal, 'Responder ao cliente.')
+  // Achado do Codex (PR #281, rodada 7): `escalate` é uma ação
+  // operacional interna (revisar oportunidade/decidir próximo passo),
+  // nunca um pedido de mensagem ao cliente — não pode gerar mensagem só
+  // pela idade da etapa no CRM.
+  assert.equal(context.do_not_generate, true)
 })
 
 // 11. Method deviation: vira restrição de abordagem, não jargão interno.

@@ -929,9 +929,20 @@ export async function loadCanonicalCommunicationContext({
   // `do_not_generate` falso permitiria a um gerador futuro produzir uma
   // mensagem contrariando a própria decisão do Decision State (achado do
   // Codex, PR #281, rodada 1).
+  //
+  // `escalate` tem uma única origem em todo o Decision State
+  // (`buildClientSlaCandidate`, ramo de SLA crítico sem cliente
+  // aguardando) e seu próprio texto já é explícito: "Avaliar a
+  // oportunidade e decidir o próximo passo... não é uma mensagem do
+  // cliente aguardando resposta" — é uma ação operacional interna
+  // (revisar a oportunidade, decidir próximo passo), nunca um pedido de
+  // mensagem ao cliente. Sem essa exclusão, um gerador futuro poderia
+  // produzir uma mensagem não solicitada ao cliente só por causa da
+  // idade da etapa no CRM (achado do Codex, PR #281, rodada 7).
   const doNotGenerate =
     decisionKind === 'no_intervention' ||
-    decisionKind === 'wait'
+    decisionKind === 'wait' ||
+    decisionKind === 'escalate'
 
   const referencedCommitments =
     resolveAllReferencedCommitments(
