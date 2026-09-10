@@ -145,7 +145,11 @@ function buildClientContext({
   cycle_id = CYCLE_ID,
   conversation_key = CONVERSATION_KEY,
   current_status = 'negociacao',
-  generated_at = '2026-09-09T16:59:00.000Z',
+  // loadCompanionClientContext grava generated_at como o próprio
+  // reference_time da chamada (não um timestamp de escrita) — por
+  // padrão igual a REFERENCE_TIME, já que é isso que um client_context
+  // real teria para esta mesma chamada.
+  generated_at = REFERENCE_TIME,
   last_interaction_at = '2026-09-09T16:55:00.000Z',
   sla = {
     configured: false,
@@ -760,6 +764,58 @@ test('compromisso ainda não vencido (futuro) não sobe', async () => {
   assert.notEqual(state.primary_decision.kind, 'follow_up')
 })
 
+test('compromisso ainda proposed (sem aceite bilateral) não é tratado como vencido', async () => {
+  // Achado do Codex (PR #280, rodada 1): 'proposed' é uma proposta
+  // unilateral, não aceita pela outra parte — tratá-la como vencida
+  // inventaria uma obrigação firme que nunca existiu.
+  const admin = createAdminWithCommitments([
+    buildCommitmentMemory({
+      id: 'commit-proposed',
+      summary: 'Proposta de reunião ainda não confirmada.',
+      commitment_status: 'proposed',
+      scheduled_at: '2026-09-09T10:00:00.000Z',
+    }),
+  ])
+
+  const state = await load({ admin })
+
+  assert.notEqual(state.primary_decision.kind, 'follow_up')
+  assert.deepEqual(state.interventions, [])
+})
+
+test('sessão pessoal suprime seller coaching de avanço de venda (deepen_discovery), não só método', async () => {
+  // Achado do Codex (PR #280, rodada 1): a supressão de sinais "de
+  // avanço de venda" durante sessão não comercial cobria apenas
+  // method_adherence/insufficient_information, deixando passar um
+  // seller_coaching gated por decisão de avanço (kind=deepen_discovery)
+  // — reproduzindo o mesmo problema de forçar venda que o filtro
+  // deveria evitar.
+  const reading = buildReading({
+    commercial_relevance: 'non_commercial',
+    improvement_points: [{
+      kind: 'premature_price',
+      summary: 'Vendedor enviou preço antes de entender o impacto.',
+      why_it_matters: 'Proposta sem ancoragem de valor.',
+      impact: 'Risco de objeção de preço sem contexto.',
+      how_to_improve: 'Retomar contexto de impacto antes de negociar condição.',
+      evidence_message_ids: ['m8'],
+      memory_ids: [],
+    }],
+    best_approach: {
+      decision: 'negotiate',
+      reason: 'Análise sugeriria negociar, mas sessão atual é pessoal.',
+      channel: 'text',
+      evidence_message_ids: ['m8'],
+      memory_ids: [],
+    },
+  })
+
+  const state = await load({ current_reading: buildCurrentReading({ reading }) })
+
+  assert.equal(state.primary_decision.kind, 'give_space')
+  assert.deepEqual(state.interventions, [])
+})
+
 // 13. Current Moment novo contradiz memória antiga: Current Moment vence
 // para decisão imediata (a sessão pessoal ainda suprime pitch mesmo com
 // método desviado na leitura atual).
@@ -791,8 +847,48 @@ test('current_moment pessoal vence sobre desvio de método para a decisão imedi
 })
 
 // 14. SLA vencido sem nova mensagem: se fonte existir, intervenção.
-test('SLA em risco alto sobe como decisão principal mesmo sem nova mensagem', async () => {
+test('SLA em risco alto sobe como decisão principal mesmo sem nova mensagem, sem inventar mensagem pendente', async () => {
+  // SLA mede tempo NA ETAPA (companion-client-sla.ts), não "cliente
+  // aguardando resposta" (companion-client-relationship.ts) — achado
+  // do Codex, PR #280, rodada 1. Sem nova mensagem do cliente
+  // (waiting.state !== 'customer_waiting_for_seller'), a decisão deve
+  // descrever estagnação de etapa, nunca reivindicar uma mensagem
+  // pendente inexistente.
   const clientContext = buildClientContext({
+    waiting: {
+      state: 'no_pending_response',
+      waiting_since: null,
+      waiting_duration_ms: null,
+    },
+    sla: {
+      configured: true,
+      applicable: true,
+      stage: 'negociacao',
+      stage_label: 'Negociação',
+      target_minutes: 60,
+      warning_minutes: 90,
+      danger_minutes: 120,
+      elapsed_minutes: 150,
+      risk: 'high',
+    },
+  })
+
+  const state = await load({ client_context: clientContext })
+
+  assert.equal(state.primary_decision.kind, 'escalate')
+  assert.equal(
+    state.operational_signal_availability.sla,
+    'AVAILABLE_NOW',
+  )
+})
+
+test('SLA em risco alto com cliente de fato aguardando resposta sobe como respond', async () => {
+  const clientContext = buildClientContext({
+    waiting: {
+      state: 'customer_waiting_for_seller',
+      waiting_since: '2026-09-09T14:00:00.000Z',
+      waiting_duration_ms: 10800000,
+    },
     sla: {
       configured: true,
       applicable: true,
@@ -809,10 +905,6 @@ test('SLA em risco alto sobe como decisão principal mesmo sem nova mensagem', a
   const state = await load({ client_context: clientContext })
 
   assert.equal(state.primary_decision.kind, 'respond')
-  assert.equal(
-    state.operational_signal_availability.sla,
-    'AVAILABLE_NOW',
-  )
 })
 
 // 15. Agenda vencendo: fonte real de calendário não existe — sinal
@@ -854,6 +946,11 @@ test('múltiplos sinais são ordenados deterministicamente por prioridade', asyn
   ])
 
   const clientContext = buildClientContext({
+    waiting: {
+      state: 'customer_waiting_for_seller',
+      waiting_since: '2026-09-09T14:00:00.000Z',
+      waiting_duration_ms: 10800000,
+    },
     sla: {
       configured: true,
       applicable: true,
@@ -997,6 +1094,34 @@ test('client_context do futuro é tratado como indisponível, não como atual', 
   assert.equal(state.operational_signal_availability.sla, 'NOT_AVAILABLE')
 })
 
+test('client_context de reference_time anterior (não futuro) também é descartado', async () => {
+  // Achado do Codex (PR #280, rodada 1): loadCompanionClientContext
+  // grava generated_at como o próprio reference_time usado para
+  // computar waiting/SLA/CRM — não é um timestamp de escrita que só
+  // precisa ser "não futuro". Um client_context de um reference_time
+  // MAIS ANTIGO (não só mais novo) já é uma fotografia de outro
+  // instante e pode ter perdido um limiar de SLA cruzado desde então.
+  const olderContext = buildClientContext({
+    generated_at: '2026-09-09T16:00:00.000Z',
+    sla: {
+      configured: true,
+      applicable: true,
+      stage: 'negociacao',
+      stage_label: 'Negociação',
+      target_minutes: 60,
+      warning_minutes: 90,
+      danger_minutes: 120,
+      elapsed_minutes: 30,
+      risk: 'low',
+    },
+  })
+
+  const state = await load({ client_context: olderContext })
+
+  assert.equal(state.operational_signal_availability.sla, 'NOT_AVAILABLE')
+  assert.equal(state.provenance.client_context_generated_at, null)
+})
+
 // 23. reference_time histórico: determinístico.
 test('reference_time histórico produz o mesmo resultado de forma determinística', async () => {
   const reading = buildReading({
@@ -1018,7 +1143,7 @@ test('reference_time histórico produz o mesmo resultado de forma determinístic
       state_updated_at: '2026-09-09T11:59:00.000Z',
     }),
     client_context: buildClientContext({
-      generated_at: '2026-09-09T11:59:00.000Z',
+      generated_at: historicalReferenceTime,
       last_interaction_at: '2026-09-09T11:55:00.000Z',
     }),
     reference_time: historicalReferenceTime,
@@ -1044,6 +1169,11 @@ test('current_reading de outro escopo é rejeitado (fail-closed)', async () => {
 // 25. Fonte indisponível: não derruba outras.
 test('current_reading nulo não impede que sinais operacionais decidam', async () => {
   const clientContext = buildClientContext({
+    waiting: {
+      state: 'customer_waiting_for_seller',
+      waiting_since: '2026-09-09T14:00:00.000Z',
+      waiting_duration_ms: 10800000,
+    },
     sla: {
       configured: true,
       applicable: true,

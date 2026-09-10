@@ -107,17 +107,29 @@ const DECISION_STATE_SOURCE_TIEBREAK_ORDER: readonly DecisionStateInterventionSo
 export const DECISION_STATE_SESSION_GAP_MS =
   4 * 60 * 60 * 1000
 
-// Fontes "de avanço de venda" — método/descoberta/decisão padrão da
-// análise. Suprimidas da decisão principal quando a sessão atual não é
+// Candidatos "de avanço de venda" — método/descoberta/decisão padrão da
+// análise. Suprimidos da decisão principal quando a sessão atual não é
 // comercial (mandato §7: sessão pessoal não deve forçar venda, mas não
 // apaga a oportunidade — sinais operacionais objetivos como SLA e
 // compromisso continuam elegíveis).
-function isPitchAdvancingSource(
-  source: DecisionStateInterventionSource,
+//
+// `seller_coaching` é ambíguo por si só: os kinds sempre-urgentes
+// (incorrect_information/poor_objection_handling/missed_commitment/
+// promise_risk, kind='clarify') são corretivos/defensivos, não avançam
+// venda — mas os kinds de risco-no-próximo-passo
+// (premature_price/premature_presentation/advance_without_confirmation,
+// kind='deepen_discovery') só existem quando best_approach já recomenda
+// avançar, então reproduzem o mesmo problema de forçar venda que este
+// filtro existe para evitar (achado do Codex, PR #280, rodada 1).
+// Checar `kind === 'deepen_discovery'` distingue os dois sem precisar
+// de uma nova fonte no enum público.
+function isPitchAdvancingCandidate(
+  candidate: Candidate,
 ): boolean {
   return (
-    source === 'method_adherence' ||
-    source === 'insufficient_information'
+    candidate.source === 'method_adherence' ||
+    candidate.source === 'insufficient_information' ||
+    candidate.kind === 'deepen_discovery'
   )
 }
 
@@ -300,14 +312,28 @@ function compareCandidates(
       : 0
 }
 
+// SLA (companion-client-sla.ts) mede tempo NA ETAPA DE CRM
+// (stage_entered_at até agora) — é um sinal DIFERENTE de "cliente
+// aguardando resposta" (companion-client-relationship.ts), que mede a
+// última mensagem da conversa. Um SLA em risco alto pode coexistir com
+// `waiting.state !== 'customer_waiting_for_seller'` (o vendedor já
+// respondeu, ou não há mensagem pendente de nenhum lado) — nesse caso,
+// recomendar "responder o cliente" inventaria uma mensagem pendente que
+// não existe (achado do Codex, PR #280, rodada 1). Só usa `respond`
+// quando o waiting real confirma o cliente aguardando; caso contrário,
+// descreve o risco de estagnação na etapa sem inventar uma mensagem
+// pendente.
 function buildClientSlaCandidate(
   clientContext: CompanionClientContext | null,
 ): Candidate | null {
+  if (!clientContext) {
+    return null
+  }
+
   const sla =
-    clientContext?.sla
+    clientContext.sla
 
   if (
-    !sla ||
     !sla.configured ||
     !sla.applicable ||
     sla.risk !== 'high'
@@ -315,21 +341,54 @@ function buildClientSlaCandidate(
     return null
   }
 
+  const stageDescription =
+    sla.stage_label
+      ? `etapa "${sla.stage_label}"`
+      : 'etapa atual do ciclo'
+
+  const isCustomerWaiting =
+    clientContext.waiting.state ===
+    'customer_waiting_for_seller'
+
+  if (isCustomerWaiting) {
+    return {
+      source: 'client_sla',
+      priority: 'critical',
+      kind: 'respond',
+
+      summary:
+        'Cliente aguardando resposta acima do limite de SLA.',
+
+      reason:
+        `SLA da ${stageDescription} em risco alto (${sla.elapsed_minutes ?? '?'} min decorridos) e o cliente ainda aguarda resposta.`,
+
+      recommended_action:
+        'Responder o cliente agora para não violar o SLA.',
+
+      evidence_message_ids: [],
+      memory_ids: [],
+
+      observed_at:
+        clientContext.generated_at,
+
+      resolve_condition:
+        'Resolve quando o vendedor responder ao cliente.',
+    }
+  }
+
   return {
     source: 'client_sla',
     priority: 'critical',
-    kind: 'respond',
+    kind: 'escalate',
 
     summary:
-      'Cliente aguardando resposta acima do limite de SLA.',
+      'Oportunidade estagnada na etapa acima do limite de SLA.',
 
     reason:
-      sla.stage_label
-        ? `SLA da etapa "${sla.stage_label}" em risco alto (${sla.elapsed_minutes ?? '?'} min decorridos).`
-        : 'SLA em risco alto para a etapa atual do ciclo.',
+      `SLA da ${stageDescription} em risco alto (${sla.elapsed_minutes ?? '?'} min decorridos), sem mensagem do cliente pendente de resposta.`,
 
     recommended_action:
-      'Responder o cliente agora para não violar o SLA.',
+      'Avaliar a oportunidade e decidir o próximo passo para avançar de etapa — não é uma mensagem do cliente aguardando resposta.',
 
     evidence_message_ids: [],
     memory_ids: [],
@@ -338,7 +397,7 @@ function buildClientSlaCandidate(
       clientContext.generated_at,
 
     resolve_condition:
-      'Resolve quando o vendedor responder ao cliente.',
+      'Resolve quando a etapa avançar ou o SLA for reconfigurado/atendido.',
   }
 }
 
@@ -355,16 +414,17 @@ function buildCycleCommitmentCandidates(
   const referenceInstant =
     Date.parse(referenceTime)
 
-  const overdueStatuses =
-    new Set(['proposed', 'confirmed'])
-
+  // Só 'confirmed' representa aceite bilateral comprovado
+  // (stateful-copilot-execution-plan.ts:1031-1033: uma proposta
+  // permanece 'proposed' até a outra parte aceitar explicitamente).
+  // Tratar um compromisso ainda 'proposed' como vencido inventaria uma
+  // obrigação firme que nunca foi aceita pelo cliente (achado do
+  // Codex, PR #280, rodada 1).
   return cycleMemory.commitments
     .filter(
       (commitment) =>
         commitment.memory_status === 'active' &&
-        overdueStatuses.has(
-          commitment.commitment_status,
-        ) &&
+        commitment.commitment_status === 'confirmed' &&
         typeof commitment.scheduled_at === 'string' &&
         Number.isFinite(
           Date.parse(commitment.scheduled_at),
@@ -871,9 +931,18 @@ export async function loadCanonicalDecisionState({
   }
 
   // client_context é suplementar (fornecido pelo chamador
-  // autenticado) — um mismatch de escopo ou uma leitura futura o
-  // tornam indisponível para esta chamada, mas nunca derrubam o
-  // restante do Decision State.
+  // autenticado) — um mismatch de escopo o torna indisponível para
+  // esta chamada, mas nunca derruba o restante do Decision State.
+  //
+  // `loadCompanionClientContext` grava `generated_at` como o próprio
+  // `reference_time` usado para computar waiting/SLA/CRM
+  // (companion-client-context-loader.ts:1029-1030) — não é um
+  // timestamp de escrita, é o instante EXATO que essas leituras
+  // consideram "agora". Um client_context reusado de OUTRO
+  // reference_time (não só um futuro) já é uma fotografia diferente:
+  // pode ter perdido um limiar de SLA cruzado ou reter um estágio de
+  // CRM já superado. Exigir igualdade exata, não apenas "não é do
+  // futuro" (achado do Codex, PR #280, rodada 1).
   let clientContext = client_context
 
   if (
@@ -883,7 +952,7 @@ export async function loadCanonicalDecisionState({
       clientContext.identity.cycle_id !== cycle_id ||
       clientContext.identity.conversation_key !==
         conversation_key ||
-      Date.parse(clientContext.generated_at) >
+      Date.parse(clientContext.generated_at) !==
         Date.parse(referenceTime)
     )
   ) {
@@ -963,7 +1032,7 @@ export async function loadCanonicalDecisionState({
   if (isNonCommercialMoment) {
     candidates = candidates.filter(
       (candidate) =>
-        !isPitchAdvancingSource(candidate.source),
+        !isPitchAdvancingCandidate(candidate),
     )
   }
 
