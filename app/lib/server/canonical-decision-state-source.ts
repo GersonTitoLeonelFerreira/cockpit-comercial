@@ -123,13 +123,22 @@ export const DECISION_STATE_SESSION_GAP_MS =
 // filtro existe para evitar (achado do Codex, PR #280, rodada 1).
 // Checar `kind === 'deepen_discovery'` distingue os dois sem precisar
 // de uma nova fonte no enum público.
+//
+// `commercial_risk` também é ambíguo: uma objeção do cliente
+// (kind='handle_objection') é sobre retomar/avançar a negociação — a
+// mesma classe de comportamento que este filtro existe para evitar
+// durante uma sessão pessoal (achado do Codex, PR #280, rodada 2). Já
+// um risco de atendimento (kind='confirm_information', ex.: uma
+// promessa em risco) é defensivo/operacional, não sobre avançar venda
+// — continua elegível, igual a SLA e compromisso.
 function isPitchAdvancingCandidate(
   candidate: Candidate,
 ): boolean {
   return (
     candidate.source === 'method_adherence' ||
     candidate.source === 'insufficient_information' ||
-    candidate.kind === 'deepen_discovery'
+    candidate.kind === 'deepen_discovery' ||
+    candidate.kind === 'handle_objection'
   )
 }
 
@@ -171,6 +180,12 @@ export type DecisionStatePrimaryDecision = {
 export type DecisionStateInterventionCard = {
   source: DecisionStateInterventionSource
   priority: DecisionStateInterventionPriority
+
+  // O assunto concreto do candidato (ex.: qual compromisso, qual
+  // objeção) — sem isso, dois cards do mesmo `source` ficam
+  // indistinguíveis para o vendedor (achado do Codex, PR #280,
+  // rodada 2).
+  summary: string
 
   reason: string
   recommended_action: string
@@ -444,8 +459,13 @@ function buildCycleCommitmentCandidates(
         reason:
           `Compromisso agendado para ${commitment.scheduled_at} já venceu.`,
 
+        // O contrato de estado registra aceite bilateral, mas não QUAL
+        // parte assumiu a obrigação — um compromisso confirmado pode
+        // ser do vendedor ou do cliente (ex.: "cliente enviará os
+        // documentos amanhã"). Ação neutra, sem presumir que cabe ao
+        // vendedor cumpri-lo (achado do Codex, PR #280, rodada 2).
         recommended_action:
-          'Cumprir o compromisso ou reagendar explicitamente com o cliente.',
+          'Confirmar com o cliente o andamento do compromisso e reagendar explicitamente se necessário.',
 
         evidence_message_ids:
           commitment.evidence_message_ids,
@@ -664,19 +684,29 @@ function buildSellerCoachingCandidate(
   const bestApproachDecision =
     currentReading.reading.best_approach.decision
 
+  const improvementPoints =
+    currentReading.reading.improvement_points
+
+  // Busca os kinds sempre-urgentes PRIMEIRO — a ordem do array de
+  // improvement_points não é uma garantia de prioridade (achado do
+  // Codex, PR #280, rodada 2). Um `.find()` único na ordem do array
+  // poderia escolher um risco de próximo-passo (medium) antes de um
+  // problema sempre-urgente (high) presente mais adiante no mesmo
+  // array, descartando silenciosamente o mais importante.
   const relevantPoint =
-    currentReading.reading.improvement_points.find(
+    improvementPoints.find(
       (point) =>
         SELLER_COACHING_ALWAYS_URGENT_KINDS.includes(
           point.kind,
-        ) ||
-        (
-          SELLER_COACHING_NEXT_STEP_RISK_KINDS.includes(
-            point.kind,
-          ) &&
-          SELLER_COACHING_ADVANCING_DECISIONS.includes(
-            bestApproachDecision,
-          )
+        ),
+    ) ??
+    improvementPoints.find(
+      (point) =>
+        SELLER_COACHING_NEXT_STEP_RISK_KINDS.includes(
+          point.kind,
+        ) &&
+        SELLER_COACHING_ADVANCING_DECISIONS.includes(
+          bestApproachDecision,
         ),
     )
 
@@ -1042,35 +1072,35 @@ export async function loadCanonicalDecisionState({
     current_reading?.reading.best_approach ??
     null
 
-  let primaryDecision: DecisionStatePrimaryDecision
-
-  const interventions: DecisionStateInterventionCard[] =
-    candidates.slice(1, 3).map(
-      (candidate): DecisionStateInterventionCard => ({
-        source: candidate.source,
-        priority: candidate.priority,
-        reason: candidate.reason,
-        recommended_action: candidate.recommended_action,
-        evidence_message_ids: candidate.evidence_message_ids,
-        memory_ids: candidate.memory_ids,
-        observed_at: candidate.observed_at,
-        resolve_condition: candidate.resolve_condition,
-      }),
-    )
-
-  if (candidates.length > 0) {
-    const top =
-      candidates[0]
-
-    primaryDecision = {
-      kind: top.kind,
-      summary: top.summary,
-      reason: top.reason,
-      recommended_action: top.recommended_action,
-      evidence_message_ids: top.evidence_message_ids,
-      memory_ids: top.memory_ids,
+  function toInterventionCard(
+    candidate: Candidate,
+  ): DecisionStateInterventionCard {
+    return {
+      source: candidate.source,
+      priority: candidate.priority,
+      summary: candidate.summary,
+      reason: candidate.reason,
+      recommended_action: candidate.recommended_action,
+      evidence_message_ids: candidate.evidence_message_ids,
+      memory_ids: candidate.memory_ids,
+      observed_at: candidate.observed_at,
+      resolve_condition: candidate.resolve_condition,
     }
-  } else if (isNonCommercialMoment) {
+  }
+
+  let primaryDecision: DecisionStatePrimaryDecision
+  let interventions: DecisionStateInterventionCard[]
+
+  if (isNonCommercialMoment) {
+    // Mandato §7: `give_space` é sempre a decisão principal numa
+    // sessão pessoal — nunca é superada por um candidato operacional
+    // sobrevivente (SLA/compromisso/risco defensivo, já filtrados de
+    // sinais "de avanço de venda" acima). Esses candidatos não
+    // desaparecem: continuam visíveis como intervenção, só nunca como
+    // decisão principal (achado do Codex, PR #280, rodada 2 — antes,
+    // um candidato operacional de prioridade alta virava a decisão
+    // principal e era removido de `interventions` pelo `slice(1, 3)`,
+    // fazendo AGORA parecer que a sessão pessoal nunca existiu).
     primaryDecision = {
       kind: 'give_space',
 
@@ -1086,6 +1116,24 @@ export async function loadCanonicalDecisionState({
       evidence_message_ids: [],
       memory_ids: [],
     }
+
+    interventions =
+      candidates.slice(0, 2).map(toInterventionCard)
+  } else if (candidates.length > 0) {
+    const top =
+      candidates[0]
+
+    primaryDecision = {
+      kind: top.kind,
+      summary: top.summary,
+      reason: top.reason,
+      recommended_action: top.recommended_action,
+      evidence_message_ids: top.evidence_message_ids,
+      memory_ids: top.memory_ids,
+    }
+
+    interventions =
+      candidates.slice(1, 3).map(toInterventionCard)
   } else if (bestApproach) {
     primaryDecision = {
       kind: bestApproach.decision,
@@ -1103,6 +1151,8 @@ export async function loadCanonicalDecisionState({
       memory_ids:
         bestApproach.memory_ids,
     }
+
+    interventions = []
   } else {
     primaryDecision = {
       kind: 'no_intervention',
@@ -1119,6 +1169,8 @@ export async function loadCanonicalDecisionState({
       evidence_message_ids: [],
       memory_ids: [],
     }
+
+    interventions = []
   }
 
   return {

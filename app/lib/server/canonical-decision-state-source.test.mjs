@@ -816,6 +816,173 @@ test('sessão pessoal suprime seller coaching de avanço de venda (deepen_discov
   assert.deepEqual(state.interventions, [])
 })
 
+test('sessão pessoal suprime objeção comercial (handle_objection), retendo risco defensivo', async () => {
+  // Achado do Codex (PR #280, rodada 2): uma objeção do cliente
+  // (kind='handle_objection') é sobre retomar a negociação — a mesma
+  // classe de comportamento que a supressão de avanço de venda deve
+  // evitar durante sessão pessoal. Um risco de atendimento
+  // (kind='confirm_information', defensivo) continua elegível.
+  const reading = buildReading({
+    commercial_relevance: 'non_commercial',
+    risks: {
+      customer_objections: [{
+        kind: 'price',
+        severity: 'high',
+        summary: 'Objeção bloqueadora de preço.',
+        evidence_message_ids: ['m9'],
+        memory_ids: [],
+      }],
+      service_risks: [{
+        kind: 'promise_at_risk',
+        severity: 'high',
+        summary: 'Prazo prometido ao cliente está em risco.',
+        evidence_message_ids: ['m10'],
+        memory_ids: [],
+      }],
+    },
+  })
+
+  const state = await load({ current_reading: buildCurrentReading({ reading }) })
+
+  assert.equal(state.primary_decision.kind, 'give_space')
+  assert.equal(state.interventions.length, 1)
+  assert.equal(state.interventions[0].source, 'commercial_risk')
+  assert.equal(
+    state.interventions[0].summary,
+    'Prazo prometido ao cliente está em risco.',
+  )
+})
+
+test('sessão pessoal com sinal operacional sobrevivente: give_space continua principal, sinal vira intervenção', async () => {
+  // Achado do Codex (PR #280, rodada 2): antes, um candidato
+  // operacional de prioridade alta (SLA/compromisso) virava a decisão
+  // principal mesmo em sessão pessoal, e era removido de
+  // `interventions` pelo slice(1,3) — fazendo AGORA parecer que a
+  // sessão pessoal nunca existiu. give_space deve permanecer principal;
+  // o sinal operacional deve aparecer como intervenção, não desaparecer.
+  const admin = createAdminWithCommitments([
+    buildCommitmentMemory({
+      id: 'commit-personal',
+      summary: 'Compromisso vencido durante sessão pessoal.',
+      scheduled_at: '2026-09-09T10:00:00.000Z',
+    }),
+  ])
+
+  const reading = buildReading({
+    commercial_relevance: 'non_commercial',
+  })
+
+  const state = await load({
+    admin,
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'give_space')
+  assert.equal(state.interventions.length, 1)
+  assert.equal(state.interventions[0].source, 'cycle_commitment')
+  assert.equal(
+    state.interventions[0].summary,
+    'Compromisso vencido durante sessão pessoal.',
+  )
+})
+
+test('intervention cards preservam o summary do candidato (não só reason genérico)', async () => {
+  // Achado do Codex (PR #280, rodada 2): sem `summary`, um card de
+  // compromisso vencido só dizia "Compromisso agendado para <data> já
+  // venceu", sem revelar QUAL compromisso — inacionável quando há mais
+  // de um candidato do mesmo tipo.
+  const admin = createAdminWithCommitments([
+    buildCommitmentMemory({
+      id: 'commit-a',
+      summary: 'Enviar contrato assinado.',
+      scheduled_at: '2026-09-09T09:00:00.000Z',
+    }),
+    buildCommitmentMemory({
+      id: 'commit-b',
+      summary: 'Confirmar horário da demonstração.',
+      scheduled_at: '2026-09-09T10:00:00.000Z',
+    }),
+  ])
+
+  const clientContext = buildClientContext({
+    waiting: {
+      state: 'customer_waiting_for_seller',
+      waiting_since: '2026-09-09T14:00:00.000Z',
+      waiting_duration_ms: 10800000,
+    },
+    sla: {
+      configured: true,
+      applicable: true,
+      stage: 'negociacao',
+      stage_label: 'Negociação',
+      target_minutes: 60,
+      warning_minutes: 90,
+      danger_minutes: 120,
+      elapsed_minutes: 200,
+      risk: 'high',
+    },
+  })
+
+  const state = await load({ admin, client_context: clientContext })
+
+  assert.equal(state.primary_decision.kind, 'respond')
+  assert.equal(state.interventions.length, 2)
+  assert.ok(
+    state.interventions.some(
+      (i) => i.summary === 'Enviar contrato assinado.',
+    ),
+  )
+  assert.ok(
+    state.interventions.some(
+      (i) => i.summary === 'Confirmar horário da demonstração.',
+    ),
+  )
+})
+
+test('seller coaching sempre-urgente vence sobre risco de próximo-passo, independente da ordem no array', async () => {
+  // Achado do Codex (PR #280, rodada 2): .find() escolhia o primeiro
+  // item do array — se um risco de próximo-passo (medium) aparecesse
+  // ANTES de um problema sempre-urgente (high) no mesmo array, o mais
+  // importante era descartado silenciosamente.
+  const reading = buildReading({
+    improvement_points: [
+      {
+        kind: 'premature_price',
+        summary: 'Preço enviado antes de entender impacto.',
+        why_it_matters: 'Proposta sem ancoragem.',
+        impact: 'Risco de objeção.',
+        how_to_improve: 'Retomar contexto de impacto.',
+        evidence_message_ids: ['m1'],
+        memory_ids: [],
+      },
+      {
+        kind: 'incorrect_information',
+        summary: 'Vendedor informou prazo de entrega errado.',
+        why_it_matters: 'Cliente pode tomar decisão com base em informação falsa.',
+        impact: 'Risco de quebra de confiança.',
+        how_to_improve: 'Corrigir a informação na próxima interação.',
+        evidence_message_ids: ['m2'],
+        memory_ids: [],
+      },
+    ],
+    best_approach: {
+      decision: 'negotiate',
+      reason: 'Cliente negociando condições agora.',
+      channel: 'text',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+  })
+
+  const state = await load({ current_reading: buildCurrentReading({ reading }) })
+
+  assert.equal(state.primary_decision.kind, 'clarify')
+  assert.equal(
+    state.primary_decision.summary,
+    'Vendedor informou prazo de entrega errado.',
+  )
+})
+
 // 13. Current Moment novo contradiz memória antiga: Current Moment vence
 // para decisão imediata (a sessão pessoal ainda suprime pitch mesmo com
 // método desviado na leitura atual).
@@ -931,7 +1098,7 @@ test('commitment vencido produz intervenção com resolve_condition observável'
 
   assert.equal(
     state.primary_decision.recommended_action,
-    'Cumprir o compromisso ou reagendar explicitamente com o cliente.',
+    'Confirmar com o cliente o andamento do compromisso e reagendar explicitamente se necessário.',
   )
 })
 
