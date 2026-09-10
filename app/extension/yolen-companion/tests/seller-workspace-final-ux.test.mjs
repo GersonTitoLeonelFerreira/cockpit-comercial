@@ -31,6 +31,14 @@ test('UX7 dá responsabilidade única para AGORA ANÁLISE CLIENTE', () => {
   assert.match(block, /data-yolen-ux-build="UX7"/)
 })
 
+// FASE 16.5 (recalibração seller-facing do AGORA): getNowAttentionSnapshotHtml
+// não reconstrói mais a decisão a partir da leitura crua — ela consome o
+// AGORA seller-facing view model já pronto (Decision State, FASE 16.3E,
+// traduzido por app/lib/server/agora-view-model.ts e buscado por
+// loadAgoraDecisionStateForCurrentCycle). Os dois testes abaixo foram
+// atualizados para o novo formato — a mesma garantia semântica (no máximo
+// um card duplicando ANÁLISE nunca acontece; decisão de uma conversa
+// trocada nunca fica visível) continua valendo, só a implementação mudou.
 test('AGORA mostra no máximo um alerta relevante, sem duplicar o diagnóstico de ANÁLISE', () => {
   const attentionStart = contentScript.indexOf(
     'function getNowAttentionSnapshotHtml()',
@@ -45,7 +53,7 @@ test('AGORA mostra no máximo um alerta relevante, sem duplicar o diagnóstico d
   assert.notEqual(attentionEnd, -1)
   assert.match(
     attentionBlock,
-    /sellerInformationViewTools\.renderNowAttentionSnapshot\(/,
+    /sellerInformationViewTools\.renderAgoraViewModelSnapshot\(/,
   )
   assert.doesNotMatch(
     attentionBlock,
@@ -53,7 +61,7 @@ test('AGORA mostra no máximo um alerta relevante, sem duplicar o diagnóstico d
   )
 })
 
-test('AGORA só retém a incerteza informativa e nunca reutiliza decisão stale', () => {
+test('AGORA só renderiza a decisão do ciclo/conversa atuais, nunca uma decisão stale', () => {
   const start = contentScript.indexOf(
     'function getNowAttentionSnapshotHtml()',
   )
@@ -64,31 +72,277 @@ test('AGORA só retém a incerteza informativa e nunca reutiliza decisão stale'
   const block =
     contentScript.slice(start, end)
 
+  // Só renderiza quando o AGORA seller-facing view model está pronto.
   assert.match(
     block,
-    /state\.conversationAnalysisLoading/,
+    /state\.agoraDecisionState\?\.status !== 'ready'/,
+  )
+
+  // E só quando ele pertence ao MESMO ciclo/conversa atualmente ativos —
+  // o mesmo guard de escopo que impede uma troca de conversa (A→B) de
+  // deixar visível a decisão da conversa anterior (mandato §24/§25).
+  assert.match(
+    block,
+    /state\.agoraDecisionStateCycleId ===\s*cycleId/,
   )
   assert.match(
     block,
-    /state\.conversationAnalysisError/,
-  )
-  assert.match(
-    block,
-    /isCurrentAnalysisOutdated\(\)/,
-  )
-  assert.match(
-    block,
-    /getLastKnownClientCommercialReading\(\)/,
-  )
-  assert.match(
-    block,
-    /retainedAttention\?\.source !==\s*'commercial_intent_uncertain'/,
-  )
-  assert.doesNotMatch(
-    block,
-    /retainedAttention\?\.source !==\s*'improvement'/,
+    /state\.agoraDecisionStateConversationKey ===\s*conversationKey/,
   )
 })
+
+test(
+  'loadAgoraDecisionStateForCurrentCycle rejeita uma resposta stale mesmo quando ciclo/conversa batem (achado do Codex, PR #283)',
+  () => {
+    // Identidade de escopo (cycleId/conversationKey) sozinha não prova
+    // que uma resposta em voo é a mais recente: uma requisição disparada
+    // ANTES de uma reanálise começar pode resolver DEPOIS da requisição
+    // que a própria reanálise disparou ao terminar, para o MESMO ciclo/
+    // conversa — sem um token de geração monotônico, a resposta antiga
+    // sobrescreveria o resultado fresco.
+    const start = contentScript.indexOf(
+      'async function loadAgoraDecisionStateForCurrentCycle(',
+    )
+    const end = contentScript.indexOf(
+      '\n  }\n\n  // Carrega o working summary factual do lead.',
+      start,
+    )
+    const block = contentScript.slice(start, end)
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    assert.match(
+      block,
+      /requestSequence =\s*\n?\s*\+\+agoraDecisionStateRequestSequence/,
+    )
+    assert.match(
+      block,
+      /requestSequence ===\s*\n?\s*agoraDecisionStateRequestSequence/,
+    )
+  },
+)
+
+test(
+  'AGORA é atualizado quando uma nova mensagem é capturada, não só quando uma nova análise termina (achado do Codex, PR #283, rodada 2)',
+  () => {
+    // Um sinal operacional (ex.: cliente passou a aguardar resposta)
+    // pode mudar com uma mensagem nova sem que nenhuma análise semântica
+    // rode — sem este refresh, AGORA ficaria presa na decisão anterior
+    // até a próxima reanálise bem-sucedida, que pode nunca acontecer se
+    // o vendedor não reanalisar manualmente.
+    const start = contentScript.indexOf(
+      'function notifyCaptureIngestedForClientContext(',
+    )
+    const end = contentScript.indexOf(
+      'async function loadCompanionClientContextForCurrentCycle(',
+      start,
+    )
+    const block = contentScript.slice(start, end)
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    assert.match(
+      block,
+      /loadAgoraDecisionStateForCurrentCycle\(\{\s*\n?\s*force: true,/,
+    )
+  },
+)
+
+test(
+  'AGORA é atualizado periodicamente enquanto o painel está aberto, não só em eventos discretos (achado do Codex, PR #283, rodada 2)',
+  () => {
+    // Decision State é uma fotografia do servidor, não recalculada ao
+    // vivo no cliente (ao contrário do client-context) — sem um refetch
+    // periódico, um SLA que evolui de médio para alto (ou uma espera que
+    // cruza o limiar de atenção) puramente pela passagem do tempo,
+    // deixaria AGORA presa na decisão antiga indefinidamente.
+    const start = contentScript.indexOf(
+      'function startCompanionClientContextTicker(',
+    )
+    const end = contentScript.indexOf(
+      'function getAnalysisCardHtml(',
+      start,
+    )
+    const block = contentScript.slice(start, end)
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    assert.match(
+      block,
+      /state\.agoraDecisionState\s*\n?\s*\?\.status === 'ready'/,
+    )
+    assert.match(
+      block,
+      /loadAgoraDecisionStateForCurrentCycle\(\{\s*\n?\s*force: true,/,
+    )
+  },
+)
+
+test(
+  'AGORA inclui a empresa ativa na ownership da requisição, não só ciclo/conversa (achado do Codex, PR #283, rodada 3)',
+  () => {
+    // Uma troca de empresa ativa (loadYolenSession) enquanto o mesmo chat
+    // do WhatsApp permanece selecionado não muda, por si só,
+    // cycleId/conversationKey — sem capturar e checar também a empresa,
+    // uma resposta em voo (ou um cache "já pronto") da empresa ANTERIOR
+    // continuaria válida para a empresa nova.
+    const start = contentScript.indexOf(
+      'async function loadAgoraDecisionStateForCurrentCycle(',
+    )
+    const end = contentScript.indexOf(
+      '\n  }\n\n  // Carrega o working summary factual do lead.',
+      start,
+    )
+    const block = contentScript.slice(start, end)
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    assert.match(
+      block,
+      /companyIdAtRequest =\s*\n?\s*state\.companyId \|\|\s*\n?\s*null/,
+    )
+    assert.match(
+      block,
+      /agoraDecisionStateCompanyId ===\s*\n?\s*companyIdAtRequest/,
+    )
+    assert.match(
+      block,
+      /companyIdAtRequest ===\s*\n?\s*\(\s*\n?\s*state\.companyId \|\|\s*\n?\s*null\s*\n?\s*\)/,
+    )
+  },
+)
+
+test(
+  'troca de empresa ativa zera o AGORA em cache, para nunca renderizar decisão comercial da empresa anterior (achado do Codex, PR #283, rodada 3)',
+  () => {
+    const start = contentScript.indexOf(
+      'async function loadYolenSession(options = {})',
+    )
+    const end = contentScript.indexOf(
+      'async function waitForVisibleAudioTargetsForRestore()',
+      start,
+    )
+    const block = contentScript.slice(start, end)
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    const companyChangedIndex = block.indexOf('companyChanged')
+    assert.notEqual(companyChangedIndex, -1)
+
+    const spreadBlock = block.slice(companyChangedIndex)
+
+    assert.match(
+      spreadBlock,
+      /agoraDecisionState:\s*\{\s*\n?\s*status:\s*'idle',/,
+    )
+    assert.match(
+      spreadBlock,
+      /agoraDecisionStateCycleId:\s*null,/,
+    )
+    assert.match(
+      spreadBlock,
+      /agoraDecisionStateConversationKey:\s*null,/,
+    )
+    assert.match(
+      spreadBlock,
+      /agoraDecisionStateCompanyId:\s*null,/,
+    )
+  },
+)
+
+test(
+  'rail minimizado escolhe o primeiro sinal acionável (primary, com fallback para secondary) e nunca promove um sinal no_intervention (achado do Codex, PR #283, rodada 3)',
+  () => {
+    // Dois casos reais em que ler só `primary` desalinhava o rail da aba
+    // AGORA expandida: (a) a decisão principal suprimida mas um sinal
+    // secundário real sobrevive (ex.: customer_waiting); (b) um `primary`
+    // não-suprimido com kind 'wait' — mapeado para o status
+    // 'no_intervention', sem ser uma recomendação de ação.
+    const helperStart = contentScript.indexOf(
+      'function pickActionableAgoraSignal(agoraData)',
+    )
+    const helperEnd = contentScript.indexOf(
+      'function getCollapsedCompanionAttentionSnapshot()',
+      helperStart,
+    )
+    const helperBlock = contentScript.slice(helperStart, helperEnd)
+
+    assert.notEqual(helperStart, -1)
+    assert.notEqual(helperEnd, -1)
+
+    assert.match(
+      helperBlock,
+      /primary\.status !== 'no_intervention'/,
+    )
+    assert.match(
+      helperBlock,
+      /secondary\.find\(\s*\n?\s*\(signal\) =>\s*\n?\s*signal &&\s*\n?\s*signal\.status !== 'no_intervention',/,
+    )
+
+    const railStart = contentScript.indexOf(
+      'function getCollapsedCompanionAttentionSnapshot()',
+    )
+    const railEnd = contentScript.indexOf(
+      '// B5_MINIMIZED_INTELLIGENCE_END',
+      railStart,
+    )
+    const railBlock = contentScript.slice(railStart, railEnd)
+
+    assert.notEqual(railStart, -1)
+    assert.notEqual(railEnd, -1)
+
+    assert.match(
+      railBlock,
+      /pickActionableAgoraSignal\(\s*\n?\s*state\.agoraDecisionState\.data,/,
+    )
+    assert.doesNotMatch(
+      railBlock,
+      /state\.agoraDecisionState\.data\?\.primary/,
+    )
+  },
+)
+
+test(
+  'chave do alerta reconhecido no rail é estável entre atualizações periódicas, sem depender de reference_time (achado do Codex, PR #283, rodada 3)',
+  () => {
+    // O refresh periódico (startCompanionClientContextTicker, a cada
+    // 60s) recalcula Decision State e produz um reference_time novo
+    // mesmo quando o sinal em si não mudou — incluir reference_time na
+    // chave fazia a chave divergir de lastAcknowledgedCollapsedAttentionKey
+    // a cada tick e reacender o ponto de notificação sem nenhuma mudança
+    // real no sinal.
+    const railStart = contentScript.indexOf(
+      'function getCollapsedCompanionAttentionSnapshot()',
+    )
+    const railEnd = contentScript.indexOf(
+      '// B5_MINIMIZED_INTELLIGENCE_END',
+      railStart,
+    )
+    const railBlock = contentScript.slice(railStart, railEnd)
+
+    assert.notEqual(railStart, -1)
+    assert.notEqual(railEnd, -1)
+
+    assert.doesNotMatch(
+      railBlock,
+      /reference_time/,
+    )
+
+    assert.match(
+      railBlock,
+      /agoraSignal\.provenance\?\.decision_kind/,
+    )
+    assert.match(
+      railBlock,
+      /agoraSignal\.provenance\?\.source/,
+    )
+  },
+)
 
 test('erro e loading da análise profunda nunca bloqueiam nem aparecem em AGORA', () => {
   const summaryCardStart = contentScript.indexOf(

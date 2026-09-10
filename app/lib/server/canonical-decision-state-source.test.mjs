@@ -2197,3 +2197,113 @@ test('method_coaching suprido explicitamente como null é respeitado, sem nova c
   assert.ok(state)
   assert.equal(state.provenance.agora_updated_at, null)
 })
+
+// FASE 16.5 (recalibração seller-facing do AGORA) — `primary_decision.
+// priority`: prioridade do candidato vencedor quando existe um, `null`
+// nos três casos sem candidato ranqueado por trás (síntese de
+// give_space, passthrough de best_approach, fallback sem fonte
+// nenhuma). Sem este campo, um presenter seller-facing não tem como
+// mostrar a prioridade da decisão principal (mandato §7/§20) sem
+// reconstruir compareCandidates() do zero.
+test('primary_decision.priority reflete a prioridade do candidato vencedor', async () => {
+  const reading = buildReading({
+    risks: {
+      customer_objections: [{
+        kind: 'price',
+        severity: 'high',
+        summary: 'Cliente acha o preço alto e ameaça desistir.',
+        evidence_message_ids: ['m5'],
+        memory_ids: [],
+      }],
+      service_risks: [],
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'handle_objection')
+  assert.equal(state.primary_decision.priority, 'high')
+})
+
+test('primary_decision.priority reflete critical para SLA em risco alto com cliente aguardando', async () => {
+  const state = await load({
+    current_reading: buildCurrentReading({ reading: buildReading() }),
+    client_context: buildClientContext({
+      sla: {
+        configured: true,
+        applicable: true,
+        stage: 'negociacao',
+        stage_label: 'Negociação',
+        target_minutes: 60,
+        warning_minutes: 45,
+        danger_minutes: 90,
+        elapsed_minutes: 120,
+        risk: 'high',
+      },
+      waiting: {
+        state: 'customer_waiting_for_seller',
+        waiting_since: '2026-01-01T10:00:00.000Z',
+        waiting_duration_ms: 3600000,
+      },
+    }),
+  })
+
+  assert.equal(state.primary_decision.source, 'client_sla')
+  assert.equal(state.primary_decision.priority, 'critical')
+})
+
+test('primary_decision.priority é null quando give_space é sintetizado (sem candidato ranqueado)', async () => {
+  const reading = buildReading({
+    commercial_relevance: 'non_commercial',
+    method: buildReading().method,
+    best_approach: {
+      decision: 'present_solution',
+      reason: 'Análise sugeriria avançar, mas sessão atual é pessoal.',
+      channel: 'text',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'give_space')
+  assert.equal(state.primary_decision.source, null)
+  assert.equal(state.primary_decision.priority, null)
+})
+
+test('primary_decision.priority é null no passthrough de best_approach (sem candidato ranqueado)', async () => {
+  const reading = buildReading({
+    commercial_relevance: 'commercial',
+    best_approach: {
+      decision: 'send_material',
+      reason: 'Cliente pediu material sobre o produto.',
+      channel: 'document',
+      evidence_message_ids: ['m10'],
+      memory_ids: [],
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'send_material')
+  assert.equal(state.primary_decision.source, null)
+  assert.equal(state.primary_decision.priority, null)
+})
+
+test('primary_decision.priority é null no fallback sem nenhuma fonte disponível', async () => {
+  const state = await load({
+    current_reading: buildCurrentReading({ reading: buildReading() }),
+    client_context: buildClientContext(),
+  })
+
+  assert.equal(state.primary_decision.kind, 'no_intervention')
+  assert.equal(state.primary_decision.source, null)
+  assert.equal(state.primary_decision.priority, null)
+})

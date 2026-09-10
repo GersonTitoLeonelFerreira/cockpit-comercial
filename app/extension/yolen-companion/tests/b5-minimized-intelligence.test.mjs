@@ -192,9 +192,17 @@ test(
 test(
   'minimizado reutiliza a mesma prioridade de AGORA e mantém um único indicador',
   () => {
+    // FASE 16.5 (recalibração seller-facing do AGORA + achado do Codex,
+    // PR #283, rodada 3): o rail minimizado não reconstrói mais a
+    // prioridade a partir da leitura crua — ele lê o mesmo sinal
+    // acionável do AGORA seller-facing view model (Decision State,
+    // FASE 16.3E) que o painel expandido usa (primary quando não é
+    // no_intervention, senão o primeiro secondary — ver
+    // pickActionableAgoraSignal), nunca uma segunda decisão
+    // independente.
     assert.match(
       b5Block,
-      /resolveSellerAttentionSnapshot\(/,
+      /pickActionableAgoraSignal\(\s*\n?\s*state\.agoraDecisionState\.data,/,
     )
 
     assert.match(
@@ -210,6 +218,28 @@ test(
     assert.match(
       b5Block,
       /const attention =[\s\S]*candidates\[0\]/,
+    )
+  },
+)
+
+test(
+  'guard do rail minimizado compara contra a mesma chave de conversa usada para buscar o AGORA view model (achado do Codex, PR #283)',
+  () => {
+    // getCaptureConversationKey() (telefone canônico) é a chave que
+    // loadAgoraDecisionStateForCurrentCycle() de fato grava em
+    // agoraDecisionStateConversationKey — state.conversationKey é uma
+    // chave de identidade por título/DOM, de um namespace diferente.
+    // Comparar contra state.conversationKey nunca bate para uma conversa
+    // 1:1 resolvida, então isCurrentAgoraContext ficaria sempre falso e
+    // o rail nunca acenderia nenhum alerta de AGORA, nem os críticos.
+    assert.match(
+      b5Block,
+      /agoraDecisionStateConversationKey ===\s*getCaptureConversationKey\(\)/,
+    )
+
+    assert.doesNotMatch(
+      b5Block,
+      /agoraDecisionStateConversationKey ===\s*state\.conversationKey/,
     )
   },
 )

@@ -215,6 +215,17 @@
   // sem isso, uma resposta antiga da MESMA conversa poderia vencer uma
   // resposta mais nova (ex.: duplo clique em "Analisar agora").
   let conversationAnalysisRequestSequence = 0
+  // FASE 16.5 — mesmo padrão acima, mas para o AGORA seller-facing view
+  // model: identidade de escopo (cycleId/conversationKey) sozinha não
+  // basta para saber se uma resposta em voo ainda é a mais recente — uma
+  // requisição disparada ANTES de uma reanálise começar (mesmo ciclo/
+  // conversa) pode resolver DEPOIS da requisição disparada pela própria
+  // reanálise ao terminar, e sobrescrever um resultado fresco com um
+  // stale (achado do Codex, PR #283). Incrementado a cada chamada de
+  // loadAgoraDecisionStateForCurrentCycle(), qualquer que seja a
+  // conversa; só a chamada cujo requestSequence capturado ainda é o mais
+  // recente pode aplicar seu resultado.
+  let agoraDecisionStateRequestSequence = 0
   // Identidade explícita da tentativa que hoje é dona do loading —
   // { requestSequence, cycleId, conversationKey, source: 'manual'|'automatic' }
   // ou null quando não há nenhuma em voo. Preenchida no início de
@@ -558,6 +569,21 @@
     },
     companionClientContextCycleId: null,
     companionClientContextConversationKey: null,
+    // FASE 16.5 — AGORA seller-facing view model (Decision State
+    // canônico). Mesmo padrão de três campos de companionClientContext
+    // acima: status/dado + par cycleId/conversationKey para o mesmo
+    // guard de escopo (isCurrentAgoraContext) usado antes de renderizar.
+    agoraDecisionState: {
+      status: 'idle',
+    },
+    agoraDecisionStateCycleId: null,
+    agoraDecisionStateConversationKey: null,
+    // FASE 16.5 (rodada 3 do Codex): identidade da EMPRESA sob a qual o
+    // AGORA atual foi carregado — mesmo par cycleId/conversationKey não
+    // basta para provar que o dado pertence à empresa ativa (achado do
+    // Codex, PR #283): ver loadAgoraDecisionStateForCurrentCycle e o
+    // bloco companyChanged de loadYolenSession.
+    agoraDecisionStateCompanyId: null,
     companionLeadSummary: {
       status: 'idle',
     },
@@ -6037,6 +6063,12 @@
       },
       companionClientContextCycleId: null,
       companionClientContextConversationKey: null,
+      agoraDecisionState: {
+        status: 'idle',
+      },
+      agoraDecisionStateCycleId: null,
+      agoraDecisionStateConversationKey: null,
+      agoraDecisionStateCompanyId: null,
       companionLeadSummary: {
         status: 'idle',
       },
@@ -11475,6 +11507,17 @@
         // O cache é invalidado no wrapper de ingestão e este refresh
         // debounced evita manter na tela um resumo anterior ao novo lote.
         void loadCompanionLeadSummaryForCurrentCycle()
+
+        // FASE 16.5 (achado do Codex, rodada 2): uma mensagem nova pode
+        // criar ou alterar um sinal operacional que Decision State usa
+        // (ex.: cliente passou a aguardar resposta) sem que nenhuma nova
+        // análise semântica tenha rodado — sem este refresh, AGORA
+        // ficaria presa na decisão calculada antes da mensagem chegar
+        // até a próxima análise bem-sucedida (que pode nunca acontecer
+        // se o vendedor não reanalisar manualmente).
+        void loadAgoraDecisionStateForCurrentCycle({
+          force: true,
+        })
       }, COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS)
   }
 
@@ -11621,6 +11664,171 @@
               error.message
                 ? error.message
                 : 'Não foi possível carregar o relacionamento com o cliente.',
+          },
+        }
+
+        renderPanel()
+      }
+    }
+  }
+
+  // FASE 16.5 — AGORA seller-facing view model (Decision State canônico,
+  // FASE 16.3E, traduzido por app/lib/server/agora-view-model.ts).
+  // Mesmo padrão de três estados e mesmo guard de escopo
+  // (isStillCurrentContext) de loadCompanionClientContextForCurrentCycle
+  // acima — deliberadamente o mesmo desenho, não um novo: cross-
+  // conversation stale render é o mesmo risco de segurança nos dois
+  // casos (mandato §24/§25).
+  async function loadAgoraDecisionStateForCurrentCycle(
+    options = {},
+  ) {
+    const force =
+      options.force === true
+
+    // Toda chamada — mesmo a que sai cedo por falta de ciclo/conversa —
+    // invalida qualquer requisição anterior ainda em voo: identidade de
+    // escopo (cycleId/conversationKey) sozinha não prova que uma
+    // resposta é a mais recente, porque uma reanálise pode disparar uma
+    // nova chamada para o MESMO ciclo/conversa antes da anterior
+    // resolver (achado do Codex, PR #283).
+    const requestSequence =
+      ++agoraDecisionStateRequestSequence
+
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    // Identidade da EMPRESA no momento da requisição (mesmo padrão de
+    // companyIdAtRequest usado por scheduleConversationAnalysis/
+    // startDeepAnalysisPolling): cycleId/conversationKey sozinhos não
+    // provam que o dado pertence à empresa ativa — uma troca de empresa
+    // ativa (loadYolenSession) enquanto o mesmo chat do WhatsApp
+    // permanece selecionado não muda, por si só, cycleId/conversationKey
+    // (achado do Codex, PR #283, rodada 3). Guardado tanto no closure
+    // (isStillCurrentContext) quanto em `state`, para que uma resposta
+    // "já pronta" (alreadyReady) de uma empresa anterior nunca seja
+    // reaproveitada silenciosamente para a empresa nova.
+    const companyIdAtRequest =
+      state.companyId ||
+      null
+
+    if (!cycleId || !conversationKey) {
+      state = {
+        ...state,
+        agoraDecisionState: {
+          status: 'idle',
+        },
+        agoraDecisionStateCycleId:
+          null,
+        agoraDecisionStateConversationKey:
+          null,
+        agoraDecisionStateCompanyId:
+          null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    const isSameContext =
+      state.agoraDecisionStateCycleId ===
+        cycleId &&
+      state.agoraDecisionStateConversationKey ===
+        conversationKey &&
+      state.agoraDecisionStateCompanyId ===
+        companyIdAtRequest
+
+    const alreadyReady =
+      isSameContext &&
+      state.agoraDecisionState
+        ?.status === 'ready'
+
+    if (alreadyReady && !force) {
+      return
+    }
+
+    state = {
+      ...state,
+      agoraDecisionStateCycleId:
+        cycleId,
+      agoraDecisionStateConversationKey:
+        conversationKey,
+      agoraDecisionStateCompanyId:
+        companyIdAtRequest,
+    }
+
+    const isStillCurrentContext =
+      () =>
+        requestSequence ===
+          agoraDecisionStateRequestSequence &&
+        state.agoraDecisionStateCycleId ===
+          cycleId &&
+        state.agoraDecisionStateConversationKey ===
+          conversationKey &&
+        state.agoraDecisionStateCompanyId ===
+          companyIdAtRequest &&
+        companyIdAtRequest ===
+          (
+            state.companyId ||
+            null
+          )
+
+    try {
+      const result =
+        await window.YolenCompanionApi
+          .loadDecisionState({
+            cycle_id: cycleId,
+            conversation_key:
+              conversationKey,
+          })
+
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (
+        !result?.ok ||
+        !result.payload?.ok
+      ) {
+        // Igual ao client-context: uma falha transitória de busca em
+        // segundo plano nunca substitui um AGORA já pronto por um erro —
+        // fica quieto (idle) na primeira tentativa, ou mantém os dados
+        // bons já exibidos numa atualização silenciosa.
+        if (!alreadyReady) {
+          state = {
+            ...state,
+            agoraDecisionState: {
+              status: 'idle',
+            },
+          }
+
+          renderPanel()
+        }
+
+        return
+      }
+
+      state = {
+        ...state,
+        agoraDecisionState: {
+          status: 'ready',
+          data: result.payload.data,
+        },
+      }
+
+      renderPanel()
+    } catch {
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (!alreadyReady) {
+        state = {
+          ...state,
+          agoraDecisionState: {
+            status: 'idle',
           },
         }
 
@@ -11908,6 +12116,26 @@
         ) {
           renderPanel()
         }
+
+        // FASE 16.5 (achado do Codex, rodada 2): ao contrário do
+        // client-context (cujo tempo decorrido a própria UI recalcula
+        // localmente a cada render), o AGORA seller-facing view model é
+        // uma fotografia do servidor — sem um refetch periódico, um SLA
+        // que evolui de médio para alto (ou um cliente que passa a
+        // aguardar por tempo suficiente) puramente pela passagem do
+        // tempo, sem nenhuma mensagem nova nem reanálise, deixaria AGORA
+        // presa na decisão antiga indefinidamente. Só refaz a busca
+        // quando já existe um AGORA carregado (não força a primeira
+        // busca por aqui, isso já é responsabilidade dos outros dois
+        // pontos de disparo).
+        if (
+          state.agoraDecisionState
+            ?.status === 'ready'
+        ) {
+          void loadAgoraDecisionStateForCurrentCycle({
+            force: true,
+          })
+        }
       }, COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS)
   }
 
@@ -12146,73 +12374,39 @@
   // pode desaparecer quando o painel é expandido. Fica quieto (string
   // vazia) sem sinal útil; nunca duplica o diagnóstico completo, que
   // continua exclusivo de ANÁLISE.
+  // FASE 16.5 (recalibração seller-facing do AGORA): a decisão não é mais
+  // reconstruída aqui a partir da leitura crua — vem pronta do AGORA
+  // seller-facing view model (Decision State, FASE 16.3E, traduzido por
+  // app/lib/server/agora-view-model.ts e buscado por
+  // loadAgoraDecisionStateForCurrentCycle). Igual ao guard de
+  // isCurrentAnalysisOutdated(), a checagem de escopo abaixo garante que
+  // uma troca de conversa nunca deixa a decisão da conversa anterior
+  // visível (mandato §24/§25 — isolamento cross-conversation/cross-lead).
   function getNowAttentionSnapshotHtml() {
-    const commercialReading =
-      getActiveCommercialReading()
-
-    const renderOptions = {
-      now: Date.now(),
-      cycleClosed:
-        state.leadResolution?.flags?.is_closed === true,
-    }
-
-    const hasCurrentReading =
-      Boolean(commercialReading) &&
-      !state.conversationAnalysisLoading &&
-      !isCurrentAnalysisOutdated() &&
-      commercialReading.analysis_status === 'complete'
-
-    if (hasCurrentReading) {
-      return sellerInformationViewTools.renderNowAttentionSnapshot(
-        commercialReading,
-        state.companionClientContext,
-        renderOptions,
-      )
-    }
-
-    if (
-      state.conversationAnalysisLoading ||
-      state.conversationAnalysisError ||
-      isCurrentAnalysisOutdated()
-    ) {
+    if (state.agoraDecisionState?.status !== 'ready') {
       return ''
     }
 
-    // Fallback exclusivamente informativo: um re-render comum do painel
-    // pode perder a referência ativa sem que a conversa tenha mudado.
-    // Nessa situação, AGORA pode manter apenas a incerteza de intenção
-    // comercial já validada para a mesma empresa/ciclo/conversa/fingerprint.
-    // Nunca reutiliza ação, objeção, risco ou coaching anterior.
-    const retainedReading =
-      getLastKnownClientCommercialReading()
+    const cycleId =
+      state.leadResolution?.cycle?.id
 
-    if (
-      !retainedReading ||
-      retainedReading.analysis_status !==
-        'complete'
-    ) {
+    const conversationKey =
+      getCaptureConversationKey()
+
+    const isCurrentContext =
+      state.agoraDecisionStateCycleId ===
+        cycleId &&
+      state.agoraDecisionStateConversationKey ===
+        conversationKey &&
+      state.agoraDecisionStateCompanyId ===
+        (state.companyId || null)
+
+    if (!isCurrentContext) {
       return ''
     }
 
-    const retainedAttention =
-      sellerInformationViewTools
-        .resolveSellerAttentionSnapshot(
-          retainedReading,
-          state.companionClientContext,
-          renderOptions,
-        )
-
-    if (
-      retainedAttention?.source !==
-      'commercial_intent_uncertain'
-    ) {
-      return ''
-    }
-
-    return sellerInformationViewTools.renderNowAttentionSnapshot(
-      retainedReading,
-      state.companionClientContext,
-      renderOptions,
+    return sellerInformationViewTools.renderAgoraViewModelSnapshot(
+      state.agoraDecisionState.data,
     )
   }
 
@@ -13500,6 +13694,40 @@
     }
   }
 
+  // FASE 16.5 (achado do Codex, PR #283, rodada 3) — o rail minimizado
+  // (getCollapsedCompanionAttentionSnapshot) e a aba AGORA expandida
+  // (getNowAttentionSnapshotHtml/renderAgoraViewModelSnapshot) precisam
+  // concordar sobre qual é "o" sinal acionável do momento: nem sempre é
+  // `primary` — ver AgoraViewModel.primary/secondary em
+  // app/lib/server/agora-view-model.ts. `status: 'no_intervention'` (seja
+  // por `wait` mapeado para essa categoria de tom, seja em teoria por
+  // qualquer outro kind que caia nela) nunca é "ação recomendada agora",
+  // então nunca deve ser promovido a ponto de atenção no rail.
+  function pickActionableAgoraSignal(agoraData) {
+    const primary =
+      agoraData?.primary
+
+    if (
+      primary &&
+      primary.status !== 'no_intervention'
+    ) {
+      return primary
+    }
+
+    const secondary =
+      Array.isArray(agoraData?.secondary)
+        ? agoraData.secondary
+        : []
+
+    return (
+      secondary.find(
+        (signal) =>
+          signal &&
+          signal.status !== 'no_intervention',
+      ) || null
+    )
+  }
+
   // B5_MINIMIZED_INTELLIGENCE_START
   function getCollapsedCompanionAttentionSnapshot() {
     if (
@@ -13563,53 +13791,87 @@
       }, 500)
     }
 
-    const sellerAttention =
-      hasCurrentReading
-        ? sellerInformationViewTools
-            .resolveSellerAttentionSnapshot(
-              commercialReading,
-              state.companionClientContext,
-              {
-                now: Date.now(),
-                cycleClosed:
-                  state.leadResolution
-                    ?.flags
-                    ?.is_closed === true,
-              },
-            )
+    // FASE 16.5 (recalibração seller-facing do AGORA): a mesma decisão
+    // primária que o painel expandido mostra (AgoraViewModel.primary,
+    // Decision State traduzido por agora-view-model.ts) — nunca uma
+    // segunda reconstrução independente a partir da leitura crua. Mesmo
+    // guard de escopo de getNowAttentionSnapshotHtml, para não acender o
+    // rail com a decisão de uma conversa que já foi trocada.
+    const isCurrentAgoraContext =
+      state.agoraDecisionState?.status === 'ready' &&
+      state.agoraDecisionStateCycleId ===
+        state.leadResolution?.cycle?.id &&
+      state.agoraDecisionStateConversationKey ===
+        getCaptureConversationKey() &&
+      state.agoraDecisionStateCompanyId ===
+        (state.companyId || null)
+
+    // FASE 16.5 (achado do Codex, PR #283, rodada 3): ler só `primary`
+    // desalinha o rail da aba AGORA expandida em dois casos reais —
+    // (a) a decisão principal foi suprimida (`primary === null`,
+    // `primaryIsSuppressed` em agora-view-model.ts) mas um sinal
+    // secundário real sobrevive (ex.: `customer_waiting`), e o rail
+    // ficava mudo mesmo com AGORA mostrando um sinal visível; (b) um
+    // `primary` não-suprimido pode ainda assim carregar `kind: 'wait'`
+    // (passthrough de `best_approach`, sem candidato operacional/risco
+    // priorizado por cima) — mapeado para o status `no_intervention`
+    // (não é uma recomendação de ação) com `priority: null`, que o
+    // fallback de `ranks` abaixo promovia para um ponto de
+    // "recomendação" indevido. `pickActionableAgoraSignal` escolhe o
+    // primeiro sinal realmente acionável — primary quando não é
+    // `no_intervention`, senão o primeiro item de secondary — igual ao
+    // que a aba expandida já mostra.
+    const agoraSignal =
+      isCurrentAgoraContext
+        ? pickActionableAgoraSignal(
+            state.agoraDecisionState.data,
+          )
         : null
 
-    if (sellerAttention) {
+    if (agoraSignal) {
       const levels = {
         critical: 'risk',
         high: 'attention',
         medium: 'recommendation',
+        low: 'information',
       }
 
       const ranks = {
         critical: 400,
         high: 300,
         medium: 200,
+        low: 150,
       }
 
       addCandidate({
         level:
-          levels[
-            sellerAttention.priority
-          ],
+          levels[agoraSignal.priority] ||
+          'recommendation',
+        // FASE 16.5 (achado do Codex, PR #283, rodada 3): a chave NÃO
+        // pode incluir o timestamp de recálculo do Decision State — o
+        // refresh periódico (startCompanionClientContextTicker, a cada
+        // 60s) gera um timestamp novo mesmo quando o sinal em si não
+        // mudou nada, o que fazia a chave divergir de
+        // `lastAcknowledgedCollapsedAttentionKey` a cada tick e reacender
+        // o ponto de notificação para um vendedor que já tinha aberto/
+        // fechado o painel. A identidade do sinal (decision_kind/source/
+        // status/priority/headline, via provenance) só muda quando a
+        // decisão em si muda.
         key:
           [
             'seller-attention',
             state.conversationKey,
-            state.analyzedConversationFingerprint,
-            sellerAttention.source,
-            sellerAttention.priority,
+            agoraSignal.status,
+            agoraSignal.priority,
+            agoraSignal.provenance?.decision_kind,
+            agoraSignal.provenance?.source,
+            agoraSignal.headline,
           ]
             .filter(Boolean)
             .join(':'),
         label:
-          sellerAttention.copy,
-      }, ranks[sellerAttention.priority])
+          agoraSignal.headline,
+      }, ranks[agoraSignal.priority] || 200)
     }
 
     if (
@@ -14427,6 +14689,22 @@
               deepAnalysisResult: null,
               lastKnownCommercialReading: null,
               lastKnownCommercialReadingContext: null,
+              // FASE 16.5 (achado do Codex, PR #283, rodada 3): sem isto,
+              // um AGORA "ready" carregado sob a empresa anterior fica
+              // renderável até a próxima resolução de lead da empresa
+              // nova terminar — cycleId/conversationKey sozinhos não
+              // mudam só porque a empresa ativa mudou, e o mesmo chat do
+              // WhatsApp pode continuar selecionado. Zerar aqui força
+              // getNowAttentionSnapshotHtml/getCollapsedCompanionAttentionSnapshot
+              // a ficarem quietos até loadAgoraDecisionStateForCurrentCycle
+              // buscar dado novo, já sob companyIdAtRequest da empresa
+              // nova.
+              agoraDecisionState: {
+                status: 'idle',
+              },
+              agoraDecisionStateCycleId: null,
+              agoraDecisionStateConversationKey: null,
+              agoraDecisionStateCompanyId: null,
             }
           : {}),
       }
@@ -14792,6 +15070,13 @@
           // precisa esperar o debounce da análise automática.
           void loadCompanionClientContextForCurrentCycle()
           void loadCompanionLeadSummaryForCurrentCycle()
+
+          // AGORA (Decision State) já reflete qualquer leitura comercial
+          // persistida anteriormente para este ciclo/conversa, mesmo
+          // antes da nova análise automática concluir — atualizado de
+          // novo quando essa análise terminar (ver runTick, status
+          // 'succeeded').
+          void loadAgoraDecisionStateForCurrentCycle()
         })
     } catch (error) {
       retainedPreResolutionCaptures.delete(
@@ -15502,6 +15787,15 @@
         }
 
         renderPanel()
+
+        // Nova leitura comercial persistida — Decision State (e, por
+        // consequência, o AGORA seller-facing view model) pode ter
+        // mudado. `force: true` porque um estado "ready" antigo do
+        // mesmo ciclo/conversa não deve ser tratado como já atualizado.
+        void loadAgoraDecisionStateForCurrentCycle({
+          force: true,
+        })
+
         return
       }
 
@@ -15701,6 +15995,22 @@
       pendingSuggestedMessageSend: null,
       pendingSuggestedMessageSendRegistering: false,
       lastAnalysisAudioCount: getPendingAudioCountForCurrentConversation(),
+
+      // FASE 16.5 (recalibração seller-facing do AGORA): uma nova
+      // tentativa de análise começando precisa "zerar" AGORA junto com
+      // conversationAnalysis — senão AGORA continuaria mostrando a
+      // decisão da tentativa ANTERIOR como se fosse atual enquanto a
+      // nova tentativa ainda está em voo (mandato §24: loading não pode
+      // parecer decisão). O guard de escopo em getNowAttentionSnapshotHtml
+      // já usa estes dois campos para saber se o dado é do ciclo/
+      // conversa certos; aqui eles são zerados para também refletir
+      // "esta tentativa específica ainda não tem resposta", não só
+      // "conversa errada".
+      agoraDecisionState: {
+        status: 'idle',
+      },
+      agoraDecisionStateCycleId: null,
+      agoraDecisionStateConversationKey: null,
     }
 
     renderPanel()

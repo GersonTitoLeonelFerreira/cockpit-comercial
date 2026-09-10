@@ -481,6 +481,17 @@ async function handleCompanionMessage(message) {
 
   if (
     message.action ===
+    'LOAD_DECISION_STATE'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/decision-state',
+      message.payload,
+    )
+  }
+
+  if (
+    message.action ===
     'LOAD_METHOD_GUIDANCE'
   ) {
     return requestYolenWithToken(

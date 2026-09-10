@@ -160,7 +160,7 @@ test('sessões non-commercial e uncertain permanecem neutras', () => {
   assert.equal(view.isNeutralCommercialSession(uncertain), true)
   assert.match(view.getNeutralSessionCopy(nonCommercial).title, /sem evidência comercial relevante/i)
   assert.match(view.getNeutralSessionCopy(uncertain).title, /evidência comercial suficiente/i)
-  assert.match(view.renderAnalysisArea(nonCommercial), /não possui análise comercial atual/i)
+  assert.match(view.renderAnalysisArea(nonCommercial), /sem evidência comercial relevante/i)
   assert.doesNotMatch(view.renderAnalysisArea(nonCommercial), /Pontos de melhoria|Método Consultivo/)
 })
 
@@ -350,347 +350,226 @@ test('Cliente agrupa somente dados existentes e mantém detalhe sob demanda', ()
   assert.equal(view.renderClientCommercialArea(empty), '')
 })
 
-test('AGORA mostra somente o alerta de maior prioridade e deixa o detalhe do método em ANÁLISE', () => {
+// FASE 16.5 (recalibração seller-facing do AGORA): resolveSellerAttentionSnapshot
+// e renderNowAttentionSnapshot foram removidos — eram uma segunda
+// implementação, independente e já divergente, da mesma priorização que
+// Decision State (canonical-decision-state-source.ts, FASE 16.3E) já
+// computa server-side (achado da auditoria da FASE 16.5). A lógica de
+// candidato/prioridade agora vive só em
+// app/lib/server/canonical-decision-state-source.ts (66 testes) e
+// app/lib/server/agora-view-model.ts (39 testes) — este arquivo passou a
+// testar só a RENDERIZAÇÃO do AgoraViewModel já pronto
+// (renderAgoraViewModelSnapshot), não mais a decisão em si.
+
+function buildAgoraSignal(overrides = {}) {
+  return {
+    status: 'respond',
+    priority: 'high',
+    headline: 'Cliente perguntou o prazo de implantação.',
+    action: 'Confirmar o prazo de implantação com o cliente.',
+    provenance: {
+      decision_kind: 'respond',
+      source: 'customer_waiting',
+      evidence_message_ids: ['message-1'],
+      memory_ids: [],
+    },
+    ...overrides,
+  }
+}
+
+function buildAgoraViewModel(overrides = {}) {
+  return {
+    silent: false,
+    silent_reason: null,
+    primary: buildAgoraSignal(),
+    secondary: [],
+    reference_time: '2026-08-22T12:00:00.000Z',
+    ...overrides,
+  }
+}
+
+test('AGORA mostra somente o alerta primário quando não há secundários, e deixa o detalhe do método em ANÁLISE', () => {
   const reading = buildReading()
   reading.improvement_points = []
   reading.method.adherence.status = 'off_method'
   reading.method.adherence.summary = 'Preço antes do diagnóstico.'
 
-  const contextState = {
-    status: 'ready',
-    data: {
-      sla: {
-        configured: true,
-        applicable: true,
-        risk: 'high',
-        stage: 'contato',
-        stage_label: 'Contato',
+  const agoraViewModel = buildAgoraViewModel({
+    primary: buildAgoraSignal({
+      status: 'escalate',
+      priority: 'critical',
+      headline: 'Oportunidade estagnada na etapa acima do limite de SLA.',
+      action: 'Avaliar a oportunidade e decidir o próximo passo.',
+      provenance: {
+        decision_kind: 'escalate',
+        source: 'client_sla',
+        evidence_message_ids: [],
+        memory_ids: [],
       },
-    },
-  }
+    }),
+  })
 
   const method = view.renderNowMethodSnapshot(reading)
-  const attention = view.renderNowAttentionSnapshot(reading, contextState)
+  const attention = view.renderAgoraViewModelSnapshot(agoraViewModel)
 
   assert.match(method, /Diagnóstico · Ativa/)
   assert.doesNotMatch(method, /Fora do método/)
-  assert.match(attention, /data-yolen-now-attention="sla"/)
+  assert.match(attention, /data-yolen-now-attention="escalate"/)
   assert.match(attention, /data-yolen-alert-priority="critical"/)
   assert.doesNotMatch(attention, /data-yolen-now-attention="off_method"/)
-  assert.doesNotMatch(attention, /considera o preço alto/)
   assert.equal((attention.match(/data-yolen-now-attention=/g) || []).length, 1)
 })
 
-function buildQuietReading(overrides = {}) {
-  const reading = buildReading(overrides)
-  reading.improvement_points = []
-  reading.risks.service_risks = []
-  reading.customer.open_questions = []
-  reading.customer.objections = []
-  reading.risks.customer_objections = []
-  reading.best_approach.decision = 'deepen_discovery'
-  reading.communication.intervention_needed = false
-  reading.communication.recommended_question = null
-  reading.communication.recommended_message = null
-  return reading
-}
-
-function contextWith({
-  waitingState = 'no_pending_response',
-  waitingDurationMs = null,
-  slaConfigured = false,
-  slaRisk = null,
-  elapsedMinutes = null,
-  warningMinutes = null,
-  dangerMinutes = null,
-} = {}) {
-  return {
-    status: 'ready',
-    data: {
-      generated_at: '2026-08-22T12:00:00.000Z',
-      waiting: {
-        state: waitingState,
-        waiting_duration_ms: waitingDurationMs,
-      },
-      sla: {
-        configured: slaConfigured,
-        applicable: true,
-        risk: slaRisk,
-        stage: 'contato',
-        stage_label: 'Contato',
-        elapsed_minutes: elapsedMinutes,
-        target_minutes: 60,
-        warning_minutes: warningMinutes,
-        danger_minutes: dangerMinutes,
-      },
-    },
-  }
-}
-
-test('resolvedor fica quieto sem sinal útil e cria um único alerta quando necessário', () => {
-  const reading = buildQuietReading()
-
-  assert.equal(view.resolveSellerAttentionSnapshot(reading, null), null)
-  assert.equal(view.renderNowAttentionSnapshot(reading, null), '')
-
-  reading.method.adherence.status = 'off_method'
-  const attention = view.resolveSellerAttentionSnapshot(reading, null)
-
-  assert.deepEqual(attention, {
-    priority: 'high',
-    source: 'off_method',
-    label: 'Atenção · Método',
-    copy: 'Você saiu do método.',
-  })
-})
-
-test('crítico vence alto e médio independentemente da ordem dos sinais', () => {
-  const reading = buildQuietReading()
-  reading.method.adherence.status = 'off_method'
-  reading.improvement_points = [
-    {
-      kind: 'insufficient_discovery',
-      summary: 'Ainda falta aprofundar o impacto.',
-    },
-  ]
-  reading.risks.service_risks = [
-    {
-      kind: 'promise_risk',
-      severity: 'high',
-      summary: 'A promessa apresentada não está sustentada.',
-    },
-  ]
-
-  const attention = view.resolveSellerAttentionSnapshot(reading, null)
-
-  assert.equal(attention.source, 'service_risk')
-  assert.equal(attention.priority, 'critical')
-  assert.match(attention.copy, /promessa apresentada/)
-})
-
-test('product_fit incerto aparece como contexto informativo e vence descoberta insuficiente moderada', () => {
-  const reading = buildQuietReading()
-
-  reading.customer.missing_discovery = [
-    {
-      topic: 'product_fit',
-      summary:
-        'Ainda não está comprovado se a cliente busca apenas informações sobre a aula ou se avalia algum plano da academia.',
-      evidence_message_ids: ['message-1'],
-      memory_ids: [],
-    },
-  ]
-
-  reading.improvement_points = [
-    {
-      kind: 'insufficient_discovery',
-      summary:
-        'O vendedor ainda não perguntou sobre o interesse do cliente em planos ou outras preferências.',
-    },
-  ]
-
-  const attention =
-    view.resolveSellerAttentionSnapshot(
-      reading,
-      null,
-    )
-
-  assert.deepEqual(
-    attention,
-    {
-      priority: 'medium',
-      source:
-        'commercial_intent_uncertain',
-      label:
-        'Intenção comercial ainda não confirmada',
-      copy:
-        'Ainda não está comprovado se a cliente busca apenas informações sobre a aula ou se avalia algum plano da academia.',
-    },
-  )
-
-  const html =
-    view.renderNowAttentionSnapshot(
-      reading,
-      null,
-    )
-
-  assert.match(
-    html,
-    /yolen-now-attention--information/,
-  )
-
-  assert.doesNotMatch(
-    html,
-    /Atenção na condução/,
-  )
-})
-
-test('erro grave do vendedor continua vencendo incerteza informativa de product_fit', () => {
-  const reading = buildQuietReading()
-
-  reading.customer.missing_discovery = [
-    {
-      topic: 'product_fit',
-      summary:
-        'Ainda não está claro se existe intenção de compra.',
-      evidence_message_ids: ['message-1'],
-      memory_ids: [],
-    },
-  ]
-
-  reading.improvement_points = [
-    {
-      kind: 'pressure',
-      summary:
-        'Você pressionou por uma resposta imediata.',
-    },
-  ]
-
-  const attention =
-    view.resolveSellerAttentionSnapshot(
-      reading,
-      null,
-    )
-
+test('view model silencioso (nothing_to_do) não renderiza nenhum card, mesmo sem primary explícito', () => {
   assert.equal(
-    attention.source,
-    'improvement',
+    view.renderAgoraViewModelSnapshot(
+      buildAgoraViewModel({ silent: true, silent_reason: 'nothing_to_do', primary: null }),
+    ),
+    '',
   )
+})
+
+test('view model indisponível (unavailable, Decision State null) não renderiza nenhum card', () => {
   assert.equal(
-    attention.priority,
-    'high',
+    view.renderAgoraViewModelSnapshot(
+      buildAgoraViewModel({ silent: true, silent_reason: 'unavailable', primary: null }),
+    ),
+    '',
   )
-  assert.match(
-    attention.label,
-    /Atenção na condução/,
-  )
+  assert.equal(view.renderAgoraViewModelSnapshot(null), '')
+  assert.equal(view.renderAgoraViewModelSnapshot(undefined), '')
 })
 
-test('aderência parcial, método não configurado e evidência insuficiente não viram falso alerta', () => {
-  for (const status of [
-    'partially_on_method',
-    'not_configured',
-    'insufficient_evidence',
-  ]) {
-    const reading = buildQuietReading()
-    reading.method.adherence.status = status
-    reading.method.configured = status !== 'not_configured'
-
-    assert.equal(
-      view.resolveSellerAttentionSnapshot(reading, null),
-      null,
-      status,
-    )
-  }
-})
-
-test('SLA usa apenas limites configurados e evolui de low para medium e high com o tick local', () => {
-  const reading = buildQuietReading()
-  const context = contextWith({
-    slaConfigured: true,
-    slaRisk: 'low',
-    elapsedMinutes: 30,
-    warningMinutes: 60,
-    dangerMinutes: 120,
-  })
-  const generatedAt = new Date('2026-08-22T12:00:00.000Z').getTime()
-
-  assert.equal(
-    view.resolveSellerAttentionSnapshot(reading, context, { now: generatedAt }),
-    null,
-  )
-
-  const medium = view.resolveSellerAttentionSnapshot(reading, context, {
-    now: generatedAt + 30 * 60 * 1000,
-  })
-  assert.equal(medium.source, 'sla')
-  assert.equal(medium.priority, 'high')
-
-  const high = view.resolveSellerAttentionSnapshot(reading, context, {
-    now: generatedAt + 90 * 60 * 1000,
-  })
-  assert.equal(high.source, 'sla')
-  assert.equal(high.priority, 'critical')
-})
-
-test('espera sem SLA só chama atenção quando o cliente aguarda; vendedor aguardando e ciclo fechado ficam quietos', () => {
-  const reading = buildQuietReading()
-  const customerWaiting = contextWith({
-    waitingState: 'customer_waiting_for_seller',
-    waitingDurationMs: 2 * 60 * 60 * 1000,
-  })
-  const sellerWaiting = contextWith({
-    waitingState: 'seller_waiting_for_customer',
-    waitingDurationMs: 6 * 60 * 60 * 1000,
+test('primary + até 2 secondary renderizam nessa ordem, sem inventar nem reordenar', () => {
+  const agoraViewModel = buildAgoraViewModel({
+    primary: buildAgoraSignal({
+      status: 'handle_objection',
+      priority: 'high',
+      headline: 'Cliente acha o preço alto e ameaça desistir.',
+      action: 'Tratar a objeção antes de avançar a conversa.',
+    }),
+    secondary: [
+      buildAgoraSignal({
+        status: 'follow_up',
+        priority: 'high',
+        headline: 'Envio da proposta revisada já venceu.',
+        action: 'Confirmar com o cliente o andamento do compromisso.',
+      }),
+      buildAgoraSignal({
+        status: 'deepen_discovery',
+        priority: 'medium',
+        headline: 'Etapa de diagnóstico pulada antes de apresentar o preço.',
+        action: 'Retomar a descoberta antes de voltar a falar de preço.',
+      }),
+    ],
   })
 
-  assert.equal(
-    view.resolveSellerAttentionSnapshot(reading, customerWaiting)?.source,
-    'waiting',
-  )
-  assert.equal(view.resolveSellerAttentionSnapshot(reading, sellerWaiting), null)
-  assert.equal(
-    view.resolveSellerAttentionSnapshot(reading, customerWaiting, { cycleClosed: true }),
-    null,
-  )
+  const html = view.renderAgoraViewModelSnapshot(agoraViewModel)
+
+  assert.equal((html.match(/yolen-now-attention/g) || []).length > 0, true)
+  assert.equal((html.match(/data-yolen-now-attention-variant="primary"/g) || []).length, 1)
+  assert.equal((html.match(/data-yolen-now-attention-variant="secondary"/g) || []).length, 2)
+
+  const primaryIndex = html.indexOf('Cliente acha o preço alto')
+  const firstSecondaryIndex = html.indexOf('Envio da proposta revisada')
+  const secondSecondaryIndex = html.indexOf('Etapa de diagnóstico pulada')
+
+  assert.ok(primaryIndex >= 0 && firstSecondaryIndex > primaryIndex)
+  assert.ok(secondSecondaryIndex > firstSecondaryIndex)
 })
 
-test('sem SLA configurado não inventa risco e espera curta permanece silenciosa', () => {
-  const reading = buildQuietReading()
-  const context = contextWith({
-    waitingState: 'customer_waiting_for_seller',
-    waitingDurationMs: 20 * 60 * 1000,
+test('um terceiro secondary (não deveria acontecer, mas é defendido) nunca renderiza', () => {
+  const agoraViewModel = buildAgoraViewModel({
+    secondary: [
+      buildAgoraSignal({ headline: 'Item 1' }),
+      buildAgoraSignal({ headline: 'Item 2' }),
+      buildAgoraSignal({ headline: 'Item 3' }),
+    ],
   })
 
-  assert.equal(view.resolveSellerAttentionSnapshot(reading, context), null)
+  const html = view.renderAgoraViewModelSnapshot(agoraViewModel)
+
+  assert.equal((html.match(/data-yolen-now-attention-variant="secondary"/g) || []).length, 2)
+  assert.doesNotMatch(html, /Item 3/)
 })
 
-test('pergunta ignorada, objeção aberta e pressão recebem prioridades proporcionais', () => {
-  const question = buildQuietReading()
-  question.best_approach.decision = 'respond'
-  question.customer.open_questions = [evidence('Qual é o prazo?')]
-  assert.equal(
-    view.resolveSellerAttentionSnapshot(question, null)?.source,
-    'open_question',
+test('give_space e escalate recebem tom visual distinto de respond/follow_up/handle_objection', () => {
+  const giveSpaceHtml = view.renderAgoraViewModelSnapshot(
+    buildAgoraViewModel({
+      primary: buildAgoraSignal({
+        status: 'give_space',
+        priority: null,
+        headline: 'Sessão atual não é comercial.',
+        action: 'Responder no tom da conversa atual sem empurrar a venda.',
+        provenance: { decision_kind: 'give_space', source: null, evidence_message_ids: [], memory_ids: [] },
+      }),
+    }),
   )
+  assert.match(giveSpaceHtml, /yolen-now-attention--information/)
 
-  const objection = buildQuietReading()
-  objection.best_approach.decision = 'handle_objection'
-  objection.customer.objections = [evidence('Está caro.')]
-  assert.deepEqual(
-    view.resolveSellerAttentionSnapshot(objection, null),
-    {
-      priority: 'medium',
-      source: 'customer_objection',
-      label: 'Atenção · Objeção aberta',
-      copy: 'Há uma objeção relevante do cliente para tratar.',
-    },
+  const escalateHtml = view.renderAgoraViewModelSnapshot(
+    buildAgoraViewModel({
+      primary: buildAgoraSignal({
+        status: 'escalate',
+        priority: 'critical',
+        headline: 'Oportunidade estagnada na etapa acima do limite de SLA.',
+        action: 'Avaliar a oportunidade e decidir o próximo passo.',
+      }),
+    }),
   )
+  assert.match(escalateHtml, /yolen-now-attention--risk/)
 
-  const pressure = buildQuietReading()
-  pressure.improvement_points = [{
-    kind: 'pressure',
-    summary: 'Você pressionou por uma resposta imediata.',
-  }]
-  assert.equal(
-    view.resolveSellerAttentionSnapshot(pressure, null)?.priority,
-    'high',
-  )
+  const respondHtml = view.renderAgoraViewModelSnapshot(buildAgoraViewModel())
+  assert.match(respondHtml, /yolen-now-attention--warning/)
 })
 
-test('non-commercial e fallback V1 sem dados ricos nunca fabricam alerta', () => {
-  const neutral = buildQuietReading({ commercial_relevance: 'non_commercial' })
-  neutral.method.adherence.status = 'off_method'
-
-  assert.equal(view.resolveSellerAttentionSnapshot(neutral, null), null)
-  assert.equal(
-    view.resolveSellerAttentionSnapshot({
-      analysis_status: 'complete',
-      commercial_role: 'buyer',
-      commercial_relevance: 'commercial',
-    }, null),
-    null,
+// Achado do Codex (PR #283, rodada 1): `wait` mapeado para o status
+// `follow_up` renderizava "Retomar contato" — o oposto do que a decisão
+// `wait` significa (não agir/não comunicar agora). Prova fim-a-fim (view
+// model → HTML renderizado) de que isso não volta a acontecer.
+test('wait nunca renderiza "Retomar contato" nem tom de urgência — sempre "Nada a fazer agora", informativo', () => {
+  const html = view.renderAgoraViewModelSnapshot(
+    buildAgoraViewModel({
+      primary: buildAgoraSignal({
+        status: 'no_intervention',
+        priority: null,
+        headline: 'Cliente pediu um tempo para decidir.',
+        action: 'Canal recomendado: wait.',
+        provenance: { decision_kind: 'wait', source: null, evidence_message_ids: [], memory_ids: [] },
+      }),
+    }),
   )
+
+  assert.doesNotMatch(html, /Retomar contato/)
+  assert.match(html, /Nada a fazer agora/)
+  assert.match(html, /yolen-now-attention--information/)
+})
+
+// Achado do Codex (PR #283, rodada 2): quando o presenter suprime a
+// decisão principal (silent: false, primary: null, secondary não-vazio
+// — ver agora-view-model.ts), renderAgoraViewModelSnapshot bailava cedo
+// por checar `!agoraViewModel.primary`, descartando silenciosamente um
+// sinal secundário real. Prova que o card secundário ainda renderiza
+// nesse cenário.
+test('view model com primary null mas secondary real (decisão principal suprimida) ainda renderiza o card secundário', () => {
+  const html = view.renderAgoraViewModelSnapshot({
+    silent: false,
+    silent_reason: null,
+    primary: null,
+    secondary: [
+      buildAgoraSignal({
+        status: 'escalate',
+        priority: 'critical',
+        headline: 'Oportunidade estagnada na etapa acima do limite de SLA.',
+        action: 'Avaliar a oportunidade e decidir o próximo passo.',
+      }),
+    ],
+    reference_time: '2026-08-22T12:00:00.000Z',
+  })
+
+  assert.match(html, /Oportunidade estagnada na etapa acima do limite de SLA\./)
+  assert.match(html, /data-yolen-now-attention-variant="secondary"/)
+  assert.doesNotMatch(html, /data-yolen-now-attention-variant="primary"/)
 })
 
 test('todo conteúdo seller-facing escapa HTML não confiável', () => {

@@ -189,9 +189,29 @@ export function defaultLeadSummary(overrides = {}) {
   }
 }
 
+// FASE 16.5 — AGORA seller-facing view model default (formato devolvido
+// por app/lib/server/agora-view-model.ts, ver AgoraViewModel). Silencioso
+// por padrão (silent: true, silent_reason: 'nothing_to_do') — mesma
+// disciplina de defaultClientContext acima: um cenário de teste que
+// precisa de um card visível passa `decisionStateResult` explicitamente.
+export function defaultAgoraDecisionState(overrides = {}) {
+  return {
+    ok: true,
+    data: {
+      silent: true,
+      silent_reason: 'nothing_to_do',
+      primary: null,
+      secondary: [],
+      reference_time: '2026-08-22T12:00:00.000Z',
+      ...overrides,
+    },
+  }
+}
+
 function createFakeBackground({
   resolutionsByPhone = {},
   clientContextResult,
+  decisionStateResult,
   analysisResult,
   analysisJobStatusResult,
   leadSummaryResult,
@@ -203,6 +223,7 @@ function createFakeBackground({
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
+  let loadDecisionStateCallCount = 0
   let loadLeadSummaryCallCount = 0
 
   let getMeCallCount = 0
@@ -327,6 +348,23 @@ function createFakeBackground({
         typeof clientContextResult === 'function'
           ? clientContextResult(loadClientContextCallCount, requestPayload)
           : (clientContextResult ?? defaultClientContext())
+      )
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload,
+      }
+    },
+    // FASE 16.5 — mesmo padrão function-per-call de clientContextResult
+    // acima.
+    LOAD_DECISION_STATE: async (requestPayload) => {
+      loadDecisionStateCallCount += 1
+
+      const payload = await (
+        typeof decisionStateResult === 'function'
+          ? decisionStateResult(loadDecisionStateCallCount, requestPayload)
+          : (decisionStateResult ?? defaultAgoraDecisionState())
       )
 
       return {
@@ -530,6 +568,7 @@ export function loadContentScript({
   initialHtml,
   resolutionsByPhone,
   clientContextResult,
+  decisionStateResult,
   analysisResult,
   analysisJobStatusResult,
   leadSummaryResult,
@@ -547,6 +586,7 @@ export function loadContentScript({
   const background = createFakeBackground({
     resolutionsByPhone,
     clientContextResult,
+    decisionStateResult,
     analysisResult,
     analysisJobStatusResult,
     leadSummaryResult,
@@ -691,6 +731,10 @@ export function createLeadCalls(calls) {
 
 export function clientContextCalls(calls) {
   return calls.filter((call) => call.action === 'LOAD_CLIENT_CONTEXT')
+}
+
+export function decisionStateCalls(calls) {
+  return calls.filter((call) => call.action === 'LOAD_DECISION_STATE')
 }
 
 export function leadSummaryCalls(calls) {
