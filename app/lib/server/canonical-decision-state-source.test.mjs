@@ -1074,6 +1074,136 @@ test('SLA em risco alto com cliente de fato aguardando resposta sobe como respon
   assert.equal(state.primary_decision.kind, 'respond')
 })
 
+test('cliente aguardando resposta sobe mesmo sem SLA configurado', async () => {
+  // Achado do Codex (PR #280, rodada 3): waiting era só considerado
+  // DENTRO do gate de SLA crítico — uma empresa sem SLA configurado
+  // não produzia nenhuma intervenção para um cliente esperando há
+  // horas, mesmo com o sinal real disponível.
+  const clientContext = buildClientContext({
+    waiting: {
+      state: 'customer_waiting_for_seller',
+      waiting_since: '2026-09-09T14:00:00.000Z',
+      waiting_duration_ms: 10800000,
+    },
+    sla: {
+      configured: false,
+      applicable: false,
+      stage: null,
+      stage_label: null,
+      target_minutes: null,
+      warning_minutes: null,
+      danger_minutes: null,
+      elapsed_minutes: null,
+      risk: null,
+    },
+  })
+
+  const state = await load({ client_context: clientContext })
+
+  assert.equal(state.primary_decision.kind, 'respond')
+  assert.equal(state.primary_decision.summary, 'Cliente aguardando resposta.')
+})
+
+test('SLA crítico com cliente aguardando não duplica com o candidato de waiting independente', async () => {
+  const clientContext = buildClientContext({
+    waiting: {
+      state: 'customer_waiting_for_seller',
+      waiting_since: '2026-09-09T14:00:00.000Z',
+      waiting_duration_ms: 10800000,
+    },
+    sla: {
+      configured: true,
+      applicable: true,
+      stage: 'negociacao',
+      stage_label: 'Negociação',
+      target_minutes: 60,
+      warning_minutes: 90,
+      danger_minutes: 120,
+      elapsed_minutes: 150,
+      risk: 'high',
+    },
+  })
+
+  const state = await load({ client_context: clientContext })
+
+  assert.equal(state.primary_decision.kind, 'respond')
+  assert.deepEqual(state.interventions, [])
+})
+
+test('lead sem nenhuma interação registrada e SLA crítico recomenda primeiro contato', async () => {
+  // Achado do Codex (PR #280, rodada 3): um lead nunca contatado
+  // (known_interaction_count === 0) com SLA crítico caía no
+  // "escalate" genérico, sem reconhecer que a ação óbvia é fazer o
+  // primeiro contato.
+  const clientContext = buildClientContext({
+    waiting: {
+      state: 'unknown',
+      waiting_since: null,
+      waiting_duration_ms: null,
+    },
+    sla: {
+      configured: true,
+      applicable: true,
+      stage: 'novo',
+      stage_label: 'Novo',
+      target_minutes: 60,
+      warning_minutes: 90,
+      danger_minutes: 120,
+      elapsed_minutes: 150,
+      risk: 'high',
+    },
+  })
+
+  clientContext.relationship.known_interaction_count = 0
+
+  const state = await load({ client_context: clientContext })
+
+  assert.equal(state.primary_decision.kind, 'respond')
+  assert.equal(
+    state.primary_decision.recommended_action,
+    'Fazer o primeiro contato com o lead.',
+  )
+})
+
+test('sessão pessoal expirada (fora da janela de sessão) não suprime SLA crítico fresco', async () => {
+  // Achado do Codex (PR #280, rodada 3): commercial_relevance da
+  // leitura atual pode ser 'non_commercial' de uma sessão pessoal já
+  // encerrada (mais de 4h atrás) — nesse caso não há conversa pessoal
+  // acontecendo agora para preservar naturalidade, e um sinal
+  // operacional fresco (SLA crítico) não deveria ser rebaixado.
+  const reading = buildReading({
+    commercial_relevance: 'non_commercial',
+  })
+
+  const clientContext = buildClientContext({
+    last_interaction_at: '2026-09-09T10:00:00.000Z', // > 4h antes de REFERENCE_TIME (17:00)
+    waiting: {
+      state: 'customer_waiting_for_seller',
+      waiting_since: '2026-09-09T14:00:00.000Z',
+      waiting_duration_ms: 10800000,
+    },
+    sla: {
+      configured: true,
+      applicable: true,
+      stage: 'negociacao',
+      stage_label: 'Negociação',
+      target_minutes: 60,
+      warning_minutes: 90,
+      danger_minutes: 120,
+      elapsed_minutes: 150,
+      risk: 'high',
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+    client_context: clientContext,
+  })
+
+  assert.equal(state.current_moment.is_active_session, false)
+  assert.equal(state.primary_decision.kind, 'respond')
+})
+
 // 15. Agenda vencendo: fonte real de calendário não existe — sinal
 // permanece PARTIAL (só a sugestão de agenda da própria leitura, que
 // exige confirmação humana), nunca simulado como intervenção certa.

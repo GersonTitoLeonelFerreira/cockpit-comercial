@@ -63,6 +63,7 @@ export type DecisionStateInterventionPriority =
 
 export const DECISION_STATE_INTERVENTION_SOURCES = [
   'client_sla',
+  'customer_waiting',
   'cycle_commitment',
   'commercial_risk',
   'method_adherence',
@@ -89,6 +90,7 @@ export type DecisionStateOperationalSignalAvailability =
 // array/banco nunca é uma garantia (achado do mandato §26).
 const DECISION_STATE_SOURCE_TIEBREAK_ORDER: readonly DecisionStateInterventionSource[] = [
   'client_sla',
+  'customer_waiting',
   'cycle_commitment',
   'commercial_risk',
   'method_adherence',
@@ -391,6 +393,37 @@ function buildClientSlaCandidate(
     }
   }
 
+  // Lead nunca contatado (nenhuma interação conhecida) é um caso
+  // distinto de "oportunidade estagnada" genérica — recomendar
+  // "avaliar o próximo passo" para um lead com zero interações omite a
+  // ação óbvia e concreta: fazer o primeiro contato (achado do Codex,
+  // PR #280, rodada 3).
+  if (clientContext.relationship.known_interaction_count === 0) {
+    return {
+      source: 'client_sla',
+      priority: 'critical',
+      kind: 'respond',
+
+      summary:
+        'Lead sem nenhum contato registrado, acima do limite de SLA.',
+
+      reason:
+        `SLA da ${stageDescription} em risco alto (${sla.elapsed_minutes ?? '?'} min decorridos) e nenhuma interação foi registrada com este lead ainda.`,
+
+      recommended_action:
+        'Fazer o primeiro contato com o lead.',
+
+      evidence_message_ids: [],
+      memory_ids: [],
+
+      observed_at:
+        clientContext.generated_at,
+
+      resolve_condition:
+        'Resolve quando o primeiro contato com o lead for registrado.',
+    }
+  }
+
   return {
     source: 'client_sla',
     priority: 'critical',
@@ -413,6 +446,67 @@ function buildClientSlaCandidate(
 
     resolve_condition:
       'Resolve quando a etapa avançar ou o SLA for reconfigurado/atendido.',
+  }
+}
+
+// Waiting (companion-client-relationship.ts) é um sinal independente
+// de SLA (companion-client-sla.ts) — uma empresa sem SLA configurado,
+// ou com SLA não crítico, ainda pode ter um cliente aguardando
+// resposta há horas. Antes, esse sinal só era considerado DENTRO do
+// gate de SLA crítico, então nenhuma empresa sem SLA configurado
+// produzia intervenção nenhuma para um cliente esperando (achado do
+// Codex, PR #280, rodada 3). Não invento um limiar de "quanto tempo é
+// demais" (mandato §11: sem thresholds operacionais arbitrários) —
+// prioridade fixa 'medium', mais baixa que o 'critical' de SLA
+// configurado, que já é a fonte com prova objetiva de limiar.
+function buildCustomerWaitingCandidate(
+  clientContext: CompanionClientContext | null,
+): Candidate | null {
+  if (!clientContext) {
+    return null
+  }
+
+  if (
+    clientContext.waiting.state !==
+    'customer_waiting_for_seller'
+  ) {
+    return null
+  }
+
+  const slaAlreadyCovers =
+    clientContext.sla.configured &&
+    clientContext.sla.applicable &&
+    clientContext.sla.risk === 'high'
+
+  if (slaAlreadyCovers) {
+    return null
+  }
+
+  return {
+    source: 'customer_waiting',
+    priority: 'medium',
+    kind: 'respond',
+
+    summary:
+      'Cliente aguardando resposta.',
+
+    reason:
+      clientContext.waiting.waiting_since
+        ? `Cliente aguarda resposta desde ${clientContext.waiting.waiting_since}.`
+        : 'Cliente aguarda resposta.',
+
+    recommended_action:
+      'Responder o cliente.',
+
+    evidence_message_ids: [],
+    memory_ids: [],
+
+    observed_at:
+      clientContext.waiting.waiting_since ??
+      clientContext.generated_at,
+
+    resolve_condition:
+      'Resolve quando o vendedor responder ao cliente.',
   }
 }
 
@@ -989,29 +1083,11 @@ export async function loadCanonicalDecisionState({
     clientContext = null
   }
 
-  let methodCoaching:
-    Awaited<ReturnType<typeof loadCanonicalMethodCoachingSource>> =
-      null
-
-  try {
-    methodCoaching =
-      await loadCanonicalMethodCoachingSource({
-        admin,
-        company_id,
-        cycle_id,
-        conversation_key,
-        reference_time: referenceTime,
-        current_reading,
-      })
-  } catch (error) {
-    console.error(
-      '[CANONICAL_DECISION_STATE] method/coaching lookup failed, continuing without it',
-      { company_id, cycle_id, conversation_key, error },
-    )
-
-    methodCoaching = null
-  }
-
+  // Carregada UMA vez aqui e repassada para
+  // loadCanonicalMethodCoachingSource() abaixo — esse agregador também
+  // precisa de conversation_keys do ciclo para descobrir coaching
+  // cross-conversation, e sem repasse ele paginaria a mesma consulta
+  // de novo internamente (achado do Codex, PR #280, rodada 3).
   let cycleMemory:
     Awaited<ReturnType<typeof loadCanonicalCycleCommercialMemory>> =
       null
@@ -1033,6 +1109,30 @@ export async function loadCanonicalDecisionState({
     cycleMemory = null
   }
 
+  let methodCoaching:
+    Awaited<ReturnType<typeof loadCanonicalMethodCoachingSource>> =
+      null
+
+  try {
+    methodCoaching =
+      await loadCanonicalMethodCoachingSource({
+        admin,
+        company_id,
+        cycle_id,
+        conversation_key,
+        reference_time: referenceTime,
+        current_reading,
+        cycle_memory: cycleMemory,
+      })
+  } catch (error) {
+    console.error(
+      '[CANONICAL_DECISION_STATE] method/coaching lookup failed, continuing without it',
+      { company_id, cycle_id, conversation_key, error },
+    )
+
+    methodCoaching = null
+  }
+
   const currentMoment =
     buildCurrentMoment({
       currentReading: current_reading,
@@ -1042,6 +1142,7 @@ export async function loadCanonicalDecisionState({
 
   let candidates: Candidate[] = [
     buildClientSlaCandidate(clientContext),
+    buildCustomerWaitingCandidate(clientContext),
     ...buildCycleCommitmentCandidates(
       cycleMemory,
       referenceTime,
@@ -1055,9 +1156,19 @@ export async function loadCanonicalDecisionState({
       candidate !== null,
   )
 
+  // Achado do Codex (PR #280, rodada 3): `commercial_relevance`
+  // reflete a leitura atual, mas se a sessão de fato expirou
+  // (`is_active_session === false` — mais de
+  // DECISION_STATE_SESSION_GAP_MS desde a última interação), não há
+  // conversa pessoal acontecendo agora para preservar naturalidade —
+  // suprimir/rebaixar um sinal operacional fresco (SLA, compromisso)
+  // por causa de uma sessão pessoal já encerrada seria o comportamento
+  // errado. `null` (sem client_context, sem evidência de frescor)
+  // mantém o comportamento conservador anterior.
   const isNonCommercialMoment =
     currentMoment.commercial_relevance ===
-    'non_commercial'
+      'non_commercial' &&
+    currentMoment.is_active_session !== false
 
   if (isNonCommercialMoment) {
     candidates = candidates.filter(
