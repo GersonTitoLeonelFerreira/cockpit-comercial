@@ -513,27 +513,40 @@ function buildCustomerWaitingCandidate(
   }
 }
 
-// Dois compromissos ISO instants estão no mesmo dia-calendário UTC.
+// Fuso comercial usado para interpretar "hoje" em datas de negócio —
+// o mesmo fuso que o próprio produtor de compromissos usa para
+// interpretar `scheduled_at`/`proposed_at`
+// (stateful-copilot-execution-plan.ts:1129: "Interprete datas
+// comerciais no fuso America/Sao_Paulo"), e o mesmo padrão já usado
+// em `sales-copilot-transcript.ts` para resolver datas relativas
+// ("hoje", "amanhã") em texto de vendedor. Comparar em UTC (versão
+// anterior) confundia "hoje" perto da virada de dia em UTC que ainda
+// é o mesmo dia em São Paulo, ou vice-versa (achado do Codex, PR
+// #280, rodada 5).
+const BUSINESS_TIME_ZONE = 'America/Sao_Paulo'
+
+// Dois instantes ISO caem no mesmo dia-calendário no fuso comercial.
 // Usado apenas para decidir se um compromisso confirmado ainda não
 // vencido é "hoje" (mandato §35, Cenário 3 do roadmap: um retorno
 // agendado para mais tarde no mesmo dia deve virar card mesmo sem
-// estar vencido). Nenhum fuso horário da empresa chega a este módulo
-// hoje — dia-calendário UTC é o limite não-arbitrário disponível
-// (decorre diretamente do próprio instante ISO armazenado, não é um
-// número de horas inventado), e é o mesmo tipo de boundary descrito
-// no cenário do produto ("previsto para hoje").
-function isSameUtcCalendarDay(
+// estar vencido).
+function isSameBusinessCalendarDay(
   instantA: number,
   instantB: number,
 ): boolean {
-  const dateA = new Date(instantA)
-  const dateB = new Date(instantB)
+  const formatter = new Intl.DateTimeFormat(
+    'en-CA',
+    {
+      timeZone: BUSINESS_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    },
+  )
 
   return (
-    dateA.getUTCFullYear() ===
-      dateB.getUTCFullYear() &&
-    dateA.getUTCMonth() === dateB.getUTCMonth() &&
-    dateA.getUTCDate() === dateB.getUTCDate()
+    formatter.format(new Date(instantA)) ===
+    formatter.format(new Date(instantB))
   )
 }
 
@@ -628,7 +641,7 @@ function buildCycleCommitmentCandidates(
 
         return (
           scheduledInstant >= referenceInstant &&
-          isSameUtcCalendarDay(
+          isSameBusinessCalendarDay(
             scheduledInstant,
             referenceInstant,
           )
@@ -664,9 +677,64 @@ function buildCycleCommitmentCandidates(
         }),
       )
 
+  // `reschedule_requested` não é "cancelado" nem uma proposta nunca
+  // aceita — é um compromisso que já teve aceite bilateral, mas uma
+  // das partes pediu para mudar o horário; o horário original não
+  // pode mais ser tratado como confirmado, mas o compromisso continua
+  // pendente de reconciliação (contrato de mensagens, "reschedule_requested
+  // não confirma o horário original — trate como pendente de
+  // reconciliação", message-intelligence/v2/execution-plan.ts:153).
+  // Antes, o filtro `=== 'confirmed'` das duas listas acima excluía
+  // esses itens por completo — um compromisso vencido ou previsto
+  // para hoje desaparecia exatamente quando alguém pedia para mudar o
+  // horário (achado do Codex, PR #280, rodada 5). Prioridade 'medium':
+  // não é uma obrigação vencida com data certa (não inflaciono para
+  // 'high' como o vencido), mas também não é só "descoberta
+  // incompleta" — precisa de reconciliação ativa com o cliente.
+  const rescheduleRequestedCandidates: Candidate[] =
+    cycleMemory.commitments
+      .filter(
+        (commitment) =>
+          commitment.memory_status === 'active' &&
+          commitment.commitment_status ===
+            'reschedule_requested',
+      )
+      .map(
+        (commitment): Candidate => ({
+          source: 'cycle_commitment',
+          priority: 'medium',
+          kind: 'follow_up',
+
+          summary:
+            commitment.summary,
+
+          reason:
+            'Pedido de reagendamento pendente — o horário original deste compromisso não está mais confirmado.',
+
+          recommended_action:
+            'Confirmar com o cliente o novo horário do compromisso.',
+
+          evidence_message_ids:
+            commitment.evidence_message_ids,
+
+          memory_ids: [
+            commitment.memory_id,
+          ],
+
+          observed_at:
+            commitment.scheduled_at ??
+            commitment.proposed_at ??
+            referenceTime,
+
+          resolve_condition:
+            'Resolve quando um novo horário for confirmado ou o compromisso for cancelado.',
+        }),
+      )
+
   return [
     ...overdueCandidates,
     ...upcomingTodayCandidates,
+    ...rescheduleRequestedCandidates,
   ]
 }
 
@@ -999,24 +1067,67 @@ function buildCurrentMoment({
     clientContext?.relationship.last_interaction_at ??
     null
 
+  // `last_interaction_at` (client_context) é a evidência primária de
+  // atividade de sessão — reflete diretamente quando o cliente/vendedor
+  // interagiu por último. Quando ela existe, é usada sozinha (mesmo
+  // comportamento desde a rodada 3): uma leitura `non_commercial`
+  // recém-computada não prova sessão ativa se a própria relação já
+  // está fora da janela.
+  //
+  // Quando `client_context` está indisponível (nulo ou rejeitado por
+  // escopo/instante), não há evidência primária nenhuma — mas
+  // `current_reading` ainda é aceito mesmo antigo pelo caminho
+  // best-effort (só é rejeitado por escopo ou por ser do futuro,
+  // nunca por estar simplesmente desatualizado). Sem um fallback, uma
+  // leitura `non_commercial` de dias atrás com `client_context: null`
+  // fazia `is_active_session` cair em `null` — tratado como "sessão
+  // ainda pode estar ativa" — suprimindo sinais operacionais frescos
+  // indefinidamente para uma sessão pessoal que já não existe mais
+  // (achado do Codex, PR #280, rodada 5). Nesse caso (só nesse),
+  // `state_updated_at` da própria leitura serve de evidência
+  // secundária: se a leitura que classificou `non_commercial` já é
+  // antiga, isso já é evidência de que não é uma sessão pessoal
+  // acontecendo agora.
+  const referenceInstant =
+    Date.parse(referenceTime)
+
+  const freshnessEvidenceInstant: number | null =
+    (() => {
+      if (lastInteractionAt) {
+        const lastInstant =
+          Date.parse(lastInteractionAt)
+
+        return Number.isFinite(lastInstant)
+          ? lastInstant
+          : null
+      }
+
+      if (currentReading?.state_updated_at) {
+        const stateUpdatedInstant = Date.parse(
+          currentReading.state_updated_at,
+        )
+
+        return Number.isFinite(
+          stateUpdatedInstant,
+        )
+          ? stateUpdatedInstant
+          : null
+      }
+
+      return null
+    })()
+
   let isActiveSession: boolean | null =
     null
 
-  if (lastInteractionAt) {
-    const lastInstant =
-      Date.parse(lastInteractionAt)
-
-    const referenceInstant =
-      Date.parse(referenceTime)
-
-    if (
-      Number.isFinite(lastInstant) &&
-      Number.isFinite(referenceInstant)
-    ) {
-      isActiveSession =
-        referenceInstant - lastInstant <=
-        DECISION_STATE_SESSION_GAP_MS
-    }
+  if (
+    freshnessEvidenceInstant !== null &&
+    Number.isFinite(referenceInstant)
+  ) {
+    isActiveSession =
+      referenceInstant -
+        freshnessEvidenceInstant <=
+      DECISION_STATE_SESSION_GAP_MS
   }
 
   return {

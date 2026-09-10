@@ -807,6 +807,62 @@ test('compromisso ainda proposed (sem aceite bilateral) não é tratado como ven
   assert.deepEqual(state.interventions, [])
 })
 
+test('compromisso com pedido de reagendamento sobe como pendente de reconciliação, não desaparece', async () => {
+  // Achado do Codex (PR #280, rodada 5): 'reschedule_requested' não é
+  // 'proposed' (nunca aceito) nem 'cancelled' (encerrado) — é um
+  // compromisso que já teve aceite bilateral, mas uma das partes
+  // pediu para mudar o horário. O filtro `=== 'confirmed'` das listas
+  // de vencido/previsto-para-hoje excluía esse status por completo,
+  // fazendo o compromisso desaparecer exatamente quando alguém pedia
+  // para mudar a data.
+  const admin = createAdminWithCommitments([
+    buildCommitmentMemory({
+      id: 'commit-reschedule',
+      summary: 'Reunião de fechamento com pedido de reagendamento.',
+      commitment_status: 'reschedule_requested',
+      scheduled_at: '2026-09-09T10:00:00.000Z',
+    }),
+  ])
+
+  const state = await load({ admin })
+
+  assert.equal(state.primary_decision.kind, 'follow_up')
+  assert.equal(
+    state.primary_decision.summary,
+    'Reunião de fechamento com pedido de reagendamento.',
+  )
+  assert.equal(
+    state.primary_decision.recommended_action,
+    'Confirmar com o cliente o novo horário do compromisso.',
+  )
+})
+
+test('compromisso previsto para mais tarde no fuso comercial (São Paulo), mesmo cruzando a virada de dia em UTC, sobe como intervenção', async () => {
+  // Achado do Codex (PR #280, rodada 5): a comparação de "mesmo dia"
+  // usava dia-calendário UTC, mas o produtor de compromissos interpreta
+  // datas comerciais no fuso America/Sao_Paulo
+  // (stateful-copilot-execution-plan.ts:1129). REFERENCE_TIME
+  // (2026-09-09T17:00:00.000Z) é 2026-09-09 14:00 em São Paulo (UTC-3);
+  // um compromisso às 2026-09-10T01:30:00.000Z é 2026-09-09 22:30 em
+  // São Paulo — ainda HOJE localmente, mas already dia 10 em UTC. A
+  // versão antiga (dia-calendário UTC) excluiria esse compromisso.
+  const admin = createAdminWithCommitments([
+    buildCommitmentMemory({
+      id: 'commit-today-sp-timezone',
+      summary: 'Retorno agendado para hoje à noite (fuso São Paulo).',
+      scheduled_at: '2026-09-10T01:30:00.000Z',
+    }),
+  ])
+
+  const state = await load({ admin })
+
+  assert.equal(state.primary_decision.kind, 'follow_up')
+  assert.equal(
+    state.primary_decision.summary,
+    'Retorno agendado para hoje à noite (fuso São Paulo).',
+  )
+})
+
 test('sessão pessoal suprime seller coaching de avanço de venda (deepen_discovery), não só método', async () => {
   // Achado do Codex (PR #280, rodada 1): a supressão de sinais "de
   // avanço de venda" durante sessão não comercial cobria apenas
@@ -1258,6 +1314,39 @@ test('sessão pessoal expirada (fora da janela de sessão) não suprime SLA crí
 
   assert.equal(state.current_moment.is_active_session, false)
   assert.equal(state.primary_decision.kind, 'respond')
+})
+
+test('leitura non_commercial antiga sem client_context não suprime sinal operacional fresco indefinidamente', async () => {
+  // Achado do Codex (PR #280, rodada 5): sem client_context (nulo),
+  // `is_active_session` não tinha como usar `last_interaction_at` —
+  // caía em `null`, tratado como "sessão ainda pode estar ativa" para
+  // sempre, mesmo quando a própria leitura `non_commercial` já é de
+  // dias atrás (current_reading só é rejeitado por escopo ou por ser
+  // do futuro, nunca por estar simplesmente desatualizado).
+  const reading = buildReading({
+    commercial_relevance: 'non_commercial',
+  })
+
+  const admin = createAdminWithCommitments([
+    buildCommitmentMemory({
+      id: 'commit-stale-personal',
+      summary: 'Compromisso vencido, sem client_context disponível.',
+      scheduled_at: '2026-09-09T10:00:00.000Z',
+    }),
+  ])
+
+  const state = await load({
+    admin,
+    current_reading: buildCurrentReading({
+      reading,
+      generated_at: '2026-09-05T12:00:00.000Z',
+      state_updated_at: '2026-09-05T12:00:00.000Z',
+    }),
+    client_context: null,
+  })
+
+  assert.equal(state.current_moment.is_active_session, false)
+  assert.equal(state.primary_decision.kind, 'follow_up')
 })
 
 // 15. Agenda vencendo: fonte real de calendário não existe — sinal
