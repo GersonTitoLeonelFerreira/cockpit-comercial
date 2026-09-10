@@ -67,6 +67,13 @@ function buildCurrentReading({
   state_version = 3,
   source_event_id = 'event-current-1',
   generated_at = '2026-09-09T16:59:00.000Z',
+  // state_updated_at é o instante semântico REAL da análise
+  // (state_read.state_updated_at, repassado por
+  // loadCanonicalCommercialReadingSource) — distinto de generated_at
+  // (quando o evento foi GRAVADO, que pode atrasar por fila/retry).
+  // Por padrão igual a generated_at nos testes que não exercitam essa
+  // distinção (achado do Codex, PR #278, rodada 7).
+  state_updated_at = generated_at,
   method = buildMethod(),
   seller_strengths = [],
   improvement_points = [],
@@ -84,6 +91,7 @@ function buildCurrentReading({
     },
     source_event_id,
     generated_at,
+    state_updated_at,
   }
 }
 
@@ -500,15 +508,16 @@ test('sem método publicado (nenhuma linha company_commercial_config_versions): 
   assert.equal(source.method.stage_divergence, false)
 })
 
-test('current_reading antigo (generated_at anterior à publicação atual do método): comparação não confiável', async () => {
+test('current_reading antigo (state_updated_at anterior à publicação atual do método): comparação não confiável', async () => {
   // Achado do Codex (PR #278, rodada 2, refinando a rodada 1):
   // CanonicalCommercialReadingSource não expõe qual revisão do método
   // gerou a leitura persistida. Um id "atual" fornecido pelo chamador
   // poderia bater com agora_stage por coincidência sem provar que
   // analise_stage veio da mesma revisão. A prova precisa ser temporal:
-  // current_reading.generated_at também precisa ser >= published_at
-  // da versão atualmente publicada — aqui ele é ANTERIOR, então a
-  // leitura pode ter sido gerada sob uma versão já substituída.
+  // current_reading.state_updated_at (instante semântico REAL da
+  // análise, rodada 7) também precisa ser >= published_at da versão
+  // atualmente publicada — aqui ele é ANTERIOR, então a leitura pode
+  // ter sido computada sob uma versão já substituída.
   const admin = createAdmin({
     agoraRows: [
       buildAgoraRow({
@@ -527,7 +536,7 @@ test('current_reading antigo (generated_at anterior à publicação atual do mé
   const source = await load({
     admin,
     current_reading: buildCurrentReading({
-      generated_at: '2026-09-09T10:00:00.000Z',
+      state_updated_at: '2026-09-09T10:00:00.000Z',
       method: buildMethod({
         current_stage: {
           step_order: 1,
@@ -561,7 +570,7 @@ test('AGORA e ANÁLISE ambos posteriores à publicação atual do método: compa
   const source = await load({
     admin,
     current_reading: buildCurrentReading({
-      generated_at: '2026-09-09T16:59:00.000Z',
+      state_updated_at: '2026-09-09T16:00:00.000Z',
       method: buildMethod({
         current_stage: {
           step_order: 1,
@@ -573,6 +582,52 @@ test('AGORA e ANÁLISE ambos posteriores à publicação atual do método: compa
   })
 
   assert.equal(source.method.stage_comparison_reliable, true)
+  assert.equal(source.method.stage_divergence, false)
+})
+
+test('escrita atrasada do evento (generated_at pós-republicação) não engana a prova temporal quando a análise em si é anterior', async () => {
+  // Achado do Codex (PR #278, rodada 7): a rodada 2 provava
+  // "reliable" usando current_reading.generated_at (quando o evento
+  // foi GRAVADO). stateful-copilot-persistence-plan.ts:568-578 só
+  // exige generated_at >= reference_time (nunca `=`) — uma análise
+  // pode ter considerado "agora" um instante ANTES da republicação do
+  // método, mas o job só grava o evento (fila/retry) DEPOIS da
+  // republicação. Usar generated_at (ou o reference_time desta
+  // chamada) para a prova temporal reportaria "reliable" mesmo assim.
+  // Aqui: state_updated_at (instante semântico real) é ANTERIOR à
+  // publicação, mas generated_at (escrita) é POSTERIOR — a comparação
+  // deve seguir NÃO confiável.
+  const admin = createAdmin({
+    agoraRows: [
+      buildAgoraRow({
+        stage_key: 'diagnostico',
+        updated_at: '2026-09-09T13:00:00.000Z',
+      }),
+    ],
+    stateRows: [buildStateRow({})],
+    publishedMethodRows: [
+      buildPublishedMethodConfigRow({
+        published_at: '2026-09-09T11:00:00.000Z',
+      }),
+    ],
+  })
+
+  const source = await load({
+    admin,
+    current_reading: buildCurrentReading({
+      state_updated_at: '2026-09-09T10:00:00.000Z',
+      generated_at: '2026-09-09T12:00:00.000Z',
+      method: buildMethod({
+        current_stage: {
+          step_order: 1,
+          stage_key: 'diagnostico',
+          name: 'Diagnóstico',
+        },
+      }),
+    }),
+  })
+
+  assert.equal(source.method.stage_comparison_reliable, false)
   assert.equal(source.method.stage_divergence, false)
 })
 

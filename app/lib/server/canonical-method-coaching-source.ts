@@ -465,26 +465,37 @@ function buildAnaliseStage(
  *
  * Prova temporal, não invenção de mapeamento: `company_commercial_-
  * config_one_published_uidx` garante no máximo UMA versão `published`
- * por empresa a qualquer instante. Se `agora_stage.updated_at` E
- * `current_reading.generated_at` são ambos `>= currentPublishedMethod.
- * published_at`, nenhum dos dois pôde ter sido computado sob uma
- * versão anterior — a versão atual é a única que esteve "published"
- * durante toda essa janela. Isso é comparável a
- * `previousStage.method_config_version_id === method.id` em
- * `lead-seller-guidance.ts`, só que provado pelo tempo em vez de por
+ * por empresa a qualquer instante. Se `agora_stage.updated_at` E o
+ * instante semântico REAL da análise (`current_reading.state_updated_at`
+ * — não `current_reading.generated_at`, que é quando o evento foi
+ * GRAVADO e pode atrasar por fila/retry, e não o `reference_time` desta
+ * própria chamada, que também não prova nada sobre quando a análise
+ * considerou "agora": achado do Codex, PR #278, rodada 7) são ambos
+ * `>= currentPublishedMethod.published_at`, nenhum dos dois pôde ter
+ * sido computado sob uma versão anterior — a versão atual é a única
+ * que esteve "published" durante toda essa janela.
+ * `state_updated_at` é repassado por `loadCanonicalCommercialReadingSource`
+ * (FASE 16.3B) direto de `state_read.state_updated_at`, garantido pela
+ * CHECK constraint de `companion_commercial_states`
+ * (`state_updated_at = (state_snapshot->>'updated_at')::timestamptz`)
+ * — o mesmo instante que a análise CONSIDERA como "agora", sem a
+ * ambiguidade de `generated_at` (`stateful-copilot-persistence-plan.ts:
+ * 568-578` só exige `generated_at >= reference_time`, nunca `=`). Isso
+ * é comparável a `previousStage.method_config_version_id === method.id`
+ * em `lead-seller-guidance.ts`, só que provado pelo tempo em vez de por
  * um id que `current_reading` não carrega.
  */
 function computeStageComparison({
   agoraStage,
   analiseStage,
-  currentReadingGeneratedAt,
+  currentReadingStateUpdatedAt,
   currentPublishedMethod,
 }: {
   agoraStage:
     CanonicalMethodCoachingAgoraStage | null
   analiseStage:
     CanonicalMethodCoachingAnaliseStage | null
-  currentReadingGeneratedAt:
+  currentReadingStateUpdatedAt:
     string | null
   currentPublishedMethod:
     CurrentPublishedMethodConfig | null
@@ -508,7 +519,7 @@ function computeStageComparison({
 
   if (
     !currentPublishedMethod ||
-    !currentReadingGeneratedAt ||
+    !currentReadingStateUpdatedAt ||
     agoraStage.method_config_version_id !==
       currentPublishedMethod.id
   ) {
@@ -526,8 +537,10 @@ function computeStageComparison({
   const agoraUpdatedAtInstant =
     Date.parse(agoraStage.updated_at)
 
-  const readingGeneratedAtInstant =
-    Date.parse(currentReadingGeneratedAt)
+  const readingStateUpdatedAtInstant =
+    Date.parse(
+      currentReadingStateUpdatedAt,
+    )
 
   const reliable =
     Number.isFinite(publishedAtInstant) &&
@@ -535,11 +548,11 @@ function computeStageComparison({
       agoraUpdatedAtInstant,
     ) &&
     Number.isFinite(
-      readingGeneratedAtInstant,
+      readingStateUpdatedAtInstant,
     ) &&
     agoraUpdatedAtInstant >=
       publishedAtInstant &&
-    readingGeneratedAtInstant >=
+    readingStateUpdatedAtInstant >=
       publishedAtInstant
 
   if (!reliable) {
@@ -1194,8 +1207,8 @@ export async function loadCanonicalMethodCoachingSource({
       computeStageComparison({
         agoraStage,
         analiseStage,
-        currentReadingGeneratedAt:
-          current_reading?.generated_at ??
+        currentReadingStateUpdatedAt:
+          current_reading?.state_updated_at ??
           null,
         currentPublishedMethod,
       })
