@@ -152,10 +152,13 @@ export const AGORA_VIEW_MODEL_SILENT_REASONS = [
   // comercial inventada (mandato §23).
   'unavailable',
 
-  // `decisionState.primary_decision.kind === 'no_intervention'` —
-  // Decision State avaliou e concluiu que não há nada relevante agora.
-  // Estado positivo e esperado, não erro (mandato §9, cenário 10 do
-  // roadmap).
+  // `decisionState.primary_decision.kind === 'no_intervention'`, OU
+  // `primary_decision.silent === true` sem nenhum sinal secundário
+  // sobrevivente — nos dois casos, Decision State avaliou e concluiu
+  // que não há nada para AGORA empurrar agora (o segundo caso é
+  // "avaliou algo, mas nenhuma comunicação é necessária" — mesma saída
+  // seller-facing: silêncio). Estado positivo e esperado, não erro
+  // (mandato §9, cenário 10 do roadmap).
   'nothing_to_do',
 ] as const
 
@@ -163,8 +166,14 @@ export type AgoraViewModelSilentReason =
   (typeof AGORA_VIEW_MODEL_SILENT_REASONS)[number]
 
 export type AgoraViewModel = {
-  // `true` quando AGORA não deve renderizar nenhum card comercial —
-  // mandato §9/§23: melhor ficar quieto do que inventar utilidade.
+  // `true` quando AGORA não tem absolutamente nada para mostrar (nem
+  // `primary` nem `secondary`) — mandato §9/§23: melhor ficar quieto do
+  // que inventar utilidade. `false` com `primary: null` é um estado
+  // válido e distinto: a decisão principal foi deliberadamente
+  // suprimida (`primary_decision.silent === true` — comunicação
+  // explicitamente desnecessária agora), mas um sinal secundário real
+  // sobrevive (mesmo padrão de `give_space` + compromisso operacional,
+  // mandato §10) e ainda deve renderizar.
   silent: boolean
 
   // Só preenchido quando `silent` é `true` — distingue "sem contexto"
@@ -176,6 +185,10 @@ export type AgoraViewModel = {
   // seller-facing para um estado silencioso.
   silent_reason: AgoraViewModelSilentReason | null
 
+  // `null` tanto no silêncio central (nada a mostrar) quanto no caso em
+  // que só a decisão PRINCIPAL foi suprimida mas `secondary` continua
+  // não-vazio (ver docstring de `silent` acima) — checar `secondary`
+  // além de `primary` antes de tratar o resultado como totalmente vazio.
   primary: AgoraViewModelSignal | null
 
   // Máximo 2 — já garantido por construção pelo próprio Decision State
@@ -245,6 +258,22 @@ function interventionCardToSignal(
  * não há nada relevante; AGORA nunca fabrica um card só para preencher
  * espaço (mandato §9).
  *
+ * `primary_decision.silent === true` também suprime a decisão principal
+ * visível — esse campo sinaliza que a leitura comercial subjacente
+ * marcou explicitamente `communication.intervention_needed: false`,
+ * *independente* de `kind`: um `kind` como `give_space`/
+ * `insufficient_information`/`close`/`handle_objection` pode coexistir
+ * com "nenhuma comunicação necessária agora" (ex.: cliente pediu espaço
+ * explicitamente, recusa definitiva já registrada, objeção histórica
+ * sem mensagem nova pendente — ver docstring de `DecisionStatePrimaryDecision.
+ * silent` em canonical-decision-state-source.ts). Mapear esse `kind`
+ * para um card visível de qualquer forma diria ao vendedor para agir
+ * exatamente quando Decision State decidiu o oposto (achado do Codex,
+ * PR #283, rodada 2). Sinais secundários não-vazios sobrevivem — o
+ * mesmo padrão já usado pela síntese de `give_space` em sessão pessoal
+ * (mandato §10): a decisão principal fica quieta, mas um sinal
+ * operacional real (SLA, compromisso) continua visível.
+ *
  * Função pura e síncrona — nenhum acesso a banco, nenhuma
  * reclassificação de prioridade/urgência. Toda decisão já foi tomada
  * por `loadCanonicalDecisionState()`.
@@ -265,12 +294,27 @@ export function buildAgoraViewModel(
   const primary =
     decisionState.primary_decision
 
-  if (primary.kind === 'no_intervention') {
+  const secondary =
+    decisionState.interventions
+      .slice(0, 2)
+      .map(interventionCardToSignal)
+
+  const primaryIsSuppressed =
+    primary.kind === 'no_intervention' ||
+    primary.silent === true
+
+  if (primaryIsSuppressed) {
+    const nothingToShow =
+      secondary.length === 0
+
     return {
-      silent: true,
-      silent_reason: 'nothing_to_do',
+      silent: nothingToShow,
+      silent_reason:
+        nothingToShow
+          ? 'nothing_to_do'
+          : null,
       primary: null,
-      secondary: [],
+      secondary,
       reference_time: decisionState.reference_time,
     }
   }
@@ -279,12 +323,7 @@ export function buildAgoraViewModel(
     silent: false,
     silent_reason: null,
     primary: toSignal(primary),
-
-    secondary:
-      decisionState.interventions
-        .slice(0, 2)
-        .map(interventionCardToSignal),
-
+    secondary,
     reference_time: decisionState.reference_time,
   }
 }

@@ -271,12 +271,16 @@ test('no_intervention: silencioso, sem card artificial', () => {
   assert.deepEqual(vm.secondary, [])
 })
 
-test('no_intervention com interventions não vazio (não deveria acontecer, mas é defendido): secondary ainda assim fica vazio', () => {
-  // Defesa em profundidade: mesmo se um chamador futuro produzir um
-  // DecisionState inconsistente (kind no_intervention com
-  // interventions não vazio, o que loadCanonicalDecisionState nunca
-  // faz hoje), o presenter nunca deixa vazar um card comercial junto
-  // de um "nada a fazer".
+test('no_intervention com interventions não vazio (não deveria acontecer, mas é defendido): primary continua ausente, secondary real sobrevive', () => {
+  // loadCanonicalDecisionState() nunca produz kind='no_intervention' com
+  // interventions não vazio hoje (os dois ramos que chegam a
+  // 'no_intervention' sempre zeram interventions) — mas SE um chamador
+  // futuro produzisse essa combinação, o tratamento correto é o mesmo
+  // da FASE 16.5 rodada 2 (achado do Codex): a decisão PRINCIPAL nunca
+  // aparece quando suprimida, mas um sinal secundário real não é
+  // descartado só porque o primário está quieto — mesma regra de
+  // give_space + compromisso operacional (mandato §10), aplicada de
+  // forma consistente aqui.
   const state = buildDecisionState({
     primary_decision: buildPrimary({
       kind: 'no_intervention',
@@ -290,8 +294,9 @@ test('no_intervention com interventions não vazio (não deveria acontecer, mas 
 
   const vm = buildAgoraViewModel(state)
 
-  assert.equal(vm.silent, true)
-  assert.deepEqual(vm.secondary, [])
+  assert.equal(vm.primary, null)
+  assert.equal(vm.silent, false)
+  assert.equal(vm.secondary.length, 1)
 })
 
 // 11 — current moment unknown.
@@ -911,6 +916,82 @@ test('wait + secondary operacional compatível: primário fica deliberadamente q
   assert.equal(vm.secondary.length, 1)
   assert.equal(vm.secondary[0].status, 'follow_up')
   assert.equal(vm.secondary[0].headline, 'Envio da proposta revisada já venceu.')
+})
+
+// Achado do Codex (PR #283, rodada 2): `primary_decision.silent === true`
+// sinaliza que a leitura comercial subjacente marcou explicitamente
+// `communication.intervention_needed: false`, INDEPENDENTE de `kind` — um
+// `kind` como `give_space`/`insufficient_information`/`close`/
+// `handle_objection` pode coexistir com "nenhuma comunicação necessária
+// agora" (objeção histórica sem mensagem nova pendente, recusa definitiva
+// já registrada, etc.). O presenter só checava `kind === 'no_intervention'`
+// e ignorava esse campo por completo — um `close` silencioso virava
+// "Responder agora" na tela, o oposto do que Decision State decidiu.
+test('primary_decision.silent === true suprime a decisão principal visível, mesmo com kind diferente de no_intervention', () => {
+  const state = buildDecisionState({
+    primary_decision: buildPrimary({
+      kind: 'close',
+      source: 'commercial_risk',
+      priority: 'high',
+      silent: true,
+      summary: 'Cliente já recusou definitivamente a proposta.',
+      recommended_action: 'Canal recomendado: text.',
+    }),
+  })
+
+  const vm = buildAgoraViewModel(state)
+
+  assert.equal(vm.primary, null)
+  assert.equal(vm.silent, true)
+  assert.equal(vm.silent_reason, 'nothing_to_do')
+})
+
+test('primary_decision.silent === true com secondary real: decisão principal fica quieta, mas o sinal secundário continua visível (view model não fica totalmente silencioso)', () => {
+  const state = buildDecisionState({
+    primary_decision: buildPrimary({
+      kind: 'handle_objection',
+      source: 'commercial_risk',
+      priority: 'medium',
+      silent: true,
+      summary: 'Objeção histórica ainda em aberto, sem mensagem nova pendente.',
+      recommended_action: 'Tratar a objeção antes de avançar a conversa.',
+    }),
+    interventions: [
+      buildInterventionCard({
+        source: 'client_sla',
+        kind: 'escalate',
+        priority: 'critical',
+        summary: 'Oportunidade estagnada na etapa acima do limite de SLA.',
+      }),
+    ],
+  })
+
+  const vm = buildAgoraViewModel(state)
+
+  assert.equal(vm.primary, null)
+  assert.equal(vm.silent, false)
+  assert.equal(vm.silent_reason, null)
+  assert.equal(vm.secondary.length, 1)
+  assert.equal(vm.secondary[0].status, 'escalate')
+  assert.equal(vm.secondary[0].headline, 'Oportunidade estagnada na etapa acima do limite de SLA.')
+})
+
+test('primary_decision.silent === false (padrão) continua renderizando a decisão principal normalmente', () => {
+  const state = buildDecisionState({
+    primary_decision: buildPrimary({
+      kind: 'handle_objection',
+      source: 'commercial_risk',
+      priority: 'high',
+      silent: false,
+      summary: 'Cliente acha o preço alto e ameaça desistir.',
+    }),
+  })
+
+  const vm = buildAgoraViewModel(state)
+
+  assert.notEqual(vm.primary, null)
+  assert.equal(vm.primary.status, 'handle_objection')
+  assert.equal(vm.silent, false)
 })
 
 // ---------------------------------------------------------------------------

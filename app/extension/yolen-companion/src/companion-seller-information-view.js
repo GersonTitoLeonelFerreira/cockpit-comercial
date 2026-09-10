@@ -1328,7 +1328,7 @@
   // esta função nunca reordena, nunca filtra por conta própria, nunca
   // inventa um card quando `silent` é `true` (mandato §9/§23).
   function renderAgoraViewModelSnapshot(agoraViewModel) {
-    if (!agoraViewModel || agoraViewModel.silent || !agoraViewModel.primary) {
+    if (!agoraViewModel || agoraViewModel.silent) {
       return ''
     }
 
@@ -1338,8 +1338,18 @@
         .map((signal) => renderAgoraSignal(signal, 'secondary'))
         .join('')
 
+    // `primary` pode ser `null` mesmo com `silent: false` — a decisão
+    // principal foi deliberadamente suprimida (Decision State marcou
+    // `primary_decision.silent`, comunicação explicitamente
+    // desnecessária agora), mas um sinal secundário real sobrevive
+    // (achado do Codex, PR #283, rodada 2) e ainda deve renderizar.
+    const primaryHtml =
+      agoraViewModel.primary
+        ? renderAgoraSignal(agoraViewModel.primary, 'primary')
+        : ''
+
     return (
-      renderAgoraSignal(agoraViewModel.primary, 'primary') +
+      primaryHtml +
       secondaryHtml
     )
   }

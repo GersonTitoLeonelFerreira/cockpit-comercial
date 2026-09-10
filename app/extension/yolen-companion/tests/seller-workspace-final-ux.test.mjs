@@ -123,6 +123,64 @@ test(
   },
 )
 
+test(
+  'AGORA é atualizado quando uma nova mensagem é capturada, não só quando uma nova análise termina (achado do Codex, PR #283, rodada 2)',
+  () => {
+    // Um sinal operacional (ex.: cliente passou a aguardar resposta)
+    // pode mudar com uma mensagem nova sem que nenhuma análise semântica
+    // rode — sem este refresh, AGORA ficaria presa na decisão anterior
+    // até a próxima reanálise bem-sucedida, que pode nunca acontecer se
+    // o vendedor não reanalisar manualmente.
+    const start = contentScript.indexOf(
+      'function notifyCaptureIngestedForClientContext(',
+    )
+    const end = contentScript.indexOf(
+      'async function loadCompanionClientContextForCurrentCycle(',
+      start,
+    )
+    const block = contentScript.slice(start, end)
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    assert.match(
+      block,
+      /loadAgoraDecisionStateForCurrentCycle\(\{\s*\n?\s*force: true,/,
+    )
+  },
+)
+
+test(
+  'AGORA é atualizado periodicamente enquanto o painel está aberto, não só em eventos discretos (achado do Codex, PR #283, rodada 2)',
+  () => {
+    // Decision State é uma fotografia do servidor, não recalculada ao
+    // vivo no cliente (ao contrário do client-context) — sem um refetch
+    // periódico, um SLA que evolui de médio para alto (ou uma espera que
+    // cruza o limiar de atenção) puramente pela passagem do tempo,
+    // deixaria AGORA presa na decisão antiga indefinidamente.
+    const start = contentScript.indexOf(
+      'function startCompanionClientContextTicker(',
+    )
+    const end = contentScript.indexOf(
+      'function getAnalysisCardHtml(',
+      start,
+    )
+    const block = contentScript.slice(start, end)
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    assert.match(
+      block,
+      /state\.agoraDecisionState\s*\n?\s*\?\.status === 'ready'/,
+    )
+    assert.match(
+      block,
+      /loadAgoraDecisionStateForCurrentCycle\(\{\s*\n?\s*force: true,/,
+    )
+  },
+)
+
 test('erro e loading da análise profunda nunca bloqueiam nem aparecem em AGORA', () => {
   const summaryCardStart = contentScript.indexOf(
     'function getCompanionLeadSummaryCardHtml()',

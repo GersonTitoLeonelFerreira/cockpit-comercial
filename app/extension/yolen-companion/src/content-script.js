@@ -11500,6 +11500,17 @@
         // O cache é invalidado no wrapper de ingestão e este refresh
         // debounced evita manter na tela um resumo anterior ao novo lote.
         void loadCompanionLeadSummaryForCurrentCycle()
+
+        // FASE 16.5 (achado do Codex, rodada 2): uma mensagem nova pode
+        // criar ou alterar um sinal operacional que Decision State usa
+        // (ex.: cliente passou a aguardar resposta) sem que nenhuma nova
+        // análise semântica tenha rodado — sem este refresh, AGORA
+        // ficaria presa na decisão calculada antes da mensagem chegar
+        // até a próxima análise bem-sucedida (que pode nunca acontecer
+        // se o vendedor não reanalisar manualmente).
+        void loadAgoraDecisionStateForCurrentCycle({
+          force: true,
+        })
       }, COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS)
   }
 
@@ -12070,6 +12081,26 @@
             ?.status === 'ready'
         ) {
           renderPanel()
+        }
+
+        // FASE 16.5 (achado do Codex, rodada 2): ao contrário do
+        // client-context (cujo tempo decorrido a própria UI recalcula
+        // localmente a cada render), o AGORA seller-facing view model é
+        // uma fotografia do servidor — sem um refetch periódico, um SLA
+        // que evolui de médio para alto (ou um cliente que passa a
+        // aguardar por tempo suficiente) puramente pela passagem do
+        // tempo, sem nenhuma mensagem nova nem reanálise, deixaria AGORA
+        // presa na decisão antiga indefinidamente. Só refaz a busca
+        // quando já existe um AGORA carregado (não força a primeira
+        // busca por aqui, isso já é responsabilidade dos outros dois
+        // pontos de disparo).
+        if (
+          state.agoraDecisionState
+            ?.status === 'ready'
+        ) {
+          void loadAgoraDecisionStateForCurrentCycle({
+            force: true,
+          })
         }
       }, COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS)
   }

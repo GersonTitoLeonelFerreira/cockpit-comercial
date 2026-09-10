@@ -545,6 +545,33 @@ test('wait nunca renderiza "Retomar contato" nem tom de urgência — sempre "Na
   assert.match(html, /yolen-now-attention--information/)
 })
 
+// Achado do Codex (PR #283, rodada 2): quando o presenter suprime a
+// decisão principal (silent: false, primary: null, secondary não-vazio
+// — ver agora-view-model.ts), renderAgoraViewModelSnapshot bailava cedo
+// por checar `!agoraViewModel.primary`, descartando silenciosamente um
+// sinal secundário real. Prova que o card secundário ainda renderiza
+// nesse cenário.
+test('view model com primary null mas secondary real (decisão principal suprimida) ainda renderiza o card secundário', () => {
+  const html = view.renderAgoraViewModelSnapshot({
+    silent: false,
+    silent_reason: null,
+    primary: null,
+    secondary: [
+      buildAgoraSignal({
+        status: 'escalate',
+        priority: 'critical',
+        headline: 'Oportunidade estagnada na etapa acima do limite de SLA.',
+        action: 'Avaliar a oportunidade e decidir o próximo passo.',
+      }),
+    ],
+    reference_time: '2026-08-22T12:00:00.000Z',
+  })
+
+  assert.match(html, /Oportunidade estagnada na etapa acima do limite de SLA\./)
+  assert.match(html, /data-yolen-now-attention-variant="secondary"/)
+  assert.doesNotMatch(html, /data-yolen-now-attention-variant="primary"/)
+})
+
 test('todo conteúdo seller-facing escapa HTML não confiável', () => {
   const reading = buildReading()
   reading.seller_strengths[0].summary = '<img src=x onerror=alert(1)>'
