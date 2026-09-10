@@ -276,12 +276,12 @@ test('AGORA é padrão e as três áreas têm navegação semântica por clique 
   await waitFor(() => runtime.document.querySelector('[role="tablist"]'))
 
   const tabs = [...runtime.document.querySelectorAll('[role="tab"]')]
-  assert.deepEqual(tabs.map((tab) => tab.textContent.trim()), ['Agora', 'Análise', 'Cliente'])
+  assert.deepEqual(tabs.map((tab) => tab.textContent.trim()), ['Agora', 'Mensagem', 'Análise', 'Cliente'])
   assert.equal(tabs[0].getAttribute('aria-selected'), 'true')
   assert.equal(runtime.document.querySelector('[data-yolen-seller-panel="now"]').hidden, false)
   assert.equal(runtime.document.querySelector('[data-yolen-seller-panel="analysis"]').hidden, true)
 
-  tabs[1].click()
+  runtime.document.querySelector('[data-yolen-seller-area="analysis"]').click()
   await waitFor(() =>
     runtime.document.querySelector('[data-yolen-seller-area="analysis"]')?.getAttribute('aria-selected') === 'true',
   )
@@ -551,7 +551,7 @@ test('non-commercial neutraliza AGORA e ANÁLISE sem apagar fatos persistidos do
 
   runtime.document.querySelector('[data-yolen-seller-area="analysis"]').click()
   const analysisPanel = runtime.document.querySelector('[data-yolen-seller-panel="analysis"]')
-  assert.match(analysisPanel.textContent, /não possui análise comercial atual/i)
+  assert.match(analysisPanel.textContent, /sem evidência comercial relevante/i)
   assert.doesNotMatch(analysisPanel.textContent, /Pontos de melhoria|Método Consultivo/)
 
   runtime.document.querySelector('[data-yolen-seller-area="client"]').click()

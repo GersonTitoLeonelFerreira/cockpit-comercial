@@ -1248,12 +1248,12 @@ function collectFromParsedRows(
  *   exatamente uma company_id (sales_cycles_lead_id_fkey +
  *   companion_commercial_states_cycle_fkey).
  *
- * Este módulo é somente leitura e não é chamado por nenhum caminho
- * de produção ainda: nem pelo real-time context loader, nem pelo
- * MIE, nem por Commercial Reading. Ativá-lo em um desses caminhos é
- * uma decisão de produto sobre COMO e QUANDO memória de ciclo deve
- * ser exibida — território de Decision State/AGORA e Communication
- * Context/MENSAGEM, fora do escopo desta fase.
+ * Este módulo é somente leitura. Desde a FASE 16.4, é chamado pelo
+ * orquestrador canônico (`canonical-integrated-commercial-context-
+ * source.ts`, que alimenta ANÁLISE) e, indiretamente, por Decision
+ * State/AGORA (`canonical-decision-state-source.ts`) — nunca pelo
+ * MIE nem por Commercial Reading, que permanecem fora do alcance
+ * deste agregador (achado da auditoria FASE 16.8, mandato §6).
  */
 export async function loadCanonicalCycleCommercialMemory({
   admin,
