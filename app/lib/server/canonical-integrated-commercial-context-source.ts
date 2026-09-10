@@ -191,6 +191,70 @@ function normalizeDateOrNull(
   return new Date(timestamp).toISOString()
 }
 
+// CODEX, PR #282, rodada 1 (P1): `current_reading` é caller-supplied
+// (mesma disciplina de 16.3D/16.3E/16.3F) — os loaders downstream
+// (`loadCanonicalMethodCoachingSource`/`loadCanonicalDecisionState`/
+// `loadCanonicalCommunicationContext`) já falham fechado para um
+// `current_reading` de outra company/cycle/conversation ou do futuro
+// em relação a `reference_time`, mas cada um deles só protege A SI
+// MESMO — nenhum devolve uma versão sanitizada de volta. Antes desta
+// correção, o orquestrador repassava o `current_reading` ORIGINAL
+// (não sanitizado) para cada downstream E o expunha verbatim no
+// resultado integrado, mesmo quando mismatched — um objeto canônico
+// que não pode confiar que quem o consome vai re-validar escopo antes
+// de usar (mandato §34/§35: "nenhum leak cross-company/cross-lead/
+// cross-cycle"). A sanitização agora acontece UMA VEZ, na borda do
+// orquestrador, antes de qualquer downstream — a mesma versão
+// sanitizada (nunca a original) é usada tanto para alimentar Method/
+// Coaching, Decision State e Communication Context quanto para compor
+// o retorno final. Um `current_reading` mismatched vira `null` aqui;
+// os downstream continuam recebendo `null` (não um objeto que eles
+// rejeitariam de qualquer forma), e o resultado integrado nunca expõe
+// a leitura original.
+//
+// Mesmos dois testes de identidade já usados por
+// loadCanonicalDecisionState/loadCanonicalCommunicationContext:
+// escopo exato (company/cycle/conversation) e não-futuro
+// (`generated_at <= reference_time` — mesmo campo usado nos dois
+// módulos irmãos para essa checagem, nunca `state_updated_at`, que é
+// o instante semântico da análise, não uma prova de "quando foi
+// carregado por este chamador").
+function sanitizeCurrentReading({
+  current_reading,
+  company_id,
+  cycle_id,
+  conversation_key,
+  referenceTime,
+}: {
+  current_reading:
+    CanonicalCommercialReadingSource | null
+  company_id: string
+  cycle_id: string
+  conversation_key: string
+  referenceTime: string
+}): CanonicalCommercialReadingSource | null {
+  if (!current_reading) {
+    return null
+  }
+
+  if (
+    current_reading.company_id !== company_id ||
+    current_reading.cycle_id !== cycle_id ||
+    current_reading.conversation_key !== conversation_key
+  ) {
+    return null
+  }
+
+  if (
+    Date.parse(current_reading.generated_at) >
+      Date.parse(referenceTime)
+  ) {
+    return null
+  }
+
+  return current_reading
+}
+
 function computeFreshness({
   cycleMemory,
   decisionState,
@@ -264,6 +328,14 @@ function computeFreshness({
  * `current_reading`/`client_context` são caller-supplied (mesma
  * disciplina de 16.3D/16.3E/16.3F) — este módulo nunca reconstrói
  * `validation_context`/`state_read` nem autentica nada.
+ *
+ * `current_reading` é sanitizado (`sanitizeCurrentReading`) na borda,
+ * antes de qualquer uso — nunca confia que os loaders downstream "já
+ * rejeitam" um valor de outra company/cycle/conversation ou do futuro
+ * em relação a `reference_time`. Cada downstream E o resultado
+ * integrado final usam exclusivamente a versão sanitizada; um
+ * `current_reading` mismatched nunca aparece no objeto devolvido
+ * (achado do Codex, PR #282, rodada 1).
  */
 export async function loadCanonicalIntegratedCommercialContext({
   admin,
@@ -292,6 +364,18 @@ export async function loadCanonicalIntegratedCommercialContext({
   if (!referenceTime) {
     return null
   }
+
+  // Sanitizado UMA vez aqui — toda referência a `current_reading` daqui
+  // em diante (downstream e o retorno final) usa exclusivamente esta
+  // versão, nunca o parâmetro original.
+  const currentReading =
+    sanitizeCurrentReading({
+      current_reading,
+      company_id,
+      cycle_id,
+      conversation_key,
+      referenceTime,
+    })
 
   let cycleMemory:
     CanonicalCycleCommercialMemory | null =
@@ -326,7 +410,7 @@ export async function loadCanonicalIntegratedCommercialContext({
         cycle_id,
         conversation_key,
         reference_time: referenceTime,
-        current_reading,
+        current_reading: currentReading,
         cycle_memory: cycleMemory,
       })
   } catch (error) {
@@ -350,7 +434,7 @@ export async function loadCanonicalIntegratedCommercialContext({
         cycle_id,
         conversation_key,
         reference_time: referenceTime,
-        current_reading,
+        current_reading: currentReading,
         client_context,
         cycle_memory: cycleMemory,
         method_coaching: methodCoaching,
@@ -377,7 +461,7 @@ export async function loadCanonicalIntegratedCommercialContext({
         conversation_key,
         reference_time: referenceTime,
         decision_state: decisionState,
-        current_reading,
+        current_reading: currentReading,
         cycle_memory: cycleMemory,
         method_coaching: methodCoaching,
       })
@@ -396,7 +480,7 @@ export async function loadCanonicalIntegratedCommercialContext({
     conversation_key,
     reference_time: referenceTime,
 
-    current_reading,
+    current_reading: currentReading,
     cycle_memory: cycleMemory,
     method_coaching: methodCoaching,
     decision_state: decisionState,

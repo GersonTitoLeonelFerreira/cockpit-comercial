@@ -574,27 +574,136 @@ test('sem current_reading nem client_context, current_moment fica unknown e a op
 // Communication Context) ficarem indisponíveis, sem derrubar Cycle
 // Memory (que é escopado só por company_id/cycle_id do PRÓPRIO
 // chamador, nunca do current_reading suprido).
-test('current_reading de outra company degrada decision_state/communication_context sem apagar cycle_memory', async () => {
+// ---------------------------------------------------------------------------
+// CODEX, PR #282, rodada 1 (P1) — "Strip mismatched readings from the
+// integrated result": `current_reading` de outra company/cycle/
+// conversation, ou do futuro em relação a `reference_time`, era
+// repassado VERBATIM (não sanitizado) tanto para os loaders downstream
+// quanto para o resultado integrado final. Os loaders downstream já
+// falhavam fechado (decision_state virava `null` inteiro), mas o
+// objeto integrado ainda expunha a leitura original mismatched em
+// `context.current_reading` — um leak canônico de identidade que o
+// mandato §34/§35 proíbe. Corrigido sanitizando `current_reading` UMA
+// vez na borda do orquestrador (`sanitizeCurrentReading`) — a mesma
+// versão sanitizada (nunca a original) alimenta Method/Coaching,
+// Decision State, Communication Context e o retorno final. Um
+// `current_reading` mismatched agora vira `null` desde a origem: os
+// downstream tratam-no como "sem leitura", degradando normalmente (o
+// mesmo tratamento que já dão a um `current_reading: null` explícito
+// de qualquer chamador), em vez de falhar fechado por completo.
+// ---------------------------------------------------------------------------
+
+function assertCurrentReadingWasSanitizedAway(context) {
+  assert.ok(context)
+
+  // O objeto integrado nunca expõe a leitura mismatched — nem
+  // diretamente, nem via provenance/customer_context de nenhuma das
+  // fontes que dependem dela.
+  assert.equal(context.current_reading, null)
+  assert.ok(context.decision_state)
+  assert.equal(
+    context.decision_state.provenance.analise_source_event_id,
+    null,
+  )
+  assert.equal(
+    context.decision_state.provenance.analise_state_record_id,
+    null,
+  )
+
+  assert.ok(context.communication_context)
+  assert.equal(context.communication_context.executable, true)
+  assert.deepEqual(
+    context.communication_context.customer_context.preferences,
+    [],
+  )
+
+  // Degradação graciosa (não mais falha fechada de Decision State por
+  // completo): sem candidato/leitura, a decisão cai no fallback
+  // "nenhuma leitura comercial disponível".
+  assert.equal(
+    context.decision_state.primary_decision.kind,
+    'no_intervention',
+  )
+
+  // A oportunidade (Cycle Memory) nunca foi afetada por este mismatch —
+  // ela é escopada só por (company_id, cycle_id) do PRÓPRIO chamador,
+  // nunca do current_reading suprido.
+  assert.ok(context.cycle_memory)
+  assert.equal(context.freshness.opportunity, 'available')
+}
+
+test('current_reading de outra company é sanitizado para null — nunca aparece no resultado integrado', async () => {
   const context = await load({
     current_reading: buildCurrentReading({
       company_id: OTHER_COMPANY_ID,
     }),
   })
 
-  assert.ok(context)
-  assert.equal(context.decision_state, null)
-  assert.ok(context.cycle_memory)
-  assert.equal(context.communication_context.executable, false)
-  assert.equal(
-    context.communication_context.non_executable_reason,
-    'no_decision_state',
-  )
+  assertCurrentReadingWasSanitizedAway(context)
+})
 
-  assert.deepEqual(context.freshness, {
-    current_moment: 'unknown',
-    opportunity: 'available',
-    communication: 'non_executable',
+test('current_reading de outro cycle é sanitizado para null — nunca aparece no resultado integrado', async () => {
+  const context = await load({
+    current_reading: buildCurrentReading({
+      cycle_id: OTHER_CYCLE_ID,
+    }),
   })
+
+  assertCurrentReadingWasSanitizedAway(context)
+})
+
+test('current_reading de outra conversation é sanitizado para null — nunca aparece no resultado integrado', async () => {
+  const context = await load({
+    current_reading: buildCurrentReading({
+      conversation_key: 'whatsapp:+5547999990099',
+    }),
+  })
+
+  assertCurrentReadingWasSanitizedAway(context)
+})
+
+test('current_reading do futuro (generated_at > reference_time) é sanitizado para null — nunca aparece no resultado integrado', async () => {
+  const context = await load({
+    current_reading: buildCurrentReading({
+      generated_at: '2026-09-09T18:00:00.000Z',
+      state_updated_at: '2026-09-09T18:00:00.000Z',
+    }),
+  })
+
+  assertCurrentReadingWasSanitizedAway(context)
+})
+
+test('current_reading válido (mesmo escopo, não-futuro) passa intacto e alimenta decision_state/communication_context normalmente', async () => {
+  const reading = buildReading({
+    commercial_relevance: 'commercial',
+    best_approach: {
+      decision: 'send_material',
+      reason: 'Cliente pediu material sobre o produto.',
+      channel: 'document',
+      evidence_message_ids: ['m10'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: null,
+    },
+  })
+
+  const currentReading = buildCurrentReading({ reading })
+
+  const context = await load({ current_reading: currentReading })
+
+  // A mesma referência do objeto válido é preservada — sanitização
+  // nunca clona nem invalida uma leitura corretamente escopada.
+  assert.equal(context.current_reading, currentReading)
+
+  assert.equal(context.decision_state.primary_decision.kind, 'send_material')
+  assert.equal(
+    context.decision_state.provenance.analise_source_event_id,
+    currentReading.source_event_id,
+  )
+  assert.equal(context.communication_context.executable, true)
 })
 
 // Cenário 25 do mandato: cross-cycle isolado — um commitment de outro
