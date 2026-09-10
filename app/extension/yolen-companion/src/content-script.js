@@ -226,6 +226,9 @@
   // conversa; só a chamada cujo requestSequence capturado ainda é o mais
   // recente pode aplicar seu resultado.
   let agoraDecisionStateRequestSequence = 0
+  // FASE 16.6 — mesmo padrão de agoraDecisionStateRequestSequence acima,
+  // para o ANÁLISE seller-facing view model.
+  let analysisViewModelRequestSequence = 0
   // Identidade explícita da tentativa que hoje é dona do loading —
   // { requestSequence, cycleId, conversationKey, source: 'manual'|'automatic' }
   // ou null quando não há nenhuma em voo. Preenchida no início de
@@ -584,6 +587,19 @@
     // Codex, PR #283): ver loadAgoraDecisionStateForCurrentCycle e o
     // bloco companyChanged de loadYolenSession.
     agoraDecisionStateCompanyId: null,
+    // FASE 16.6 — ANÁLISE seller-facing view model (Integrated Commercial
+    // Context canônico). Mesmo padrão de quatro campos de
+    // agoraDecisionState acima (FASE 16.5): status/dado + trio
+    // cycleId/conversationKey/companyId para o mesmo guard de escopo
+    // (isCurrentAnalysisViewModelContext) usado antes de renderizar —
+    // company/cycle/conversation isolation aplicados desde o início
+    // (lição da FASE 16.5, rodada 3 do Codex), não descobertos depois.
+    analysisViewModel: {
+      status: 'idle',
+    },
+    analysisViewModelCycleId: null,
+    analysisViewModelConversationKey: null,
+    analysisViewModelCompanyId: null,
     companionLeadSummary: {
       status: 'idle',
     },
@@ -6069,6 +6085,12 @@
       agoraDecisionStateCycleId: null,
       agoraDecisionStateConversationKey: null,
       agoraDecisionStateCompanyId: null,
+      analysisViewModel: {
+        status: 'idle',
+      },
+      analysisViewModelCycleId: null,
+      analysisViewModelConversationKey: null,
+      analysisViewModelCompanyId: null,
       companionLeadSummary: {
         status: 'idle',
       },
@@ -9976,535 +9998,6 @@
     `
   }
 
-  function getCommercialReadingDecisionLabel(
-    decision,
-  ) {
-    const labels = {
-      respond: 'Responder',
-      clarify: 'Esclarecer',
-      ask: 'Perguntar',
-      deepen_discovery:
-        'Aprofundar descoberta',
-      present_solution:
-        'Apresentar solução',
-      compare: 'Comparar opções',
-      demonstrate_value:
-        'Demonstrar valor',
-      handle_objection:
-        'Tratar objeção',
-      send_material:
-        'Enviar material',
-      confirm_information:
-        'Confirmar informação',
-      propose_call:
-        'Propor ligação',
-      propose_meeting:
-        'Propor reunião',
-      propose_visit:
-        'Propor visita',
-      negotiate: 'Negociar',
-      ask_for_decision:
-        'Pedir decisão',
-      set_commitment:
-        'Definir compromisso',
-      wait: 'Aguardar',
-      give_space: 'Dar espaço',
-      follow_up: 'Fazer follow-up',
-      escalate: 'Escalonar',
-      close: 'Encerrar',
-      no_intervention:
-        'Não intervir',
-      insufficient_information:
-        'Informação insuficiente',
-    }
-
-    return (
-      labels[decision] ||
-      String(decision || '')
-    )
-  }
-
-  function getCommercialReadingChannelLabel(
-    channel,
-  ) {
-    const labels = {
-      text: 'Texto',
-      audio: 'Áudio',
-      call: 'Ligação',
-      meeting: 'Reunião',
-      visit: 'Visita',
-      document: 'Documento',
-      wait: 'Aguardar',
-      none: 'Sem canal',
-    }
-
-    return (
-      labels[channel] ||
-      String(channel || '')
-    )
-  }
-
-  function getRichCommercialReadingBadge(
-    commercialReading,
-  ) {
-    if (
-      commercialReading
-        ?.analysis_status ===
-        'limited'
-    ) {
-      return 'Leitura limitada'
-    }
-
-    const decision =
-      commercialReading
-        ?.best_approach
-        ?.decision
-
-    if (decision === 'wait') {
-      return 'Aguardar'
-    }
-
-    if (
-      decision ===
-      'give_space'
-    ) {
-      return 'Dar espaço'
-    }
-
-    if (
-      decision ===
-      'no_intervention'
-    ) {
-      return 'Sem intervenção'
-    }
-
-    if (
-      hasRichCommercialReadingOperationalChange(
-        commercialReading,
-      )
-    ) {
-      return 'Ação recomendada'
-    }
-
-    if (
-      commercialReading
-        ?.communication
-        ?.intervention_needed ===
-        true
-    ) {
-      return 'Orientação disponível'
-    }
-
-    return 'Sem intervenção necessária'
-  }
-
-  function getRichCommercialReadingLimitationsHtml(
-    commercialReading,
-  ) {
-    if (
-      commercialReading
-        ?.analysis_status !==
-        'limited'
-    ) {
-      return ''
-    }
-
-    const limitations =
-      Array.isArray(
-        commercialReading
-          ?.analysis_limitations,
-      )
-        ? commercialReading
-            .analysis_limitations
-            .filter(
-              item =>
-                typeof item ===
-                  'string' &&
-                item.trim(),
-            )
-            .map(
-              item =>
-                item.trim(),
-            )
-        : []
-
-    return `
-      <div class="yolen-decision-block yolen-operational-suggestion">
-        <div class="yolen-decision-kicker">
-          Leitura limitada
-        </div>
-
-        ${
-          limitations.length > 0
-            ? `
-              <div class="yolen-decision-list">
-                ${limitations
-                  .map(
-                    item =>
-                      `<div class="yolen-decision-list-item">${escapeHtml(item)}</div>`,
-                  )
-                  .join('')}
-              </div>
-            `
-            : ''
-        }
-      </div>
-    `
-  }
-
-  function getRichCommercialReadingApproachHtml(
-    commercialReading,
-  ) {
-    const approach =
-      commercialReading
-        ?.best_approach
-
-    if (!approach) {
-      return ''
-    }
-
-    const decision =
-      typeof approach
-        .decision ===
-        'string'
-        ? approach
-            .decision
-            .trim()
-        : ''
-
-    const reason =
-      typeof approach
-        .reason ===
-        'string'
-        ? approach
-            .reason
-            .trim()
-        : ''
-
-    const channel =
-      typeof approach
-        .channel ===
-        'string'
-        ? approach
-            .channel
-            .trim()
-        : ''
-
-    if (
-      !decision &&
-      !reason
-    ) {
-      return ''
-    }
-
-    // Ordem fixa RESUMO → LEITURA → PRÓXIMO PASSO: o bloco de contexto
-    // (Resumo) já renderiza antes desta função; aqui, o motivo (reason) é
-    // a interpretação comercial do resumo (Leitura da Yolen) e só depois
-    // vem a instrução do que fazer (Próximo passo, decision + canal).
-    // Antes, os dois ficavam juntos sob "Próximo movimento", misturando o
-    // "porquê" com o "o quê fazer" num único rótulo.
-    return `
-      ${
-        reason
-          ? `
-            <div class="yolen-decision-block" data-yolen-layer="reading">
-              <div class="yolen-decision-kicker">
-                Leitura da Yolen
-              </div>
-
-              <div class="yolen-decision-copy">
-                ${escapeHtml(reason)}
-              </div>
-            </div>
-          `
-          : ''
-      }
-
-      ${
-        decision
-          ? `
-            <div class="yolen-decision-block" data-yolen-layer="next-step">
-              <div class="yolen-decision-kicker">
-                Próximo passo
-              </div>
-
-              <div class="yolen-card-title yolen-decision-title">
-                ${escapeHtml(
-                  getCommercialReadingDecisionLabel(
-                    decision,
-                  ),
-                )}
-              </div>
-
-              ${
-                channel
-                  ? `
-                    <div class="yolen-operational-note">
-                      Canal: ${escapeHtml(
-                        getCommercialReadingChannelLabel(
-                          channel,
-                        ),
-                      )}
-                    </div>
-                  `
-                  : ''
-              }
-            </div>
-          `
-          : ''
-      }
-    `
-  }
-
-  function getRichRecommendedQuestionHtml(
-    commercialReading,
-  ) {
-    const communication =
-      commercialReading
-        ?.communication
-
-    if (
-      communication
-        ?.intervention_needed !==
-        true
-    ) {
-      return ''
-    }
-
-    const question =
-      typeof communication
-        .recommended_question ===
-        'string'
-        ? communication
-            .recommended_question
-            .trim()
-        : ''
-
-    if (!question) {
-      return ''
-    }
-
-    const recommendedMessage =
-      typeof communication
-        .recommended_message ===
-        'string'
-        ? communication
-            .recommended_message
-            .trim()
-        : ''
-
-    const normalizeForComparison = (
-      value,
-    ) => String(value || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLocaleLowerCase('pt-BR')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-
-    const normalizedQuestion =
-      normalizeForComparison(
-        question,
-      )
-
-    // Se a mensagem sugerida já contém a pergunta, AGORA mostra apenas a
-    // mensagem acionável. A pergunta continua disponível no contrato, sem
-    // ocupar dois blocos com o mesmo conteúdo no primeiro nível.
-    if (
-      normalizedQuestion &&
-      normalizeForComparison(
-        recommendedMessage,
-      ).includes(
-        normalizedQuestion,
-      )
-    ) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-decision-block">
-        <div class="yolen-decision-kicker">
-          Pergunta recomendada
-        </div>
-
-        <div class="yolen-decision-copy">
-          ${escapeHtml(question)}
-        </div>
-      </div>
-    `
-  }
-
-  function getRichOperationalSuggestionHtml(
-    commercialReading,
-  ) {
-    const crm =
-      commercialReading
-        ?.operations
-        ?.crm
-
-    const agenda =
-      commercialReading
-        ?.operations
-        ?.agenda
-
-    const items = []
-
-    if (
-      crm
-        ?.should_change_crm_stage ===
-        true &&
-      crm
-        .requires_human_confirmation ===
-        true &&
-      crm
-        .recommended_status
-    ) {
-      const currentStatus =
-        state
-          .leadResolution
-          ?.cycle
-          ?.status
-
-      const currentLabel =
-        currentStatus
-          ? getStageLabel(
-              currentStatus,
-            )
-          : null
-
-      const targetLabel =
-        getStageLabel(
-          crm.recommended_status,
-        )
-
-      const rationale =
-        getCommercialReadingDisplayText(
-          crm.rationale,
-        )
-
-      if (
-        targetLabel &&
-        rationale
-      ) {
-        const stageText =
-          currentLabel
-            ? `${currentLabel} → ${targetLabel}`
-            : targetLabel
-
-        items.push(`
-          <div class="yolen-rich-evolution-item">
-            <div class="yolen-rich-evolution-header">
-              <div class="yolen-rich-evolution-label">
-                CRM
-              </div>
-
-              <div class="yolen-rich-status yolen-rich-status-active">
-                Confirmar
-              </div>
-            </div>
-
-            <div class="yolen-rich-evolution-copy">
-              Etapa: ${escapeHtml(
-                stageText,
-              )}
-            </div>
-
-            <div class="yolen-rich-evolution-copy">
-              Motivo: ${escapeHtml(
-                rationale,
-              )}
-            </div>
-          </div>
-        `)
-      }
-    }
-
-    if (
-      agenda
-        ?.should_change_agenda ===
-        true &&
-      agenda
-        .requires_human_confirmation ===
-        true
-    ) {
-      const agendaDate =
-        agenda
-          .expected_next_action_at
-          ? formatSuggestionDate(
-              agenda
-                .expected_next_action_at,
-            )
-          : null
-
-      const rationale =
-        getCommercialReadingDisplayText(
-          agenda.rationale,
-        )
-
-      if (
-        agendaDate &&
-        rationale
-      ) {
-        items.push(`
-          <div class="yolen-rich-evolution-item">
-            <div class="yolen-rich-evolution-header">
-              <div class="yolen-rich-evolution-label">
-                Agenda
-              </div>
-
-              <div class="yolen-rich-status yolen-rich-status-active">
-                Confirmar
-              </div>
-            </div>
-
-            <div class="yolen-rich-evolution-copy">
-              Quando: ${escapeHtml(
-                agendaDate,
-              )}
-            </div>
-
-            <div class="yolen-rich-evolution-copy">
-              Motivo: ${escapeHtml(
-                rationale,
-              )}
-            </div>
-          </div>
-        `)
-      }
-    }
-
-    if (
-      items.length === 0
-    ) {
-      return ''
-    }
-
-    const applyAvailable =
-      canApplyCurrentSuggestion()
-
-    return `
-      <div class="yolen-decision-block yolen-operational-suggestion">
-        <div class="yolen-decision-kicker">
-          Atualização na Yolen
-        </div>
-
-        <div class="yolen-rich-evolution">
-          ${items.join('')}
-        </div>
-
-        <div class="yolen-operational-note">
-          Nada será alterado sem sua confirmação.
-          ${
-            applyAvailable
-              ? ' Revise as mudanças acima antes de confirmar.'
-              : ' A aplicação desta recomendação não está disponível nesta leitura.'
-          }
-        </div>
-      </div>
-    `
-  }
-
   function getCommercialReadingDisplayText(
     value,
   ) {
@@ -10519,924 +10012,6 @@
       value.trim()
 
     return clean || null
-  }
-
-  function getRichReadingFactHtml(
-    label,
-    item,
-  ) {
-    const summary =
-      getCommercialReadingDisplayText(
-        item?.summary,
-      )
-
-    if (!summary) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-rich-fact">
-        <div class="yolen-rich-fact-label">
-          ${escapeHtml(label)}
-        </div>
-
-        <div class="yolen-rich-fact-copy">
-          ${escapeHtml(summary)}
-        </div>
-      </div>
-    `
-  }
-
-  function getRichReadingListHtml(
-    label,
-    items,
-  ) {
-    const summaries =
-      Array.isArray(items)
-        ? items
-            .map(
-              item =>
-                getCommercialReadingDisplayText(
-                  item?.summary,
-                ),
-            )
-            .filter(Boolean)
-        : []
-
-    if (
-      summaries.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-rich-group">
-        <div class="yolen-rich-group-label">
-          ${escapeHtml(label)}
-        </div>
-
-        <div class="yolen-rich-list">
-          ${summaries
-            .map(
-              summary => `
-                <div class="yolen-rich-list-item">
-                  ${escapeHtml(summary)}
-                </div>
-              `,
-            )
-            .join('')}
-        </div>
-      </div>
-    `
-  }
-
-  function getRichConversationSummaryHtml(
-    commercialReading,
-  ) {
-    const summary =
-      commercialReading
-        ?.conversation_summary
-
-    if (!summary) {
-      return ''
-    }
-
-    const blocks = [
-      getRichReadingFactHtml(
-        'Contexto inicial',
-        summary.initial_context,
-      ),
-      getRichReadingFactHtml(
-        'Como a conversa evoluiu',
-        summary.evolution,
-      ),
-      getRichReadingListHtml(
-        'Eventos importantes',
-        summary.important_events,
-      ),
-      getRichReadingFactHtml(
-        'Última solicitação ou decisão',
-        summary
-          .last_customer_request_or_decision,
-      ),
-    ].filter(Boolean)
-
-    if (
-      blocks.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <section class="yolen-rich-section">
-        <div class="yolen-rich-section-title">
-          Resumo da conversa
-        </div>
-
-        ${blocks.join('')}
-      </section>
-    `
-  }
-
-  function getRichCustomerGroupHtml(
-    label,
-    items,
-  ) {
-    return getRichReadingListHtml(
-      label,
-      items,
-    )
-  }
-
-  function getRichCustomerHtml(
-    commercialReading,
-  ) {
-    const customer =
-      commercialReading
-        ?.customer
-
-    if (!customer) {
-      return ''
-    }
-
-    const groups = [
-      getRichCustomerGroupHtml(
-        'Necessidades',
-        customer.needs,
-      ),
-      getRichCustomerGroupHtml(
-        'Interesses',
-        customer.interests,
-      ),
-      getRichCustomerGroupHtml(
-        'Critérios de decisão',
-        customer
-          .decision_criteria,
-      ),
-      getRichCustomerGroupHtml(
-        'Preferências',
-        customer.preferences,
-      ),
-      getRichCustomerGroupHtml(
-        'Perguntas em aberto',
-        customer
-          .open_questions,
-      ),
-      getRichCustomerGroupHtml(
-        'Objeções identificadas',
-        customer.objections,
-      ),
-      getRichCustomerGroupHtml(
-        'Incertezas',
-        customer.uncertainties,
-      ),
-    ].filter(Boolean)
-
-    if (
-      groups.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <section class="yolen-rich-section">
-        <div class="yolen-rich-section-title">
-          Cliente
-        </div>
-
-        ${groups.join('')}
-      </section>
-    `
-  }
-
-  function getCommercialEvolutionStatusLabel(
-    status,
-  ) {
-    const labels = {
-      completed: 'Concluído',
-      active: 'Ativo',
-      partial: 'Parcial',
-      pending: 'Pendente',
-      not_started:
-        'Não iniciado',
-      skipped: 'Pulado',
-      not_applicable:
-        'Não se aplica',
-    }
-
-    return (
-      labels[status] ||
-      String(status || '')
-    )
-  }
-
-  function getCommercialEvolutionStatusClass(
-    status,
-  ) {
-    const classes = {
-      completed:
-        'yolen-rich-status-completed',
-      active:
-        'yolen-rich-status-active',
-      partial:
-        'yolen-rich-status-partial',
-      pending:
-        'yolen-rich-status-pending',
-      not_started:
-        'yolen-rich-status-not-started',
-      skipped:
-        'yolen-rich-status-skipped',
-      not_applicable:
-        'yolen-rich-status-not-applicable',
-    }
-
-    return (
-      classes[status] ||
-      'yolen-rich-status-neutral'
-    )
-  }
-
-  function getRichCommercialEvolutionHtml(
-    commercialReading,
-  ) {
-    const items =
-      Array.isArray(
-        commercialReading
-          ?.commercial_evolution,
-      )
-        ? commercialReading
-            .commercial_evolution
-            .map((item) => {
-              const label =
-                getCommercialReadingDisplayText(
-                  item?.label,
-                )
-
-              const explanation =
-                getCommercialReadingDisplayText(
-                  item?.explanation,
-                )
-
-              if (
-                !label ||
-                !explanation
-              ) {
-                return null
-              }
-
-              return {
-                label,
-                explanation,
-                status:
-                  item?.status || '',
-              }
-            })
-            .filter(Boolean)
-        : []
-
-    if (
-      items.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <section class="yolen-rich-section">
-        <div class="yolen-rich-section-title">
-          Evolução comercial
-        </div>
-
-        <div class="yolen-rich-evolution">
-          ${items
-            .map(
-              item => `
-                <div class="yolen-rich-evolution-item">
-                  <div class="yolen-rich-evolution-header">
-                    <div class="yolen-rich-evolution-label">
-                      ${escapeHtml(
-                        item.label,
-                      )}
-                    </div>
-
-                    <div class="yolen-rich-status ${getCommercialEvolutionStatusClass(
-                      item.status,
-                    )}">
-                      ${escapeHtml(
-                        getCommercialEvolutionStatusLabel(
-                          item.status,
-                        ),
-                      )}
-                    </div>
-                  </div>
-
-                  <div class="yolen-rich-evolution-copy">
-                    ${escapeHtml(
-                      item.explanation,
-                    )}
-                  </div>
-                </div>
-              `,
-            )
-            .join('')}
-        </div>
-      </section>
-    `
-  }
-
-  function getCommercialMethodStatusLabel(
-    status,
-  ) {
-    const labels = {
-      completed: 'Concluído',
-      active: 'Ativo',
-      partial: 'Parcial',
-      not_started:
-        'Não iniciado',
-      skipped: 'Pulado',
-      not_applicable:
-        'Não se aplica',
-    }
-
-    return (
-      labels[status] ||
-      null
-    )
-  }
-
-  function getRichCommercialMethodHtml(
-    commercialReading,
-  ) {
-    const method =
-      commercialReading
-        ?.method
-
-    if (!method) {
-      return ''
-    }
-
-    if (
-      method.configured ===
-      false
-    ) {
-      return `
-        <section class="yolen-rich-section">
-          <div class="yolen-rich-section-title">
-            Método comercial
-          </div>
-
-          <div class="yolen-rich-fact-copy">
-            Nenhum método comercial está configurado para esta operação.
-          </div>
-        </section>
-      `
-    }
-
-    if (
-      method.configured !==
-      true
-    ) {
-      return ''
-    }
-
-    const methodName =
-      getCommercialReadingDisplayText(
-        method.name,
-      )
-
-    const stages =
-      Array.isArray(
-        method.stages,
-      )
-        ? method.stages
-            .map((stage) => {
-              const name =
-                getCommercialReadingDisplayText(
-                  stage?.name,
-                )
-
-              const explanation =
-                getCommercialReadingDisplayText(
-                  stage?.explanation,
-                )
-
-              const statusLabel =
-                getCommercialMethodStatusLabel(
-                  stage?.status,
-                )
-
-              const stepOrder =
-                Number.isSafeInteger(
-                  stage?.step_order,
-                ) &&
-                stage.step_order > 0
-                  ? stage.step_order
-                  : null
-
-              if (
-                !name ||
-                !explanation ||
-                !statusLabel ||
-                stepOrder === null
-              ) {
-                return null
-              }
-
-              return {
-                name,
-                explanation,
-                status:
-                  stage.status,
-                statusLabel,
-                stepOrder,
-              }
-            })
-            .filter(Boolean)
-            .sort(
-              (
-                left,
-                right,
-              ) =>
-                left.stepOrder -
-                right.stepOrder,
-            )
-        : []
-
-    if (
-      !methodName ||
-      stages.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <section class="yolen-rich-section">
-        <div class="yolen-rich-section-title">
-          Método comercial
-        </div>
-
-        <div class="yolen-rich-group">
-          <div class="yolen-rich-group-label">
-            Método configurado
-          </div>
-
-          <div class="yolen-rich-fact-copy">
-            ${escapeHtml(
-              methodName,
-            )}
-          </div>
-        </div>
-
-        <div class="yolen-rich-evolution">
-          ${stages
-            .map(
-              stage => `
-                <div class="yolen-rich-evolution-item">
-                  <div class="yolen-rich-evolution-header">
-                    <div class="yolen-rich-evolution-label">
-                      ${escapeHtml(
-                        stage.name,
-                      )}
-                    </div>
-
-                    <div class="yolen-rich-status ${getCommercialEvolutionStatusClass(
-                      stage.status,
-                    )}">
-                      ${escapeHtml(
-                        stage.statusLabel,
-                      )}
-                    </div>
-                  </div>
-
-                  <div class="yolen-rich-evolution-copy">
-                    ${escapeHtml(
-                      stage.explanation,
-                    )}
-                  </div>
-                </div>
-              `,
-            )
-            .join('')}
-        </div>
-
-        <div class="yolen-operational-note">
-          Esta leitura mostra aderência ao método e não determina avanço automático.
-        </div>
-      </section>
-    `
-  }
-
-  function getRichSellerStrengthsHtml(
-    commercialReading,
-  ) {
-    const strengths =
-      Array.isArray(
-        commercialReading
-          ?.seller_strengths,
-      )
-        ? commercialReading
-            .seller_strengths
-            .map(item =>
-              getCommercialReadingDisplayText(
-                item?.summary,
-              ),
-            )
-            .filter(Boolean)
-        : []
-
-    if (
-      strengths.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <section class="yolen-rich-section">
-        <div class="yolen-rich-section-title">
-          Acertos do vendedor
-        </div>
-
-        <div class="yolen-rich-list">
-          ${strengths
-            .map(
-              summary => `
-                <div class="yolen-rich-list-item">
-                  ${escapeHtml(
-                    summary,
-                  )}
-                </div>
-              `,
-            )
-            .join('')}
-        </div>
-      </section>
-    `
-  }
-
-  function getRichImprovementPointsHtml(
-    commercialReading,
-  ) {
-    const improvements =
-      Array.isArray(
-        commercialReading
-          ?.improvement_points,
-      )
-        ? commercialReading
-            .improvement_points
-            .map((item) => {
-              const summary =
-                getCommercialReadingDisplayText(
-                  item?.summary,
-                )
-
-              const impact =
-                getCommercialReadingDisplayText(
-                  item?.impact,
-                )
-
-              if (
-                !summary ||
-                !impact
-              ) {
-                return null
-              }
-
-              return {
-                summary,
-                impact,
-              }
-            })
-            .filter(Boolean)
-        : []
-
-    if (
-      improvements.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <section class="yolen-rich-section">
-        <div class="yolen-rich-section-title">
-          Pontos de melhoria
-        </div>
-
-        <div class="yolen-rich-evolution">
-          ${improvements
-            .map(
-              item => `
-                <div class="yolen-rich-evolution-item">
-                  <div class="yolen-rich-evolution-copy">
-                    ${escapeHtml(
-                      item.summary,
-                    )}
-                  </div>
-
-                  <div class="yolen-rich-fact-label">
-                    Impacto
-                  </div>
-
-                  <div class="yolen-rich-evolution-copy">
-                    ${escapeHtml(
-                      item.impact,
-                    )}
-                  </div>
-                </div>
-              `,
-            )
-            .join('')}
-        </div>
-      </section>
-    `
-  }
-
-  function getCommercialRiskSeverityLabel(
-    severity,
-  ) {
-    const labels = {
-      low: 'Baixo',
-      medium: 'Médio',
-      high: 'Alto',
-    }
-
-    return (
-      labels[severity] ||
-      null
-    )
-  }
-
-  function getRichRiskGroupHtml(
-    label,
-    risks,
-  ) {
-    const items =
-      Array.isArray(risks)
-        ? risks
-            .map((risk) => {
-              const summary =
-                getCommercialReadingDisplayText(
-                  risk?.summary,
-                )
-
-              const severity =
-                getCommercialRiskSeverityLabel(
-                  risk?.severity,
-                )
-
-              if (
-                !summary ||
-                !severity
-              ) {
-                return null
-              }
-
-              return {
-                summary,
-                severity,
-              }
-            })
-            .filter(Boolean)
-        : []
-
-    if (
-      items.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-rich-group">
-        <div class="yolen-rich-group-label">
-          ${escapeHtml(label)}
-        </div>
-
-        <div class="yolen-rich-evolution">
-          ${items
-            .map(
-              item => `
-                <div class="yolen-rich-evolution-item">
-                  <div class="yolen-rich-evolution-header">
-                    <div class="yolen-rich-evolution-label">
-                      Risco identificado
-                    </div>
-
-                    <div class="yolen-rich-status yolen-rich-status-neutral">
-                      ${escapeHtml(
-                        item.severity,
-                      )}
-                    </div>
-                  </div>
-
-                  <div class="yolen-rich-evolution-copy">
-                    ${escapeHtml(
-                      item.summary,
-                    )}
-                  </div>
-                </div>
-              `,
-            )
-            .join('')}
-        </div>
-      </div>
-    `
-  }
-
-  function getRichCommercialRisksHtml(
-    commercialReading,
-  ) {
-    const risks =
-      commercialReading
-        ?.risks
-
-    if (!risks) {
-      return ''
-    }
-
-    const groups = [
-      getRichRiskGroupHtml(
-        'Objeções do cliente',
-        risks.customer_objections,
-      ),
-      getRichRiskGroupHtml(
-        'Riscos no atendimento',
-        risks.service_risks,
-      ),
-    ].filter(Boolean)
-
-    if (
-      groups.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <section class="yolen-rich-section">
-        <div class="yolen-rich-section-title">
-          Riscos
-        </div>
-
-        ${groups.join('')}
-      </section>
-    `
-  }
-
-  function getRichCommercialReadingExpandedHtml(
-    commercialReading,
-  ) {
-    return sellerInformationViewTools
-      .renderAnalysisArea(
-        commercialReading,
-      )
-  }
-
-  function getRichCommercialReadingCardHtml(
-    commercialReading,
-  ) {
-    if (
-      sellerInformationViewTools
-        .isNeutralCommercialSession(
-          commercialReading,
-        )
-    ) {
-      const neutralCopy =
-        sellerInformationViewTools
-          .getNeutralSessionCopy(
-            commercialReading,
-          )
-
-      return `
-        <div class="yolen-card yolen-decision-card yolen-status-neutral" data-yolen-now-neutral>
-          <div class="yolen-decision-header">
-            <div class="yolen-section-label">Agora</div>
-            <div class="yolen-decision-badge">Neutro</div>
-          </div>
-
-          <div class="yolen-decision-block">
-            <div class="yolen-card-title yolen-decision-title">
-              ${escapeHtml(neutralCopy.title)}
-            </div>
-            <div class="yolen-decision-copy">
-              ${escapeHtml(neutralCopy.description)}
-            </div>
-          </div>
-
-          ${getDeepAnalysisStatusBlockHtml()}
-        </div>
-      `
-    }
-
-    const currentState =
-      typeof commercialReading
-        ?.conversation_summary
-        ?.current_state
-        ?.summary ===
-        'string'
-        ? commercialReading
-            .conversation_summary
-            .current_state
-            .summary
-            .trim()
-        : ''
-
-    return `
-      <div class="yolen-card yolen-decision-card ${getAnalysisStatusClass()}">
-        <div class="yolen-decision-header">
-          <div class="yolen-section-label">
-            Yolen Companion
-          </div>
-
-          <div class="yolen-decision-badge">
-            ${escapeHtml(
-              getRichCommercialReadingBadge(
-                commercialReading,
-              ),
-            )}
-          </div>
-        </div>
-
-        <div class="yolen-decision-primary" data-yolen-layer="action">
-          ${
-            currentState
-              ? `
-                <div class="yolen-decision-block yolen-decision-block--context" data-yolen-layer="context">
-                  <div class="yolen-decision-kicker">
-                    Resumo
-                  </div>
-
-                  <div class="yolen-card-title yolen-decision-title">
-                    ${escapeHtml(
-                      currentState,
-                    )}
-                  </div>
-                </div>
-              `
-              : ''
-          }
-
-          ${getRichCommercialReadingApproachHtml(
-            commercialReading,
-          )}
-
-          ${getRichRecommendedQuestionHtml(
-            commercialReading,
-          )}
-
-          ${getSuggestedMessageHtml()}
-        </div>
-
-        ${getDeepAnalysisStatusBlockHtml()}
-
-        ${getNowMoreContextDetailsHtml(
-          commercialReading,
-        )}
-
-        <div class="yolen-inline-actions yolen-decision-actions">
-          ${getAnalysisActionButton()}
-        </div>
-      </div>
-    `
-  }
-
-  // Tudo que já respondeu "o que aconteceu" / "o que fazer" / "por que"
-  // acima fica sempre visível. O resto (etapa do método, sugestão
-  // operacional de CRM/agenda, transcrição de áudio, limitações da
-  // leitura) é contexto de apoio: continua no DOM (nada é removido do
-  // contrato nem escondido de verdade — <details> fechado ainda expõe seu
-  // texto a leitores de tela e a asserções de teste) mas recolhido por
-  // padrão, para o primeiro nível do AGORA não virar uma lista de
-  // mini-relatórios com o mesmo peso visual da decisão.
-  function getNowMoreContextDetailsHtml(
-    commercialReading,
-  ) {
-    const sections = [
-      sellerInformationViewTools
-        .renderNowMethodSnapshot(
-          commercialReading,
-        ),
-      getRichCommercialReadingLimitationsHtml(
-        commercialReading,
-      ),
-      getRichOperationalSuggestionHtml(
-        commercialReading,
-      ),
-      getAudioTranscriptionHtml(),
-    ].filter(Boolean)
-
-    if (sections.length === 0) {
-      return ''
-    }
-
-    return `
-      <details
-        class="yolen-seller-secondary-details yolen-now-more-details"
-        data-yolen-preserve-details="now-more-details"
-        data-yolen-layer="context"
-      >
-        <summary>Ver mais contexto</summary>
-        <div class="yolen-now-more-details-content">
-          ${sections.join('')}
-        </div>
-      </details>
-    `
   }
 
   // Inteligência operacional do cliente (histórico da relação, tempo de
@@ -11516,6 +10091,14 @@
         // até a próxima análise bem-sucedida (que pode nunca acontecer
         // se o vendedor não reanalisar manualmente).
         void loadAgoraDecisionStateForCurrentCycle({
+          force: true,
+        })
+
+        // FASE 16.6 — mesmo raciocínio: um novo compromisso, objeção ou
+        // sinal de condução pode mudar sem nenhuma reanálise semântica
+        // ter rodado ainda (ex.: ledger de mensagens/mutações do ciclo
+        // afetando Cycle Memory diretamente).
+        void loadAnalysisViewModelForCurrentCycle({
           force: true,
         })
       }, COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS)
@@ -11837,6 +10420,154 @@
     }
   }
 
+  // FASE 16.6 — ANÁLISE seller-facing view model (Integrated Commercial
+  // Context canônico, FASE 16.4, traduzido por
+  // app/lib/server/analysis-view-model.ts). Mesmo desenho de
+  // loadAgoraDecisionStateForCurrentCycle acima (FASE 16.5) — três
+  // estados, requestSequence monotônico contra respostas stale, e guard
+  // de escopo por cycleId/conversationKey/companyId aplicado desde o
+  // início (não descoberto em rodadas de revisão posteriores como
+  // aconteceu com AGORA): cross-conversation/cross-company stale render
+  // é o mesmo risco de segurança em qualquer aba seller-facing (mandato
+  // FASE 16.6 §31/§32/§33).
+  async function loadAnalysisViewModelForCurrentCycle(
+    options = {},
+  ) {
+    const force =
+      options.force === true
+
+    const requestSequence =
+      ++analysisViewModelRequestSequence
+
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    const companyIdAtRequest =
+      state.companyId ||
+      null
+
+    if (!cycleId || !conversationKey) {
+      state = {
+        ...state,
+        analysisViewModel: {
+          status: 'idle',
+        },
+        analysisViewModelCycleId:
+          null,
+        analysisViewModelConversationKey:
+          null,
+        analysisViewModelCompanyId:
+          null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    const isSameContext =
+      state.analysisViewModelCycleId ===
+        cycleId &&
+      state.analysisViewModelConversationKey ===
+        conversationKey &&
+      state.analysisViewModelCompanyId ===
+        companyIdAtRequest
+
+    const alreadyReady =
+      isSameContext &&
+      state.analysisViewModel
+        ?.status === 'ready'
+
+    if (alreadyReady && !force) {
+      return
+    }
+
+    state = {
+      ...state,
+      analysisViewModelCycleId:
+        cycleId,
+      analysisViewModelConversationKey:
+        conversationKey,
+      analysisViewModelCompanyId:
+        companyIdAtRequest,
+    }
+
+    const isStillCurrentContext =
+      () =>
+        requestSequence ===
+          analysisViewModelRequestSequence &&
+        state.analysisViewModelCycleId ===
+          cycleId &&
+        state.analysisViewModelConversationKey ===
+          conversationKey &&
+        state.analysisViewModelCompanyId ===
+          companyIdAtRequest &&
+        companyIdAtRequest ===
+          (
+            state.companyId ||
+            null
+          )
+
+    try {
+      const result =
+        await window.YolenCompanionApi
+          .loadAnalysisViewModel({
+            cycle_id: cycleId,
+            conversation_key:
+              conversationKey,
+          })
+
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (
+        !result?.ok ||
+        !result.payload?.ok
+      ) {
+        if (!alreadyReady) {
+          state = {
+            ...state,
+            analysisViewModel: {
+              status: 'idle',
+            },
+          }
+
+          renderPanel()
+        }
+
+        return
+      }
+
+      state = {
+        ...state,
+        analysisViewModel: {
+          status: 'ready',
+          data: result.payload.data,
+        },
+      }
+
+      renderPanel()
+    } catch {
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (!alreadyReady) {
+        state = {
+          ...state,
+          analysisViewModel: {
+            status: 'idle',
+          },
+        }
+
+        renderPanel()
+      }
+    }
+  }
+
   // Carrega o working summary factual do lead. A rota combina memória
   // persistente, registros históricos confirmados e mensagens canônicas;
   // somente o salvamento da memória consolidada continua dependendo de ação
@@ -12136,64 +10867,34 @@
             force: true,
           })
         }
+
+        // FASE 16.6 — mesmo raciocínio de AGORA acima: ANÁLISE também é
+        // uma fotografia do servidor (Integrated Commercial Context),
+        // não recalculada ao vivo no cliente.
+        if (
+          state.analysisViewModel
+            ?.status === 'ready'
+        ) {
+          void loadAnalysisViewModelForCurrentCycle({
+            force: true,
+          })
+        }
       }, COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS)
   }
 
-  function getAnalysisCardHtml() {
-    const commercialReading =
-      getActiveCommercialReading()
-
-    const richEligible =
-      Boolean(commercialReading) &&
-      !state
-        .conversationAnalysisLoading &&
-      !state
-        .conversationAnalysisError &&
-      !state
-        .suggestionApplyLoading &&
-      !state
-        .suggestionApplyError &&
-      !state
-        .suggestionApplyResult &&
-      !isCurrentAnalysisOutdated()
-
-    if (richEligible) {
-      return (
-        getRichCommercialReadingCardHtml(
-          commercialReading,
-        )
-      )
-    }
-
-    return (
-      getLegacyAnalysisCardHtml()
-    )
-  }
-
   function getDetailedAnalysisAreaHtml() {
-    const commercialReading =
-      getActiveCommercialReading()
-
-    const richEligible =
-      Boolean(commercialReading) &&
-      !state.conversationAnalysisLoading &&
-      !state.conversationAnalysisError &&
-      !isCurrentAnalysisOutdated()
-
-    if (richEligible) {
-      return `
-        <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
-          ${getRichCommercialReadingExpandedHtml(
-            commercialReading,
-          )}
-
-          <div class="yolen-inline-actions yolen-decision-actions">
-            ${getAnalysisActionButton()}
-          </div>
-        </div>
-      `
-    }
-
+    // FASE 16.6 (recalibração seller-facing de ANÁLISE): a leitura
+    // detalhada não vem mais de getActiveCommercialReading() (o
+    // state.conversationAnalysis da tentativa atual) — vem pronta do
+    // ANÁLISE seller-facing view model (Integrated Commercial Context,
+    // FASE 16.4, traduzido por app/lib/server/analysis-view-model.ts e
+    // buscado por loadAnalysisViewModelForCurrentCycle). Os estados de
+    // loading/erro/desatualização continuam ligados ao JOB de análise
+    // semântica em si (conversationAnalysisLoading/Error,
+    // isCurrentAnalysisOutdated()) — são sinais distintos do fetch do
+    // view model: um job de reanálise em voo/errado/desatualizado
+    // precede a leitura persistida, mesmo padrão de prioridade já usado
+    // antes da FASE 16.6.
     if (state.conversationAnalysisLoading) {
       return `
         <div class="yolen-card yolen-seller-area-card">
@@ -12251,7 +10952,68 @@
       `
     }
 
+    // Mesmo guard de escopo de getNowAttentionSnapshotHtml (AGORA,
+    // FASE 16.5) — cycleId/conversationKey/companyId batendo garante
+    // que uma troca de conversa/empresa nunca deixa a análise da
+    // conversa/empresa anterior visível (mandato FASE 16.6 §31/§32).
+    const isCurrentAnalysisViewModelContext =
+      state.analysisViewModelCycleId ===
+        state.leadResolution?.cycle?.id &&
+      state.analysisViewModelConversationKey ===
+        getCaptureConversationKey() &&
+      state.analysisViewModelCompanyId ===
+        (state.companyId || null)
+
+    if (
+      state.analysisViewModel?.status === 'ready' &&
+      isCurrentAnalysisViewModelContext
+    ) {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
+          ${sellerInformationViewTools.renderAnalysisViewModel(
+            state.analysisViewModel.data,
+          )}
+
+          <div class="yolen-inline-actions yolen-decision-actions">
+            ${getAnalysisActionButton()}
+          </div>
+        </div>
+      `
+    }
+
     if (state.conversationAnalysis) {
+      // Fallback: a tentativa de análise atual já resolveu localmente
+      // (state.conversationAnalysis), mas o ANÁLISE view model canônico
+      // (fetch separado, assíncrono) ainda não chegou — nunca esperar o
+      // segundo fetch para mostrar uma leitura que já existe (regressão
+      // de UX). Quando o view model canônico ficar pronto, o branch
+      // acima passa a ter prioridade e substitui este fallback por
+      // completo — nunca os dois se misturam na mesma renderização.
+      const fallbackReading =
+        getActiveCommercialReading()
+
+      const fallbackViewModel =
+        fallbackReading
+          ? sellerInformationViewTools
+              .buildAnalysisViewModelFromReading(
+                fallbackReading,
+              )
+          : null
+
+      if (fallbackViewModel) {
+        return `
+          <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
+            ${sellerInformationViewTools.renderAnalysisViewModel(
+              fallbackViewModel,
+            )}
+
+            <div class="yolen-inline-actions yolen-decision-actions">
+              ${getAnalysisActionButton()}
+            </div>
+          </div>
+        `
+      }
+
       return `
         ${getLegacyAnalysisCardHtml()}
 
@@ -14705,6 +13467,16 @@
               agoraDecisionStateCycleId: null,
               agoraDecisionStateConversationKey: null,
               agoraDecisionStateCompanyId: null,
+              // FASE 16.6 — mesmo raciocínio para ANÁLISE: um view
+              // model "ready" da empresa anterior não pode continuar
+              // renderável só porque cycleId/conversationKey não
+              // mudaram sozinhos.
+              analysisViewModel: {
+                status: 'idle',
+              },
+              analysisViewModelCycleId: null,
+              analysisViewModelConversationKey: null,
+              analysisViewModelCompanyId: null,
             }
           : {}),
       }
@@ -15077,6 +13849,12 @@
           // novo quando essa análise terminar (ver runTick, status
           // 'succeeded').
           void loadAgoraDecisionStateForCurrentCycle()
+
+          // FASE 16.6 — mesmo raciocínio para ANÁLISE (Integrated
+          // Commercial Context): qualquer leitura/memória de ciclo já
+          // persistida aparece de imediato, sem esperar uma nova
+          // análise semântica.
+          void loadAnalysisViewModelForCurrentCycle()
         })
     } catch (error) {
       retainedPreResolutionCaptures.delete(
@@ -15793,6 +14571,13 @@
         // mudado. `force: true` porque um estado "ready" antigo do
         // mesmo ciclo/conversa não deve ser tratado como já atualizado.
         void loadAgoraDecisionStateForCurrentCycle({
+          force: true,
+        })
+
+        // FASE 16.6 — mesmo raciocínio para o Integrated Commercial
+        // Context/ANÁLISE: uma nova leitura persistida muda estado da
+        // venda, riscos, condução, coaching.
+        void loadAnalysisViewModelForCurrentCycle({
           force: true,
         })
 

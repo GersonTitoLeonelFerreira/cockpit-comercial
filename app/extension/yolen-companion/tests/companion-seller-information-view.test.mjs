@@ -152,6 +152,83 @@ function buildReading(overrides = {}) {
   }
 }
 
+// FASE 16.6 (recalibração seller-facing de ANÁLISE): `renderAnalysisArea`
+// foi substituída por `renderAnalysisViewModel`, que consome o
+// AnalysisViewModel já pronto (Integrated Commercial Context, FASE 16.4,
+// traduzido por app/lib/server/analysis-view-model.ts) em vez de uma
+// `CommercialReading` crua. Este helper simula, só para fins de teste da
+// camada de apresentação, a MESMA tradução que o presenter real faz a
+// partir de uma leitura — os testes abaixo continuam validando
+// exclusivamente a RENDERIZAÇÃO (rótulos, escape de HTML, agrupamento),
+// nunca a lógica de tradução em si (já coberta exaustivamente em
+// app/lib/server/analysis-view-model.test.mjs).
+function analysisViewModelFromReading(reading) {
+  const neutral =
+    reading.commercial_relevance !== 'commercial' ||
+    reading.commercial_role !== 'buyer'
+
+  if (neutral) {
+    return {
+      available: true,
+      unavailable_reason: null,
+      neutral: true,
+      neutral_headline:
+        reading.commercial_relevance === 'uncertain'
+          ? 'Ainda não há evidência comercial suficiente.'
+          : 'Conversa sem evidência comercial relevante.',
+      neutral_description:
+        reading.commercial_relevance === 'uncertain'
+          ? 'Nenhuma leitura de venda será mostrada até o contexto ficar claro.'
+          : 'Nenhuma leitura de venda desta conversa é necessária.',
+      opportunity: null,
+      current_moment: { is_active_session: null },
+      risks: [],
+      objections_open: [],
+      commitments: [],
+      seller_conduct: {
+        method: { configured: false, name: null, stages: [], current_stage: null, adherence: null, recovery_guidance: null },
+        stage_divergence: false,
+      },
+      strengths: [],
+      improvements: [],
+      continuity: { cycle_conversation_count: 0, cross_conversation_signals: [] },
+      history: [],
+      provenance: {},
+    }
+  }
+
+  const risks = [
+    ...reading.risks.customer_objections.map((risk) => ({ source: 'customer_objection', ...risk })),
+    ...reading.risks.service_risks.map((risk) => ({ source: 'service_risk', ...risk })),
+  ].filter((risk) => risk.severity !== 'low')
+
+  return {
+    available: true,
+    unavailable_reason: null,
+    neutral: false,
+    neutral_headline: null,
+    neutral_description: null,
+    opportunity: {
+      status: 'advancing',
+      headline: reading.conversation_summary.current_state.summary,
+      stage_name: reading.method.current_stage?.name ?? null,
+    },
+    current_moment: { is_active_session: true },
+    risks,
+    objections_open: [],
+    commitments: [],
+    seller_conduct: {
+      method: reading.method,
+      stage_divergence: false,
+    },
+    strengths: reading.seller_strengths.map((item) => ({ ...item, impact: null })),
+    improvements: reading.improvement_points,
+    continuity: { cycle_conversation_count: 0, cross_conversation_signals: [] },
+    history: reading.commercial_evolution,
+    provenance: {},
+  }
+}
+
 test('sessões non-commercial e uncertain permanecem neutras', () => {
   const nonCommercial = buildReading({ commercial_relevance: 'non_commercial' })
   const uncertain = buildReading({ commercial_relevance: 'uncertain' })
@@ -160,12 +237,12 @@ test('sessões non-commercial e uncertain permanecem neutras', () => {
   assert.equal(view.isNeutralCommercialSession(uncertain), true)
   assert.match(view.getNeutralSessionCopy(nonCommercial).title, /sem evidência comercial relevante/i)
   assert.match(view.getNeutralSessionCopy(uncertain).title, /evidência comercial suficiente/i)
-  assert.match(view.renderAnalysisArea(nonCommercial), /sem evidência comercial relevante/i)
-  assert.doesNotMatch(view.renderAnalysisArea(nonCommercial), /Pontos de melhoria|Método Consultivo/)
+  assert.match(view.renderAnalysisViewModel(analysisViewModelFromReading(nonCommercial)), /sem evidência comercial relevante/i)
+  assert.doesNotMatch(view.renderAnalysisViewModel(analysisViewModelFromReading(nonCommercial)), /Pontos de melhoria|Método Consultivo/)
 })
 
 test('coaching mostra acerto concreto, importância e evidência', () => {
-  const html = view.renderAnalysisArea(buildReading())
+  const html = view.renderAnalysisViewModel(analysisViewModelFromReading(buildReading()))
 
   assert.match(html, /Acertos/)
   assert.match(html, /Boa descoberta/)
@@ -175,10 +252,10 @@ test('coaching mostra acerto concreto, importância e evidência', () => {
 })
 
 test('melhoria mostra ocorrência, importância, impacto e correção', () => {
-  const html = view.renderAnalysisArea(buildReading())
+  const html = view.renderAnalysisViewModel(analysisViewModelFromReading(buildReading()))
 
   assert.match(html, /Pontos de melhoria/)
-  assert.match(html, /Preço apresentado cedo demais/)
+  assert.match(html, /apresentou preço antes de concluir o diagnóstico/)
   assert.match(html, /Por que isso importa/)
   assert.match(html, /Impacto ou risco/)
   assert.match(html, /Como corrigir/)
@@ -211,7 +288,7 @@ test('método preserva seis status e destaca etapa atual', () => {
     name: 'Etapa 2',
   }
 
-  const html = view.renderAnalysisArea(reading)
+  const html = view.renderAnalysisViewModel(analysisViewModelFromReading(reading))
 
   for (const status of statuses) {
     assert.match(html, new RegExp(`data-yolen-method-stage-status="${status}"`))
@@ -222,14 +299,14 @@ test('método preserva seis status e destaca etapa atual', () => {
 })
 
 test('aderência traduz on_method e partially_on_method para linguagem humana', () => {
-  const onMethod = view.renderAnalysisArea(buildReading())
+  const onMethod = view.renderAnalysisViewModel(analysisViewModelFromReading(buildReading()))
   assert.match(onMethod, /Dentro do método/)
 
   const reading = buildReading()
   reading.method.adherence.status = 'partially_on_method'
   reading.method.adherence.summary = 'Parte da descoberta ainda está incompleta.'
 
-  const partial = view.renderAnalysisArea(reading)
+  const partial = view.renderAnalysisViewModel(analysisViewModelFromReading(reading))
   assert.match(partial, /Parcialmente dentro do método/)
   assert.match(partial, /descoberta ainda está incompleta/)
 })
@@ -255,7 +332,7 @@ test('off_method mostra diagnóstico completo e recovery', () => {
     memory_ids: [],
   }
 
-  const html = view.renderAnalysisArea(reading)
+  const html = view.renderAnalysisViewModel(analysisViewModelFromReading(reading))
 
   assert.match(html, /Fora do método/)
   assert.match(html, /Como voltar para o método/)
@@ -287,7 +364,7 @@ test('not_configured e insufficient_evidence não inventam erro ou metodologia',
     recovery_guidance: null,
   }
 
-  const notConfiguredHtml = view.renderAnalysisArea(notConfigured)
+  const notConfiguredHtml = view.renderAnalysisViewModel(analysisViewModelFromReading(notConfigured))
   assert.match(notConfiguredHtml, /Método comercial não configurado/)
   assert.doesNotMatch(notConfiguredHtml, /Como voltar para o método/)
 
@@ -295,13 +372,22 @@ test('not_configured e insufficient_evidence não inventam erro ou metodologia',
   insufficient.method.adherence.status = 'insufficient_evidence'
   insufficient.method.adherence.summary = 'Poucas mensagens disponíveis.'
 
-  const insufficientHtml = view.renderAnalysisArea(insufficient)
+  const insufficientHtml = view.renderAnalysisViewModel(analysisViewModelFromReading(insufficient))
   assert.match(insufficientHtml, /Evidência insuficiente/)
   assert.match(insufficientHtml, /Não há evidência suficiente para avaliar esta etapa/)
   assert.doesNotMatch(insufficientHtml, /Fora do método/)
 })
 
-test('objeção fica em CLIENTE e ANÁLISE mostra somente risco da condução', () => {
+// FASE 16.6 — achado da auditoria: antes, ANÁLISE só mostrava
+// `risks.service_risks` ("Risco na condução do vendedor") e nunca
+// `risks.customer_objections`, mesmo sendo um risco estruturado com
+// severidade (mandato §12: "resistência real" é um risco comercial
+// legítimo). Agora os dois grupos aparecem, rotulados de forma
+// distinta — CLIENTE continua sendo o lugar da lista completa de
+// objeções da conversa (`customer.objections`, sem severidade),
+// enquanto ANÁLISE mostra só as com risco (`risks.customer_objections`,
+// severidade medium/high) junto do risco de condução.
+test('ANÁLISE mostra risco de objeção e risco de condução como grupos distintos; CLIENTE mantém a lista completa de objeções', () => {
   const reading = buildReading()
   reading.risks.service_risks = [
     {
@@ -313,16 +399,22 @@ test('objeção fica em CLIENTE e ANÁLISE mostra somente risco da condução', 
     },
   ]
 
-  const analysisHtml = view.renderAnalysisArea(reading)
+  const analysisHtml = view.renderAnalysisViewModel(analysisViewModelFromReading(reading))
   const clientHtml = view.renderClientCommercialArea(reading)
 
-  assert.doesNotMatch(analysisHtml, /data-yolen-risk-group="customer"/)
-  assert.doesNotMatch(analysisHtml, /considera o preço alto/)
-  assert.match(analysisHtml, /data-yolen-risk-group="seller"/)
-  assert.match(analysisHtml, /Risco na condução do vendedor/)
+  assert.match(analysisHtml, /data-yolen-risk-group="objection"/)
+  assert.match(analysisHtml, /considera o preço alto/i)
+  assert.match(analysisHtml, /data-yolen-risk-group="service"/)
+  assert.match(analysisHtml, /Risco no atendimento/)
   assert.match(analysisHtml, /pressão excessiva/)
   assert.match(clientHtml, /Objeções atuais do cliente/)
   assert.match(clientHtml, /Considera o preço alto/)
+
+  // Severidade traduzida para linguagem humana, nunca o enum técnico
+  // exposto ao vendedor (mandato §21: "sem jargon interno").
+  assert.match(analysisHtml, /Médio/)
+  assert.match(analysisHtml, /Alto/)
+  assert.doesNotMatch(analysisHtml, /"medium"|"high"/)
 })
 
 test('Cliente agrupa somente dados existentes e mantém detalhe sob demanda', () => {
@@ -388,12 +480,7 @@ function buildAgoraViewModel(overrides = {}) {
   }
 }
 
-test('AGORA mostra somente o alerta primário quando não há secundários, e deixa o detalhe do método em ANÁLISE', () => {
-  const reading = buildReading()
-  reading.improvement_points = []
-  reading.method.adherence.status = 'off_method'
-  reading.method.adherence.summary = 'Preço antes do diagnóstico.'
-
+test('AGORA mostra somente o alerta primário quando não há secundários', () => {
   const agoraViewModel = buildAgoraViewModel({
     primary: buildAgoraSignal({
       status: 'escalate',
@@ -409,11 +496,8 @@ test('AGORA mostra somente o alerta primário quando não há secundários, e de
     }),
   })
 
-  const method = view.renderNowMethodSnapshot(reading)
   const attention = view.renderAgoraViewModelSnapshot(agoraViewModel)
 
-  assert.match(method, /Diagnóstico · Ativa/)
-  assert.doesNotMatch(method, /Fora do método/)
   assert.match(attention, /data-yolen-now-attention="escalate"/)
   assert.match(attention, /data-yolen-alert-priority="critical"/)
   assert.doesNotMatch(attention, /data-yolen-now-attention="off_method"/)
@@ -577,8 +661,9 @@ test('todo conteúdo seller-facing escapa HTML não confiável', () => {
   reading.seller_strengths[0].summary = '<img src=x onerror=alert(1)>'
   reading.customer.needs[0].summary = '<script>alert(1)</script>'
 
-  assert.doesNotMatch(view.renderAnalysisArea(reading), /<img/)
-  assert.match(view.renderAnalysisArea(reading), /&lt;img/)
+  const analysisHtml = view.renderAnalysisViewModel(analysisViewModelFromReading(reading))
+  assert.doesNotMatch(analysisHtml, /<img/)
+  assert.match(analysisHtml, /&lt;img/)
   assert.doesNotMatch(view.renderClientCommercialArea(reading), /<script>/)
   assert.match(view.renderClientCommercialArea(reading), /&lt;script&gt;/)
 })

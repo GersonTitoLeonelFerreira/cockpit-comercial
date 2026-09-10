@@ -71,66 +71,69 @@ test(
       /commercial_reading/,
     )
 
+    // FASE 16.6 — o dispatch de ANÁLISE não decide mais rich/legado a
+    // partir de getActiveCommercialReading(): a leitura detalhada agora
+    // vem pronta do ANÁLISE seller-facing view model (Integrated
+    // Commercial Context, traduzido por
+    // app/lib/server/analysis-view-model.ts, buscado por
+    // loadAnalysisViewModelForCurrentCycle) — só o guard de escopo
+    // (cycleId/conversationKey/companyId) decide se o view model já
+    // pronto pode ser exibido. getLegacyAnalysisCardHtml continua como
+    // fallback para o formato V1/sem leitura rica (mandato §35: "não
+    // remover fallback funcional sem entender por que existe").
     const dispatch =
       getBlock(
-        'function getAnalysisCardHtml()',
+        'function getDetailedAnalysisAreaHtml()',
         'function getLeadEnrichmentAddressValue',
       )
 
     assert.match(
       dispatch,
-      /getActiveCommercialReading/,
+      /state\.analysisViewModel\?\.status === 'ready'/,
     )
 
     assert.match(
       dispatch,
-      /getRichCommercialReadingCardHtml/,
+      /sellerInformationViewTools\.renderAnalysisViewModel/,
     )
 
     assert.match(
       dispatch,
       /getLegacyAnalysisCardHtml/,
     )
+
+    assert.doesNotMatch(
+      dispatch,
+      /getRichCommercialReadingCardHtml/,
+    )
   },
 )
 
+// FASE 16.6 — o card local que este teste cobria
+// (getRichCommercialReadingCardHtml, um "AGORA" pré-16.5 que traduzia
+// best_approach/conversation_summary/communication/operations
+// diretamente no content-script.js) foi removido por ser código morto:
+// zero chamadores reais desde a recalibração de AGORA na FASE 16.5
+// (confirmado no teste "B3.1 ativa leitura rica..." acima, que verifica
+// sua ausência), e a tradução decision→categoria de apresentação que
+// ele fazia localmente (getCommercialReadingDecisionLabel/
+// getCommercialReadingChannelLabel, também removidas por ficarem
+// órfãs) agora vive server-side, exaustivamente testada em
+// app/lib/server/analysis-view-model.test.mjs
+// (DECISION_TO_OPPORTUNITY_STATUS cobre os 23 valores de
+// CommercialReadingDecision, incluindo o caso `wait`/`give_space`/
+// `no_intervention` que os dois testes antigos cobriam aqui).
 test(
-  'B3.1 renderiza decisão a partir do contrato A4 sem reconstrução por coaching',
+  'B3.1 tradução local de decision/channel foi removida (agora vive em analysis-view-model.ts)',
   () => {
-    const rich =
-      getBlock(
-        'function getCommercialReadingDecisionLabel(',
-        'function getAnalysisCardHtml()',
-      )
-
-    assert.match(
-      rich,
-      /conversation_summary/,
-    )
-
-    assert.match(
-      rich,
-      /best_approach/,
-    )
-
-    assert.match(
-      rich,
-      /communication/,
-    )
-
-    assert.match(
-      rich,
-      /operations/,
+    assert.doesNotMatch(
+      contentScript,
+      /function getCommercialReadingDecisionLabel\(/,
     )
 
     assert.doesNotMatch(
-      rich,
-      /evidence_message_ids|memory_ids|contract_version|engine_source/,
-    )
-
-    assert.doesNotMatch(
-      rich,
-      /\.coaching|\.suggestion/,
+      contentScript,
+      /function getCommercialReadingChannelLabel\(/,
     )
   },
 )
@@ -186,37 +189,6 @@ test(
 )
 
 test(
-  'B3.1 respeita espera espaço e ausência de intervenção',
-  () => {
-    const rich =
-      getBlock(
-        'function getCommercialReadingDecisionLabel(',
-        'function getAnalysisCardHtml()',
-      )
-
-    assert.match(
-      rich,
-      /wait:\s*'Aguardar'/,
-    )
-
-    assert.match(
-      rich,
-      /give_space:\s*'Dar espaço'/,
-    )
-
-    assert.match(
-      rich,
-      /no_intervention:[\s\S]*'Não intervir'/,
-    )
-
-    assert.match(
-      rich,
-      /intervention_needed[\s\S]*!==[\s\S]*true/,
-    )
-  },
-)
-
-test(
   'B3.1 apresenta CRM e Agenda do contrato e mantém confirmação humana',
   () => {
     const operational =
@@ -250,14 +222,13 @@ test(
       /requires_human_confirmation/,
     )
 
-    const rich =
-      getBlock(
-        'function getCommercialReadingDecisionLabel(',
-        'function getAnalysisCardHtml()',
-      )
-
+    // FASE 16.6 — "Nada será alterado sem sua confirmação." continua
+    // presente no fallback legado (getLegacyAnalysisCardHtml) e no
+    // diálogo de confirmação de aplicação de sugestão — não mais
+    // dentro do card rico removido (getRichCommercialReadingCardHtml),
+    // então a checagem passa a ser sobre o arquivo inteiro.
     assert.match(
-      rich,
+      contentScript,
       /Nada será alterado sem sua confirmação\./,
     )
   },
@@ -269,7 +240,7 @@ test(
     const legacy =
       getBlock(
         'function getLegacyAnalysisCardHtml()',
-        'function getCommercialReadingDecisionLabel(',
+        'function getCommercialReadingDisplayText(',
       )
 
     assert.match(

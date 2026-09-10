@@ -162,7 +162,7 @@ test(
       'function startCompanionClientContextTicker(',
     )
     const end = contentScript.indexOf(
-      'function getAnalysisCardHtml(',
+      'function getDetailedAnalysisAreaHtml(',
       start,
     )
     const block = contentScript.slice(start, end)
@@ -177,6 +177,36 @@ test(
     assert.match(
       block,
       /loadAgoraDecisionStateForCurrentCycle\(\{\s*\n?\s*force: true,/,
+    )
+  },
+)
+
+// FASE 16.6 — mesmo raciocínio do teste acima, agora para o ANÁLISE
+// seller-facing view model (Integrated Commercial Context, FASE 16.4):
+// também é uma fotografia do servidor, também precisa de refetch
+// periódico enquanto o painel está aberto.
+test(
+  'ANÁLISE é atualizado periodicamente enquanto o painel está aberto, não só em eventos discretos (FASE 16.6)',
+  () => {
+    const start = contentScript.indexOf(
+      'function startCompanionClientContextTicker(',
+    )
+    const end = contentScript.indexOf(
+      'function getDetailedAnalysisAreaHtml(',
+      start,
+    )
+    const block = contentScript.slice(start, end)
+
+    assert.notEqual(start, -1)
+    assert.notEqual(end, -1)
+
+    assert.match(
+      block,
+      /state\.analysisViewModel\s*\n?\s*\?\.status === 'ready'/,
+    )
+    assert.match(
+      block,
+      /loadAnalysisViewModelForCurrentCycle\(\{\s*\n?\s*force: true,/,
     )
   },
 )

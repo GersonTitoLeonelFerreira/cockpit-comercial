@@ -941,6 +941,16 @@
     )
   }
 
+  // FASE 16.6 — ANÁLISE seller-facing view model (Integrated Commercial
+  // Context canônico, traduzido por app/lib/server/analysis-view-model.ts).
+  // Read-only, mesmo padrão de loadDecisionState acima.
+  async function loadAnalysisViewModel(payload) {
+    return sendToBackground(
+      'LOAD_ANALYSIS_VIEW_MODEL',
+      payload,
+    )
+  }
+
   async function registerMessageAction(payload) {
     return sendToBackground('REGISTER_MESSAGE_ACTION', payload)
   }
@@ -1007,6 +1017,7 @@
     getAnalysisJobStatus,
     loadClientContext,
     loadDecisionState,
+    loadAnalysisViewModel,
     registerMessageAction,
     registerActionEvent,
     transcribeAudio,

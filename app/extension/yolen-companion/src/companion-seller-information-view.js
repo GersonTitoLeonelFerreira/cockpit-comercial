@@ -327,8 +327,8 @@
     `
   }
 
-  function renderStrengths(reading) {
-    const strengths = displayItems(reading?.seller_strengths)
+  function renderStrengths(strengthsList) {
+    const strengths = displayItems(strengthsList)
       .map((item) => ({
         item,
         summary: displayText(item.summary),
@@ -365,8 +365,8 @@
     `
   }
 
-  function renderImprovements(reading) {
-    const improvements = displayItems(reading?.improvement_points)
+  function renderImprovements(improvementsList) {
+    const improvements = displayItems(improvementsList)
       .map((item) => ({
         item,
         summary: displayText(item.summary),
@@ -509,9 +509,7 @@
     `
   }
 
-  function renderMethod(reading) {
-    const method = reading?.method
-
+  function renderMethod(method) {
     if (!method || typeof method !== 'object') {
       return ''
     }
@@ -601,14 +599,21 @@
     `
   }
 
-  function renderRisks(reading) {
-    const seller = renderRiskGroup(
-      'Risco na condução do vendedor',
-      reading?.risks?.service_risks,
-      'seller',
-    )
+  // FASE 16.6 (recalibração seller-facing de ANÁLISE): `risks` já chega
+  // combinado e filtrado (severidade medium/high, máximo 3) do
+  // AnalysisViewModel — este presenter só particiona por `source` para
+  // rotular os dois grupos, nunca reclassifica severidade nem decide o
+  // que é relevante (achado da auditoria: antes, apenas `service_risks`
+  // aparecia em ANÁLISE — `risks.customer_objections` nunca tinha
+  // renderer, mandato §12).
+  function renderRisks(risks) {
+    const serviceRisks = displayItems(risks).filter((risk) => risk.source === 'service_risk')
+    const objectionRisks = displayItems(risks).filter((risk) => risk.source === 'customer_objection')
 
-    if (!seller) {
+    const service = renderRiskGroup('Risco no atendimento', serviceRisks, 'service')
+    const objection = renderRiskGroup('Objeção com risco comercial', objectionRisks, 'objection')
+
+    if (!service && !objection) {
       return ''
     }
 
@@ -616,17 +621,118 @@
       <section class="yolen-seller-section" data-yolen-analysis-section="risks">
         <div class="yolen-seller-section-heading">
           <div>
-            <div class="yolen-seller-section-eyebrow">Condução</div>
-            <h3>Riscos no atendimento</h3>
+            <div class="yolen-seller-section-eyebrow">Riscos e travas</div>
+            <h3>Riscos da venda</h3>
           </div>
         </div>
-        ${seller}
+        ${objection}
+        ${service}
       </section>
     `
   }
 
-  function renderCommercialEvolution(reading) {
-    const items = displayItems(reading?.commercial_evolution)
+  // Objeções ainda ABERTAS do ciclo (mandato §11) — distintas de
+  // `risks` acima: `risks` vem da leitura da CONVERSA ATUAL (pode não
+  // ter reavaliado uma objeção antiga), `objections` vem da memória do
+  // ciclo inteiro já filtrada por `memory_status === 'active'` no
+  // AnalysisViewModel — uma objeção resolvida nunca chega aqui.
+  function renderObjections(objections) {
+    const items = displayItems(objections)
+      .map((item) => ({ item, summary: displayText(item.summary) }))
+      .filter((entry) => entry.summary)
+
+    if (items.length === 0) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-seller-section" data-yolen-analysis-section="objections">
+        <div class="yolen-seller-section-heading">
+          <div>
+            <div class="yolen-seller-section-eyebrow">Riscos e travas</div>
+            <h3>Objeções ainda abertas</h3>
+          </div>
+          <span class="yolen-seller-count">${items.length}</span>
+        </div>
+        <div class="yolen-seller-stack">
+          ${items.map(({ item, summary }) => `
+            <article class="yolen-seller-insight yolen-seller-insight--risk">
+              <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
+              ${renderEvidence(item)}
+            </article>
+          `).join('')}
+        </div>
+      </section>
+    `
+  }
+
+  const ANALYSIS_COMMITMENT_STATUS_LABELS = {
+    overdue: 'Vencido',
+    due_today: 'Previsto para hoje',
+    pending: 'Pendente',
+    reschedule_requested: 'Reagendamento pendente',
+    completed: 'Cumprido',
+    cancelled: 'Cancelado',
+  }
+
+  const ANALYSIS_COMMITMENT_STATUS_ORDER = [
+    'overdue',
+    'due_today',
+    'pending',
+    'reschedule_requested',
+    'completed',
+    'cancelled',
+  ]
+
+  // Compromissos do ciclo (mandato §13) — já categorizados pelo
+  // AnalysisViewModel (overdue/due_today/pending/reschedule_requested/
+  // completed/cancelled); este presenter só agrupa por status para
+  // exibição, nunca recalcula vencimento.
+  function renderCommitments(commitments) {
+    const items = displayItems(commitments)
+      .map((item) => ({ item, summary: displayText(item.summary) }))
+      .filter((entry) => entry.summary)
+
+    if (items.length === 0) {
+      return ''
+    }
+
+    const groups = ANALYSIS_COMMITMENT_STATUS_ORDER
+      .map((status) => ({
+        status,
+        entries: items.filter((entry) => entry.item.status === status),
+      }))
+      .filter((group) => group.entries.length > 0)
+
+    return `
+      <section class="yolen-seller-section" data-yolen-analysis-section="commitments">
+        <div class="yolen-seller-section-heading">
+          <div>
+            <div class="yolen-seller-section-eyebrow">Continuidade</div>
+            <h3>Compromissos</h3>
+          </div>
+          <span class="yolen-seller-count">${items.length}</span>
+        </div>
+        <div class="yolen-seller-stack">
+          ${groups.map(({ status, entries }) => `
+            <div class="yolen-commitment-group" data-yolen-commitment-status="${escapeHtml(status)}">
+              <div class="yolen-commitment-group-title">${escapeHtml(ANALYSIS_COMMITMENT_STATUS_LABELS[status] || status)}</div>
+              ${entries.map(({ item, summary }) => `
+                <article class="yolen-seller-insight">
+                  <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
+                  ${item.scheduled_at ? renderLabeledCopy('Data', item.scheduled_at) : ''}
+                  ${renderEvidence(item)}
+                </article>
+              `).join('')}
+            </div>
+          `).join('')}
+        </div>
+      </section>
+    `
+  }
+
+  function renderCommercialEvolution(evolutionItems) {
+    const items = displayItems(evolutionItems)
       .map((item) => ({
         label: displayText(item.label),
         explanation: displayText(item.explanation),
@@ -657,28 +763,251 @@
     `
   }
 
-  function renderAnalysisArea(reading) {
-    if (!reading || typeof reading !== 'object') {
+  const ANALYSIS_OPPORTUNITY_STATUS_LABELS = {
+    no_intervention: 'Sem sinal comercial',
+    give_space: 'Sessão pessoal',
+    advancing: 'Avançando',
+    follow_up: 'Aguardando retomada',
+    handle_objection: 'Travada em objeção',
+    escalate: 'Em risco',
+    deepen_discovery: 'Descoberta incompleta',
+    wait: 'Aguardando deliberadamente',
+  }
+
+  const ANALYSIS_OPPORTUNITY_STATUS_TONE = {
+    no_intervention: 'information',
+    give_space: 'information',
+    advancing: 'positive',
+    follow_up: 'warning',
+    handle_objection: 'warning',
+    escalate: 'risk',
+    deepen_discovery: 'warning',
+    wait: 'information',
+  }
+
+  // Estado da venda (mandato §8/§19) — primeira leitura da aba, nunca
+  // apenas o stage do CRM (mandato §8: "stage é uma fonte operacional,
+  // Commercial Reading é a interpretação comercial"). `status`/
+  // `headline`/`stage_name` já vêm decididos pelo AnalysisViewModel —
+  // este presenter só escolhe rótulo/tom a partir de `status`.
+  function renderOpportunityHeader(opportunity, currentMoment) {
+    if (!opportunity) {
       return ''
     }
 
-    if (isNeutralCommercialSession(reading)) {
-      const neutralCopy =
-        getNeutralSessionCopy(reading)
+    const label = ANALYSIS_OPPORTUNITY_STATUS_LABELS[opportunity.status] || 'Estado da venda'
+    const tone = ANALYSIS_OPPORTUNITY_STATUS_TONE[opportunity.status] || 'information'
+    const headline = displayText(opportunity.headline)
+    const stageName = displayText(opportunity.stage_name)
 
+    // Camada 1 vs camada 2 (mandato §9): uma sessão cuja atividade mais
+    // recente já saiu da janela de sessão ativa não apaga a leitura —
+    // só adiciona uma nota de contexto, nunca esconde a oportunidade.
+    const staleNote = currentMoment?.is_active_session === false
+      ? '<div class="yolen-opportunity-note">A conversa mais recente já não está ativa — a leitura abaixo reflete a última análise concluída, e a oportunidade continua registrada.</div>'
+      : ''
+
+    return `
+      <section
+        class="yolen-seller-section yolen-opportunity-header"
+        data-yolen-analysis-section="opportunity"
+        data-yolen-opportunity-status="${escapeHtml(opportunity.status)}"
+      >
+        <div class="yolen-opportunity-status yolen-opportunity-status--${escapeHtml(tone)}">
+          <span class="yolen-opportunity-status-label">${escapeHtml(label)}</span>
+          ${stageName ? `<span class="yolen-opportunity-stage">${escapeHtml(stageName)}</span>` : ''}
+        </div>
+        ${headline ? `<div class="yolen-opportunity-headline">${escapeHtml(headline)}</div>` : ''}
+        ${staleNote}
+      </section>
+    `
+  }
+
+  // Continuidade da oportunidade (mandato §10/§17/§31) — nunca esvaziada
+  // por sessão pessoal ou gap de sessão; sinais de outras conversas do
+  // ciclo aparecem só como histórico de coaching, nunca como leitura da
+  // conversa atual (mandato §14/§19).
+  function renderContinuity(continuity) {
+    const count = continuity?.cycle_conversation_count || 0
+    const signals = displayItems(continuity?.cross_conversation_signals)
+
+    if (count <= 1 && signals.length === 0) {
+      return ''
+    }
+
+    const conversationNote = count > 1
+      ? `<div class="yolen-seller-detail-copy">Esta oportunidade já teve ${count} conversas.</div>`
+      : ''
+
+    const signalsHtml = signals.length > 0
+      ? `
+        <div class="yolen-seller-detail">
+          <div class="yolen-seller-detail-label">Coaching de outras conversas deste ciclo</div>
+          <ul class="yolen-seller-text-list">
+            ${signals.map((signal) => {
+              const total = (signal.strengths_count || 0) + (signal.improvements_count || 0)
+              return `<li>${escapeHtml(total > 0 ? `${signal.strengths_count} acerto(s), ${signal.improvements_count} ponto(s) de melhoria` : 'Sem pontos relevantes')}</li>`
+            }).join('')}
+          </ul>
+        </div>
+      `
+      : ''
+
+    return `
+      <details class="yolen-seller-secondary-details" data-yolen-preserve-details="continuity">
+        <summary>Ver continuidade da oportunidade</summary>
+        ${conversationNote}
+        ${signalsHtml}
+      </details>
+    `
+  }
+
+  // FASE 16.6 — adaptador de fallback (nunca o presenter canônico): a
+  // tentativa de análise corrente (state.conversationAnalysis) resolve de
+  // forma síncrona e local, antes de o ANÁLISE view model canônico
+  // (Integrated Commercial Context, buscado à parte por
+  // loadAnalysisViewModelForCurrentCycle) voltar do servidor. Sem este
+  // adaptador, content-script.js teria que escolher entre mostrar uma
+  // leitura já pronta com atraso artificial (esperando um fetch void
+  // ANÁLISE já tem os dados) ou descartá-la (regressão de UX — mandato
+  // §46, nenhuma leitura já concluída pode desaparecer da tela). Isto NÃO
+  // reconstrói a leitura comercial em si (mandato §4) — a leitura já
+  // veio pronta do servidor via ANALYZE_CONVERSATION/GET_ANALYSIS_JOB_STATUS;
+  // aqui só traduz a MESMA leitura para a forma que renderAnalysisViewModel
+  // já sabe desenhar. Por não ter Cycle Memory/Method Coaching locais,
+  // objeções abertas, compromissos, estado da oportunidade e continuidade
+  // ficam vazios/nulos aqui — nunca inventados, apenas ainda não
+  // disponíveis nesta camada; o view model canônico os preenche assim que
+  // chega (e, quando chega, sempre substitui este fallback — ver
+  // getDetailedAnalysisAreaHtml em content-script.js).
+  function buildAnalysisViewModelFromReading(reading) {
+    if (!reading || typeof reading !== 'object') {
+      return null
+    }
+
+    if (isNeutralCommercialSession(reading)) {
+      const copy = getNeutralSessionCopy(reading)
+
+      return {
+        available: true,
+        unavailable_reason: null,
+        neutral: true,
+        neutral_headline: copy.title,
+        neutral_description: copy.description,
+        opportunity: null,
+        current_moment: { is_active_session: null },
+        risks: [],
+        objections_open: [],
+        commitments: [],
+        seller_conduct: {
+          method: { configured: false, name: null, stages: [], current_stage: null, adherence: null, recovery_guidance: null },
+          stage_divergence: false,
+        },
+        strengths: [],
+        improvements: [],
+        continuity: { cycle_conversation_count: 0, cross_conversation_signals: [] },
+        history: [],
+        provenance: {},
+      }
+    }
+
+    // Sem reordenar por severidade aqui de propósito (mesma lição da
+    // FASE 16.5 — ver comentário logo acima, ATTENTION_PRIORITY_RANK):
+    // um segundo critério de priorização no cliente duplicaria o mesmo
+    // julgamento que o presenter server-side já faz
+    // (RISK_SEVERITY_RANK, analysis-view-model.ts) e poderia divergir
+    // dele silenciosamente. Este fallback só filtra severidade baixa e
+    // limita a quantidade — a ordem/priorização fina só vem do view
+    // model canônico, quando ele chega.
+    const risks = [
+      ...(reading.risks?.customer_objections || []).map((risk) => ({ source: 'customer_objection', ...risk })),
+      ...(reading.risks?.service_risks || []).map((risk) => ({ source: 'service_risk', ...risk })),
+    ]
+      .filter((risk) => risk.severity !== 'low')
+      .slice(0, 3)
+
+    return {
+      available: true,
+      unavailable_reason: null,
+      neutral: false,
+      neutral_headline: null,
+      neutral_description: null,
+      // Sem Decision State local para traduzir best_approach.decision no
+      // mesmo mapeamento do presenter server-side (DECISION_TO_OPPORTUNITY_STATUS,
+      // analysis-view-model.ts) — mostrar um status adivinhado seria
+      // inventar (mandato §34); melhor não mostrar cabeçalho de
+      // oportunidade aqui do que mostrar um errado.
+      opportunity: null,
+      current_moment: { is_active_session: true },
+      risks,
+      objections_open: [],
+      commitments: [],
+      seller_conduct: {
+        method: reading.method || null,
+        stage_divergence: false,
+      },
+      strengths: (reading.seller_strengths || []).slice(0, 3),
+      improvements: (reading.improvement_points || []).slice(0, 3),
+      continuity: { cycle_conversation_count: 0, cross_conversation_signals: [] },
+      history: reading.commercial_evolution || [],
+      provenance: {},
+    }
+  }
+
+  // FASE 16.6 (recalibração seller-facing de ANÁLISE): ponto único de
+  // renderização — traduz o AnalysisViewModel (Integrated Commercial
+  // Context, FASE 16.4, via app/lib/server/analysis-view-model.ts) em
+  // HTML. Nunca decide disponibilidade/neutralidade/prioridade por
+  // conta própria — `available`/`neutral`/`unavailable_reason` já
+  // vieram prontos do presenter server-side.
+  function renderAnalysisViewModel(analysisViewModel) {
+    if (!analysisViewModel || typeof analysisViewModel !== 'object') {
+      return ''
+    }
+
+    if (!analysisViewModel.available) {
       return `
-        <div class="yolen-seller-empty-state" data-yolen-analysis-neutral>
-          ${escapeHtml(neutralCopy.title)} ${escapeHtml(neutralCopy.description)}
+        <div class="yolen-seller-empty-state" data-yolen-analysis-unavailable>
+          Análise ainda não disponível.
         </div>
       `
     }
 
+    if (analysisViewModel.neutral) {
+      return [
+        `
+          <div class="yolen-seller-empty-state" data-yolen-analysis-neutral>
+            ${escapeHtml(analysisViewModel.neutral_headline || '')} ${escapeHtml(analysisViewModel.neutral_description || '')}
+          </div>
+        `,
+        renderCommitments(analysisViewModel.commitments),
+        renderContinuity(analysisViewModel.continuity),
+      ].filter(Boolean).join('')
+    }
+
+    if (analysisViewModel.unavailable_reason === 'no_reading') {
+      return [
+        `
+          <div class="yolen-seller-empty-state" data-yolen-analysis-progressive>
+            Esta conversa ainda não possui análise detalhada de condução.
+          </div>
+        `,
+        renderObjections(analysisViewModel.objections_open),
+        renderCommitments(analysisViewModel.commitments),
+        renderContinuity(analysisViewModel.continuity),
+      ].filter(Boolean).join('')
+    }
+
     const sections = [
-      renderStrengths(reading),
-      renderImprovements(reading),
-      renderMethod(reading),
-      renderRisks(reading),
-      renderCommercialEvolution(reading),
+      renderOpportunityHeader(analysisViewModel.opportunity, analysisViewModel.current_moment),
+      renderObjections(analysisViewModel.objections_open),
+      renderRisks(analysisViewModel.risks),
+      renderCommitments(analysisViewModel.commitments),
+      renderMethod(analysisViewModel.seller_conduct?.method),
+      renderStrengths(analysisViewModel.strengths),
+      renderImprovements(analysisViewModel.improvements),
+      renderContinuity(analysisViewModel.continuity),
+      renderCommercialEvolution(analysisViewModel.history),
     ].filter(Boolean)
 
     if (sections.length === 0) {
@@ -1208,56 +1537,6 @@
     `
   }
 
-  function renderNowMethodSnapshot(reading) {
-    if (!reading || isNeutralCommercialSession(reading)) {
-      return ''
-    }
-
-    const method = reading.method
-
-    if (!method || typeof method !== 'object') {
-      return ''
-    }
-
-    const adherenceStatus = method.adherence?.status
-
-    if (method.configured === false || adherenceStatus === 'not_configured') {
-      return `
-        <div class="yolen-now-snapshot" data-yolen-now-method>
-          <div class="yolen-decision-kicker">Método</div>
-          <div class="yolen-now-snapshot-copy">Método comercial não configurado.</div>
-        </div>
-      `
-    }
-
-    if (method.configured !== true) {
-      return ''
-    }
-
-    const currentStage = method.current_stage
-    const stage = displayItems(method.stages).find((item) => isCurrentMethodStage(item, currentStage))
-    const stageName = displayText(currentStage?.name) || displayText(stage?.name)
-    const statusLabel = getMethodStatusLabel(stage?.status)
-    // `off_method` já aparece como a única atenção resumida de AGORA (quando
-    // não há algo mais crítico). O diagnóstico e o recovery ficam em
-    // ANÁLISE; repetir o mesmo alerta aqui tornaria o primeiro nível ruidoso.
-    const adherenceLabel = adherenceStatus === 'off_method'
-      ? null
-      : getMethodAdherenceLabel(adherenceStatus)
-
-    if (!stageName && !adherenceLabel) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-now-snapshot" data-yolen-now-method>
-        <div class="yolen-decision-kicker">Método</div>
-        ${stageName ? `<div class="yolen-now-snapshot-copy">${escapeHtml(stageName)}${statusLabel ? ` · ${escapeHtml(statusLabel)}` : ''}</div>` : ''}
-        ${adherenceLabel ? `<div class="yolen-now-snapshot-meta ${getAdherenceClass(adherenceStatus)}">${escapeHtml(adherenceLabel)}</div>` : ''}
-      </div>
-    `
-  }
-
   // FASE 16.5 (recalibração seller-facing do AGORA): renderAttentionItem
   // é o único primitivo de apresentação que sobrevive daqui — ele só
   // desenha um card a partir de valores já decididos, nunca decide o que
@@ -1360,10 +1639,10 @@
     getMethodAdherenceLabel,
     getNeutralSessionCopy,
     isNeutralCommercialSession,
+    buildAnalysisViewModelFromReading,
     renderAgoraViewModelSnapshot,
-    renderAnalysisArea,
+    renderAnalysisViewModel,
     renderClientCommercialArea,
-    renderNowMethodSnapshot,
   })
 
   root.YolenCompanionSellerInformationView = api

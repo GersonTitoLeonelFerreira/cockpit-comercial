@@ -492,6 +492,17 @@ async function handleCompanionMessage(message) {
 
   if (
     message.action ===
+    'LOAD_ANALYSIS_VIEW_MODEL'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/analysis-view-model',
+      message.payload,
+    )
+  }
+
+  if (
+    message.action ===
     'LOAD_METHOD_GUIDANCE'
   ) {
     return requestYolenWithToken(
