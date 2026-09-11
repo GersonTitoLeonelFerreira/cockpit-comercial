@@ -19,6 +19,10 @@ import {
   reconcileStatefulCommercialTruth,
 } from './commercial-truth'
 
+import {
+  deriveCommercialResponsibilityFromUserPrompt,
+} from './commercial-responsibility'
+
 const RETRYABLE_MODEL_OUTPUT_CODES =
   new Set([
     'EMPTY_MODEL_OUTPUT',
@@ -105,14 +109,24 @@ function buildCommercialTruthInstruction(
     return null
   }
 
+  const responsibility =
+    deriveCommercialResponsibilityFromUserPrompt(
+      userPrompt,
+    )
+
   const rules = [
     'COMMERCIAL_TRUTH_GUARD — estas restrições foram derivadas deterministicamente da fotografia atual e não podem ser contraditas pelo modelo.',
     `commercial_relevance_required=${assessment.requires_commercial_relevance ? 'commercial' : 'not_forced'}.`,
     `buyer_side_role_required=${assessment.requires_buyer_side_role ? 'buyer' : 'not_forced'}.`,
     `minimum_journey_stage=${assessment.stage_floor ?? 'none'}.`,
     `signals=${assessment.signal_categories.join(',') || 'none'}.`,
+    `pending_fact=${responsibility.pending_fact ?? 'none'}.`,
+    `seller_action_already_performed=${responsibility.seller_action_already_performed ? 'true' : 'false'}.`,
+    `waiting_on=${responsibility.waiting_on}.`,
+    `responsibility_evidence_message_ids=${responsibility.evidence_message_ids.join(',') || 'none'}.`,
     'Separe fato pendente de ação já executada pelo vendedor. Mensagem outgoing atual prova apenas o que o vendedor já fez; não a transforme em pendência futura nem recomende repetir a mesma ação.',
     'Determine quem precisa agir agora pelo estado da conversa. Quando o vendedor já transferiu uma próxima ação concreta ao cliente, não crie nova ação do vendedor apenas para manter movimento artificial.',
+    'A fotografia de responsabilidade acima é um guard operacional: use-a para evitar repetição, mas não invente conclusão comercial que as mensagens não sustentam.',
   ]
 
   if (assessment.third_party_prospect_detected) {
