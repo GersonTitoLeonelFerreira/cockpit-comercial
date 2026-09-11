@@ -34,7 +34,7 @@ const analyzeRoute =
 const queueRoute =
   readFileSync(
     new URL(
-      '../../../api/queues/companion-deep-analysis/route.ts',
+      '../../../api/queues/companion-deep-analysis-v3/route.ts',
       import.meta.url,
     ),
     'utf8',
