@@ -22,8 +22,8 @@ import {
 } from './canonical-seller-reasoning-source'
 
 import {
-  loadCanonicalDecisionState,
-} from './canonical-decision-state-source'
+  loadCanonicalDecisionStateWithResponsibility,
+} from './canonical-commercial-responsibility'
 
 import {
   buildAgoraViewModel,
@@ -46,6 +46,8 @@ export type AgoraReasoningViewModel =
 // intervenção, mas a leitura seller-facing passa a receber também o
 // Commercial Reasoning da R4. A prioridade não é recalculada no presenter;
 // reasoning só explica o contexto, técnica e limites por trás da decisão.
+// FASE 16.9 — quem está aguardando quem é responsabilidade operacional
+// determinística e reconcilia Decision State antes da projeção seller-facing.
 // ---------------------------------------------------------------------------
 
 export class AgoraDecisionStateReadError
@@ -125,7 +127,7 @@ export async function loadAgoraViewModel({
     commercialReasoning,
   ] =
     await Promise.all([
-      loadCanonicalDecisionState({
+      loadCanonicalDecisionStateWithResponsibility({
         admin,
         company_id:
           canonicalContext.company_id,
