@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   loadCanonicalDecisionStateWithResponsibility,
+  reconcileReasoningWithCommercialResponsibility,
 } from '../server/canonical-commercial-responsibility.ts'
 
 const COMPANY_ID = '10000000-0000-4000-8000-000000000001'
@@ -208,6 +209,51 @@ test(
       state.primary_decision.recommended_action,
       /pergunt|confirmar|buscar a confirmação/i,
       'não pode mandar o vendedor repetir a pergunta já feita',
+    )
+  },
+)
+
+test(
+  '16.9 real: Commercial Reasoning também muda para wait quando a responsabilidade atual é do cliente',
+  () => {
+    const reasoning = reconcileReasoningWithCommercialResponsibility({
+      reasoning: {
+        contract_version: 'commercial-reasoning-v1',
+        status: 'ready',
+        decision: 'deepen_discovery',
+        decision_reason: 'Buscar a confirmação da data e horário da aula experimental.',
+        current_situation: 'A data e horário ainda não foram informados.',
+        objective_now: 'Confirmar data e horário da aula experimental.',
+        do_not_do: [],
+        selected_techniques: [],
+        company_knowledge_used: [],
+        seller_assessment: {
+          strengths: [],
+          improvement_points: [],
+        },
+        comparison: {
+          similarities: [],
+          differences: [],
+        },
+        evidence_message_ids: ['seller-asked-schedule'],
+        memory_ids: [],
+        limitations: [],
+      },
+      clientContext: clientContext(),
+      referenceTime: REFERENCE_TIME,
+    })
+
+    assert.ok(reasoning)
+    assert.equal(reasoning.decision, 'wait')
+    assert.match(reasoning.objective_now, /aguard/i)
+    assert.doesNotMatch(
+      reasoning.objective_now,
+      /confirmar data|buscar a confirmação/i,
+    )
+    assert.ok(
+      reasoning.do_not_do.some(item =>
+        /não repetir/i.test(item),
+      ),
     )
   },
 )
