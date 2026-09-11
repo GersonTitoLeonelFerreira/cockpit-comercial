@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import {
   getGroupConversion,
@@ -179,19 +179,8 @@ function currentMonthKey() {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
 }
 
-const MONTH_OPTIONS = [
-  { value: '01', label: 'Janeiro' },
-  { value: '02', label: 'Fevereiro' },
-  { value: '03', label: 'Março' },
-  { value: '04', label: 'Abril' },
-  { value: '05', label: 'Maio' },
-  { value: '06', label: 'Junho' },
-  { value: '07', label: 'Julho' },
-  { value: '08', label: 'Agosto' },
-  { value: '09', label: 'Setembro' },
-  { value: '10', label: 'Outubro' },
-  { value: '11', label: 'Novembro' },
-  { value: '12', label: 'Dezembro' },
+const MONTH_ABBR = [
+  'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
 ] as const
 
 function getMonthNumberFromMonthKey(monthKey: string) {
@@ -206,13 +195,6 @@ function getYearFromMonthKey(monthKey: string) {
   return Number.isFinite(year) ? year : new Date().getFullYear()
 }
 
-function buildMonthKey(year: number, month: string) {
-  const safeYear = Number.isFinite(year) ? year : new Date().getFullYear()
-  const safeMonth = MONTH_OPTIONS.some((option) => option.value === month) ? month : '01'
-
-  return `${safeYear}-${safeMonth}`
-}
-
 function getCompetencyFromMonthKey(monthKey: string): ActiveCompetency {
   const year = getYearFromMonthKey(monthKey)
   const monthIndex = Number(getMonthNumberFromMonthKey(monthKey)) - 1
@@ -222,6 +204,32 @@ function getCompetencyFromMonthKey(monthKey: string): ActiveCompetency {
   const startKey = toLocalDateKey(start)
 
   return { month: startKey, month_start: startKey, month_end: toLocalDateKey(end) }
+}
+
+function shiftMonthKey(monthKey: string, delta: number) {
+  const year = getYearFromMonthKey(monthKey)
+  const monthIndex = Number(getMonthNumberFromMonthKey(monthKey)) - 1
+  const shifted = new Date(year, monthIndex + delta, 1)
+
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`
+}
+
+function shortMonthLabel(monthKey: string) {
+  const monthIndex = Number(getMonthNumberFromMonthKey(monthKey)) - 1
+  const year = getYearFromMonthKey(monthKey)
+
+  return `${MONTH_ABBR[monthIndex] ?? '—'}/${String(year).slice(-2)}`
+}
+
+function getRecentMonthKeys(count: number) {
+  const keys: string[] = []
+  const current = currentMonthKey()
+
+  for (let i = 0; i < count; i += 1) {
+    keys.push(shiftMonthKey(current, -i))
+  }
+
+  return keys
 }
 
 function normalizeStatus(status?: LeadStatus | null) {
@@ -542,6 +550,264 @@ function Bar({
       </div>
     </div>
   )
+}
+
+function CompetencySelector({
+  monthKey,
+  onChange,
+}: {
+  monthKey: string
+  onChange: (nextMonthKey: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  const isCurrent = monthKey === currentMonthKey()
+  const recentMonths = useMemo(() => getRecentMonthKeys(12), [])
+
+  useEffect(() => {
+    if (!open) return
+
+    function onPointerDown(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+
+    window.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  function select(nextMonthKey: string) {
+    onChange(nextMonthKey)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px 8px 10px',
+          borderRadius: 10,
+          border: `1px solid ${open ? '#2a3350' : '#1a1d2e'}`,
+          background: open ? '#131722' : '#0d0f14',
+          color: '#8fa3bc',
+          cursor: 'pointer',
+          fontSize: 12,
+          fontWeight: 700,
+          transition: 'background 160ms ease, border-color 160ms ease',
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, color: '#4a5d75' }}>
+          <path
+            d="M7 3v3.2M17 3v3.2M4 9.5h16M5.5 5.5h13A1.5 1.5 0 0 1 20 7v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19V7a1.5 1.5 0 0 1 1.5-1.5Z"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+
+        <span style={{ color: '#edf2f7', fontSize: 12.5, fontWeight: 750, textTransform: 'capitalize' }}>
+          {formatCompetency(getCompetencyFromMonthKey(monthKey))}
+        </span>
+
+        {!isCurrent && (
+          <span
+            style={{
+              padding: '2px 6px',
+              borderRadius: 999,
+              background: 'rgba(245,158,11,0.14)',
+              border: '1px solid rgba(245,158,11,0.3)',
+              color: '#fbbf24',
+              fontSize: 9.5,
+              fontWeight: 800,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            Histórico
+          </span>
+        )}
+
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          style={{ flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 140ms ease' }}
+        >
+          <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 'calc(100% + 8px)',
+            width: 288,
+            border: '1px solid #1c2034',
+            background: '#12141c',
+            borderRadius: 12,
+            overflow: 'hidden',
+            boxShadow: '0 20px 56px rgba(0,0,0,.72), 0 4px 16px rgba(0,0,0,.4)',
+            zIndex: 30,
+          }}
+        >
+          <div
+            style={{
+              padding: '12px 14px',
+              borderBottom: '1px solid #181b2c',
+              background: '#13161f',
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#edf2f7' }}>Competência</div>
+            <div style={{ fontSize: 11, color: '#546070', marginTop: 2 }}>
+              Selecione o mês de referência do Dashboard
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 10px',
+              borderBottom: '1px solid #181b2c',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => select(shiftMonthKey(monthKey, -1))}
+              title="Mês anterior"
+              style={monthNavButtonStyle}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#edf2f7', textTransform: 'capitalize' }}>
+              {formatCompetency(getCompetencyFromMonthKey(monthKey))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => select(shiftMonthKey(monthKey, 1))}
+              disabled={isCurrent}
+              title={isCurrent ? 'Competência atual' : 'Próximo mês'}
+              style={{
+                ...monthNavButtonStyle,
+                opacity: isCurrent ? 0.35 : 1,
+                cursor: isCurrent ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 6,
+              padding: 10,
+            }}
+          >
+            {recentMonths.map((key) => {
+              const active = key === monthKey
+
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => select(key)}
+                  style={{
+                    padding: '8px 6px',
+                    borderRadius: 8,
+                    border: active ? '1px solid rgba(59,130,246,0.45)' : '1px solid transparent',
+                    background: active
+                      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
+                      : 'transparent',
+                    color: active ? '#93c5fd' : '#8fa3bc',
+                    fontSize: 12,
+                    fontWeight: active ? 800 : 500,
+                    cursor: 'pointer',
+                    transition: 'background 160ms ease, color 160ms ease',
+                  }}
+                  onMouseEnter={(event) => {
+                    if (!active) event.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                  }}
+                  onMouseLeave={(event) => {
+                    if (!active) event.currentTarget.style.background = 'transparent'
+                  }}
+                >
+                  {shortMonthLabel(key)}
+                </button>
+              )
+            })}
+          </div>
+
+          {!isCurrent && (
+            <div style={{ borderTop: '1px solid #181b2c', padding: 8 }}>
+              <button
+                type="button"
+                onClick={() => select(currentMonthKey())}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '9px 10px',
+                  borderRadius: 7,
+                  border: '1px solid transparent',
+                  background: 'transparent',
+                  color: '#60a5fa',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Voltar para o mês atual
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const monthNavButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 26,
+  height: 26,
+  borderRadius: 7,
+  border: '1px solid #1e2236',
+  background: '#13151f',
+  color: '#8fa3bc',
+  cursor: 'pointer',
 }
 
 export default function DashboardPage() {
@@ -1173,107 +1439,7 @@ export default function DashboardPage() {
                 flexWrap: 'wrap',
               }}
             >
-              <div
-                style={{
-                  border: '1px solid #1a1d2e',
-                  background: '#0d0f14',
-                  borderRadius: 14,
-                  padding: '8px 10px',
-                  display: 'grid',
-                  gap: 6,
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                >
-                <span
-                  style={{
-                    color: '#64748b',
-                    fontSize: 11,
-                    fontWeight: 850,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                  }}
-                >
-                  Competência
-                </span>
-
-                <select
-                  value={getMonthNumberFromMonthKey(selectedMonthKey)}
-                  onChange={(event) => {
-                    setSelectedMonthKey(
-                      buildMonthKey(getYearFromMonthKey(selectedMonthKey), event.target.value)
-                    )
-                  }}
-                  style={{
-                    border: '1px solid #1a1d2e',
-                    background: '#090b0f',
-                    color: '#e2e8f0',
-                    borderRadius: 10,
-                    padding: '6px 8px',
-                    fontSize: 12,
-                    fontWeight: 750,
-                  }}
-                >
-                  {MONTH_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-
-                <input
-                  type="number"
-                  value={getYearFromMonthKey(selectedMonthKey)}
-                  onChange={(event) => {
-                    setSelectedMonthKey(
-                      buildMonthKey(
-                        Number(event.target.value),
-                        getMonthNumberFromMonthKey(selectedMonthKey)
-                      )
-                    )
-                  }}
-                  min={2000}
-                  max={2100}
-                  style={{
-                    border: '1px solid #1a1d2e',
-                    background: '#090b0f',
-                    color: '#e2e8f0',
-                    borderRadius: 10,
-                    padding: '6px 8px',
-                    fontSize: 12,
-                    fontWeight: 750,
-                    width: 76,
-                  }}
-                />
-
-                {selectedMonthKey !== currentMonthKey() ? (
-                  <button
-                    onClick={() => setSelectedMonthKey(currentMonthKey())}
-                    style={{
-                      border: '1px solid #1a1d2e',
-                      background: 'transparent',
-                      color: '#93c5fd',
-                      borderRadius: 10,
-                      padding: '6px 8px',
-                      fontSize: 11,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Mês atual
-                  </button>
-                ) : null}
-                </div>
-
-                <div style={{ color: '#64748b', fontSize: 11 }}>
-                  {formatCompetency(state.competency)}
-                </div>
-              </div>
+              <CompetencySelector monthKey={selectedMonthKey} onChange={setSelectedMonthKey} />
 
               <button
                 onClick={() => void loadDashboard(selectedMonthKey)}

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import {
     getActiveCompetency,
@@ -133,21 +133,6 @@ function formatMonthLabelBR(monthKey: string) {
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
-const MONTH_OPTIONS = [
-  { value: '01', label: 'Janeiro' },
-  { value: '02', label: 'Fevereiro' },
-  { value: '03', label: 'Março' },
-  { value: '04', label: 'Abril' },
-  { value: '05', label: 'Maio' },
-  { value: '06', label: 'Junho' },
-  { value: '07', label: 'Julho' },
-  { value: '08', label: 'Agosto' },
-  { value: '09', label: 'Setembro' },
-  { value: '10', label: 'Outubro' },
-  { value: '11', label: 'Novembro' },
-  { value: '12', label: 'Dezembro' },
-] as const
-
 function getMonthNumberFromMonthKey(monthKey: string) {
   const [, monthText] = monthKey.split('-')
   return monthText || '01'
@@ -164,11 +149,40 @@ function getYearFromMonthKey(monthKey: string) {
   return year
 }
 
-function buildMonthKey(year: number, month: string) {
-  const safeYear = Number.isFinite(year) ? year : new Date().getFullYear()
-  const safeMonth = MONTH_OPTIONS.some((option) => option.value === month) ? month : '01'
+function currentMonthKey() {
+  const today = new Date()
 
-  return `${safeYear}-${safeMonth}`
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+}
+
+function shiftMonthKey(monthKey: string, delta: number) {
+  const year = getYearFromMonthKey(monthKey)
+  const monthIndex = Number(getMonthNumberFromMonthKey(monthKey)) - 1
+  const shifted = new Date(year, monthIndex + delta, 1)
+
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`
+}
+
+const MONTH_ABBR = [
+  'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
+] as const
+
+function shortMonthLabel(monthKey: string) {
+  const monthIndex = Number(getMonthNumberFromMonthKey(monthKey)) - 1
+  const year = getYearFromMonthKey(monthKey)
+
+  return `${MONTH_ABBR[monthIndex] ?? '—'}/${String(year).slice(-2)}`
+}
+
+function getRecentMonthKeys(count: number) {
+  const keys: string[] = []
+  const current = currentMonthKey()
+
+  for (let i = 0; i < count; i += 1) {
+    keys.push(shiftMonthKey(current, -i))
+  }
+
+  return keys
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -2036,6 +2050,239 @@ function ModePill({
   )
 }
 
+function PeriodSelector({
+  monthKey,
+  onChange,
+}: {
+  monthKey: string
+  onChange: (nextMonthKey: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  const isCurrent = monthKey === currentMonthKey()
+  const recentMonths = useMemo(() => getRecentMonthKeys(12), [])
+
+  useEffect(() => {
+    if (!open) return
+
+    function onPointerDown(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+
+    window.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  function select(nextMonthKey: string) {
+    onChange(nextMonthKey)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          ...controlBaseStyle(),
+          width: 220,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          cursor: 'pointer',
+          borderColor: open ? 'rgba(59, 130, 246, 0.35)' : SIMULATOR_UI.borderSoft,
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, color: SIMULATOR_UI.textSubtle }}>
+            <path
+              d="M7 3v3.2M17 3v3.2M4 9.5h16M5.5 5.5h13A1.5 1.5 0 0 1 20 7v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19V7a1.5 1.5 0 0 1 1.5-1.5Z"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textTransform: 'capitalize' }}>
+            {formatMonthLabelBR(monthKey)}
+          </span>
+        </span>
+
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          style={{ flexShrink: 0, color: SIMULATOR_UI.textSubtle, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 140ms ease' }}
+        >
+          <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 'calc(100% + 8px)',
+            width: 288,
+            border: '1px solid rgba(148, 163, 184, 0.14)',
+            background: '#12141c',
+            borderRadius: 12,
+            overflow: 'hidden',
+            boxShadow: '0 20px 56px rgba(0,0,0,.72), 0 4px 16px rgba(0,0,0,.4)',
+            zIndex: 30,
+          }}
+        >
+          <div
+            style={{
+              padding: '12px 14px',
+              borderBottom: '1px solid rgba(148, 163, 184, 0.10)',
+              background: '#13161f',
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: SIMULATOR_UI.textPrimary }}>Período</div>
+            <div style={{ fontSize: 11, color: SIMULATOR_UI.textSubtle, marginTop: 2 }}>
+              Selecione o mês de referência da simulação
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 10px',
+              borderBottom: '1px solid rgba(148, 163, 184, 0.10)',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => select(shiftMonthKey(monthKey, -1))}
+              title="Mês anterior"
+              style={periodNavButtonStyle}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: SIMULATOR_UI.textPrimary, textTransform: 'capitalize' }}>
+              {formatMonthLabelBR(monthKey)}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => select(shiftMonthKey(monthKey, 1))}
+              title="Próximo mês"
+              style={periodNavButtonStyle}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 6,
+              padding: 10,
+            }}
+          >
+            {recentMonths.map((key) => {
+              const active = key === monthKey
+
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => select(key)}
+                  style={{
+                    padding: '8px 6px',
+                    borderRadius: 8,
+                    border: active ? '1px solid rgba(59,130,246,0.45)' : '1px solid transparent',
+                    background: active
+                      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
+                      : 'transparent',
+                    color: active ? '#93c5fd' : SIMULATOR_UI.textMuted,
+                    fontSize: 12,
+                    fontWeight: active ? 800 : 500,
+                    cursor: 'pointer',
+                    transition: 'background 160ms ease, color 160ms ease',
+                  }}
+                  onMouseEnter={(event) => {
+                    if (!active) event.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                  }}
+                  onMouseLeave={(event) => {
+                    if (!active) event.currentTarget.style.background = 'transparent'
+                  }}
+                >
+                  {shortMonthLabel(key)}
+                </button>
+              )
+            })}
+          </div>
+
+          {!isCurrent && (
+            <div style={{ borderTop: '1px solid rgba(148, 163, 184, 0.10)', padding: 8 }}>
+              <button
+                type="button"
+                onClick={() => select(currentMonthKey())}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '9px 10px',
+                  borderRadius: 7,
+                  border: '1px solid transparent',
+                  background: 'transparent',
+                  color: '#60a5fa',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Voltar para o mês atual
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const periodNavButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 26,
+  height: 26,
+  borderRadius: 7,
+  border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+  background: 'rgba(9, 11, 15, 0.6)',
+  color: SIMULATOR_UI.textMuted,
+  cursor: 'pointer',
+}
+
 function WorkdayChip({
   active,
   label,
@@ -2747,58 +2994,15 @@ function SimulatorTopControls({
         <div>
           <FieldLabel>Período</FieldLabel>
 
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              alignItems: 'center',
-              flexWrap: 'wrap',
+          <PeriodSelector
+            monthKey={getMonthKeyFromDate(periodStart)}
+            onChange={(nextMonthKey) => {
+              const period = getMonthPeriod(nextMonthKey)
+
+              setPeriodStart(period.start)
+              setPeriodEnd(period.end)
             }}
-          >
-            <select
-              value={getMonthNumberFromMonthKey(getMonthKeyFromDate(periodStart))}
-              onChange={(event) => {
-                const currentMonthKey = getMonthKeyFromDate(periodStart)
-                const currentYear = getYearFromMonthKey(currentMonthKey)
-                const selectedMonthKey = buildMonthKey(currentYear, event.target.value)
-                const period = getMonthPeriod(selectedMonthKey)
-
-                setPeriodStart(period.start)
-                setPeriodEnd(period.end)
-              }}
-              style={{
-                ...controlBaseStyle(),
-                width: 140,
-              }}
-            >
-              {MONTH_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-
-            <input
-              type="number"
-              value={getYearFromMonthKey(getMonthKeyFromDate(periodStart))}
-              onChange={(event) => {
-                const currentMonthKey = getMonthKeyFromDate(periodStart)
-                const currentMonth = getMonthNumberFromMonthKey(currentMonthKey)
-                const selectedYear = Number(event.target.value)
-                const selectedMonthKey = buildMonthKey(selectedYear, currentMonth)
-                const period = getMonthPeriod(selectedMonthKey)
-
-                setPeriodStart(period.start)
-                setPeriodEnd(period.end)
-              }}
-              min={1900}
-              max={2200}
-              style={{
-                ...controlBaseStyle(),
-                width: 96,
-              }}
-            />
-          </div>
+          />
 
           <div
             style={{
@@ -2808,8 +3012,7 @@ function SimulatorTopControls({
               lineHeight: 1.35,
             }}
           >
-            {formatMonthLabelBR(getMonthKeyFromDate(periodStart))} · {formatDateBR(periodStart)} até{' '}
-            {formatDateBR(periodEnd)}
+            {formatDateBR(periodStart)} até {formatDateBR(periodEnd)}
           </div>
         </div>
 
