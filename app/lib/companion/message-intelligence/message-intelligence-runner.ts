@@ -1,23 +1,10 @@
 // ============================================================================
-// Message Intelligence Engine V1 — Shadow Validation
-// Runner / Orchestrator
+// Message Intelligence Engine V1 — Runner / Orchestrator
 //
-// Executa, na ordem correta, os módulos já aprovados de cada frente:
-//
-//   MessageIntelligenceRequestV1
-//     -> Message Context Source Loader
-//     -> Context Assembler
-//     -> Commercial Strategy
-//     -> Message Planner
-//     -> Candidate Generator
-//     -> Hard Gates
-//     -> Commercial/Naturalness Critic
-//     -> Final Message Selector
-//     -> Shadow Evaluation
-//
-// Este módulo APENAS orquestra. Ele não recalcula score, não muda
-// Critic, não reranqueia, não reescreve candidate e não gera fallback.
-// Final Message continua exatamente uma candidate já existente.
+// FASE 16-R6: quando o runtime real possui Commercial Reading + estado
+// persistido, o MIE passa a alinhar sua estratégia ao mesmo Commercial
+// Reasoning que alimenta AGORA/ANÁLISE. Fixtures isolados continuam podendo
+// rodar sem reasoning para preservar testes unitários do pipeline.
 // ============================================================================
 
 import {
@@ -43,6 +30,18 @@ import {
 import type {
   CommercialStrategyDecisionV1,
 } from './strategy-contracts'
+
+import {
+  applyCommercialReasoningToMessageStrategy,
+} from './reasoning-strategy-adapter'
+
+import {
+  buildCommercialReasoning,
+} from '../commercial-reasoning-engine'
+
+import type {
+  CommercialReasoning,
+} from '../commercial-reasoning-contract'
 
 import {
   planMessageV1,
@@ -109,13 +108,38 @@ export type MessageIntelligenceRunResultV1 = {
   shadow_evaluation: ShadowEvaluationV1
 }
 
+function buildRuntimeCommercialReasoning({
+  sources,
+}: {
+  sources:
+    Awaited<
+      ReturnType<
+        MessageIntelligenceContextSourceLoaderV1
+      >
+    >
+}): CommercialReasoning | null {
+  if (
+    !sources.commercial_reading ||
+    sources.real_context.state_read.mode !==
+      'found'
+  ) {
+    return null
+  }
+
+  return buildCommercialReasoning({
+    reading:
+      sources.commercial_reading.reading,
+    cycle_state:
+      sources.real_context.state_read.state,
+    diagnostic_input:
+      sources.real_context.diagnostic_input,
+  })
+}
+
 /**
- * Roda o pipeline completo do Message Intelligence Engine V1 para um
- * request já resolvido, usando um source loader real (server-side,
- * device-independent).
- *
- * Não escreve nada seller-facing, não decide governança e não escolhe
- * técnica comercial além do que os módulos das frentes já decidem.
+ * Roda o pipeline completo do Message Intelligence Engine V1 usando fontes
+ * canônicas server-side. O reasoning é derivado somente dessas mesmas
+ * fontes; nenhum dado client-side/viewport participa da decisão.
  */
 export async function runMessageIntelligenceV1({
   request: rawRequest,
@@ -139,22 +163,48 @@ export async function runMessageIntelligenceV1({
       sources,
     })
 
-  return runMessageIntelligenceFromSnapshotV1(
+  const reasoning =
+    buildRuntimeCommercialReasoning({
+      sources,
+    })
+
+  return runMessageIntelligenceFromSnapshotWithReasoningV1({
     snapshot,
-  )
+    reasoning,
+  })
 }
 
 /**
- * Mesma orquestração, mas a partir de um MessageContextSnapshotV1 já
- * montado — útil para testes de pipeline completo que constroem o
- * snapshot diretamente a partir de fixtures.
+ * Entrada pública histórica para testes/fixtures que já fornecem o snapshot.
+ * Sem fontes canônicas completas não fabricamos reasoning: o pipeline usa a
+ * estratégia existente, exatamente como antes da R6.
  */
 export function runMessageIntelligenceFromSnapshotV1(
   snapshot: MessageContextSnapshotV1,
 ): MessageIntelligenceRunResultV1 {
-  const strategy =
+  return runMessageIntelligenceFromSnapshotWithReasoningV1({
+    snapshot,
+    reasoning: null,
+  })
+}
+
+function runMessageIntelligenceFromSnapshotWithReasoningV1({
+  snapshot,
+  reasoning,
+}: {
+  snapshot: MessageContextSnapshotV1
+  reasoning: CommercialReasoning | null
+}): MessageIntelligenceRunResultV1 {
+  const baseStrategy =
     evaluateCommercialStrategyV1({
       snapshot,
+    })
+
+  const strategy =
+    applyCommercialReasoningToMessageStrategy({
+      strategy:
+        baseStrategy,
+      reasoning,
     })
 
   const plan =
