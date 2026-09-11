@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run test:companion && node --test app/extension/yolen-companion/tests/phase16-9-real-history-capture.test.mjs && node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/*.test.mjs && node --test app/extension/yolen-companion/tests/stateful-shadow-wiring.test.mjs && tsc --noEmit && node app/extension/yolen-companion/scripts/build-package.mjs && node app/extension/yolen-companion/scripts/validate-release-candidate.mjs && git diff --check && next build",
     "gate:phase16-targeted": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/phase16-regate-product-regressions.test.mjs && node --test app/extension/yolen-companion/tests/phase16-regate-single-guidance-authority.test.mjs && tsc --noEmit",
     "gate:phase16-regate": "npm run test:companion && node --test app/extension/yolen-companion/tests/e3-dom/*.test.mjs && node --test app/extension/yolen-companion/tests/stateful-shadow-wiring.test.mjs && tsc --noEmit && node app/extension/yolen-companion/scripts/build-package.mjs && node app/extension/yolen-companion/scripts/validate-release-candidate.mjs",
     "start": "next start",
@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
-    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/sortable": "^10.0.2",
     "@dnd-kit/utilities": "^3.2.2",
     "@hello-pangea/dnd": "^18.0.1",
     "@supabase/auth-helpers-nextjs": "^0.15.0",
