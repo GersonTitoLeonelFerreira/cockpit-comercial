@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run gate:phase16-regate && next build",
+    "gate:phase16-regate": "npm run test:companion && node --test app/extension/yolen-companion/tests/e3-dom/*.test.mjs && node --test app/extension/yolen-companion/tests/stateful-shadow-wiring.test.mjs && tsc --noEmit && node app/extension/yolen-companion/scripts/build-package.mjs && node app/extension/yolen-companion/scripts/validate-release-candidate.mjs",
     "start": "next start",
     "lint": "eslint",
     "test:companion": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",
