@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  loadCanonicalDecisionState,
-} from '../server/canonical-decision-state-source.ts'
+  loadCanonicalDecisionStateWithResponsibility,
+} from '../server/canonical-commercial-responsibility.ts'
 
 const COMPANY_ID = '10000000-0000-4000-8000-000000000001'
 const CYCLE_ID = '30000000-0000-4000-8000-000000000001'
 const CONVERSATION_KEY = 'phone:554484352775'
-const REFERENCE_TIME = '2026-09-11T19:17:00.000Z'
+const REFERENCE_TIME = '2026-09-11T19:30:00.000Z'
 
 function evidence(summary, ids = ['seller-asked-schedule']) {
   return {
@@ -26,8 +26,8 @@ function currentReading() {
     state_record_id: 'state-1',
     state_version: 2,
     source_event_id: 'event-1',
-    generated_at: '2026-09-11T19:16:30.000Z',
-    state_updated_at: '2026-09-11T19:16:30.000Z',
+    generated_at: '2026-09-11T19:28:30.000Z',
+    state_updated_at: '2026-09-11T19:28:30.000Z',
     reading: {
       contract_version: 'commercial-reading-v1',
       analysis_status: 'complete',
@@ -162,7 +162,7 @@ function clientContext() {
     waiting: {
       state: 'seller_waiting_for_customer',
       waiting_since: '2026-09-11T19:28:00.000Z',
-      waiting_duration_ms: 0,
+      waiting_duration_ms: 120000,
     },
     timeline: [],
     sla: {
@@ -182,7 +182,7 @@ function clientContext() {
 test(
   '16.9 real: vendedor que já perguntou data e horário deve aguardar o cliente, não repetir descoberta',
   async () => {
-    const state = await loadCanonicalDecisionState({
+    const state = await loadCanonicalDecisionStateWithResponsibility({
       admin: {},
       company_id: COMPANY_ID,
       cycle_id: CYCLE_ID,
