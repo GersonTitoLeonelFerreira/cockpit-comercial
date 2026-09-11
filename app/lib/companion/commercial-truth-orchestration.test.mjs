@@ -13,7 +13,10 @@ import {
   executeStatefulCopilotPlan,
 } from './stateful-copilot-orchestrator.ts'
 
-function buildPrompt(text) {
+function buildPrompt(
+  text,
+  previousState = null,
+) {
   return JSON.stringify({
     input: {
       diagnostic_input: {
@@ -34,11 +37,18 @@ function buildPrompt(text) {
           context_bridge_messages: [],
         },
       },
+      state_context: {
+        previous_state:
+          previousState,
+      },
     },
   })
 }
 
-function buildPlan(text) {
+function buildPlan(
+  text,
+  previousState = null,
+) {
   return {
     mode: 'model',
     request: {
@@ -49,7 +59,10 @@ function buildPlan(text) {
       system_prompt:
         'SYSTEM',
       user_prompt:
-        buildPrompt(text),
+        buildPrompt(
+          text,
+          previousState,
+        ),
       normalization_context: {
         available_message_ids: ['m1'],
         customer_message_ids: ['m1'],
@@ -162,6 +175,25 @@ function attemptResult(output, requestId) {
   }
 }
 
+function existingPartyState() {
+  return {
+    facts: [
+      {
+        id: 'party-1',
+        kind:
+          'commercial_party.current_contact.intermediary',
+        memory_status: 'active',
+      },
+      {
+        id: 'party-2',
+        kind:
+          'commercial_party.related.prospect',
+        memory_status: 'active',
+      },
+    ],
+  }
+}
+
 test(
   'falso negativo comercial dispara reparo e segunda tentativa recebe instrução determinística',
   async () => {
@@ -264,6 +296,44 @@ test(
         'commercial_party.current_contact.intermediary',
         'commercial_party.related.prospect',
       ],
+    )
+  },
+)
+
+test(
+  'papéis de terceiro já ativos são preservados sem obrigar duplicação',
+  async () => {
+    let calls = 0
+
+    const result =
+      await executeStatefulCopilotPlan({
+        plan:
+          buildPlan(
+            'Minha irmã quer fazer o plano anual. Como faço para ela começar?',
+            existingPartyState(),
+          ),
+        provider:
+          async () => {
+            throw new Error('unused')
+          },
+        dependencies: {
+          execute_attempt:
+            async () => {
+              calls += 1
+
+              return attemptResult(
+                buildOutput(),
+                `request-${calls}`,
+              )
+            },
+        },
+      })
+
+    assert.equal(calls, 1)
+    assert.deepEqual(
+      result.output.state_patch
+        .facts_to_add,
+      [],
     )
   },
 )
