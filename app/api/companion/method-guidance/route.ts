@@ -53,18 +53,6 @@ import {
 } from '../../../lib/server/message-intelligence-shadow-enqueue'
 
 import {
-  tryGenerateActivatedMessageIntelligenceSellerMessageV1,
-} from '../../../lib/server/message-intelligence-seller-activation'
-
-import {
-  tryGenerateActivatedMessageIntelligenceSellerMessageV2,
-} from '../../../lib/server/message-intelligence-seller-activation-v2'
-
-import {
-  resolveMessageIntelligenceEngineVersion,
-} from '../../../lib/server/message-intelligence-engine-version'
-
-import {
   CanonicalSellerStateReadError,
   loadCanonicalSellerCommercialContext,
 } from '../../../lib/server/canonical-seller-commercial-context-loader'
@@ -486,112 +474,29 @@ export async function POST(request: Request) {
     })
 
     if (operation === 'generate_message') {
-      // Congela o mesmo corte temporal que identifica o contexto
-      // usado para a geração legacy. Qualquer mensagem observada
-      // depois deste instante pertence à próxima comparação shadow.
+      // FASE 16.9 (correção final) — o Message Intelligence Engine
+      // (V1 ou V2) NÃO PODE MAIS produzir a resposta seller-facing.
+      // V1 já alinhava situação/técnica ao Commercial Reasoning
+      // canônico via applyCommercialReasoningToMessageStrategy, mas
+      // resolvia conhecimento de empresa de forma independente
+      // (fora da allowlist de reasoning.company_knowledge_used). V2
+      // não tinha NENHUMA integração com o Commercial Reasoning —
+      // situação, técnica, conhecimento e silêncio eram decisões
+      // inteiramente próprias. Isso permitia uma segunda autoridade
+      // comercial sempre que MESSAGE_INTELLIGENCE_SELLER_MODE=active
+      // estivesse configurado para a empresa — "está desligado por
+      // padrão" não é garantia arquitetural.
+      //
+      // Por isso o caminho que pode responder ao vendedor passa a ser
+      // incondicional: contexto canônico → Commercial Reasoning →
+      // composeSellerMessage. Nenhuma variável de ambiente reabre uma
+      // segunda autoridade. O pipeline do MIE V1 continua existindo
+      // apenas como shadow/telemetria (ver enqueue abaixo), nunca
+      // como resposta ativa; o MIE V2 fica sem nenhum chamador ativo
+      // até que, se algum dia for reintegrado, receba o mesmo
+      // reasoning como restrição em vez de recalculá-lo.
       const shadowReferenceTime =
         new Date().toISOString()
-
-      // Seleção de motor backward-safe: default V1. V2 só entra quando
-      // MESSAGE_INTELLIGENCE_ENGINE_VERSION=v2 estiver explicitamente
-      // configurada (nenhum env do Vercel é alterado por este código).
-      // Em ambos os casos, MESSAGE_INTELLIGENCE_SELLER_MODE /
-      // MESSAGE_INTELLIGENCE_SELLER_COMPANY_IDS continuam sendo o gate de
-      // ativação por empresa.
-      const engineVersion =
-        resolveMessageIntelligenceEngineVersion()
-
-      if (engineVersion === 'v2') {
-        const v2Result =
-          await tryGenerateActivatedMessageIntelligenceSellerMessageV2({
-            admin,
-            company_id:
-              identity.company_id,
-            seller_user_id:
-              token.sub,
-            cycle_id:
-              identity.cycle_id,
-            conversation_key:
-              identity.conversation_key,
-            seller_intent:
-              sellerIntent,
-            reference_time:
-              shadowReferenceTime,
-          })
-
-        if (v2Result?.outcome === 'message') {
-          return NextResponse.json(
-            {
-              ok: true,
-              data: {
-                status: v2Result.status,
-                message: v2Result.message,
-                error: v2Result.error,
-              },
-            },
-            {
-              status: 200,
-              headers: corsHeaders,
-            },
-          )
-        }
-
-        if (v2Result?.outcome === 'silence') {
-          // Silêncio válido: o MIE V2 concluiu, sem erro, que nenhuma
-          // mensagem deveria ser sugerida agora. Isso NÃO é um fallback
-          // técnico — não chamamos composeSellerMessage aqui, ou a
-          // decisão de silêncio do V2 seria substituída por uma mensagem
-          // legacy não solicitada.
-          return NextResponse.json(
-            {
-              ok: true,
-              data: {
-                status: 'no_message',
-                message: null,
-                error: null,
-              },
-            },
-            {
-              status: 200,
-              headers: corsHeaders,
-            },
-          )
-        }
-
-        // v2Result === null: V2 não está ativo para a empresa ou falhou
-        // tecnicamente (config/provider/output inválido) — segue para o
-        // fallback legacy abaixo, exatamente como o V1 já faz hoje.
-      } else {
-        const v1Result =
-          await tryGenerateActivatedMessageIntelligenceSellerMessageV1({
-            admin,
-            company_id:
-              identity.company_id,
-            seller_user_id:
-              token.sub,
-            cycle_id:
-              identity.cycle_id,
-            conversation_key:
-              identity.conversation_key,
-            seller_intent:
-              sellerIntent,
-            reference_time:
-              shadowReferenceTime,
-          })
-
-        if (v1Result) {
-          return NextResponse.json(
-            {
-              ok: true,
-              data: v1Result,
-            },
-            {
-              status: 200,
-              headers: corsHeaders,
-            },
-          )
-        }
-      }
 
       const currentInteraction =
         await loadLegacyCurrentInteractionAtReferenceTime({
