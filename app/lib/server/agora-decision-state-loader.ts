@@ -18,6 +18,10 @@ import {
 } from './canonical-seller-commercial-context-loader'
 
 import {
+  loadCanonicalSellerReasoning,
+} from './canonical-seller-reasoning-source'
+
+import {
   loadCanonicalDecisionState,
 } from './canonical-decision-state-source'
 
@@ -26,12 +30,22 @@ import {
   type AgoraViewModel,
 } from './agora-view-model'
 
+import {
+  buildSellerFacingReasoningProjection,
+  type SellerFacingReasoningProjection,
+} from './seller-facing-reasoning-projection'
+
+export type AgoraReasoningViewModel =
+  AgoraViewModel & {
+    reasoning:
+      SellerFacingReasoningProjection
+  }
+
 // ---------------------------------------------------------------------------
-// FASE 16-R1 — AGORA deixa de montar por conta própria ledger + state +
-// Commercial Reading. A mesma fotografia comercial canônica é agora
-// composta por canonical-seller-commercial-context-loader.ts e compartilhada
-// com ANÁLISE e CLIENTE. O presenter recebe decisão pronta; DOM/viewport não
-// participa da verdade comercial seller-facing.
+// FASE 16-R6 — AGORA continua usando Decision State para prioridade e
+// intervenção, mas a leitura seller-facing passa a receber também o
+// Commercial Reasoning da R4. A prioridade não é recalculada no presenter;
+// reasoning só explica o contexto, técnica e limites por trás da decisão.
 // ---------------------------------------------------------------------------
 
 export class AgoraDecisionStateReadError
@@ -72,7 +86,7 @@ export async function loadAgoraViewModel({
   cycle_id: unknown
   conversation_key: unknown
   reference_time: unknown
-}): Promise<AgoraViewModel> {
+}): Promise<AgoraReasoningViewModel> {
   let canonicalContext:
     Awaited<
       ReturnType<
@@ -106,24 +120,71 @@ export async function loadAgoraViewModel({
     throw error
   }
 
-  const decisionState =
-    await loadCanonicalDecisionState({
-      admin,
-      company_id:
-        canonicalContext.company_id,
-      cycle_id:
-        canonicalContext.cycle_id,
-      conversation_key:
-        canonicalContext.conversation_key,
-      reference_time:
-        canonicalContext.reference_time,
-      current_reading:
+  const [
+    decisionState,
+    commercialReasoning,
+  ] =
+    await Promise.all([
+      loadCanonicalDecisionState({
+        admin,
+        company_id:
+          canonicalContext.company_id,
+        cycle_id:
+          canonicalContext.cycle_id,
+        conversation_key:
+          canonicalContext.conversation_key,
+        reference_time:
+          canonicalContext.reference_time,
+        current_reading:
+          canonicalContext.current_reading,
+        client_context:
+          canonicalContext.client_context,
+      }),
+      loadCanonicalSellerReasoning({
+        admin,
+        context:
+          canonicalContext,
+      }),
+    ])
+
+  const viewModel =
+    buildAgoraViewModel(decisionState)
+
+  const reasoning =
+    buildSellerFacingReasoningProjection({
+      reasoning:
+        commercialReasoning,
+      reading:
         canonicalContext.current_reading,
-      client_context:
-        canonicalContext.client_context,
+      state:
+        canonicalContext.state_read.mode ===
+          'found'
+          ? canonicalContext.state_read.state
+          : null,
+      fallback_action:
+        viewModel.primary?.action ?? null,
     })
 
-  return buildAgoraViewModel(decisionState)
+  // A headline existente já era segura, porém podia ficar descritiva.
+  // Quando o reasoning possui uma situação comercial atual explícita,
+  // AGORA usa essa situação como enquadramento sem mexer na ação concreta
+  // que Decision State já priorizou.
+  const primary =
+    viewModel.primary &&
+    reasoning.status !== 'silent' &&
+    reasoning.what_is_happening
+      ? {
+          ...viewModel.primary,
+          headline:
+            reasoning.what_is_happening,
+        }
+      : viewModel.primary
+
+  return {
+    ...viewModel,
+    primary,
+    reasoning,
+  }
 }
 
 export {
