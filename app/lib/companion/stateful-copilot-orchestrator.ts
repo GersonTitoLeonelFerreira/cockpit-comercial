@@ -15,9 +15,13 @@ import {
 
 import {
   CommercialTruthGuardError,
-  assessCommercialTruthFromUserPrompt,
   reconcileStatefulCommercialTruth,
 } from './commercial-truth'
+
+import {
+  assessCommercialTruthWithContinuity,
+  reconcileCommercialTruthContinuity,
+} from './commercial-truth-continuity'
 
 import {
   deriveCommercialResponsibilityFromUserPrompt,
@@ -110,7 +114,7 @@ function buildCommercialTruthInstruction(
   userPrompt: string,
 ): string | null {
   const assessment =
-    assessCommercialTruthFromUserPrompt(
+    assessCommercialTruthWithContinuity(
       userPrompt,
     )
 
@@ -141,6 +145,16 @@ function buildCommercialTruthInstruction(
     'Determine quem precisa agir agora pelo estado da conversa. Quando o vendedor já transferiu uma próxima ação concreta ao cliente, não crie nova ação do vendedor apenas para manter movimento artificial.',
     'A fotografia de responsabilidade acima é um guard operacional: use-a para evitar repetição, mas não invente conclusão comercial que as mensagens não sustentam.',
   ]
+
+  if (
+    assessment.signal_categories.includes(
+      'active_commercial_continuity',
+    )
+  ) {
+    rules.push(
+      'A mensagem atual é curta/neutra, mas existe memória comercial ativa. Preserve a oportunidade, objeções, loops e compromissos ainda ativos; não reclassifique a conversa como não comercial apenas por saudação, agradecimento ou confirmação curta.',
+    )
+  }
 
   if (assessment.third_party_prospect_detected) {
     rules.push(
@@ -246,7 +260,7 @@ function validateThirdPartyRoles({
   }
 
   const assessment =
-    assessCommercialTruthFromUserPrompt(
+    assessCommercialTruthWithContinuity(
       plan.request.user_prompt,
     )
 
@@ -307,12 +321,20 @@ function reconcileAttemptResult({
     return result
   }
 
-  const output =
+  const truthReconciledOutput =
     reconcileStatefulCommercialTruth({
       user_prompt:
         plan.request.user_prompt,
       output:
         result.output,
+    })
+
+  const output =
+    reconcileCommercialTruthContinuity({
+      user_prompt:
+        plan.request.user_prompt,
+      output:
+        truthReconciledOutput,
     })
 
   validateThirdPartyRoles({
