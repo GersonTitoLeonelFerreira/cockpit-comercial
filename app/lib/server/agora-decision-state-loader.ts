@@ -6,7 +6,6 @@ import type {
 
 import {
   CompanionClientContextError,
-  loadCompanionClientContext,
 } from './companion-client-context-loader'
 
 import type {
@@ -14,8 +13,9 @@ import type {
 } from './companion-token'
 
 import {
-  loadCanonicalCommercialReadingSource,
-} from './canonical-commercial-reading-source'
+  CanonicalSellerStateReadError,
+  loadCanonicalSellerCommercialContext,
+} from './canonical-seller-commercial-context-loader'
 
 import {
   loadCanonicalDecisionState,
@@ -26,47 +26,12 @@ import {
   type AgoraViewModel,
 } from './agora-view-model'
 
-import {
-  loadCanonicalLedgerAtReferenceTime,
-  selectStatefulDiagnosticMessages,
-  type StatefulCopilotRealContextSupabaseClient,
-} from '@/app/lib/companion/stateful-copilot-real-context-loader'
-
-import {
-  createStatefulCopilotSupabaseReader,
-  type StatefulCopilotStateReadResult,
-  type StatefulCopilotSupabaseReadClient,
-} from '@/app/lib/companion/stateful-copilot-supabase-reader'
-
-import type {
-  StatefulCommercialState,
-} from '@/app/lib/companion/stateful-commercial-state'
-
 // ---------------------------------------------------------------------------
-// FASE 16.5 — loader read-only que alimenta o AGORA seller-facing view
-// model a partir do Decision State canônico (FASE 16.3E).
-//
-// Este módulo NÃO introduz nenhuma fonte de verdade nova. Ele monta o
-// `state_read`/`validation_context` que `loadCanonicalCommercialReadingSource`
-// (16.3B) já exige, reaproveitando exclusivamente leitores canônicos já
-// existentes e testados:
-// - `loadCompanionClientContext` (mesmo usado por
-//   app/api/companion/client-context) — também é quem já faz a
-//   validação de membership/permissão do vendedor sobre o ciclo (fail
-//   closed antes de qualquer leitura comercial);
-// - `loadCanonicalLedgerAtReferenceTime`/`selectStatefulDiagnosticMessages`
-//   (stateful-copilot-real-context-loader.ts) — o mesmo par que
-//   `message-intelligence-source-loader.ts` usa para resolver
-//   known_message_ids/active_message_ids;
-// - `createStatefulCopilotSupabaseReader` (stateful-copilot-supabase-reader.ts)
-//   — o mesmo leitor de `companion_commercial_states` usado pelo motor
-//   stateful em produção.
-//
-// Não duplica Commercial Reading, Cycle Memory, Method/Coaching nem
-// Decision State (mandato FASE 16.5 §31) — apenas monta o contexto que
-// esses módulos já exigem e repassa. Não aciona nada do Message
-// Intelligence Engine (candidate ranking, critic, message planner,
-// auto-send) — MIE seller-facing continua pausado (mandato §30).
+// FASE 16-R1 — AGORA deixa de montar por conta própria ledger + state +
+// Commercial Reading. A mesma fotografia comercial canônica é agora
+// composta por canonical-seller-commercial-context-loader.ts e compartilhada
+// com ANÁLISE e CLIENTE. O presenter recebe decisão pronta; DOM/viewport não
+// participa da verdade comercial seller-facing.
 // ---------------------------------------------------------------------------
 
 export class AgoraDecisionStateReadError
@@ -95,23 +60,6 @@ export class AgoraDecisionStateReadError
   }
 }
 
-// Mesma composição usada em message-intelligence-source-loader.ts
-// (collectStateMemoryIds) — os sete campos de fato/memória do contrato
-// canônico de estado comercial (stateful-commercial-state.ts).
-function collectStateMemoryIds(
-  state: StatefulCommercialState,
-): string[] {
-  return [
-    ...state.facts,
-    ...state.needs,
-    ...state.open_loops,
-    ...state.objections,
-    ...state.commitments,
-    ...state.signals,
-    ...state.uncertainties,
-  ].map((item) => item.id)
-}
-
 export async function loadAgoraViewModel({
   admin,
   token,
@@ -125,122 +73,54 @@ export async function loadAgoraViewModel({
   conversation_key: unknown
   reference_time: unknown
 }): Promise<AgoraViewModel> {
-  // `loadCompanionClientContext` normaliza company_id/cycle_id/
-  // conversation_key/reference_time E valida membership/permissão do
-  // vendedor sobre o ciclo — fail closed antes de qualquer leitura
-  // comercial ser tentada. Reaproveitamos os valores normalizados que
-  // ele devolve (identity.*) em vez de renormalizar por conta própria,
-  // para nunca divergir do que o restante da leitura considera "o
-  // mesmo escopo/instante".
-  const clientContext =
-    await loadCompanionClientContext({
-      admin,
-      token,
-      cycle_id,
-      conversation_key,
-      reference_time,
-    })
-
-  const companyId =
-    clientContext.identity.company_id
-
-  const cycleId =
-    clientContext.identity.cycle_id
-
-  const conversationKey =
-    clientContext.identity.conversation_key
-
-  const referenceTime =
-    clientContext.generated_at
-
-  const {
-    knownMessageIds,
-    canonicalMessages,
-  } = await loadCanonicalLedgerAtReferenceTime({
-    client:
-      admin as unknown as
-        StatefulCopilotRealContextSupabaseClient,
-    companyId,
-    cycleId,
-    conversationKey,
-    referenceTime,
-  })
-
-  const activeMessageIds =
-    selectStatefulDiagnosticMessages(
-      canonicalMessages,
-    ).map((message) => message.id)
-
-  const reader =
-    createStatefulCopilotSupabaseReader({
-      client:
-        admin as unknown as
-          StatefulCopilotSupabaseReadClient,
-    })
-
-  let stateRead: StatefulCopilotStateReadResult
+  let canonicalContext:
+    Awaited<
+      ReturnType<
+        typeof loadCanonicalSellerCommercialContext
+      >
+    >
 
   try {
-    stateRead =
-      await reader({
-        company_id: companyId,
-        cycle_id: cycleId,
-        conversation_key: conversationKey,
-        known_message_ids: knownMessageIds,
-        active_message_ids: activeMessageIds,
-      })
-  } catch {
-    throw new AgoraDecisionStateReadError({
-      code: 'AGORA_STATE_READ_FAILED',
-      message: 'Não foi possível carregar o estado comercial persistido.',
-      status_code: 500,
-      retryable: true,
-    })
-  }
-
-  const currentReading =
-    stateRead.mode === 'found'
-      ? await loadCanonicalCommercialReadingSource({
+    canonicalContext =
+      await loadCanonicalSellerCommercialContext({
         admin,
-        company_id: companyId,
-        cycle_id: cycleId,
-        conversation_key: conversationKey,
-        reference_time: referenceTime,
-        state_read: stateRead,
-
-        validation_context: {
-          available_message_ids: knownMessageIds,
-
-          available_memory_ids:
-            collectStateMemoryIds(
-              stateRead.state,
-            ),
-
-          seller_message_ids:
-            canonicalMessages
-              .filter(
-                (message) =>
-                  message.direction === 'outgoing',
-              )
-              .map((message) => message.id),
-
-          current_crm_status:
-            clientContext.identity.current_status,
-
-          reference_time: referenceTime,
-        },
+        token,
+        cycle_id,
+        conversation_key,
+        reference_time,
       })
-      : null
+  } catch (error) {
+    if (
+      error instanceof
+        CanonicalSellerStateReadError
+    ) {
+      throw new AgoraDecisionStateReadError({
+        code: 'AGORA_STATE_READ_FAILED',
+        message:
+          'Não foi possível carregar o estado comercial persistido.',
+        status_code: 500,
+        retryable: error.retryable,
+      })
+    }
+
+    throw error
+  }
 
   const decisionState =
     await loadCanonicalDecisionState({
       admin,
-      company_id: companyId,
-      cycle_id: cycleId,
-      conversation_key: conversationKey,
-      reference_time: referenceTime,
-      current_reading: currentReading,
-      client_context: clientContext,
+      company_id:
+        canonicalContext.company_id,
+      cycle_id:
+        canonicalContext.cycle_id,
+      conversation_key:
+        canonicalContext.conversation_key,
+      reference_time:
+        canonicalContext.reference_time,
+      current_reading:
+        canonicalContext.current_reading,
+      client_context:
+        canonicalContext.client_context,
     })
 
   return buildAgoraViewModel(decisionState)
