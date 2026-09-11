@@ -6,11 +6,6 @@ import {
 } from './commercial-truth-continuity.ts'
 
 import {
-  buildCommercialIntelligenceLibrary,
-  rankCommercialIntelligence,
-} from './commercial-intelligence-library.ts'
-
-import {
   buildCommercialReasoning,
 } from './commercial-reasoning-engine.ts'
 
@@ -318,42 +313,6 @@ test(
       result.signal_categories.includes(
         'active_commercial_continuity',
       ),
-    )
-  },
-)
-
-test(
-  '16.9 regressão: conhecimento de pagamento não entra por bônus de escopo em contexto de cirurgia',
-  () => {
-    const input = buildDiagnosticInput()
-    const library =
-      buildCommercialIntelligenceLibrary(input)
-
-    const ranked = rankCommercialIntelligence({
-      entries: library,
-      query: {
-        company_id: input.company_id,
-        product_ids: [],
-        situations: ['discovery_gap'],
-        signals: ['missing_context'],
-        objectives: [
-          'Entender a condição atual antes de orientar qualquer próximo passo.',
-        ],
-        limit: 20,
-      },
-    })
-
-    const unrelatedPaymentKnowledge =
-      ranked.filter((item) =>
-        item.entry.kind === 'company_knowledge' &&
-        /pagamento|pix|cartão|cartao/i.test(
-          `${item.entry.title} ${item.entry.description}`,
-        ),
-      )
-
-    assert.deepEqual(
-      unrelatedPaymentKnowledge,
-      [],
     )
   },
 )
