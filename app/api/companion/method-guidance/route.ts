@@ -16,7 +16,6 @@ import {
 
 import {
   composeSellerMessage,
-  type SellerMessageGuidance,
 } from '../../../lib/companion/lead-seller-message'
 
 import {
@@ -65,15 +64,29 @@ import {
   resolveMessageIntelligenceEngineVersion,
 } from '../../../lib/server/message-intelligence-engine-version'
 
+import {
+  CanonicalSellerStateReadError,
+  loadCanonicalSellerCommercialContext,
+} from '../../../lib/server/canonical-seller-commercial-context-loader'
+
+import {
+  loadCanonicalSellerReasoning,
+} from '../../../lib/server/canonical-seller-reasoning-source'
+
+import {
+  buildSellerFacingReasoningProjection,
+} from '../../../lib/server/seller-facing-reasoning-projection'
+
+import {
+  CompanionClientContextError,
+} from '../../../lib/server/companion-client-context-loader'
+
 type MethodGuidanceBody = {
   cycle_id?: unknown
   conversation_key?: unknown
   working_summary?: unknown
   operation?: unknown
   seller_intent?: unknown
-  guidance_status?: unknown
-  guidance_stage_name?: unknown
-  guidance_next_step?: unknown
 }
 
 const CURRENT_INTERACTION_GAP_MS =
@@ -262,49 +275,6 @@ async function loadLegacyCurrentInteractionAtReferenceTime({
   return buildCurrentInteraction(
     legacyMessages,
   )
-}
-
-function buildClientGuidance(
-  body: MethodGuidanceBody,
-  methodName: string,
-): SellerMessageGuidance | null {
-  const status =
-    typeof body.guidance_status === 'string'
-      ? body.guidance_status
-      : null
-
-  if (status === 'not_applicable') {
-    return {
-      status: 'not_applicable',
-      method_name: methodName,
-      stage_name: null,
-      next_step: null,
-    }
-  }
-
-  if (status !== 'ready') {
-    return null
-  }
-
-  const stageName =
-    typeof body.guidance_stage_name === 'string'
-      ? body.guidance_stage_name.trim() || null
-      : null
-  const nextStep =
-    typeof body.guidance_next_step === 'string'
-      ? body.guidance_next_step.trim() || null
-      : null
-
-  if (!nextStep) {
-    return null
-  }
-
-  return {
-    status: 'ready',
-    method_name: methodName,
-    stage_name: stageName,
-    next_step: nextStep,
-  }
 }
 
 export async function OPTIONS(request: Request) {
@@ -636,15 +606,44 @@ export async function POST(request: Request) {
             shadowReferenceTime,
         })
 
+      // FASE 16.9 — MENSAGEM não pode mais decidir situação, papéis,
+      // objeção, técnica ou conhecimento de empresa por conta própria.
+      // Carrega exatamente a mesma fotografia canônica e o mesmo
+      // Commercial Reasoning que já sustentam AGORA/ANÁLISE/CLIENTE
+      // (loadCanonicalSellerCommercialContext + loadCanonicalSellerReasoning)
+      // e entrega o resultado como restrição ao gerador — que só redige.
+      const canonicalContext =
+        await loadCanonicalSellerCommercialContext({
+          admin,
+          token,
+          cycle_id: body.cycle_id,
+          conversation_key: body.conversation_key,
+          reference_time: shadowReferenceTime,
+        })
+
+      const canonicalReasoning =
+        await loadCanonicalSellerReasoning({
+          admin,
+          context: canonicalContext,
+        })
+
+      const reasoningProjection =
+        buildSellerFacingReasoningProjection({
+          reasoning: canonicalReasoning,
+          reading: canonicalContext.current_reading,
+          state:
+            canonicalContext.state_read.mode === 'found'
+              ? canonicalContext.state_read.state
+              : null,
+        })
+
       const generation = await composeSellerMessage({
         workingSummary: workingSummary || null,
         currentInteraction,
         sellerIntent,
         method,
-        guidance: buildClientGuidance(
-          body,
-          method.name,
-        ),
+        reasoning: canonicalReasoning,
+        roles: reasoningProjection.customer_roles,
         provider,
       })
 
@@ -844,6 +843,28 @@ export async function POST(request: Request) {
         },
         {
           status: error.status_code,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (
+      error instanceof CanonicalSellerStateReadError ||
+      error instanceof CompanionClientContextError
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: error.code,
+          error:
+            'Não foi possível carregar o contexto comercial canônico para gerar a mensagem.',
+          retryable: error.retryable,
+        },
+        {
+          status:
+            error instanceof CompanionClientContextError
+              ? error.status_code
+              : 500,
           headers: corsHeaders,
         },
       )

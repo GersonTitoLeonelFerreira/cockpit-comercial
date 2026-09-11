@@ -40,6 +40,35 @@ const method = {
   },
 }
 
+// FASE 16.9 — a mensagem não recebe mais uma orientação própria
+// (SellerMessageGuidance) descolada da verdade comercial. Estes
+// fixtures representam o mesmo CommercialReasoning canônico que
+// AGORA/ANÁLISE/CLIENTE já consomem via loadCanonicalSellerReasoning.
+function buildReasoning({
+  status = 'ready',
+  current_situation = 'A cliente ainda não detalhou a necessidade.',
+  objective_now = 'Aprofundar a necessidade antes de apresentar proposta.',
+  do_not_do = [],
+  selected_techniques = [],
+  company_knowledge_used = [],
+} = {}) {
+  return {
+    status,
+    decision: status === 'silent' ? 'no_intervention' : 'clarify',
+    decision_reason: objective_now,
+    current_situation,
+    objective_now,
+    do_not_do,
+    selected_techniques,
+    company_knowledge_used,
+    limitations: [],
+  }
+}
+
+function buildRoles(roles = []) {
+  return roles
+}
+
 function createProvider(
   outputs,
   calls = [],
@@ -87,7 +116,6 @@ test('não gera mensagem sem intenção explícita do vendedor', async () => {
       'Cliente está avaliando a solução.',
     sellerIntent: '',
     method,
-    guidance: null,
     provider: async () => {
       called = true
       return {
@@ -101,7 +129,7 @@ test('não gera mensagem sem intenção explícita do vendedor', async () => {
   assert.equal(called, false)
 })
 
-test('mensagem recebe intenção do vendedor, resumo e orientação sem transformar recomendação em bloqueio', async () => {
+test('mensagem recebe intenção do vendedor, resumo e Commercial Reasoning sem transformar recomendação em bloqueio', async () => {
   const calls = []
   const message =
     'Hoje, em qual parte do follow-up vocês mais sentem que as oportunidades acabam se perdendo?'
@@ -112,13 +140,10 @@ test('mensagem recebe intenção do vendedor, resumo e orientação sem transfor
     sellerIntent:
       'Quero perguntar qual parte do follow-up mais atrapalha a equipe hoje.',
     method,
-    guidance: {
-      status: 'ready',
-      method_name: 'Metodo AVANÇAR',
-      stage_name: 'Descoberta',
-      next_step:
+    reasoning: buildReasoning({
+      objective_now:
         'Aprofundar a necessidade antes de apresentar proposta.',
-    },
+    }),
     provider: createProvider(
       [
         { message },
@@ -143,8 +168,8 @@ test('mensagem recebe intenção do vendedor, resumo e orientação sem transfor
     /perde oportunidades/i,
   )
   assert.equal(
-    generationPrompt.yolen_guidance.stage_name,
-    'Descoberta',
+    generationPrompt.commercial_reasoning.objective_now,
+    'Aprofundar a necessidade antes de apresentar proposta.',
   )
   assert.match(
     calls[0].system_prompt,
@@ -168,12 +193,14 @@ test('sem orientação comercial ativa ainda permite resposta pedida pelo vended
     sellerIntent:
       'Quero responder de forma natural ao assunto atual.',
     method,
-    guidance: {
-      status: 'not_applicable',
-      method_name: 'Metodo AVANÇAR',
-      stage_name: null,
-      next_step: null,
-    },
+    reasoning: buildReasoning({
+      status: 'silent',
+      objective_now:
+        'Preservar o contexto sem forçar avanço comercial.',
+      do_not_do: [
+        'Não forçar ação comercial enquanto a relevância da sessão não estiver confirmada.',
+      ],
+    }),
     provider: createProvider(
       [
         { message },
@@ -188,8 +215,8 @@ test('sem orientação comercial ativa ainda permite resposta pedida pelo vended
     JSON.parse(calls[0].user_prompt)
 
   assert.equal(
-    generationPrompt.yolen_guidance.status,
-    'not_applicable',
+    generationPrompt.commercial_reasoning.status,
+    'silent',
   )
   assert.match(
     calls[0].system_prompt,
@@ -217,7 +244,6 @@ test('interação canônica atual entra como contexto factual da mensagem', asyn
     sellerIntent:
       'Quero confirmar o horário que a cliente acabou de informar.',
     method,
-    guidance: null,
     provider: createProvider(
       [
         { message },
@@ -266,7 +292,6 @@ test('horário equivalente 09:00 no contexto pode ser escrito como 9h na mensage
     sellerIntent:
       'Quero responder ao ponto principal desta conversa.',
     method,
-    guidance: null,
     provider: createProvider([
       { message },
       reviewedSame(message),
@@ -296,7 +321,6 @@ test('horário realmente diferente continua bloqueado pelo gate', async () => {
     sellerIntent:
       'Quero responder ao ponto principal desta conversa.',
     method,
-    guidance: null,
     provider: createProvider([
       { message },
       { message },
@@ -321,13 +345,10 @@ test('intenção do vendedor pode contrariar a orientação sem ser bloqueada', 
     sellerIntent:
       'Quero marcar uma ligação amanhã.',
     method,
-    guidance: {
-      status: 'ready',
-      method_name: 'Metodo AVANÇAR',
-      stage_name: 'Descoberta',
-      next_step:
+    reasoning: buildReasoning({
+      objective_now:
         'Descobrir a necessidade antes de apresentar proposta.',
-    },
+    }),
     provider: createProvider(
       [
         { message },
@@ -358,7 +379,6 @@ test('rejeita valor numérico inventado fora do resumo, interação e intenção
     sellerIntent:
       'Quero responder que vou explicar os detalhes.',
     method,
-    guidance: null,
     provider: createProvider([
       { message },
       reviewedSame(message),
@@ -397,13 +417,10 @@ test('seller intent de fazer pergunta vira pergunta customer-facing, nunca respo
     sellerIntent:
       'Quero fazer uma pergunta para avançar com clareza.',
     method,
-    guidance: {
-      status: 'ready',
-      method_name: 'Metodo AVANÇAR',
-      stage_name: 'Formalização',
-      next_step:
+    reasoning: buildReasoning({
+      objective_now:
         'Confirmar quando o cliente virá concluir a etapa presencial.',
-    },
+    }),
     provider: createProvider(
       [
         {
@@ -442,13 +459,10 @@ test('regra é multissetorial: aprovação jurídica também mantém vendedor co
     sellerIntent:
       'Quero confirmar se o jurídico já aprovou para avançarmos.',
     method,
-    guidance: {
-      status: 'ready',
-      method_name: 'Método B2B',
-      stage_name: 'Formalização',
-      next_step:
+    reasoning: buildReasoning({
+      objective_now:
         'Confirmar a aprovação jurídica antes da assinatura.',
-    },
+    }),
     provider: createProvider([
       {
         message:
@@ -483,7 +497,6 @@ test('gate final continua bloqueando fato protegido inventado durante a revisão
     sellerIntent:
       'Quero confirmar o que ainda falta para avançar.',
     method,
-    guidance: null,
     provider: createProvider([
       {
         message:
@@ -504,5 +517,110 @@ test('gate final continua bloqueando fato protegido inventado durante a revisão
   assert.match(
     result.error,
     /valor, percentual, data ou horário sem base/i,
+  )
+})
+
+test('customer_knowledge_used canônico é aceito como fato legítimo, mesmo sem estar no resumo/interação', async () => {
+  const message =
+    'O pagamento é feito por cartão de crédito recorrente, conforme nossa política.'
+
+  const result = await composeSellerMessage({
+    workingSummary:
+      'A cliente perguntou como funciona o pagamento.',
+    sellerIntent:
+      'Quero explicar como funciona o pagamento.',
+    method,
+    reasoning: buildReasoning({
+      company_knowledge_used: [
+        {
+          title: 'Política de pagamento recorrente',
+          why_relevant:
+            'Pagamento é cobrado por cartão de crédito recorrente conforme política publicada.',
+        },
+      ],
+    }),
+    provider: createProvider([
+      { message },
+      reviewedSame(message),
+    ]),
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.match(result.message, /cartão/i)
+})
+
+test('papel de terceiro é transmitido ao gerador e ao gate de revisão', async () => {
+  const calls = []
+  const message =
+    'Perfeito! Me conta um pouco mais sobre a sua irmã para eu te ajudar a encaminhar a aula experimental dela.'
+
+  const roles = buildRoles([
+    {
+      scope: 'current_contact',
+      role: 'intermediary',
+      label: 'Juliana',
+      evidence_message_ids: ['m1'],
+    },
+    {
+      scope: 'related',
+      role: 'prospect',
+      label: 'Mariana',
+      evidence_message_ids: ['m1'],
+    },
+  ])
+
+  const result = await composeSellerMessage({
+    workingSummary:
+      'Juliana informou que a irmã Mariana quer fazer uma aula experimental.',
+    sellerIntent:
+      'Quero ajudar a encaminhar a aula experimental da irmã dela.',
+    method,
+    reasoning: buildReasoning({
+      current_situation:
+        'Juliana relatou que a irmã Mariana quer contratar.',
+      objective_now:
+        'Entender a necessidade de Mariana através de Juliana.',
+    }),
+    roles,
+    provider: createProvider(
+      [
+        { message },
+        reviewedSame(message),
+      ],
+      calls,
+    ),
+  })
+
+  assert.equal(result.status, 'ready')
+
+  const generationPrompt =
+    JSON.parse(calls[0].user_prompt)
+
+  assert.ok(
+    generationPrompt.customer_roles.some((entry) =>
+      /intermediário/i.test(entry),
+    ),
+  )
+  assert.ok(
+    generationPrompt.customer_roles.some((entry) =>
+      /prospect/i.test(entry),
+    ),
+  )
+  assert.match(
+    calls[0].system_prompt,
+    /oportunidade de terceiro/i,
+  )
+  assert.match(
+    calls[1].system_prompt,
+    /oportunidade de terceiro/i,
+  )
+
+  const reviewPrompt =
+    JSON.parse(calls[1].user_prompt)
+
+  assert.ok(
+    reviewPrompt.customer_roles.some((entry) =>
+      /prospect/i.test(entry),
+    ),
   )
 })

@@ -6,12 +6,36 @@ import type {
   PublishedCommercialMethod,
 } from './lead-method-guidance'
 
-export type SellerMessageGuidance = {
-  status: string
-  method_name: string | null
-  stage_name: string | null
-  next_step: string | null
-}
+import type {
+  CommercialReasoning,
+} from './commercial-reasoning-contract'
+
+import type {
+  SellerFacingCommercialRole,
+} from '../server/seller-facing-reasoning-projection'
+
+// FASE 16.9 — MENSAGEM deixou de receber uma orientação própria
+// (SellerMessageGuidance) descolada do Commercial Reasoning canônico que
+// já sustenta AGORA/ANÁLISE/CLIENTE. O gerador de mensagem só REDIGE:
+// situação, papéis, objeção, técnica, conhecimento de empresa e
+// restrições (do_not_do) chegam prontos do mesmo `CommercialReasoning`
+// carregado por `loadCanonicalSellerReasoning`, nunca recalculados aqui.
+export type SellerMessageCanonicalReasoning =
+  Pick<
+    CommercialReasoning,
+    | 'status'
+    | 'decision'
+    | 'decision_reason'
+    | 'current_situation'
+    | 'objective_now'
+    | 'do_not_do'
+    | 'selected_techniques'
+    | 'company_knowledge_used'
+    | 'limitations'
+  >
+
+export type SellerMessageCommercialRole =
+  SellerFacingCommercialRole
 
 export type SellerMessageCurrentInteraction = {
   direction: 'incoming' | 'outgoing'
@@ -83,6 +107,7 @@ const CUSTOMER_FACING_REVIEW_FORMAT = {
           'seller_intent_not_executed',
           'not_customer_facing',
           'context_conflict',
+          'canonical_contradiction',
         ],
       },
     },
@@ -431,6 +456,108 @@ function findUnsupportedGroundedConcept(
   return null
 }
 
+function roleLabel(
+  role: SellerMessageCommercialRole['role'],
+): string {
+  switch (role) {
+    case 'prospect':
+      return 'prospect (quem pode contratar)'
+    case 'intermediary':
+      return 'intermediário/interlocutor (está na conversa, mas pode não ser quem contrata)'
+    case 'decision_maker':
+      return 'decisor'
+    case 'influencer':
+      return 'influenciador'
+    case 'user':
+      return 'usuário do serviço'
+    case 'beneficiary':
+      return 'beneficiário'
+    default:
+      return role
+  }
+}
+
+function describeRoles(
+  roles: readonly SellerMessageCommercialRole[],
+): string[] {
+  return roles.map((role) => {
+    const who =
+      role.scope === 'current_contact'
+        ? 'a pessoa que está nesta conversa'
+        : 'uma pessoa relacionada à oportunidade, fora desta conversa'
+
+    const label =
+      role.label ? ` (${role.label})` : ''
+
+    return `${who}${label} é ${roleLabel(role.role)}.`
+  })
+}
+
+function hasThirdPartyOpportunity(
+  roles: readonly SellerMessageCommercialRole[],
+): boolean {
+  return (
+    roles.some(
+      (role) =>
+        role.scope === 'current_contact' &&
+        role.role === 'intermediary',
+    ) &&
+    roles.some(
+      (role) =>
+        role.scope === 'related' &&
+        role.role === 'prospect',
+    )
+  )
+}
+
+function describeCanonicalReasoning(
+  reasoning: SellerMessageCanonicalReasoning | null,
+): Record<string, unknown> | null {
+  if (!reasoning) {
+    return null
+  }
+
+  return {
+    status: reasoning.status,
+    current_situation: reasoning.current_situation,
+    objective_now: reasoning.objective_now,
+    do_not_do: reasoning.do_not_do,
+    selected_techniques: reasoning.selected_techniques.map(
+      (technique) => ({
+        title: technique.title,
+        why_applicable: technique.why_applicable,
+        risks: technique.risks,
+      }),
+    ),
+    company_knowledge_used: reasoning.company_knowledge_used.map(
+      (item) => ({
+        title: item.title,
+        why_relevant: item.why_relevant,
+      }),
+    ),
+  }
+}
+
+function canonicalGroundingContext(
+  reasoning: SellerMessageCanonicalReasoning | null,
+): string {
+  if (!reasoning) {
+    return ''
+  }
+
+  return [
+    reasoning.current_situation,
+    reasoning.objective_now,
+    ...reasoning.selected_techniques.map(
+      (technique) =>
+        `${technique.title} ${technique.why_applicable}`,
+    ),
+    ...reasoning.company_knowledge_used.map(
+      (item) => `${item.title} ${item.why_relevant}`,
+    ),
+  ].join('\n')
+}
+
 type MessageAttempt = {
   message: string | null
   failure: string | null
@@ -441,11 +568,13 @@ function validateMessage({
   summary,
   interaction,
   intent,
+  reasoning,
 }: {
   message: string
   summary: string
   interaction: readonly SellerMessageCurrentInteraction[]
   intent: string
+  reasoning: SellerMessageCanonicalReasoning | null
 }): string | null {
   if (message.length > MAX_MESSAGE_LENGTH) {
     return 'A mensagem excedeu o tamanho permitido.'
@@ -460,6 +589,7 @@ function validateMessage({
   const allowedContext = [
     factualContext,
     intent,
+    canonicalGroundingContext(reasoning),
   ].filter(Boolean).join('\n')
 
   if (
@@ -530,7 +660,8 @@ async function runAttempt({
   interaction,
   intent,
   method,
-  guidance,
+  reasoning,
+  roles,
   provider,
   correctionReason,
 }: {
@@ -538,7 +669,8 @@ async function runAttempt({
   interaction: readonly SellerMessageCurrentInteraction[]
   intent: string
   method: PublishedCommercialMethod
-  guidance: SellerMessageGuidance | null
+  reasoning: SellerMessageCanonicalReasoning | null
+  roles: readonly SellerMessageCommercialRole[]
   provider: StatefulCopilotProvider
   correctionReason?: string | null
 }): Promise<MessageAttempt> {
@@ -555,6 +687,7 @@ async function runAttempt({
         'Gere novamente sem inventar fatos e sem relaxar o contrato.',
       ]
     : []
+  const thirdParty = hasThirdPartyOpportunity(roles)
 
   try {
     const response = await provider({
@@ -577,6 +710,14 @@ async function runAttempt({
         'Não invente preço, desconto, prazo, compromisso, disponibilidade, objeção, necessidade, nome de produto, matrícula, cadastro, documento pendente, condição de contrato ou qualquer outro fato não sustentado.',
         'Não prometa que algo será feito se isso não estiver sustentado no contexto ou explicitamente solicitado pelo vendedor como sua própria ação.',
         'Quando o contexto trouxer fatos concretos e a intenção não for apenas agradecer, despedir ou encerrar, a mensagem deve usar naturalmente pelo menos um elemento concreto pertinente. Não devolva um texto que serviria para dezenas de clientes.',
+        'commercial_reasoning, quando presente, já decidiu a situação atual, o objetivo agora, a técnica aplicável e o conhecimento de empresa relevante. Você NÃO pode redecidir nenhum desses pontos — apenas redigir a mensagem dentro deles.',
+        'Nunca faça nada que apareça em commercial_reasoning.do_not_do.',
+        'Só use um fato de commercial_reasoning.company_knowledge_used como conhecimento de empresa; nunca introduza uma regra, política ou condição da empresa que não esteja ali.',
+        ...(thirdParty
+          ? [
+              'customer_roles indica uma oportunidade de terceiro: quem está nesta conversa (current_contact) é um intermediário, e o prospect real está em related. Dirija a mensagem à pessoa que está de fato nesta conversa, ajudando-a a encaminhar/avançar o prospect relacionado. Nunca trate o intermediário como se ele fosse o comprador direto.',
+            ]
+          : []),
         'Escreva como mensagem real de WhatsApp: natural, clara, humana e pronta para revisão do vendedor.',
         'Evite linguagem de robô, jargão de CRM, abstrações comerciais, listas longas e texto excessivamente formal.',
         'A saída precisa ser customer-facing: deve falar com o cliente, nunca com o vendedor nem com a Yolen.',
@@ -589,18 +730,10 @@ async function runAttempt({
         current_interaction: interaction,
         context_specificity_anchors:
           contextAnchors.slice(0, 12),
-        yolen_guidance:
-          guidance
-            ? {
-                status: guidance.status,
-                method_name:
-                  guidance.method_name,
-                stage_name:
-                  guidance.stage_name,
-                next_step:
-                  guidance.next_step,
-              }
-            : null,
+        commercial_reasoning:
+          describeCanonicalReasoning(reasoning),
+        customer_roles:
+          describeRoles(roles),
         published_method: {
           name: method.name,
           description: method.description,
@@ -663,6 +796,7 @@ async function runAttempt({
       summary,
       interaction,
       intent,
+      reasoning,
     })
 
     return failure
@@ -682,30 +816,40 @@ async function reviewCustomerFacingMessage({
   summary,
   interaction,
   intent,
-  guidance,
+  reasoning,
+  roles,
   provider,
 }: {
   candidateMessage: string
   summary: string
   interaction: readonly SellerMessageCurrentInteraction[]
   intent: string
-  guidance: SellerMessageGuidance | null
+  reasoning: SellerMessageCanonicalReasoning | null
+  roles: readonly SellerMessageCommercialRole[]
   provider: StatefulCopilotProvider
 }): Promise<MessageAttempt> {
+  const thirdParty = hasThirdPartyOpportunity(roles)
+
   try {
     const response = await provider({
       prompt_version: REVIEW_PROMPT_VERSION,
       output_contract_version: REVIEW_OUTPUT_CONTRACT_VERSION,
       system_prompt: [
-        'Você é o gate final de papel comunicacional da Yolen.',
+        'Você é o gate final de papel comunicacional e comercial da Yolen.',
         'Revise uma mensagem que será enviada pelo vendedor diretamente ao cliente.',
         'seller_intent é uma instrução privada do vendedor. A mensagem final precisa EXECUTAR essa intenção como fala do vendedor PARA o cliente.',
         'Detecte role_inversion: mensagem que responde ao vendedor, pede ao vendedor que faça algo ou trata o vendedor como destinatário.',
         'Detecte context_conflict: repetir uma pergunta, confirmação, explicação ou cobrança que já aparece como última ação outgoing sem nova resposta incoming que justifique a repetição.',
+        'Detecte canonical_contradiction: a mensagem contraria commercial_reasoning.current_situation, ignora commercial_reasoning.objective_now, faz algo listado em commercial_reasoning.do_not_do, ou (quando customer_roles indicar terceiro) trata o intermediário desta conversa como se ele fosse o prospect/comprador.',
         'Uma entrada de áudio ainda sem transcrição não autoriza inferir nenhum conteúdo.',
-        'Se houver inversão de papel, intenção não executada, mensagem não customer-facing ou conflito com o contexto, reescreva usando somente os fatos disponíveis.',
+        'Se houver inversão de papel, intenção não executada, mensagem não customer-facing, conflito com o contexto ou contradição canônica, reescreva usando somente os fatos disponíveis e as decisões já tomadas por commercial_reasoning.',
         'Se a mensagem já estiver correta, devolva exatamente a mesma mensagem e issue_code="none".',
         'Nunca acrescente preço, percentual, data, horário, promessa ou fato não presente nas fontes.',
+        ...(thirdParty
+          ? [
+              'customer_roles indica uma oportunidade de terceiro: quem está nesta conversa é o intermediário, o prospect real está em related. A mensagem precisa falar com o intermediário e ajudá-lo a encaminhar o prospect, nunca tratar o intermediário como comprador direto.',
+            ]
+          : []),
         'Retorne somente o JSON do schema.',
       ].join('\n'),
       user_prompt: JSON.stringify({
@@ -713,15 +857,10 @@ async function reviewCustomerFacingMessage({
         candidate_message: candidateMessage,
         working_summary: summary,
         current_interaction: interaction,
-        yolen_guidance:
-          guidance
-            ? {
-                status: guidance.status,
-                method_name: guidance.method_name,
-                stage_name: guidance.stage_name,
-                next_step: guidance.next_step,
-              }
-            : null,
+        commercial_reasoning:
+          describeCanonicalReasoning(reasoning),
+        customer_roles:
+          describeRoles(roles),
       }),
       structured_output_format: CUSTOMER_FACING_REVIEW_FORMAT,
     })
@@ -753,6 +892,7 @@ async function reviewCustomerFacingMessage({
       summary,
       interaction,
       intent,
+      reasoning,
     })
 
     if (validationFailure) {
@@ -780,14 +920,16 @@ export async function composeSellerMessage({
   currentInteraction = [],
   sellerIntent,
   method,
-  guidance,
+  reasoning = null,
+  roles = [],
   provider,
 }: {
   workingSummary: string | null
   currentInteraction?: readonly SellerMessageCurrentInteraction[]
   sellerIntent: string | null
   method: PublishedCommercialMethod
-  guidance: SellerMessageGuidance | null
+  reasoning?: SellerMessageCanonicalReasoning | null
+  roles?: readonly SellerMessageCommercialRole[]
   provider: StatefulCopilotProvider
 }): Promise<SellerMessageGenerationResult> {
   const summary = clean(workingSummary)
@@ -818,7 +960,8 @@ export async function composeSellerMessage({
     interaction,
     intent,
     method,
-    guidance,
+    reasoning,
+    roles,
     provider,
   })
 
@@ -831,7 +974,8 @@ export async function composeSellerMessage({
       interaction,
       intent,
       method,
-      guidance,
+      reasoning,
+      roles,
       provider,
       correctionReason:
         first.failure ||
@@ -858,7 +1002,8 @@ export async function composeSellerMessage({
     summary,
     interaction,
     intent,
-    guidance,
+    reasoning,
+    roles,
     provider,
   })
 
