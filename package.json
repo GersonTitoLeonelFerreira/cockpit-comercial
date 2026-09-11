@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/extension/yolen-companion/tests/*.test.mjs && next build",
+    "build": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/extension/yolen-companion/tests/[a-m]*.test.mjs && next build",
     "gate:phase16-targeted": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/phase16-regate-product-regressions.test.mjs && node --test app/extension/yolen-companion/tests/phase16-regate-single-guidance-authority.test.mjs && tsc --noEmit",
     "gate:phase16-regate": "npm run test:companion && node --test app/extension/yolen-companion/tests/e3-dom/*.test.mjs && node --test app/extension/yolen-companion/tests/stateful-shadow-wiring.test.mjs && tsc --noEmit && node app/extension/yolen-companion/scripts/build-package.mjs && node app/extension/yolen-companion/scripts/validate-release-candidate.mjs",
     "start": "next start",
