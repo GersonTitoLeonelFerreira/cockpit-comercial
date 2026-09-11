@@ -18,6 +18,10 @@ import {
 } from './canonical-seller-commercial-context-loader'
 
 import {
+  loadCanonicalSellerReasoning,
+} from './canonical-seller-reasoning-source'
+
+import {
   loadCanonicalIntegratedCommercialContext,
 } from './canonical-integrated-commercial-context-source'
 
@@ -26,10 +30,22 @@ import {
   type AnalysisViewModel,
 } from './analysis-view-model'
 
+import {
+  buildSellerFacingReasoningProjection,
+  type SellerFacingReasoningProjection,
+} from './seller-facing-reasoning-projection'
+
+export type AnalysisReasoningViewModel =
+  AnalysisViewModel & {
+    reasoning:
+      SellerFacingReasoningProjection
+  }
+
 // ---------------------------------------------------------------------------
-// FASE 16-R1 — ANÁLISE consome a mesma fotografia comercial canônica de
-// AGORA e CLIENTE. O loader deixa de reconstruir ledger/state/Commercial
-// Reading em paralelo; viewport/DOM não é fonte de verdade do presenter.
+// FASE 16-R6 — ANÁLISE continua sendo a visão completa da venda e da
+// condução. O Commercial Reasoning passa a explicar técnica, limites e
+// conhecimento de empresa sobre a mesma fotografia canônica; nunca cria uma
+// leitura paralela da oportunidade.
 // ---------------------------------------------------------------------------
 
 export class AnalysisViewModelReadError
@@ -70,7 +86,7 @@ export async function loadAnalysisViewModel({
   cycle_id: unknown
   conversation_key: unknown
   reference_time: unknown
-}): Promise<AnalysisViewModel> {
+}): Promise<AnalysisReasoningViewModel> {
   let canonicalContext:
     Awaited<
       ReturnType<
@@ -104,24 +120,70 @@ export async function loadAnalysisViewModel({
     throw error
   }
 
-  const integratedContext =
-    await loadCanonicalIntegratedCommercialContext({
-      admin,
-      company_id:
-        canonicalContext.company_id,
-      cycle_id:
-        canonicalContext.cycle_id,
-      conversation_key:
-        canonicalContext.conversation_key,
-      reference_time:
-        canonicalContext.reference_time,
-      current_reading:
+  const [
+    integratedContext,
+    commercialReasoning,
+  ] =
+    await Promise.all([
+      loadCanonicalIntegratedCommercialContext({
+        admin,
+        company_id:
+          canonicalContext.company_id,
+        cycle_id:
+          canonicalContext.cycle_id,
+        conversation_key:
+          canonicalContext.conversation_key,
+        reference_time:
+          canonicalContext.reference_time,
+        current_reading:
+          canonicalContext.current_reading,
+        client_context:
+          canonicalContext.client_context,
+      }),
+      loadCanonicalSellerReasoning({
+        admin,
+        context:
+          canonicalContext,
+      }),
+    ])
+
+  const viewModel =
+    buildAnalysisViewModel(
+      integratedContext,
+    )
+
+  const reasoning =
+    buildSellerFacingReasoningProjection({
+      reasoning:
+        commercialReasoning,
+      reading:
         canonicalContext.current_reading,
-      client_context:
-        canonicalContext.client_context,
+      state:
+        canonicalContext.state_read.mode ===
+          'found'
+          ? canonicalContext.state_read.state
+          : null,
     })
 
-  return buildAnalysisViewModel(integratedContext)
+  // O cabeçalho da oportunidade passa a usar a situação atual estruturada
+  // pelo reasoning quando disponível. Riscos, objeções, compromissos e
+  // coaching continuam vindo de suas fontes canônicas específicas.
+  const opportunity =
+    viewModel.opportunity &&
+    reasoning.status !== 'silent' &&
+    reasoning.what_is_happening
+      ? {
+          ...viewModel.opportunity,
+          headline:
+            reasoning.what_is_happening,
+        }
+      : viewModel.opportunity
+
+  return {
+    ...viewModel,
+    opportunity,
+    reasoning,
+  }
 }
 
 export {
