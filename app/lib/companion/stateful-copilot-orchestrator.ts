@@ -33,6 +33,9 @@ const RETRYABLE_MODEL_OUTPUT_CODES =
 type StatefulCopilotAttemptExecutor =
   typeof executeStatefulCopilotModelAttempt
 
+type JsonRecord =
+  Record<string, unknown>
+
 export type StatefulCopilotOrchestratorDependencies = {
   execute_attempt?:
     StatefulCopilotAttemptExecutor
@@ -76,6 +79,16 @@ export type StatefulCopilotModelResult = {
 export type StatefulCopilotOrchestrationResult =
   | StatefulCopilotBlockedResult
   | StatefulCopilotModelResult
+
+function isRecord(
+  value: unknown,
+): value is JsonRecord {
+  return (
+    Boolean(value) &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  )
+}
 
 function shouldRetryModelOutput(
   error: unknown,
@@ -131,7 +144,7 @@ function buildCommercialTruthInstruction(
 
   if (assessment.third_party_prospect_detected) {
     rules.push(
-      'A conversa atual indica terceiro como prospect real. O contato atual continua sendo o interlocutor e deve ser registrado como commercial_party.current_contact.intermediary; a pessoa indicada deve ser registrada como commercial_party.related.prospect. Não trate interlocutor e prospect como a mesma pessoa.',
+      'A conversa atual indica terceiro como prospect real. O contato atual continua sendo o interlocutor e deve estar representado como commercial_party.current_contact.intermediary; a pessoa indicada deve estar representada como commercial_party.related.prospect. Se esses fatos já estiverem ativos no estado anterior, preserve-os e não os duplique; caso contrário, adicione-os ao state_patch. Não trate interlocutor e prospect como a mesma pessoa.',
     )
   }
 
@@ -166,6 +179,61 @@ function buildTruthAwarePlan(
   }
 }
 
+function collectActiveExistingPartyKinds(
+  userPrompt: string,
+): Set<string> {
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(userPrompt)
+  } catch {
+    return new Set()
+  }
+
+  if (!isRecord(parsed)) {
+    return new Set()
+  }
+
+  const input =
+    isRecord(parsed.input)
+      ? parsed.input
+      : null
+
+  const stateContext =
+    isRecord(input?.state_context)
+      ? input.state_context
+      : null
+
+  const previousState =
+    isRecord(stateContext?.previous_state)
+      ? stateContext.previous_state
+      : null
+
+  const facts =
+    Array.isArray(previousState?.facts)
+      ? previousState.facts
+      : []
+
+  return new Set(
+    facts
+      .filter(isRecord)
+      .filter(
+        fact =>
+          fact.memory_status === 'active' &&
+          typeof fact.kind === 'string',
+      )
+      .map(
+        fact => fact.kind as string,
+      )
+      .filter(
+        kind =>
+          kind.startsWith(
+            'commercial_party.',
+          ),
+      ),
+  )
+}
+
 function validateThirdPartyRoles({
   plan,
   output,
@@ -187,11 +255,16 @@ function validateThirdPartyRoles({
   }
 
   const kinds =
-    new Set(
-      output.state_patch
-        .facts_to_add
-        .map(fact => fact.kind),
+    collectActiveExistingPartyKinds(
+      plan.request.user_prompt,
     )
+
+  for (
+    const fact of
+    output.state_patch.facts_to_add
+  ) {
+    kinds.add(fact.kind)
+  }
 
   const requiredKinds = [
     'commercial_party.current_contact.intermediary',
