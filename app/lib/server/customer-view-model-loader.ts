@@ -18,15 +18,34 @@ import {
 } from './canonical-seller-commercial-context-loader'
 
 import {
+  loadCanonicalSellerReasoning,
+} from './canonical-seller-reasoning-source'
+
+import {
   buildCustomerViewModel,
   type CustomerViewModel,
 } from './customer-view-model'
 
+import {
+  buildSellerFacingReasoningProjection,
+  type SellerFacingReasoningProjection,
+} from './seller-facing-reasoning-projection'
+
+export type CustomerReasoningViewModel =
+  CustomerViewModel & {
+    roles:
+      SellerFacingReasoningProjection[
+        'customer_roles'
+      ]
+    reasoning:
+      SellerFacingReasoningProjection
+  }
+
 // ---------------------------------------------------------------------------
-// FASE 16-R1 — CLIENTE consome a mesma fotografia comercial canônica de
-// AGORA e ANÁLISE. Continua deliberadamente sem Cycle Memory/Method/
-// Decision State no presenter, mas deixa de reconstruir ledger/state/
-// Commercial Reading em paralelo.
+// FASE 16-R6 — CLIENTE continua sem virar ANÁLISE/AGORA, mas passa a expor
+// os papéis comerciais persistidos pela R2 (interlocutor, prospect, decisor,
+// influenciador, usuário/beneficiário) e o reasoning compartilhado para que
+// a UI não precise inferir papéis por texto.
 // ---------------------------------------------------------------------------
 
 export class CustomerViewModelReadError
@@ -67,7 +86,7 @@ export async function loadCustomerViewModel({
   cycle_id: unknown
   conversation_key: unknown
   reference_time: unknown
-}): Promise<CustomerViewModel> {
+}): Promise<CustomerReasoningViewModel> {
   let canonicalContext:
     Awaited<
       ReturnType<
@@ -101,9 +120,37 @@ export async function loadCustomerViewModel({
     throw error
   }
 
-  return buildCustomerViewModel(
-    canonicalContext.current_reading,
-  )
+  const commercialReasoning =
+    await loadCanonicalSellerReasoning({
+      admin,
+      context:
+        canonicalContext,
+    })
+
+  const viewModel =
+    buildCustomerViewModel(
+      canonicalContext.current_reading,
+    )
+
+  const reasoning =
+    buildSellerFacingReasoningProjection({
+      reasoning:
+        commercialReasoning,
+      reading:
+        canonicalContext.current_reading,
+      state:
+        canonicalContext.state_read.mode ===
+          'found'
+          ? canonicalContext.state_read.state
+          : null,
+    })
+
+  return {
+    ...viewModel,
+    roles:
+      reasoning.customer_roles,
+    reasoning,
+  }
 }
 
 export {
