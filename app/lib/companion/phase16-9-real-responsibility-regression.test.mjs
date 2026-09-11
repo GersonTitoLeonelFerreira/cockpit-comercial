@@ -201,14 +201,10 @@ test(
       'wait',
       'waiting determinístico precisa dominar um best_approach que repetiria ação já executada',
     )
-    assert.match(
+    assert.equal(
       state.primary_decision.recommended_action,
-      /aguard|esper/i,
-    )
-    assert.doesNotMatch(
-      state.primary_decision.recommended_action,
-      /pergunt|confirmar|buscar a confirmação/i,
-      'não pode mandar o vendedor repetir a pergunta já feita',
+      'Aguardar a resposta do cliente; não repetir a pergunta ou ação já realizada.',
+      'a recomendação precisa aguardar explicitamente o cliente e bloquear a repetição da ação já executada',
     )
   },
 )
