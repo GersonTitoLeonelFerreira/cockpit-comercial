@@ -1,0 +1,139 @@
+[
+  {
+    "id": "r5-scheduling-open",
+    "title": "Agendamento aberto — vendedor já perguntou",
+    "scenario": "O cliente quer agendar. O vendedor já ofereceu duas opções concretas de horário e a próxima resposta está com o cliente.",
+    "turns": [
+      {"direction":"incoming","text":"Quero marcar uma avaliação."},
+      {"direction":"outgoing","text":"Tenho amanhã às 10h ou às 15h. Qual dos dois horários funciona melhor para você?"}
+    ],
+    "company_rules": [
+      "Usar somente horários realmente disponíveis.",
+      "Não repetir uma pergunta que já foi feita enquanto o cliente ainda precisa responder."
+    ],
+    "expected": {
+      "commercial_relevance": "commercial",
+      "buyer_side": true,
+      "third_party_prospect": false,
+      "minimum_stage": "respondeu",
+      "waiting_on": "customer",
+      "decision": "wait",
+      "technique_ids": ["technique.commitment_wait"],
+      "required_company_knowledge_sources": [],
+      "must_not": ["qual horário você prefere?"]
+    }
+  },
+  {
+    "id": "r5-sister-referral",
+    "title": "Indicação da irmã — interlocutor não é o prospect",
+    "scenario": "O contato atual informa que a irmã quer contratar. A Yolen precisa manter o contato como intermediário e conduzir a passagem para a prospect real.",
+    "turns": [
+      {"direction":"incoming","text":"Minha irmã quer fazer o plano anual. Como faço para ela começar?"}
+    ],
+    "company_rules": [
+      "Não atribuir objetivos, objeções ou compromissos da irmã ao interlocutor atual."
+    ],
+    "expected": {
+      "commercial_relevance": "commercial",
+      "buyer_side": true,
+      "third_party_prospect": true,
+      "minimum_stage": "respondeu",
+      "waiting_on": "seller",
+      "decision": "clarify",
+      "technique_ids": ["technique.third_party_handoff"],
+      "required_company_knowledge_sources": [],
+      "must_not": ["você quer o plano para você"]
+    }
+  },
+  {
+    "id": "r5-no-card",
+    "title": "Sem cartão — diagnosticar antes de oferecer alternativa",
+    "scenario": "O cliente quer fechar, mas diz que está sem cartão/limite. A resposta precisa diagnosticar o bloqueio e consultar regras reais de pagamento.",
+    "turns": [
+      {"direction":"incoming","text":"Quero fechar o plano, mas estou sem limite no cartão. Tem outra forma de pagamento?"}
+    ],
+    "company_rules": [
+      "Não inventar forma de pagamento.",
+      "Consultar payment_conditions, fatos oficiais e objection guide publicados."
+    ],
+    "expected": {
+      "commercial_relevance": "commercial",
+      "buyer_side": true,
+      "third_party_prospect": false,
+      "minimum_stage": "negociacao",
+      "waiting_on": "seller",
+      "decision": "handle_objection",
+      "technique_ids": ["technique.objection_diagnosis"],
+      "required_company_knowledge_sources": ["objection_guide", "product_profile"],
+      "must_not": ["garanto que", "qualquer cartão serve"]
+    }
+  },
+  {
+    "id": "r5-surgery-freezing",
+    "title": "Cirurgia / congelamento — empatia e investigação antes de regra",
+    "scenario": "O cliente relata cirurgia e pergunta sobre congelamento do plano. A orientação deve entender o caso relevante antes de despejar política ou premiar resposta técnica superficial.",
+    "turns": [
+      {"direction":"incoming","text":"Vou fazer uma cirurgia e talvez precise ficar um tempo sem treinar. Como funciona o congelamento do meu plano?"}
+    ],
+    "company_rules": [
+      "Política de congelamento só pode ser afirmada se estiver publicada como conhecimento oficial vigente.",
+      "Não fazer inferência médica."
+    ],
+    "expected": {
+      "commercial_relevance": "commercial",
+      "buyer_side": true,
+      "third_party_prospect": false,
+      "minimum_stage": "respondeu",
+      "waiting_on": "seller",
+      "decision": "deepen_discovery",
+      "technique_ids": ["technique.discovery_before_prescription", "principle.company_rules_before_claim"],
+      "required_company_knowledge_sources": [],
+      "must_not": ["não tem problema", "é só congelar"]
+    }
+  },
+  {
+    "id": "r5-plan-link-objection",
+    "title": "Plano + link + objeção — relevância comercial inequívoca",
+    "scenario": "A conversa já contém plano, valor e link de pagamento. O cliente traz uma objeção. Nunca pode virar non_commercial ou regressar artificialmente de estágio.",
+    "turns": [
+      {"direction":"outgoing","text":"O Plano Premium fica R$ 199. Segue o link para pagamento e matrícula."},
+      {"direction":"incoming","text":"Vi o link, mas meu cartão não tem limite agora. Como consigo fechar?"}
+    ],
+    "company_rules": [
+      "Condições de pagamento precisam vir do conhecimento publicado."
+    ],
+    "expected": {
+      "commercial_relevance": "commercial",
+      "buyer_side": true,
+      "third_party_prospect": false,
+      "minimum_stage": "negociacao",
+      "waiting_on": "seller",
+      "decision": "handle_objection",
+      "technique_ids": ["technique.objection_diagnosis"],
+      "required_company_knowledge_sources": ["product_profile"],
+      "must_not": ["conversa sem evidência comercial"]
+    }
+  },
+  {
+    "id": "r5-scroll-invariant",
+    "title": "Scroll não altera verdade comercial",
+    "scenario": "A mesma conversa comercial é reprocessada após mudança de viewport, sem mensagem nem fato novo. Relevância, papel, estágio e próximo movimento devem permanecer estáveis.",
+    "turns": [
+      {"direction":"incoming","text":"Quero fechar o Plano Premium e já estou vendo a forma de pagamento."}
+    ],
+    "company_rules": [
+      "Viewport nunca é fonte de verdade comercial."
+    ],
+    "expected": {
+      "commercial_relevance": "commercial",
+      "buyer_side": true,
+      "third_party_prospect": false,
+      "minimum_stage": "negociacao",
+      "waiting_on": "seller",
+      "decision": null,
+      "technique_ids": [],
+      "required_company_knowledge_sources": [],
+      "must_not": ["mudou porque rolou a tela"]
+    }
+  }
+]
