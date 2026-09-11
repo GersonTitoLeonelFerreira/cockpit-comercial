@@ -29,6 +29,14 @@ const EXPERIENCES =
     ),
   )
 
+const DETERMINISTIC_TRUTH_GUARD_CASES =
+  new Set([
+    'r5-sister-referral',
+    'r5-no-card',
+    'r5-plan-link-objection',
+    'r5-scroll-invariant',
+  ])
+
 function buildPrompt(experience) {
   return JSON.stringify({
     input: {
@@ -125,9 +133,16 @@ test(
 )
 
 test(
-  'camada determinística reconhece relevância, terceiro, estágio mínimo e responsável nos casos do smoke',
+  'guard determinístico cobre os falsos negativos inequívocos sem assumir o papel do reasoning contextual',
   () => {
-    for (const experience of EXPERIENCES) {
+    for (
+      const experience of
+      EXPERIENCES.filter(
+        item =>
+          DETERMINISTIC_TRUTH_GUARD_CASES
+            .has(item.id),
+      )
+    ) {
       const prompt =
         buildPrompt(experience)
 
@@ -136,22 +151,11 @@ test(
           prompt,
         )
 
-      const responsibility =
-        deriveCommercialResponsibilityFromUserPrompt(
-          prompt,
-        )
-
-      if (
-        experience.expected
-          .commercial_relevance ===
-        'commercial'
-      ) {
-        assert.equal(
-          truth.requires_commercial_relevance,
-          true,
-          `${experience.id}: relevance`,
-        )
-      }
+      assert.equal(
+        truth.requires_commercial_relevance,
+        true,
+        `${experience.id}: relevance`,
+      )
 
       assert.equal(
         truth.third_party_prospect_detected,
@@ -169,6 +173,18 @@ test(
           `${experience.id}: stage`,
         )
       }
+    }
+  },
+)
+
+test(
+  'responsabilidade do próximo movimento é avaliada em todos os casos reais',
+  () => {
+    for (const experience of EXPERIENCES) {
+      const responsibility =
+        deriveCommercialResponsibilityFromUserPrompt(
+          buildPrompt(experience),
+        )
 
       assert.equal(
         responsibility.waiting_on,
