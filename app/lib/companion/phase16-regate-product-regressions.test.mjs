@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  assessCommercialTruthFromUserPrompt,
-} from './commercial-truth.ts'
+  assessCommercialTruthWithContinuity,
+} from './commercial-truth-continuity.ts'
 
 import {
   buildCommercialIntelligenceLibrary,
@@ -270,7 +270,7 @@ function buildTruthPrompt({
 test(
   '16.9 regressão: saudação isolada sem memória comercial continua neutra',
   () => {
-    const result = assessCommercialTruthFromUserPrompt(
+    const result = assessCommercialTruthWithContinuity(
       buildTruthPrompt({ text: 'Bom dia' }),
     )
 
@@ -303,7 +303,7 @@ test(
       uncertainties: [],
     }
 
-    const result = assessCommercialTruthFromUserPrompt(
+    const result = assessCommercialTruthWithContinuity(
       buildTruthPrompt({
         text: 'Bom dia',
         previousState,
