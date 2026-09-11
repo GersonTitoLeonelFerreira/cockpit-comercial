@@ -114,6 +114,50 @@ function hasActiveKind(
   )
 }
 
+function hasCanonicalThirdPartyOpportunity(
+  state: StatefulCommercialState,
+): boolean {
+  return (
+    hasActiveKind(
+      state,
+      'commercial_party.current_contact.intermediary',
+    ) &&
+    hasActiveKind(
+      state,
+      'commercial_party.related.prospect',
+    )
+  )
+}
+
+function hasSemanticMatch(
+  ranked: RankedCommercialIntelligenceEntry,
+): boolean {
+  return (
+    ranked.matched_signals.length > 0 ||
+    ranked.matched_situations.length > 0 ||
+    ranked.matched_objectives.length > 0
+  )
+}
+
+function filterReasoningCandidates(
+  ranked: RankedCommercialIntelligenceEntry[],
+): RankedCommercialIntelligenceEntry[] {
+  return ranked.filter((item) => {
+    if (
+      item.entry.kind !==
+        'company_knowledge'
+    ) {
+      return true
+    }
+
+    // Conhecimento de empresa/produto não pode entrar só porque pertence
+    // ao mesmo company_id ou product_id. Precisa existir compatibilidade
+    // semântica com o momento atual; caso contrário, uma política de
+    // pagamento poderia contaminar, por exemplo, uma conversa sobre cirurgia.
+    return hasSemanticMatch(item)
+  })
+}
+
 function buildSituationSignals({
   reading,
   state,
@@ -520,8 +564,17 @@ export function buildCommercialReasoning({
   cycle_state: StatefulCommercialState
   diagnostic_input: CompanionDiagnosticInput
 }): CommercialReasoning {
+  const thirdPartyOpportunity =
+    hasCanonicalThirdPartyOpportunity(
+      cycle_state,
+    )
+
+  const roleAllowsReasoning =
+    reading.commercial_role === 'buyer' ||
+    thirdPartyOpportunity
+
   const status =
-    reading.commercial_role !== 'buyer' ||
+    !roleAllowsReasoning ||
     reading.commercial_relevance !==
       'commercial'
       ? 'silent'
@@ -548,23 +601,25 @@ export function buildCommercialReasoning({
   const ranked =
     status === 'silent'
       ? []
-      : rankCommercialIntelligence({
-          entries:
-            library,
-          query: {
-            company_id:
-              diagnostic_input.company_id,
-            product_ids:
-              productIds,
-            situations:
-              situation.situations,
-            signals:
-              situation.signals,
-            objectives:
-              situation.objectives,
-            limit: 12,
-          },
-        })
+      : filterReasoningCandidates(
+          rankCommercialIntelligence({
+            entries:
+              library,
+            query: {
+              company_id:
+                diagnostic_input.company_id,
+              product_ids:
+                productIds,
+              situations:
+                situation.situations,
+              signals:
+                situation.signals,
+              objectives:
+                situation.objectives,
+              limit: 12,
+            },
+          }),
+        )
 
   const selectedTechniques =
     selectTechniques(ranked)
