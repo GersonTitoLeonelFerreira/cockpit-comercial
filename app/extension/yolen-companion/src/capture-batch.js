@@ -365,7 +365,18 @@
               .filter(Boolean),
           )
 
-        const shouldIncludeMessage =
+        // FASE 16.9 — mensagens ATIVAS que continuam visíveis no DOM são
+        // evidência real da conversa e precisam ser ingeridas mesmo quando
+        // pertencem a um dia anterior. O filtro antigo por `latestDateKey`
+        // fazia exatamente o caso real "objeção em 18/08 → Bom dia em 19/08"
+        // perder a objeção antes de chegar ao ledger canônico. Reenvio de
+        // estado ativo já conhecido é idempotente no RPC (vira unchanged),
+        // portanto preservar todo o histórico ativo visível é seguro.
+        //
+        // Para snapshots de exclusão, mantemos o recorte conservador: um
+        // desaparecimento antigo do DOM não prova exclusão e só deve viajar
+        // quando está na data atual ou quando existe mutação pendente.
+        const shouldIncludeDeletedMessage =
           (message) => {
             return (
               message?.dateKey ===
@@ -377,13 +388,12 @@
           }
 
         return {
-          activeMessages:
-            safeActiveMessages.filter(
-              shouldIncludeMessage,
-            ),
+          activeMessages: [
+            ...safeActiveMessages,
+          ],
           deletedMessages:
             safeDeletedMessages.filter(
-              shouldIncludeMessage,
+              shouldIncludeDeletedMessage,
             ),
         }
       }
