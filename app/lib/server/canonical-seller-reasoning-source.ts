@@ -16,6 +16,10 @@ import {
   loadCompanionDiagnosticSnapshot,
 } from './companion-diagnostic-snapshot'
 
+import {
+  reconcileReasoningWithCommercialResponsibility,
+} from './canonical-commercial-responsibility'
+
 import type {
   CanonicalSellerCommercialContext,
 } from './canonical-seller-commercial-context-loader'
@@ -30,7 +34,10 @@ import type {
  * - não lê DOM/viewport;
  * - só produz reasoning quando leitura e state pertencem ao mesmo snapshot;
  * - Company Knowledge vem do mesmo Diagnostic Snapshot versionado já usado
- *   pelo Companion, nunca de regras paralelas no presenter.
+ *   pelo Companion, nunca de regras paralelas no presenter;
+ * - FASE 16.9: responsabilidade operacional determinística (quem está
+ *   aguardando quem) reconcilia a decisão final para impedir que um gap de
+ *   descoberta mande o vendedor repetir uma ação que já foi executada.
  */
 export async function loadCanonicalSellerReasoning({
   admin,
@@ -70,12 +77,21 @@ export async function loadCanonicalSellerReasoning({
     return null
   }
 
-  return buildCommercialReasoning({
-    reading:
-      context.current_reading.reading,
-    cycle_state:
-      context.state_read.state,
-    diagnostic_input:
-      snapshot.input,
+  const reasoning =
+    buildCommercialReasoning({
+      reading:
+        context.current_reading.reading,
+      cycle_state:
+        context.state_read.state,
+      diagnostic_input:
+        snapshot.input,
+    })
+
+  return reconcileReasoningWithCommercialResponsibility({
+    reasoning,
+    clientContext:
+      context.client_context,
+    referenceTime:
+      context.reference_time,
   })
 }
