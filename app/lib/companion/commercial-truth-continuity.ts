@@ -105,9 +105,6 @@ function previousStateHasCommercialContinuity(root: JsonRecord): boolean {
     return false
   }
 
-  const commercialRole = previousState.commercial_role
-  const buyerSide = commercialRole === 'buyer'
-
   const activeMemoryCount = [
     'needs',
     'open_loops',
@@ -126,9 +123,10 @@ function previousStateHasCommercialContinuity(root: JsonRecord): boolean {
       item.kind.startsWith('commercial_party.'),
     )
 
-  return buyerSide ||
+  return (
     activeMemoryCount > 0 ||
     activeCommercialPartyFacts.length > 0
+  )
 }
 
 export function assessCommercialTruthWithContinuity(
