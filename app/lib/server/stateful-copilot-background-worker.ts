@@ -1228,6 +1228,12 @@ export async function processStatefulCopilotBackgroundMessage(
           failure_code:
             failureCode,
 
+          failure_path:
+            failurePath,
+
+          failure_invariant:
+            failureInvariant,
+
           engine_mode:
             execution?.engine_mode ??
             null,

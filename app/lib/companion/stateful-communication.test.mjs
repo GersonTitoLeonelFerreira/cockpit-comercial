@@ -678,7 +678,7 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v10',
+      'phase-5.2-communication-prompt-v11',
     )
 
     assert.match(
@@ -1149,7 +1149,7 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'phase-5.2-communication-prompt-v10',
+      'phase-5.2-communication-prompt-v11',
     )
 
     assert.match(
@@ -1958,8 +1958,11 @@ test(
         previous_failure_invariant:
           'VALID_JSON_OBJECT',
 
+        previous_rejected_output:
+          null,
+
         instruction:
-          'Repare somente o caminho indicado e retorne novamente o objeto completo conforme o schema. Se previous_failure_invariant=SELLER_EVIDENCE_REQUIRED, use somente IDs presentes em seller_evidence_message_ids que sustentem diretamente o item; se nenhum ID dessa lista sustentar o item, remova o item em vez de inventar ou reutilizar evidência do cliente.',
+          'Repare somente o caminho indicado tomando previous_rejected_output como base e retorne novamente o objeto completo conforme o schema. Preserve os campos válidos e altere apenas o necessário para corrigir a falha indicada. Se previous_failure_invariant=SELLER_EVIDENCE_REQUIRED, use somente IDs presentes em seller_evidence_message_ids que sustentem diretamente o item; se nenhum ID dessa lista sustentar o item, remova o item em vez de inventar, trocar por evidência do cliente ou criar uma nova crítica sem suporte.',
       },
     )
   },
@@ -2145,6 +2148,23 @@ test(
         .repair_context
         .previous_failure_invariant,
       'SELLER_EVIDENCE_REQUIRED',
+    )
+
+    assert.deepEqual(
+      repairPayload
+        .repair_context
+        .previous_rejected_output,
+      invalidOutput,
+    )
+
+    assert.equal(
+      repairPayload
+        .repair_context
+        .previous_rejected_output
+        .commercial_reading
+        .improvement_points[0]
+        .evidence_message_ids[0],
+      'm2',
     )
 
     assert.match(

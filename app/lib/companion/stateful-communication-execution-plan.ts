@@ -30,10 +30,10 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v10' as const
+  'phase-5.2-communication-prompt-v11' as const
 
 export const STATEFUL_COMMUNICATION_REPAIR_INSTRUCTION =
-  'Repare somente o caminho indicado e retorne novamente o objeto completo conforme o schema. Se previous_failure_invariant=SELLER_EVIDENCE_REQUIRED, use somente IDs presentes em seller_evidence_message_ids que sustentem diretamente o item; se nenhum ID dessa lista sustentar o item, remova o item em vez de inventar ou reutilizar evidência do cliente.' as const
+  'Repare somente o caminho indicado tomando previous_rejected_output como base e retorne novamente o objeto completo conforme o schema. Preserve os campos válidos e altere apenas o necessário para corrigir a falha indicada. Se previous_failure_invariant=SELLER_EVIDENCE_REQUIRED, use somente IDs presentes em seller_evidence_message_ids que sustentem diretamente o item; se nenhum ID dessa lista sustentar o item, remova o item em vez de inventar, trocar por evidência do cliente ou criar uma nova crítica sem suporte.' as const
 
 const COMMUNICATION_CONTEXT_BRIDGE_MAX_MESSAGES =
   6
@@ -64,6 +64,9 @@ export type StatefulCommunicationRepairContext = {
 
   previous_failure_invariant:
     string
+
+  previous_rejected_output:
+    Record<string, unknown> | null
 
   instruction:
     typeof STATEFUL_COMMUNICATION_REPAIR_INSTRUCTION
@@ -565,6 +568,7 @@ export function buildStatefulCommunicationRepairExecutionPlan({
   previous_failure_code,
   previous_failure_path,
   previous_failure_invariant,
+  previous_rejected_output,
 }: {
   plan:
     StatefulCommunicationExecutionPlan
@@ -577,6 +581,9 @@ export function buildStatefulCommunicationRepairExecutionPlan({
 
   previous_failure_invariant:
     string
+
+  previous_rejected_output:
+    Record<string, unknown> | null
 }): StatefulCommunicationExecutionPlan {
   const originalPayload =
     JSON.parse(
@@ -591,6 +598,7 @@ export function buildStatefulCommunicationRepairExecutionPlan({
     previous_failure_code,
     previous_failure_path,
     previous_failure_invariant,
+    previous_rejected_output,
     instruction:
       STATEFUL_COMMUNICATION_REPAIR_INSTRUCTION,
   }

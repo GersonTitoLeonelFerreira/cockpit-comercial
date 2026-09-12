@@ -150,6 +150,12 @@ export class StatefulCommunicationExecutionError
   }
 }
 
+const rejectedCommunicationOutputByError =
+  new WeakMap<
+    StatefulCommunicationExecutionError,
+    JsonRecord
+  >()
+
 function fail({
   code,
   message,
@@ -1067,8 +1073,11 @@ async function executeAttempt({
       response.content,
     )
 
-  return {
-    output:
+  let normalizedOutput:
+    StatefulCommunicationOutput
+
+  try {
+    normalizedOutput =
       normalizeCommunicationOutput({
         value:
           rawOutput,
@@ -1076,7 +1085,25 @@ async function executeAttempt({
         context:
           plan
             .normalization_context,
-      }),
+      })
+  } catch (error) {
+    if (
+      error instanceof
+        StatefulCommunicationExecutionError
+    ) {
+      rejectedCommunicationOutputByError
+        .set(
+          error,
+          rawOutput,
+        )
+    }
+
+    throw error
+  }
+
+  return {
+    output:
+      normalizedOutput,
 
     execution: {
       mode:
@@ -1315,6 +1342,11 @@ export async function executeStatefulCommunicationPlan({
 
       previous_failure_invariant:
         firstFailure.invariant,
+
+      previous_rejected_output:
+        rejectedCommunicationOutputByError
+          .get(firstError) ??
+        null,
     })
 
   let secondResult:
