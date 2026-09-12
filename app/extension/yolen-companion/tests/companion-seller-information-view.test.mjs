@@ -262,6 +262,48 @@ test('melhoria mostra ocorrência, importância, impacto e correção', () => {
   assert.match(html, /Confirme o impacto do problema/)
 })
 
+// FASE 16.9 — UX validada em Firefox, obrigatória: coaching vem primeiro
+// em ANÁLISE, Pontos de melhoria antes de Acertos, detalhes de ambos
+// recolhidos, e método recolhido por padrão.
+test('FASE 16.9 — ANÁLISE mostra Pontos de melhoria antes de Acertos, ambos com detalhe recolhido', () => {
+  const html = view.renderAnalysisViewModel(analysisViewModelFromReading(buildReading()))
+
+  const improvementsIndex = html.indexOf('Pontos de melhoria')
+  const strengthsIndex = html.indexOf('>Acertos<')
+
+  assert.ok(improvementsIndex >= 0, 'Pontos de melhoria deveria aparecer em ANÁLISE')
+  assert.ok(strengthsIndex >= 0, 'Acertos deveria aparecer em ANÁLISE')
+  assert.ok(
+    improvementsIndex < strengthsIndex,
+    'Pontos de melhoria deveria vir antes de Acertos (coaching primeiro)',
+  )
+
+  // Título continua visível fora do <details>; explicação/impacto/
+  // correção/evidência ficam recolhidos atrás de "Ver detalhes".
+  const improvementTitleIndex = html.indexOf('apresentou preço antes de concluir o diagnóstico')
+  const improvementDetailsSummaryIndex = html.indexOf('data-yolen-preserve-details="improvement-detail-0"')
+  const improvementWhyIndex = html.indexOf('O cliente ainda não percebeu todo o valor')
+
+  assert.ok(improvementTitleIndex >= 0 && improvementDetailsSummaryIndex >= 0 && improvementWhyIndex >= 0)
+  assert.ok(improvementTitleIndex < improvementDetailsSummaryIndex)
+  assert.ok(improvementDetailsSummaryIndex < improvementWhyIndex)
+
+  const strengthDetailsSummaryIndex = html.indexOf('data-yolen-preserve-details="strength-detail-0"')
+  assert.ok(strengthDetailsSummaryIndex >= 0)
+})
+
+test('FASE 16.9 — método comercial fica recolhido por padrão em ANÁLISE', () => {
+  const html = view.renderAnalysisViewModel(analysisViewModelFromReading(buildReading()))
+
+  const detailsOpenIndex = html.indexOf('<details class="yolen-seller-secondary-details" data-yolen-preserve-details="method">')
+  const summaryIndex = html.indexOf('Ver método comercial')
+  const methodNameIndex = html.indexOf('Método Consultivo')
+
+  assert.ok(detailsOpenIndex >= 0, 'seção de método deveria estar dentro de um <details>')
+  assert.ok(summaryIndex > detailsOpenIndex)
+  assert.ok(methodNameIndex > summaryIndex, 'conteúdo do método deveria vir depois do <summary>, dentro do <details>')
+})
+
 test('método preserva seis status e destaca etapa atual', () => {
   const statuses = [
     'completed',

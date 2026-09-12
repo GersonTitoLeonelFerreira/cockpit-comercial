@@ -99,6 +99,88 @@ test(
   },
 )
 
+// FASE 16.9 — UX validada em Firefox, obrigatória: "Próximo movimento"
+// tem prioridade visual em AGORA (não fica mais escondido), "Por que
+// agora" vem abaixo, e técnica/cuidados ficam recolhidos atrás de "Ver
+// técnica e cuidados" — nunca mais "Técnica aplicável" dominando a tela.
+test(
+  'FASE 16.9 — AGORA prioriza "Próximo movimento", com técnica/cuidados recolhidos',
+  () => {
+    const html =
+      view.renderAgoraViewModelSnapshot({
+        silent: false,
+        silent_reason: null,
+        primary: {
+          status: 'handle_objection',
+          priority: 'high',
+          headline: 'Objeção em aberto.',
+          action: 'Entenda o bloqueio antes de avançar.',
+          provenance: {
+            decision_kind: 'handle_objection',
+            source: 'commercial_risk',
+            evidence_message_ids: ['m1'],
+            memory_ids: [],
+          },
+        },
+        secondary: [],
+        reference_time:
+          '2026-09-11T09:00:00-03:00',
+        reasoning: reasoning(),
+      })
+
+    const nextActionLabelIndex = html.indexOf('Próximo movimento')
+    const nextActionCopyIndex = html.indexOf('Diagnosticar o bloqueio antes de oferecer alternativa')
+    const whyNowIndex = html.indexOf('Por que agora')
+    const detailsIndex = html.indexOf('<details class="yolen-seller-secondary-details" data-yolen-preserve-details="reasoning-technique">')
+    const summaryIndex = html.indexOf('Ver técnica e cuidados')
+    const techniqueIndex = html.indexOf('Diagnóstico de objeção')
+    const doNotDoIndex = html.indexOf('Não inventar condição de pagamento')
+
+    assert.ok(nextActionLabelIndex >= 0, 'Próximo movimento deveria aparecer em AGORA')
+    assert.ok(nextActionCopyIndex >= 0, 'texto do próximo movimento deveria aparecer em AGORA')
+    assert.ok(
+      nextActionLabelIndex < whyNowIndex,
+      'Próximo movimento deveria vir antes de Por que agora (prioridade visual)',
+    )
+    assert.ok(whyNowIndex < detailsIndex, 'Por que agora deveria vir antes do bloco recolhido')
+    assert.ok(detailsIndex < summaryIndex && summaryIndex < techniqueIndex)
+    assert.ok(techniqueIndex < doNotDoIndex)
+
+    assert.doesNotMatch(html, /Commercial Brain/)
+  },
+)
+
+test(
+  'FASE 16.9 — ANÁLISE não duplica o bloco de coaching/reasoning (Commercial Brain) já mostrado em AGORA',
+  () => {
+    const html =
+      view.renderAnalysisViewModel({
+        available: true,
+        unavailable_reason: null,
+        neutral: false,
+        neutral_headline: null,
+        neutral_description: null,
+        opportunity: null,
+        current_moment: { is_active_session: true },
+        risks: [],
+        objections_open: [],
+        commitments: [],
+        seller_conduct: { method: null, stage_divergence: false },
+        strengths: [],
+        improvements: [],
+        continuity: { cycle_conversation_count: 0, cross_conversation_signals: [] },
+        history: [],
+        provenance: {},
+        reasoning: reasoning(),
+      })
+
+    assert.doesNotMatch(html, /Commercial Brain/)
+    assert.doesNotMatch(html, /Como conduzir agora/)
+    assert.doesNotMatch(html, /Ver técnica e cuidados/)
+    assert.doesNotMatch(html, /Diagnóstico de objeção/)
+  },
+)
+
 test(
   'CLIENTE mostra interlocutor e prospect como papéis diferentes',
   () => {

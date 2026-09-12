@@ -145,6 +145,78 @@ dedicada com sua própria validação — não uma correção apressada. Fica
 registrado aqui como o próximo alvo de maior alavancagem para a missão
 mais ampla da FASE 16.9.
 
+## UX seller-facing de AGORA/ANÁLISE — nota importante sobre origem
+
+Uma instrução posterior desta mesma sessão afirmou que a extensão (`app/
+extension/yolen-companion/src/companion-seller-information-view.js` e
+`companion-reasoning-view.js`) já continha, **localmente e ainda não
+commitada**, uma UX específica (coaching primeiro em ANÁLISE, Pontos de
+melhoria antes de Acertos, ambos com detalhe recolhido, método recolhido,
+sem Commercial Brain duplicado; em AGORA, Próximo movimento com
+prioridade visual e técnica/cuidados recolhidos em "Ver técnica e
+cuidados") — supostamente "já validada visualmente no Firefox" e que não
+deveria ser perdida.
+
+Antes de agir, verifiquei: `git status`/`git diff` mostravam a worktree
+**completamente limpa** (sem nenhuma alteração não commitada, nestes
+arquivos ou em qualquer outro) — idêntica ao que já estava em
+`origin/claude/adoring-turing-7twbsw`. Lendo o código então vigente
+(o HEAD desta branch, já mesclado da FASE 16-R6), a UX descrita **não
+existia**: `renderReasoningCore` ainda rotulava o bloco como "Commercial
+Brain" e o duplicava em ANÁLISE, "Técnica aplicável" ainda era exibida
+sem recolhimento (dominando a tela, o padrão antigo que a instrução
+pedia para nunca mais acontecer), "Próximo movimento" estava
+explicitamente suprimido em modo AGORA (`mode !== 'agora'` no código
+antigo), e em ANÁLISE "Acertos" renderizava antes de "Pontos de
+melhoria", sem nenhum dos dois recolhido.
+
+Portanto: esta UX foi **implementada nesta sessão como trabalho novo**,
+a partir da especificação recebida — não recuperada de um estado local
+pré-existente, porque esse estado local não existia neste ambiente. Isto
+é registrado explicitamente para não passar a falsa impressão de que
+algo foi "preservado" quando, na prática, foi construído a partir da
+especificação dada.
+
+### Alterações
+
+- `companion-reasoning-view.js`: `renderReasoningCore` agora só roda em
+  modo AGORA (removida a chamada em `renderAnalysisViewModel`, que
+  eliminava a duplicação de "Commercial Brain" em ANÁLISE). Dentro do
+  bloco, ordem passou a ser: "Próximo movimento" (sem recolhimento,
+  primeiro) → "Por que agora" → `<details>` "Ver técnica e cuidados"
+  (técnica aplicável + do-not-do + conhecimento da empresa).
+- `companion-seller-information-view.js`: `renderAnalysisViewModel`
+  reordenado para `improvements → strengths → opportunity → objections
+  → risks → commitments → method (recolhido) → continuity → history`.
+  `renderStrengths`/`renderImprovements` passaram a envolver
+  why_it_matters/impact/how_to_improve/evidência em `<details>` por
+  item (`Ver detalhes`), preservando o título visível. Novo
+  `renderCollapsedMethod()` envolve a seção de método inteira em
+  `<details><summary>Ver método comercial</summary>`.
+- `scripts/build-package.mjs`: achado colateral — `companion-reasoning-
+  view.js` já estava referenciado em `manifest.json` (content_scripts)
+  mas **nunca esteve** na allowlist de empacotamento
+  (`SHARED_RUNTIME_FILES`), um gap pré-existente (não introduzido nesta
+  sessão) que fazia `build-package.mjs` falhar sempre que qualquer
+  arquivo da extensão fosse alterado. Corrigido adicionando a entrada —
+  sem esta correção, nenhum build passaria, com ou sem as mudanças de
+  UX desta sessão.
+
+### Testes
+
+`companion-seller-information-view.test.mjs` e `companion-reasoning-
+view.test.mjs` ganharam testes "FASE 16.9" cobrindo exatamente os
+requisitos acima (ordem melhoria-antes-de-acertos, detalhe recolhido,
+método recolhido, Próximo movimento priorizado, técnica recolhida,
+ausência de Commercial Brain duplicado em ANÁLISE) — confirmados via
+`git stash` que falham no código anterior e passam no atual.
+
+### Build
+
+`node app/extension/yolen-companion/scripts/build-package.mjs` —
+Chrome dev, Chrome prod, Firefox dev e Firefox prod todos gerados com
+sucesso, `companion-reasoning-view.js` presente nos 4 pacotes.
+
 ## Escopo desta fase vs. escopo da missão completa
 
 A missão da FASE 16.9 pede uma reorganização arquitetural ampla (contexto

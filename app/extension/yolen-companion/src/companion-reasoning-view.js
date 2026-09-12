@@ -22,7 +22,15 @@
       : []
   }
 
-  function renderReasoningCore(reasoning, mode) {
+  // FASE 16.9 (UX validada em Firefox, AGORA): o card principal (Decision
+  // State) já disse a prioridade/ação; este bloco só acrescenta COACHING
+  // — "Como conduzir agora". Próximo movimento tem prioridade visual
+  // (primeiro item, fora de qualquer <details>), "Por que agora" vem
+  // logo abaixo, e técnica/cuidados ficam recolhidos em "Ver técnica e
+  // cuidados" — nunca mais "Técnica aplicável" dominando a tela como no
+  // layout antigo. Esta função só é chamada para o modo 'agora'; ANÁLISE
+  // não duplica este bloco (mandato: sem Commercial Brain duplicado).
+  function renderReasoningCore(reasoning) {
     if (
       !reasoning ||
       reasoning.status === 'unavailable' ||
@@ -37,35 +45,32 @@
     const doNotDo = items(reasoning.do_not_do).slice(0, 2)
     const knowledge = items(reasoning.company_knowledge).slice(0, 2)
 
+    const hasTechniqueDetails =
+      Boolean(technique) ||
+      doNotDo.length > 0 ||
+      knowledge.length > 0
+
     if (
-      !technique &&
       !whyNow &&
       !nextAction &&
-      doNotDo.length === 0 &&
-      knowledge.length === 0
+      !hasTechniqueDetails
     ) {
       return ''
     }
 
-    const heading =
-      mode === 'agora'
-        ? 'Como conduzir agora'
-        : 'Leitura comercial da Yolen'
-
     return `
-      <section class="yolen-seller-section yolen-reasoning-section" data-yolen-reasoning="${escapeHtml(mode)}">
+      <section class="yolen-seller-section yolen-reasoning-section" data-yolen-reasoning="agora">
         <div class="yolen-seller-section-heading">
           <div>
-            <div class="yolen-seller-section-eyebrow">Commercial Brain</div>
-            <h3>${escapeHtml(heading)}</h3>
+            <div class="yolen-seller-section-eyebrow">Coaching</div>
+            <h3>Como conduzir agora</h3>
           </div>
         </div>
-        ${technique ? `
-          <article class="yolen-seller-insight yolen-seller-insight--positive">
-            <div class="yolen-seller-insight-type">Técnica aplicável</div>
-            <div class="yolen-seller-insight-title">${escapeHtml(technique.title || '')}</div>
-            ${text(technique.why_applicable) ? `<div class="yolen-seller-detail-copy">${escapeHtml(technique.why_applicable)}</div>` : ''}
-          </article>
+        ${nextAction ? `
+          <div class="yolen-seller-detail yolen-reasoning-next-action">
+            <div class="yolen-seller-detail-label">Próximo movimento</div>
+            <div class="yolen-seller-detail-copy">${escapeHtml(nextAction)}</div>
+          </div>
         ` : ''}
         ${whyNow ? `
           <div class="yolen-seller-detail">
@@ -73,26 +78,32 @@
             <div class="yolen-seller-detail-copy">${escapeHtml(whyNow)}</div>
           </div>
         ` : ''}
-        ${nextAction && mode !== 'agora' ? `
-          <div class="yolen-seller-detail">
-            <div class="yolen-seller-detail-label">Melhor próximo movimento</div>
-            <div class="yolen-seller-detail-copy">${escapeHtml(nextAction)}</div>
-          </div>
-        ` : ''}
-        ${doNotDo.length > 0 ? `
-          <div class="yolen-seller-detail">
-            <div class="yolen-seller-detail-label">Evite agora</div>
-            <ul class="yolen-seller-text-list">
-              ${doNotDo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-            </ul>
-          </div>
-        ` : ''}
-        ${knowledge.length > 0 && mode !== 'agora' ? `
-          <details class="yolen-seller-secondary-details" data-yolen-preserve-details="reasoning-knowledge">
-            <summary>Regras da empresa consideradas</summary>
-            <ul class="yolen-seller-text-list">
-              ${knowledge.map((item) => `<li>${escapeHtml(item.title || item.source_type || 'Conhecimento publicado')}</li>`).join('')}
-            </ul>
+        ${hasTechniqueDetails ? `
+          <details class="yolen-seller-secondary-details" data-yolen-preserve-details="reasoning-technique">
+            <summary>Ver técnica e cuidados</summary>
+            ${technique ? `
+              <article class="yolen-seller-insight yolen-seller-insight--positive">
+                <div class="yolen-seller-insight-type">Técnica aplicável</div>
+                <div class="yolen-seller-insight-title">${escapeHtml(technique.title || '')}</div>
+                ${text(technique.why_applicable) ? `<div class="yolen-seller-detail-copy">${escapeHtml(technique.why_applicable)}</div>` : ''}
+              </article>
+            ` : ''}
+            ${doNotDo.length > 0 ? `
+              <div class="yolen-seller-detail">
+                <div class="yolen-seller-detail-label">Evite agora</div>
+                <ul class="yolen-seller-text-list">
+                  ${doNotDo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
+            ${knowledge.length > 0 ? `
+              <div class="yolen-seller-detail">
+                <div class="yolen-seller-detail-label">Regras da empresa consideradas</div>
+                <ul class="yolen-seller-text-list">
+                  ${knowledge.map((item) => `<li>${escapeHtml(item.title || item.source_type || 'Conhecimento publicado')}</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
           </details>
         ` : ''}
       </section>
@@ -183,21 +194,17 @@
         current,
         renderReasoningCore(
           viewModel.reasoning,
-          'agora',
         ),
       ].join('')
     },
 
+    // FASE 16.9 (UX validada em Firefox): ANÁLISE não duplica o bloco de
+    // Commercial Brain/coaching que já aparece em AGORA — coaching aqui
+    // vem só de seller_strengths/improvement_points (renderStrengths/
+    // renderImprovements em companion-seller-information-view.js), nunca
+    // de um segundo bloco de reasoning.
     renderAnalysisViewModel(viewModel) {
-      const current = originalAnalysis(viewModel)
-
-      return [
-        current,
-        renderReasoningCore(
-          viewModel?.reasoning,
-          'analise',
-        ),
-      ].join('')
+      return originalAnalysis(viewModel)
     },
 
     renderCustomerViewModel(viewModel) {

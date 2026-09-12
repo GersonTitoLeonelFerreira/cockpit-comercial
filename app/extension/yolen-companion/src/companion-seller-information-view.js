@@ -305,12 +305,15 @@
         </div>
 
         <div class="yolen-seller-stack">
-          ${strengths.map(({ item, summary, whyItMatters, kindLabel }) => `
+          ${strengths.map(({ item, summary, whyItMatters, kindLabel }, index) => `
             <article class="yolen-seller-insight yolen-seller-insight--positive">
               <div class="yolen-seller-insight-type">${escapeHtml(kindLabel)}</div>
               <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
-              ${renderLabeledCopy('Por que isso importa', whyItMatters)}
-              ${renderEvidence(item)}
+              <details class="yolen-seller-secondary-details" data-yolen-preserve-details="strength-detail-${index}">
+                <summary>Ver detalhes</summary>
+                ${renderLabeledCopy('Por que isso importa', whyItMatters)}
+                ${renderEvidence(item)}
+              </details>
             </article>
           `).join('')}
         </div>
@@ -345,14 +348,17 @@
         </div>
 
         <div class="yolen-seller-stack">
-          ${improvements.map(({ item, summary, whyItMatters, impact, howToImprove, kindLabel }) => `
+          ${improvements.map(({ item, summary, whyItMatters, impact, howToImprove, kindLabel }, index) => `
             <article class="yolen-seller-insight yolen-seller-insight--improvement">
               <div class="yolen-seller-insight-type">${escapeHtml(kindLabel)}</div>
               <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
-              ${renderLabeledCopy('Por que isso importa', whyItMatters)}
-              ${renderLabeledCopy('Impacto ou risco', impact)}
-              ${renderLabeledCopy('Como corrigir', howToImprove)}
-              ${renderEvidence(item)}
+              <details class="yolen-seller-secondary-details" data-yolen-preserve-details="improvement-detail-${index}">
+                <summary>Ver detalhes</summary>
+                ${renderLabeledCopy('Por que isso importa', whyItMatters)}
+                ${renderLabeledCopy('Impacto ou risco', impact)}
+                ${renderLabeledCopy('Como corrigir', howToImprove)}
+                ${renderEvidence(item)}
+              </details>
             </article>
           `).join('')}
         </div>
@@ -518,6 +524,24 @@
           Método comercial e etapa do CRM são avaliações independentes.
         </div>
       </section>
+    `
+  }
+
+  // FASE 16.9 (UX validada em Firefox): Método recolhido por padrão em
+  // ANÁLISE — a leitura comercial/coaching já domina a tela; a etapa de
+  // método é contexto secundário que o vendedor abre quando precisa.
+  function renderCollapsedMethod(method) {
+    const inner = renderMethod(method)
+
+    if (!inner) {
+      return ''
+    }
+
+    return `
+      <details class="yolen-seller-secondary-details" data-yolen-preserve-details="method">
+        <summary>Ver método comercial</summary>
+        ${inner}
+      </details>
     `
   }
 
@@ -951,14 +975,20 @@
       ].filter(Boolean).join('')
     }
 
+    // FASE 16.9 (UX validada em Firefox): Coaching vem primeiro — pontos
+    // de melhoria antes de acertos, ambos com detalhe recolhido (ver
+    // renderImprovements/renderStrengths) — só depois o diagnóstico da
+    // oportunidade (estado/objeções/riscos/compromissos) e o método
+    // (recolhido). Continuidade/evolução seguem por último, como
+    // contexto secundário.
     const sections = [
+      renderImprovements(analysisViewModel.improvements),
+      renderStrengths(analysisViewModel.strengths),
       renderOpportunityHeader(analysisViewModel.opportunity, analysisViewModel.current_moment),
       renderObjections(analysisViewModel.objections_open),
       renderRisks(analysisViewModel.risks),
       renderCommitments(analysisViewModel.commitments),
-      renderMethod(analysisViewModel.seller_conduct?.method),
-      renderStrengths(analysisViewModel.strengths),
-      renderImprovements(analysisViewModel.improvements),
+      renderCollapsedMethod(analysisViewModel.seller_conduct?.method),
       renderContinuity(analysisViewModel.continuity),
       renderCommercialEvolution(analysisViewModel.history),
     ].filter(Boolean)
