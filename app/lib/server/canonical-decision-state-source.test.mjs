@@ -668,11 +668,14 @@ test('objeção não mais listada na leitura atual não produz intervenção', a
 })
 
 // 6. Descoberta incompleta: só sobe quando impede próxima ação.
-test('descoberta incompleta sobe quando best_approach é insufficient_information', async () => {
+test('descoberta incompleta preserva o raciocínio real do modelo como recommended_action', async () => {
+  const reason =
+    'Falta entender orçamento e prazo antes de prosseguir.'
+
   const reading = buildReading({
     best_approach: {
       decision: 'insufficient_information',
-      reason: 'Falta entender orçamento e prazo antes de prosseguir.',
+      reason,
       channel: 'text',
       evidence_message_ids: ['m2'],
       memory_ids: [],
@@ -690,6 +693,11 @@ test('descoberta incompleta sobe quando best_approach é insufficient_informatio
 
   assert.equal(state.primary_decision.kind, 'insufficient_information')
   assert.equal(state.primary_decision.silent, false)
+  assert.equal(state.primary_decision.recommended_action, reason)
+  assert.notEqual(
+    state.primary_decision.recommended_action,
+    'Aprofundar a descoberta antes de avançar para a próxima etapa.',
+  )
 })
 
 test('insufficient_information com intervention_needed=false não vira candidato — cai para o passthrough, preservando silent', async () => {
@@ -2366,14 +2374,20 @@ test('primary_decision.priority é null quando give_space é sintetizado (sem ca
   assert.equal(state.primary_decision.priority, null)
 })
 
-test('primary_decision.priority é null no passthrough de best_approach (sem candidato ranqueado)', async () => {
+test('caso Carla — passthrough preserva o raciocínio real e nunca reduz AGORA a Canal recomendado', async () => {
+  const reason =
+    'Carla e Juscelaine já escolheram Pilates, sexta-feira às 18h, ' +
+    'para duas pessoas e pediram o agendamento. Verificar a ' +
+    'disponibilidade real e, se houver vaga, confirmar o agendamento ' +
+    'sem pedir novamente informações que a cliente já forneceu.'
+
   const reading = buildReading({
     commercial_relevance: 'commercial',
     best_approach: {
-      decision: 'send_material',
-      reason: 'Cliente pediu material sobre o produto.',
-      channel: 'document',
-      evidence_message_ids: ['m10'],
+      decision: 'confirm_information',
+      reason,
+      channel: 'text',
+      evidence_message_ids: ['m-carla-1', 'm-carla-2'],
       memory_ids: [],
     },
   })
@@ -2382,9 +2396,14 @@ test('primary_decision.priority é null no passthrough de best_approach (sem can
     current_reading: buildCurrentReading({ reading }),
   })
 
-  assert.equal(state.primary_decision.kind, 'send_material')
+  assert.equal(state.primary_decision.kind, 'confirm_information')
   assert.equal(state.primary_decision.source, null)
   assert.equal(state.primary_decision.priority, null)
+  assert.equal(state.primary_decision.recommended_action, reason)
+  assert.doesNotMatch(
+    state.primary_decision.recommended_action,
+    /^Canal recomendado:/,
+  )
 })
 
 test('primary_decision.priority é null no fallback sem nenhuma fonte disponível', async () => {

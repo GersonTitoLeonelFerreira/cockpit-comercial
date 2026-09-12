@@ -1166,7 +1166,7 @@ function buildInsufficientInformationCandidate(
       bestApproach.reason,
 
     recommended_action:
-      'Aprofundar a descoberta antes de avançar para a próxima etapa.',
+      bestApproach.reason,
 
     evidence_message_ids:
       bestApproach.evidence_message_ids,
@@ -1711,7 +1711,7 @@ export async function loadCanonicalDecisionState({
       recommended_action:
         bestApproach.decision === 'no_intervention'
           ? 'Nenhuma ação necessária agora.'
-          : `Canal recomendado: ${bestApproach.channel}.`,
+          : bestApproach.reason,
 
       evidence_message_ids:
         bestApproach.evidence_message_ids,
