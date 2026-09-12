@@ -678,7 +678,7 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v11',
+      'phase-5.2-communication-prompt-v12',
     )
 
     assert.match(
@@ -728,7 +728,7 @@ test(
 
     assert.match(
       plan.system_prompt,
-      /seller_evidence_message_ids contém exclusivamente IDs de mensagens outgoing do vendedor/,
+      /seller_evidence_message_ids identifica mensagens outgoing do vendedor/,
     )
 
     assert.equal(
@@ -1149,7 +1149,7 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'phase-5.2-communication-prompt-v11',
+      'phase-5.2-communication-prompt-v12',
     )
 
     assert.match(
@@ -1179,7 +1179,7 @@ test(
 
     assert.match(
       plan.system_prompt,
-      /recovery_guidance torna-se obrigatório/,
+      /preserve o coaching válido em vez de eliminar a análise inteira/,
     )
 
     assert.match(
@@ -2023,12 +2023,12 @@ test(
 
 
 test(
-  'repair de SELLER_EVIDENCE_REQUIRED usa somente evidência do vendedor',
+  'coaching aceita evidência contextual real sem exigir mensagem exclusiva do vendedor',
   async () => {
-    const invalidOutput =
+    const contextualOutput =
       buildCommunicationOutput()
 
-    invalidOutput
+    contextualOutput
       .commercial_reading
       .improvement_points = [
         {
@@ -2055,25 +2055,12 @@ test(
         },
       ]
 
-    const repairedOutput =
-      structuredClone(
-        invalidOutput,
-      )
-
-    repairedOutput
-      .commercial_reading
-      .improvement_points[0]
-      .evidence_message_ids = [
-        'm1',
-      ]
-
     const calls = []
 
     const provider =
       createProvider(
         [
-          invalidOutput,
-          repairedOutput,
+          contextualOutput,
         ],
         calls,
       )
@@ -2091,87 +2078,30 @@ test(
       result
         .execution
         .attempts,
-      2,
+      1,
     )
 
     assert.equal(
       result
         .execution
         .recovered_after_retry,
-      true,
+      false,
     )
 
-    assert.equal(
+    assert.deepEqual(
       result
         .output
         .commercial_reading
         .improvement_points[0]
-        .evidence_message_ids[0],
-      'm1',
-    )
-
-    assert.equal(
-      calls.length,
-      2,
-    )
-
-    const repairPayload =
-      JSON.parse(
-        calls[1]
-          .user_prompt,
-      )
-
-    assert.deepEqual(
-      repairPayload
-        .seller_evidence_message_ids,
+        .evidence_message_ids,
       [
-        'm1',
+        'm2',
       ],
     )
 
     assert.equal(
-      repairPayload
-        .repair_context
-        .previous_failure_code,
-      'INVALID_COMMUNICATION_OUTPUT',
-    )
-
-    assert.equal(
-      repairPayload
-        .repair_context
-        .previous_failure_path,
-      'reading.improvement_points[0].evidence_message_ids',
-    )
-
-    assert.equal(
-      repairPayload
-        .repair_context
-        .previous_failure_invariant,
-      'SELLER_EVIDENCE_REQUIRED',
-    )
-
-    assert.deepEqual(
-      repairPayload
-        .repair_context
-        .previous_rejected_output,
-      invalidOutput,
-    )
-
-    assert.equal(
-      repairPayload
-        .repair_context
-        .previous_rejected_output
-        .commercial_reading
-        .improvement_points[0]
-        .evidence_message_ids[0],
-      'm2',
-    )
-
-    assert.match(
-      repairPayload
-        .repair_context
-        .instruction,
-      /seller_evidence_message_ids/,
+      calls.length,
+      1,
     )
   },
 )

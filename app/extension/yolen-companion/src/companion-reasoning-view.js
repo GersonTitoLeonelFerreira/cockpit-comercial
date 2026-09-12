@@ -47,10 +47,72 @@
       return ''
     }
 
+    if (mode === 'agora') {
+      return `
+        <section
+          class="yolen-seller-section yolen-reasoning-section"
+          data-yolen-reasoning="agora"
+        >
+          <div class="yolen-seller-section-heading">
+            <div>
+              <div class="yolen-seller-section-eyebrow">Coaching</div>
+              <h3>Como conduzir agora</h3>
+            </div>
+          </div>
+
+          ${nextAction ? `
+            <article class="yolen-seller-insight yolen-seller-insight--improvement">
+              <div class="yolen-seller-insight-type">Próximo movimento</div>
+              <div class="yolen-seller-insight-title">${escapeHtml(nextAction)}</div>
+            </article>
+          ` : ''}
+
+          ${whyNow ? `
+            <div class="yolen-seller-detail">
+              <div class="yolen-seller-detail-label">Por quê</div>
+              <div class="yolen-seller-detail-copy">${escapeHtml(whyNow)}</div>
+            </div>
+          ` : ''}
+
+          ${
+            technique || doNotDo.length > 0
+              ? `
+                <details
+                  class="yolen-seller-secondary-details"
+                  data-yolen-preserve-details="agora-technique"
+                >
+                  <summary>Ver técnica e cuidados</summary>
+
+                  ${technique ? `
+                    <div class="yolen-seller-detail">
+                      <div class="yolen-seller-detail-label">Técnica aplicável</div>
+                      <div class="yolen-seller-detail-copy">${escapeHtml(technique.title || '')}</div>
+                      ${
+                        text(technique.why_applicable)
+                          ? `<div class="yolen-seller-detail-copy">${escapeHtml(technique.why_applicable)}</div>`
+                          : ''
+                      }
+                    </div>
+                  ` : ''}
+
+                  ${doNotDo.length > 0 ? `
+                    <div class="yolen-seller-detail">
+                      <div class="yolen-seller-detail-label">Evite agora</div>
+                      <ul class="yolen-seller-text-list">
+                        ${doNotDo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+                      </ul>
+                    </div>
+                  ` : ''}
+                </details>
+              `
+              : ''
+          }
+        </section>
+      `
+    }
+
     const heading =
-      mode === 'agora'
-        ? 'Como conduzir agora'
-        : 'Leitura comercial da Yolen'
+      'Leitura comercial da Yolen'
 
     return `
       <section class="yolen-seller-section yolen-reasoning-section" data-yolen-reasoning="${escapeHtml(mode)}">
@@ -189,15 +251,7 @@
     },
 
     renderAnalysisViewModel(viewModel) {
-      const current = originalAnalysis(viewModel)
-
-      return [
-        current,
-        renderReasoningCore(
-          viewModel?.reasoning,
-          'analise',
-        ),
-      ].join('')
+      return originalAnalysis(viewModel)
     },
 
     renderCustomerViewModel(viewModel) {

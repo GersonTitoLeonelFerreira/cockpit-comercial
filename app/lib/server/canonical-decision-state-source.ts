@@ -944,6 +944,15 @@ function buildMethodAdherenceCandidate(
   const recovery =
     currentReading.reading.method.recovery_guidance
 
+  const recommendedMove =
+    typeof recovery?.recommended_move === 'string'
+      ? recovery.recommended_move.trim()
+      : ''
+
+  if (!recommendedMove) {
+    return null
+  }
+
   const adherenceStatus:
     CommercialReadingMethodAdherenceStatus =
     adherence.status
@@ -967,8 +976,7 @@ function buildMethodAdherenceCandidate(
       adherence.summary,
 
     recommended_action:
-      recovery?.recommended_move ??
-      'Retomar a etapa adequada do método antes de avançar.',
+      recommendedMove,
 
     evidence_message_ids:
       adherence.evidence_message_ids,
@@ -1056,6 +1064,12 @@ function buildSellerCoachingCandidate(
         SELLER_COACHING_ADVANCING_DECISIONS.includes(
           bestApproachDecision,
         ),
+    ) ??
+    (
+      currentReading.reading.communication
+        .intervention_needed === true
+        ? improvementPoints[0]
+        : undefined
     )
 
   if (!relevantPoint) {
@@ -1067,6 +1081,14 @@ function buildSellerCoachingCandidate(
       relevantPoint.kind,
     )
 
+  const isNextStepRisk =
+    SELLER_COACHING_NEXT_STEP_RISK_KINDS.includes(
+      relevantPoint.kind,
+    ) &&
+    SELLER_COACHING_ADVANCING_DECISIONS.includes(
+      bestApproachDecision,
+    )
+
   return {
     source: 'seller_coaching',
     priority:
@@ -1076,7 +1098,9 @@ function buildSellerCoachingCandidate(
     kind:
       isAlwaysUrgent
         ? 'clarify'
-        : 'deepen_discovery',
+        : isNextStepRisk
+          ? 'deepen_discovery'
+          : 'clarify',
 
     summary:
       relevantPoint.summary,

@@ -309,8 +309,21 @@
             <article class="yolen-seller-insight yolen-seller-insight--positive">
               <div class="yolen-seller-insight-type">${escapeHtml(kindLabel)}</div>
               <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
-              ${renderLabeledCopy('Por que isso importa', whyItMatters)}
-              ${renderEvidence(item)}
+
+              ${
+                whyItMatters || renderEvidence(item)
+                  ? `
+                    <details
+                      class="yolen-seller-secondary-details"
+                      data-yolen-preserve-details="strength-${escapeHtml(item.kind || 'other')}"
+                    >
+                      <summary>Ver detalhes</summary>
+                      ${renderLabeledCopy('Por que isso importa', whyItMatters)}
+                      ${renderEvidence(item)}
+                    </details>
+                  `
+                  : ''
+              }
             </article>
           `).join('')}
         </div>
@@ -349,10 +362,24 @@
             <article class="yolen-seller-insight yolen-seller-insight--improvement">
               <div class="yolen-seller-insight-type">${escapeHtml(kindLabel)}</div>
               <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
-              ${renderLabeledCopy('Por que isso importa', whyItMatters)}
-              ${renderLabeledCopy('Impacto ou risco', impact)}
-              ${renderLabeledCopy('Como corrigir', howToImprove)}
-              ${renderEvidence(item)}
+
+              ${renderLabeledCopy('Como melhorar', howToImprove)}
+
+              ${
+                whyItMatters || impact || renderEvidence(item)
+                  ? `
+                    <details
+                      class="yolen-seller-secondary-details"
+                      data-yolen-preserve-details="improvement-${escapeHtml(item.kind || 'other')}"
+                    >
+                      <summary>Ver detalhes</summary>
+                      ${renderLabeledCopy('Por que isso importa', whyItMatters)}
+                      ${renderLabeledCopy('Impacto ou risco', impact)}
+                      ${renderEvidence(item)}
+                    </details>
+                  `
+                  : ''
+              }
             </article>
           `).join('')}
         </div>
@@ -491,33 +518,37 @@
     const adherenceLabel = getMethodAdherenceLabel(adherenceStatus)
     const adherenceSummary = displayText(method.adherence?.summary)
 
+    const methodSummary = [
+      methodName || 'Método comercial',
+      adherenceLabel,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
     return `
-      <section class="yolen-seller-section" data-yolen-analysis-section="method">
-        <div class="yolen-seller-section-heading">
-          <div>
-            <div class="yolen-seller-section-eyebrow">Método</div>
-            <h3>${escapeHtml(methodName || 'Método comercial')}</h3>
-          </div>
-        </div>
+      <details
+        class="yolen-seller-secondary-details"
+        data-yolen-analysis-section="method"
+        data-yolen-preserve-details="analysis-method"
+      >
+        <summary>${escapeHtml(methodSummary)}</summary>
 
-        ${adherenceLabel ? `
-          <div
-            class="yolen-method-adherence ${getAdherenceClass(adherenceStatus)}"
-            data-yolen-method-adherence="${escapeHtml(adherenceStatus)}"
-          >
-            <div class="yolen-method-adherence-label">${escapeHtml(adherenceLabel)}</div>
-            ${adherenceSummary ? `<div class="yolen-method-adherence-copy">${escapeHtml(adherenceSummary)}</div>` : ''}
-            ${adherenceStatus === 'insufficient_evidence' ? '<div class="yolen-method-adherence-note">Não há evidência suficiente para avaliar esta etapa.</div>' : ''}
-          </div>
-        ` : ''}
+        <section class="yolen-seller-section">
+          ${adherenceLabel ? `
+            <div
+              class="yolen-method-adherence ${getAdherenceClass(adherenceStatus)}"
+              data-yolen-method-adherence="${escapeHtml(adherenceStatus)}"
+            >
+              <div class="yolen-method-adherence-label">${escapeHtml(adherenceLabel)}</div>
+              ${adherenceSummary ? `<div class="yolen-method-adherence-copy">${escapeHtml(adherenceSummary)}</div>` : ''}
+              ${adherenceStatus === 'insufficient_evidence' ? '<div class="yolen-method-adherence-note">Não há evidência suficiente para avaliar esta etapa.</div>' : ''}
+            </div>
+          ` : ''}
 
-        ${renderMethodStages(method)}
-        ${renderRecovery(method)}
-
-        <div class="yolen-operational-note">
-          Método comercial e etapa do CRM são avaliações independentes.
-        </div>
-      </section>
+          ${renderMethodStages(method)}
+          ${renderRecovery(method)}
+        </section>
+      </details>
     `
   }
 
@@ -952,13 +983,13 @@
     }
 
     const sections = [
+      renderImprovements(analysisViewModel.improvements),
+      renderStrengths(analysisViewModel.strengths),
       renderOpportunityHeader(analysisViewModel.opportunity, analysisViewModel.current_moment),
+      renderMethod(analysisViewModel.seller_conduct?.method),
       renderObjections(analysisViewModel.objections_open),
       renderRisks(analysisViewModel.risks),
       renderCommitments(analysisViewModel.commitments),
-      renderMethod(analysisViewModel.seller_conduct?.method),
-      renderStrengths(analysisViewModel.strengths),
-      renderImprovements(analysisViewModel.improvements),
       renderContinuity(analysisViewModel.continuity),
       renderCommercialEvolution(analysisViewModel.history),
     ].filter(Boolean)

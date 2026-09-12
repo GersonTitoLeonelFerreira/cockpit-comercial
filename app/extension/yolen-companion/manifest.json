@@ -9,7 +9,7 @@
   "host_permissions": [
     "https://web.whatsapp.com/*",
     "https://cockpit-comercial-vocn.vercel.app/*",
-    "http://localhost:3000/*"
+    "http://localhost/*"
   ],
   "background": {
     "scripts": [
@@ -64,7 +64,7 @@
     {
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*"
+        "http://localhost/*"
       ],
       "js": [
         "src/yolen-bridge.js"
@@ -79,7 +79,7 @@
       ],
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*"
+        "http://localhost/*"
       ]
     },
     {

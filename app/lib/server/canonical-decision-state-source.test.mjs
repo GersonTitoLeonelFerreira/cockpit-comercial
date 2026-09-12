@@ -797,6 +797,51 @@ test('desvio de método na leitura atual sobe como intervenção relevante', asy
   assert.equal(state.primary_decision.silent, true)
 })
 
+test('desvio de método sem recovery concreto não cria fallback genérico no AGORA', async () => {
+  const reading = buildReading({
+    method: {
+      configured: true,
+      name: 'SPIN',
+      stages: [],
+      current_stage: {
+        step_order: 2,
+        stage_key: 'proposta',
+        name: 'Proposta',
+      },
+      adherence: {
+        status: 'off_method',
+        summary: 'A condução saiu do método.',
+        deviation_stage_order: 2,
+        what_happened: 'Houve um desvio de condução.',
+        missing_information: [],
+        why_it_matters: 'O vendedor precisa ajustar a condução.',
+        evidence_message_ids: ['m3'],
+        memory_ids: [],
+      },
+      recovery_guidance: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(
+    state.primary_decision.source,
+    null,
+  )
+
+  assert.equal(
+    state.primary_decision.kind,
+    'no_intervention',
+  )
+
+  assert.doesNotMatch(
+    JSON.stringify(state),
+    /Retomar a etapa adequada do método antes de avançar\./,
+  )
+})
+
 // 8. Method divergence não confiável: não criar intervenção falsa.
 test('divergência de estágio não confiável não gera intervenção inventada', async () => {
   const admin = createAdmin({
@@ -885,6 +930,51 @@ test('coaching de preço prematuro sobe quando o vendedor está negociando agora
   // seller_coaching também é derivado da leitura atual — mesma
   // disciplina do teste de commercial_risk acima.
   assert.equal(state.primary_decision.silent, true)
+})
+
+test('coaching atual sobe no AGORA quando há intervenção necessária, mesmo fora da whitelist antiga', async () => {
+  const reading = buildReading({
+    improvement_points: [{
+      kind: 'missing_next_commitment',
+      summary: 'Próximo compromisso ficou indefinido.',
+      why_it_matters: 'A oportunidade pode ficar sem avanço claro.',
+      impact: 'Risco de perda de continuidade comercial.',
+      how_to_improve: 'Confirmar diretamente disponibilidade e próximo horário com o cliente.',
+      evidence_message_ids: ['m8'],
+      memory_ids: [],
+    }],
+    best_approach: {
+      decision: 'respond',
+      reason: 'Existe uma pendência comercial concreta a resolver.',
+      channel: 'text',
+      evidence_message_ids: ['m8'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(
+    state.primary_decision.source,
+    'seller_coaching',
+  )
+
+  assert.equal(
+    state.primary_decision.kind,
+    'clarify',
+  )
+
+  assert.equal(
+    state.primary_decision.recommended_action,
+    'Confirmar diretamente disponibilidade e próximo horário com o cliente.',
+  )
 })
 
 test('coaching de preço prematuro NÃO sobe quando a análise não recomenda avançar agora', async () => {

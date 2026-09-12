@@ -30,7 +30,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v11' as const
+  'phase-5.2-communication-prompt-v12' as const
 
 export const STATEFUL_COMMUNICATION_REPAIR_INSTRUCTION =
   'Repare somente o caminho indicado tomando previous_rejected_output como base e retorne novamente o objeto completo conforme o schema. Preserve os campos válidos e altere apenas o necessário para corrigir a falha indicada. Se previous_failure_invariant=SELLER_EVIDENCE_REQUIRED, use somente IDs presentes em seller_evidence_message_ids que sustentem diretamente o item; se nenhum ID dessa lista sustentar o item, remova o item em vez de inventar, trocar por evidência do cliente ou criar uma nova crítica sem suporte.' as const
@@ -98,15 +98,15 @@ function buildSystemPrompt(
 
     'Use conversation.reading_messages para evidência histórica ainda disponível na fotografia canônica. Use os IDs dessas mensagens em evidence_message_ids somente quando elas realmente sustentarem a afirmação.',
 
-    'seller_evidence_message_ids contém exclusivamente IDs de mensagens outgoing do vendedor que podem ser citadas em avaliações sobre o vendedor. Em seller_strengths, improvement_points e riscos de atendimento, evidence_message_ids precisa conter pelo menos um ID dessa lista que sustente diretamente o item. Mensagens incoming do cliente nunca satisfazem SELLER_EVIDENCE_REQUIRED. Se nenhuma mensagem do vendedor sustentar diretamente a avaliação, não gere o item.',
+    'seller_evidence_message_ids identifica mensagens outgoing do vendedor e pode ser usada para sustentar coaching quando disponível. Para seller_strengths e improvement_points, use toda a conversa e a memória comercial como contexto: a análise pode combinar o que o cliente pediu, o que o vendedor respondeu e o que deixou de responder. Nunca invente uma ação do vendedor nem atribua a ele uma mensagem do cliente.',
 
     'Use commercial_memory somente como memória histórica ativa. Referencie-a por memory_ids. Nunca transforme evidence_message_ids históricos removidos da memória em evidência atual.',
 
-    'Acertos do vendedor, pontos de melhoria e riscos do atendimento precisam apontar para mensagem concreta do vendedor. Não escreva elogios genéricos como bom atendimento, ótimo atendimento ou excelente atendimento.',
+    'Coaching comercial é prioridade da Leitura Comercial. Sempre que a sessão for comercial e houver material suficiente para avaliar a condução, procure identificar pelo menos um acerto real ou um ponto concreto de melhoria. Não force elogio nem crítica quando realmente não houver sinal útil, mas não suprima coaching apenas porque a evidência depende da relação entre mensagens do cliente e do vendedor.',
 
-    'Em seller_strengths, kind classifica o acerto; summary descreve exatamente o que o vendedor fez; why_it_matters explica por que essa ação ajudou a venda; evidências precisam apontar para a mensagem concreta.',
+    'Em seller_strengths, kind classifica o acerto; summary descreve concretamente o comportamento observado; why_it_matters explica por que isso ajudou a venda. Use evidências reais da conversa e/ou memória relevante.',
 
-    'Em improvement_points, kind classifica o desvio; summary descreve o que aconteceu; why_it_matters explica por que é um problema; impact descreve consequência ou risco; how_to_improve indica uma correção prática. Não gere crítica sem evidência direta do vendedor.',
+    'Em improvement_points, kind classifica o desvio; summary descreve o que aconteceu; why_it_matters explica por que é um problema; impact descreve consequência ou risco; how_to_improve indica uma correção prática. Priorize insights que o vendedor não perceberia apenas relendo a tela, como perda de contexto, repetição desnecessária, avanço tardio, pergunta redundante, falta de exploração, tratamento fraco de objeção ou oportunidade de fechamento desperdiçada.',
 
     'Riscos do cliente e riscos do atendimento são categorias diferentes: objeção, dúvida ou resistência do cliente não deve ser apresentada como erro do vendedor; pressão, promessa indevida ou informação incorreta do vendedor não deve ser apresentada como objeção do cliente.',
 
@@ -114,11 +114,11 @@ function buildSystemPrompt(
 
     'Quando commercial_context.sales_method.configured=false, use commercial_reading.method=null. Quando o papel ou a relevância não autorizarem avaliação comercial, também use commercial_reading.method=null.',
 
-    'Quando houver método configurado e a sessão for comercial, commercial_reading.method deve avaliar cada etapa canônica exatamente uma vez usando somente step_order, status, explanation e referências. Os status possíveis são completed, active, partial, not_started, skipped e not_applicable.',
+    'Quando houver método configurado e a sessão for comercial, avalie as etapas canônicas que puder sustentar com o contexto disponível usando step_order, status, explanation e referências. Os status possíveis são completed, active, partial, not_started, skipped e not_applicable. Não deixe uma incerteza de etapa impedir o restante do coaching.',
 
     'method.adherence.status deve responder explicitamente se a conversa está on_method, partially_on_method, off_method, not_configured ou insufficient_evidence. Não marque off_method por ordem literal: evidência espontânea pode concluir etapa, e uma etapa pode não se aplicar ou ser pulada quando o método permitir.',
 
-    'Quando method.adherence.status=off_method, indique deviation_stage_order, what_happened, missing_information, why_it_matters e evidência direta. recovery_guidance torna-se obrigatório com objective, missing_information, recommended_move e optional_question quando útil.',
+    'Quando method.adherence.status=off_method, descreva o desvio e sugira recovery_guidance quando houver uma correção comercial útil. Se algum detalhe do método estiver incerto, preserve o coaching válido em vez de eliminar a análise inteira.',
 
     'Quando method.adherence.status não for off_method, deviation_stage_order, what_happened e why_it_matters devem ser null e recovery_guidance deve ser null. A etapa atual será derivada deterministicamente dos status; não a gere novamente.',
 

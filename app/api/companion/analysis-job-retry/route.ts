@@ -205,26 +205,47 @@ export async function POST(
                   }),
                 )
 
-                void processStatefulCopilotBackgroundMessage(
-                  message,
-                  {
-                    delivery_count: 1,
-                  },
-                ).catch(error => {
-                  console.warn(
-                    'YOLEN_COMPANION_BACKGROUND_JOB',
-                    JSON.stringify({
-                      event:
-                        'local_inline_retry_worker_failed',
-                      analysis_job_id:
-                        body.analysis_job_id ?? null,
-                      error:
-                        error instanceof Error
-                          ? error.message
-                          : 'unknown_error',
-                    }),
-                  )
-                })
+                void (async () => {
+                  for (
+                    let deliveryCount = 1;
+                    deliveryCount <= 5;
+                    deliveryCount += 1
+                  ) {
+                    try {
+                      await processStatefulCopilotBackgroundMessage(
+                        message,
+                        {
+                          delivery_count:
+                            deliveryCount,
+                        },
+                      )
+
+                      return
+                    } catch (error) {
+                      console.warn(
+                        'YOLEN_COMPANION_BACKGROUND_JOB',
+                        JSON.stringify({
+                          event:
+                            'local_inline_retry_worker_failed',
+                          analysis_job_id:
+                            body.analysis_job_id ?? null,
+                          delivery_count:
+                            deliveryCount,
+                          error:
+                            error instanceof Error
+                              ? error.message
+                              : 'unknown_error',
+                        }),
+                      )
+
+                      if (
+                        deliveryCount >= 5
+                      ) {
+                        return
+                      }
+                    }
+                  }
+                })()
 
                 return null
               }
