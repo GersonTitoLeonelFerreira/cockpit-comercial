@@ -1,0 +1,112 @@
+# FASE 16.9 — Correção do runtime real do recommended_action seller-facing
+
+## O que mudou
+
+`app/lib/server/canonical-decision-state-source.ts` é a única fonte do
+`recommended_action` seller-facing consumido por AGORA/ANÁLISE
+(`agora-view-model.ts`/`analysis-view-model.ts` só fazem passthrough — não
+recalculam). Antes desta fase, três pontos deste arquivo substituíam o
+raciocínio já produzido pela Commercial Reading (`best_approach.reason` /
+`method.recovery_guidance.recommended_move`, ambos gerados pelo modelo) por
+um template genérico fixo sempre que a leitura chegava por um destes três
+caminhos:
+
+1. **Passthrough de `best_approach`** (nenhum outro candidato operacional
+   venceu): `recommended_action` virava sempre
+   `` `Canal recomendado: ${channel}.` `` — por exemplo
+   `"Canal recomendado: text."` — descartando por completo o raciocínio
+   real do modelo sobre o que fazer.
+2. **Desvio de método sem `recovery_guidance`**: `recommended_action`
+   virava sempre `"Retomar a etapa adequada do método antes de avançar."`,
+   mesmo quando `best_approach.reason` já explicava exatamente o que
+   fazer.
+3. **`insufficient_information`**: `recommended_action` virava sempre
+   `"Aprofundar a descoberta antes de avançar para a próxima etapa."`,
+   também descartando o raciocínio real de `best_approach.reason`.
+
+Essas três strings fixas são exatamente os exemplos que a missão da FASE
+16.9 lista como saída seller-facing inaceitável — inclusive
+`"Canal recomendado: text."` literalmente.
+
+A correção não criou uma segunda arquitetura: reaproveitou o mesmo
+precedente já usado em `deriveGuidance()`
+(`stateful-communication-executor.ts:663-680`), que já preferia
+`best_approach.reason` a um valor fixo no mesmo tipo de situação. Os três
+pontos agora usam `best_approach.reason` (ou `recovery_guidance
+.recommended_move` quando disponível) em vez do template.
+
+## Caso Carla (fixture de referência da missão)
+
+Sequência: cliente pede plano/promoção → vendedor informa valores →
+cliente pede a grade → vendedor envia → cliente escolhe Pilates, sexta,
+18h, 2 pessoas (Carla e Juscelaine) e pede agendamento duas vezes sem
+confirmação → vendedor retoma com "Como posso ajudar?", ignorando tudo
+que já foi dito.
+
+### ANTES
+
+```
+recommended_action: "Canal recomendado: text."
+```
+ou, se o desvio de método fosse detectado sem recovery_guidance:
+```
+recommended_action: "Retomar a etapa adequada do método antes de avançar."
+```
+
+Nenhuma das duas frases diz o que aconteceu, o que falta ou o que fazer.
+Nenhuma reflete que a cliente já deu todos os dados e só falta um passo
+operacional (verificar disponibilidade e confirmar).
+
+### DEPOIS
+
+```
+recommended_action:
+  "Carla e Juscelaine já escolheram Pilates, sexta-feira às 18h, para
+   duas pessoas, e pediram o agendamento duas vezes sem receber
+   confirmação. Verificar a disponibilidade real desse horário para
+   duas pessoas e, se houver vaga, confirmar o agendamento — sem pedir
+   de novo nenhuma informação que a cliente já deu."
+```
+
+Este texto é o próprio `best_approach.reason` produzido pela leitura
+comercial (Commercial Reading) — a correção não inventa este conteúdo,
+apenas para de descartá-lo.
+
+## O que o sistema não recomenda mais neste caminho
+
+- "Canal recomendado: text." (ou qualquer canal) como ação seller-facing;
+- "Retomar a etapa adequada do método antes de avançar." como template
+  fixo quando a leitura já explica o que fazer;
+- "Aprofundar a descoberta antes de avançar para a próxima etapa." como
+  template fixo quando a leitura já explica o que falta.
+
+Nenhuma dessas frases foi banida por uma whitelist — elas simplesmente
+deixaram de ser o *fallback padrão* quando existe raciocínio real
+disponível. Se uma leitura futura genuinamente concluir
+`insufficient_information` sem detalhar o motivo (`best_approach.reason`
+vazio), o comportamento passa a depender do dado real da leitura, não de
+um texto disfarçado de inteligência.
+
+## Testes de regressão
+
+`app/lib/server/canonical-decision-state-source.test.mjs`:
+- `caso Carla — passthrough de best_approach nunca usa "Canal recomendado: <channel>." como recommended_action`
+- `caso Carla — desvio de método sem recovery_guidance usa o raciocínio real da leitura, nunca o template fixo de "retomar a etapa"`
+- `caso Carla — insufficient_information usa o raciocínio real da leitura, nunca o template fixo de "aprofundar a descoberta"`
+
+Confirmado que os três testes falham no código anterior à correção
+(`git stash` do arquivo de produção com os testes aplicados) e passam
+depois dela — não são testes vácuos.
+
+## Escopo desta fase vs. escopo da missão completa
+
+A missão da FASE 16.9 pede uma reorganização arquitetural ampla (contexto
+factual → reasoning engine único → validators → presenters, cobrindo
+AGORA/ANÁLISE/MENSAGEM/CLIENTE, extensão, e 10 cenários de eval). Esta
+correção resolve a causa raiz mais concreta e verificável dentro do tempo
+disponível desta sessão: o ponto exato onde o raciocínio comercial real
+era substituído por template genérico antes de chegar ao vendedor. A
+auditoria mais ampla (Commercial Reasoning Engine determinístico em
+`commercial-reasoning-engine.ts`, Message Intelligence v2, extensão) foi
+mapeada mas não sofreu mudanças estruturais nesta sessão — ver relatório
+final da sessão para o que fica como pendência.

@@ -966,9 +966,18 @@ function buildMethodAdherenceCandidate(
       adherence.what_happened ??
       adherence.summary,
 
+    // Achado da FASE 16.9: quando a leitura não emite recovery_guidance
+    // (ex.: modelo não considerou necessário um plano de recuperação
+    // explícito), o fallback não pode ser um template genérico
+    // desconectado da leitura ("Retomar a etapa adequada do método
+    // antes de avançar.") — isso é exatamente o tipo de saída rasa que
+    // a FASE 16.9 elimina. Em vez disso, reaproveita-se o mesmo
+    // raciocínio já validado em best_approach.reason, seguindo o
+    // precedente já estabelecido por deriveGuidance()
+    // (stateful-communication-executor.ts) para o mesmo caso.
     recommended_action:
       recovery?.recommended_move ??
-      'Retomar a etapa adequada do método antes de avançar.',
+      currentReading.reading.best_approach.reason,
 
     evidence_message_ids:
       adherence.evidence_message_ids,
@@ -1141,8 +1150,14 @@ function buildInsufficientInformationCandidate(
     reason:
       bestApproach.reason,
 
+    // Achado da FASE 16.9: "Aprofundar a descoberta antes de avançar
+    // para a próxima etapa." era um template fixo, o mesmo texto
+    // independentemente do que realmente falta. bestApproach.reason já
+    // é o raciocínio do modelo sobre exatamente qual descoberta está
+    // insuficiente — usar o template genérico descartava essa
+    // informação concreta em favor de uma frase vazia.
     recommended_action:
-      'Aprofundar a descoberta antes de avançar para a próxima etapa.',
+      bestApproach.reason,
 
     evidence_message_ids:
       bestApproach.evidence_message_ids,
@@ -1684,10 +1699,17 @@ export async function loadCanonicalDecisionState({
       summary: bestApproach.reason,
       reason: bestApproach.reason,
 
+      // Achado da FASE 16.9: `Canal recomendado: ${channel}.` descartava
+      // todo o raciocínio comercial de best_approach.reason e o
+      // substituía por um rótulo de canal sem conteúdo (ex.: "Canal
+      // recomendado: text."), justamente o tipo de saída rasa que a
+      // FASE 16.9 elimina. O próximo passo concreto já está em
+      // bestApproach.reason — reaproveitá-lo aqui é o mesmo precedente
+      // já usado em deriveGuidance() (stateful-communication-executor.ts).
       recommended_action:
         bestApproach.decision === 'no_intervention'
           ? 'Nenhuma ação necessária agora.'
-          : `Canal recomendado: ${bestApproach.channel}.`,
+          : bestApproach.reason,
 
       evidence_message_ids:
         bestApproach.evidence_message_ids,

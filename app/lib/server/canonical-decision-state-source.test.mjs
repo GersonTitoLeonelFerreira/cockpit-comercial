@@ -2307,3 +2307,150 @@ test('primary_decision.priority é null no fallback sem nenhuma fonte disponíve
   assert.equal(state.primary_decision.source, null)
   assert.equal(state.primary_decision.priority, null)
 })
+
+// -----------------------------------------------------------------------
+// FASE 16.9 — regressão do "caso Carla" (fixture de referência da missão):
+// cliente já escolheu serviço (Pilates), dia (sexta), horário (18h) e
+// quantidade (2 pessoas), pediu agendamento explicitamente duas vezes, e
+// o vendedor retomou com "Como posso ajudar?" — ignorando contexto já
+// conhecido. Antes da FASE 16.9, três pontos deste arquivo substituíam o
+// raciocínio real da leitura (`best_approach.reason` /
+// `recovery_guidance.recommended_move`) por um template genérico
+// desconectado do caso concreto: "Canal recomendado: text.", "Retomar a
+// etapa adequada do método antes de avançar." e "Aprofundar a descoberta
+// antes de avançar para a próxima etapa.". Estes testes travam que o
+// `recommended_action` seller-facing nunca mais regride para esses
+// templates quando a leitura já tem raciocínio real disponível.
+// -----------------------------------------------------------------------
+
+const CARLA_BEST_APPROACH_REASON =
+  'Carla e Juscelaine já escolheram Pilates, sexta-feira às 18h, para ' +
+  'duas pessoas, e pediram o agendamento duas vezes sem receber ' +
+  'confirmação. Verificar a disponibilidade real desse horário para ' +
+  'duas pessoas e, se houver vaga, confirmar o agendamento — sem pedir ' +
+  'de novo nenhuma informação que a cliente já deu.'
+
+test('caso Carla — passthrough de best_approach nunca usa "Canal recomendado: <channel>." como recommended_action', async () => {
+  const reading = buildReading({
+    commercial_relevance: 'commercial',
+    best_approach: {
+      decision: 'confirm_information',
+      reason: CARLA_BEST_APPROACH_REASON,
+      channel: 'text',
+      evidence_message_ids: ['m-carla-1', 'm-carla-2'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'confirm_information')
+  assert.equal(
+    state.primary_decision.recommended_action,
+    CARLA_BEST_APPROACH_REASON,
+  )
+  assert.notEqual(
+    state.primary_decision.recommended_action,
+    'Canal recomendado: text.',
+  )
+  assert.doesNotMatch(
+    state.primary_decision.recommended_action,
+    /^Canal recomendado:/,
+  )
+})
+
+test('caso Carla — desvio de método sem recovery_guidance usa o raciocínio real da leitura, nunca o template fixo de "retomar a etapa"', async () => {
+  const reading = buildReading({
+    commercial_relevance: 'commercial',
+    best_approach: {
+      decision: 'confirm_information',
+      reason: CARLA_BEST_APPROACH_REASON,
+      channel: 'text',
+      evidence_message_ids: ['m-carla-1', 'm-carla-2'],
+      memory_ids: [],
+    },
+  })
+
+  // Vendedor perdeu o contexto e retomou com "Como posso ajudar?" mesmo
+  // já sabendo serviço/dia/horário/quantidade — desvio de método sem que
+  // a leitura tenha produzido recovery_guidance explícito.
+  reading.method = {
+    configured: true,
+    name: 'Consultivo',
+    stages: [],
+    current_stage: null,
+    adherence: {
+      status: 'partially_on_method',
+      summary:
+        'Vendedor retomou com saudação genérica ignorando pedido já explícito.',
+      deviation_stage_order: null,
+      what_happened:
+        'Vendedor perguntou "Como posso ajudar?" depois que a cliente já ' +
+        'pediu o agendamento duas vezes com todos os dados necessários.',
+      missing_information: [],
+      why_it_matters:
+        'Obriga a cliente a repetir informação já dada, gerando fricção ' +
+        'numa oportunidade avançada.',
+      evidence_message_ids: ['m-carla-3'],
+      memory_ids: [],
+    },
+    recovery_guidance: null,
+  }
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(state.primary_decision.kind, 'clarify')
+
+  const recommendedAction = state.interventions.length > 0
+    ? state.interventions[0].recommended_action
+    : state.primary_decision.recommended_action
+
+  assert.equal(recommendedAction, CARLA_BEST_APPROACH_REASON)
+  assert.notEqual(
+    recommendedAction,
+    'Retomar a etapa adequada do método antes de avançar.',
+  )
+})
+
+test('caso Carla — insufficient_information usa o raciocínio real da leitura, nunca o template fixo de "aprofundar a descoberta"', async () => {
+  const reading = buildReading({
+    commercial_relevance: 'commercial',
+    best_approach: {
+      decision: 'insufficient_information',
+      reason: CARLA_BEST_APPROACH_REASON,
+      channel: 'text',
+      evidence_message_ids: ['m-carla-1'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  const recommendedAction = state.interventions.length > 0
+    ? state.interventions.find(
+        item => item.kind === 'insufficient_information',
+      )?.recommended_action
+    : state.primary_decision.recommended_action
+
+  assert.equal(recommendedAction, CARLA_BEST_APPROACH_REASON)
+  assert.notEqual(
+    recommendedAction,
+    'Aprofundar a descoberta antes de avançar para a próxima etapa.',
+  )
+})
