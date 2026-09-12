@@ -11,6 +11,10 @@ import {
 } from '@vercel/queue'
 
 import {
+  processStatefulCopilotBackgroundMessage,
+} from '@/app/lib/server/stateful-copilot-background-worker'
+
+import {
   CompanionAnalysisJobReadError,
 } from '@/app/lib/server/companion-analysis-job-reader'
 
@@ -172,6 +176,10 @@ export async function POST(
     )
 
   try {
+    const useLocalInlineWorker =
+      process.env.NODE_ENV === 'development' &&
+      process.env.COMPANION_LOCAL_INLINE_QUEUE === '1'
+
     const result =
       await retryCompanionAnalysisJob({
         admin,
@@ -181,7 +189,46 @@ export async function POST(
         device_key:
           body.device_key,
         publish:
-          send,
+          useLocalInlineWorker
+            ? async (
+                _topic,
+                message,
+                _options,
+              ) => {
+                console.info(
+                  'YOLEN_COMPANION_BACKGROUND_JOB',
+                  JSON.stringify({
+                    event:
+                      'local_inline_retry_worker_started',
+                    analysis_job_id:
+                      body.analysis_job_id ?? null,
+                  }),
+                )
+
+                void processStatefulCopilotBackgroundMessage(
+                  message,
+                  {
+                    delivery_count: 1,
+                  },
+                ).catch(error => {
+                  console.warn(
+                    'YOLEN_COMPANION_BACKGROUND_JOB',
+                    JSON.stringify({
+                      event:
+                        'local_inline_retry_worker_failed',
+                      analysis_job_id:
+                        body.analysis_job_id ?? null,
+                      error:
+                        error instanceof Error
+                          ? error.message
+                          : 'unknown_error',
+                    }),
+                  )
+                })
+
+                return null
+              }
+            : send,
       })
 
     return NextResponse.json(
