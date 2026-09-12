@@ -83,6 +83,11 @@ import {
   type MessageIntelligenceV2ModelConfig,
 } from './model-config'
 
+import {
+  buildUnavailableAuthoritativeDecision,
+  type MessageIntelligenceV2AuthoritativeDecision,
+} from './authoritative-decision'
+
 export const MESSAGE_INTELLIGENCE_V2_RUNNER_CONTRACT_VERSION =
   'message-intelligence-v2-runner-v1' as const
 
@@ -169,6 +174,23 @@ export type MessageIntelligenceRunResultV2 = {
     retryable: boolean
   } | null
 }
+
+// FASE 16.9: carrega a decisão comercial já tomada pela cadeia canônica
+// (Commercial Reading -> Decision State -> Communication Context) que
+// também alimenta AGORA/ANÁLISE. Vive fora de app/lib/companion/ por
+// natureza (Decision State/Communication Context são app/lib/server/) —
+// este runner só conhece o formato server-agnostic
+// MessageIntelligenceV2AuthoritativeDecision; a adaptação concreta é
+// responsabilidade de quem constrói este loader (ver
+// app/lib/server/message-intelligence-v2-authoritative-decision-adapter.ts).
+// Omitir o loader (ou ele retornar null) é tratado exatamente como
+// "indisponível agora" — nunca uma falha do run.
+export type MessageIntelligenceV2AuthoritativeDecisionLoader = (params: {
+  company_id: string
+  cycle_id: string
+  conversation_key: string
+  reference_time: string
+}) => Promise<MessageIntelligenceV2AuthoritativeDecision | null>
 
 export type MessageIntelligenceV2ProviderOptions =
   Pick<
@@ -311,12 +333,22 @@ function errorFromCaught(
 export async function runMessageIntelligenceV2({
   request: rawRequest,
   load_sources,
+  load_authoritative_decision,
   provider_options = {},
   env = process.env,
 }: {
   request: unknown
   load_sources:
     MessageIntelligenceContextSourceLoaderV1
+
+  // Opcional só para não quebrar chamadores/fixtures que ainda não
+  // carregam Decision State (testes unitários do pipeline incluídos) —
+  // omitir equivale a "sem decisão autoritativa disponível", nunca a um
+  // estado inválido. Produção (message-intelligence-seller-activation-v2)
+  // sempre fornece o loader real.
+  load_authoritative_decision?:
+    MessageIntelligenceV2AuthoritativeDecisionLoader
+
   provider_options?:
     MessageIntelligenceV2ProviderOptions
   env?: Readonly<
@@ -334,6 +366,35 @@ export async function runMessageIntelligenceV2({
     request,
     sources,
   })
+
+  // Best-effort por construção (mandato do módulo): uma falha aqui nunca
+  // derruba a geração da mensagem — apenas degrada para "sem decisão
+  // autoritativa disponível", o mesmo estado de quando o loader não é
+  // fornecido.
+  let authoritativeDecision:
+    MessageIntelligenceV2AuthoritativeDecision =
+    buildUnavailableAuthoritativeDecision()
+
+  if (load_authoritative_decision) {
+    try {
+      const loaded =
+        await load_authoritative_decision({
+          company_id: request.company_id,
+          cycle_id: request.cycle_id,
+          conversation_key:
+            request.conversation_key,
+          reference_time:
+            request.reference_time,
+        })
+
+      if (loaded) {
+        authoritativeDecision = loaded
+      }
+    } catch {
+      // Mantém buildUnavailableAuthoritativeDecision() — ver comentário
+      // acima.
+    }
+  }
 
   const identity = {
     request_id: request.request_id,
@@ -374,6 +435,8 @@ export async function runMessageIntelligenceV2({
   const plan =
     buildMessageIntelligenceV2ExecutionPlan({
       snapshot,
+      authoritative_decision:
+        authoritativeDecision,
     })
 
   const provider: StatefulCopilotProvider =

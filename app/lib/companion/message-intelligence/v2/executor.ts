@@ -48,6 +48,10 @@ import {
   type StatefulCopilotUsage,
 } from '../../stateful-copilot-executor'
 
+import type {
+  MessageIntelligenceV2AuthoritativeDecision,
+} from './authoritative-decision'
+
 const MAX_MODEL_CONTENT_LENGTH = 100_000
 
 const RETRYABLE_V2_OUTPUT_CODES = new Set([
@@ -63,6 +67,7 @@ const RETRYABLE_V2_OUTPUT_CODES = new Set([
   'V2_MESSAGE_LEAKS_INTERNALS',
   'V2_UNGROUNDED_FACTUAL_CLAIM',
   'V2_SAFETY_SELF_CHECK_NEGATIVE',
+  'V2_OBJECTIVE_INCONSISTENT_WITH_AUTHORITATIVE_DECISION',
 ])
 
 const V2_OUTPUT_FIELDS = new Set<string>(
@@ -894,6 +899,48 @@ function requireCommercialObjective(
   })
 }
 
+// FASE 16.9: hard gate estrutural — o modelo não pode declarar um
+// objetivo de categoria diferente da decisão comercial já tomada (ex.:
+// "advance_discovery" quando a decisão já resolveu confirmar informação
+// e concluir). Só se aplica quando authoritative_decision.available=true
+// E allowed_objectives não está vazio (ver
+// mapDecisionKindToAllowedObjectives — vazio só no caso defensivo de um
+// decision_kind não mapeado, onde falhar aberto é mais seguro que
+// bloquear todo o pipeline). objective=null nunca é bloqueado aqui: é o
+// modelo optando por não declarar objetivo, não uma contradição.
+function requireCommercialObjectiveConsistentWithAuthoritativeDecision({
+  objective,
+  authoritative_decision,
+}: {
+  objective: CommercialObjectiveV1 | null
+  authoritative_decision:
+    MessageIntelligenceV2AuthoritativeDecision
+}): void {
+  if (
+    objective === null ||
+    !authoritative_decision.available ||
+    authoritative_decision.allowed_objectives
+      .length === 0
+  ) {
+    return
+  }
+
+  if (
+    !authoritative_decision.allowed_objectives.includes(
+      objective,
+    )
+  ) {
+    failInvalid({
+      code: 'V2_OBJECTIVE_INCONSISTENT_WITH_AUTHORITATIVE_DECISION',
+      message:
+        'recommended_commercial_objective não é compatível com a decisão comercial já tomada (authoritative_decision).',
+      path: 'recommended_commercial_objective',
+      invariant:
+        'OBJECTIVE_CONSISTENT_WITH_AUTHORITATIVE_DECISION',
+    })
+  }
+}
+
 function requireGroundedClaims(
   value: unknown,
 ): MessageIntelligenceV2GroundedClaimV1[] {
@@ -1024,7 +1071,19 @@ function applyCommercialGates(
       : output.current_turn_relevance !==
         'commercial'
 
-  if (!roleBlocks && !relevanceBlocks) {
+  // FASE 16.9: quando a decisão comercial autoritativa já resolveu "não
+  // comunicar agora" (sessão pessoal, silêncio deliberado ou decisão
+  // suprimida), isso é tão definitivo quanto role/relevance — nunca uma
+  // preferência que o texto do modelo possa contornar.
+  const authoritativeDecisionBlocks =
+    context.authoritative_decision
+      .do_not_generate === true
+
+  if (
+    !roleBlocks &&
+    !relevanceBlocks &&
+    !authoritativeDecisionBlocks
+  ) {
     return output
   }
 
@@ -1130,6 +1189,14 @@ function normalizeMessageIntelligenceV2Output({
       value.recommended_commercial_objective,
       'recommended_commercial_objective',
     )
+
+  requireCommercialObjectiveConsistentWithAuthoritativeDecision(
+    {
+      objective: recommendedObjective,
+      authoritative_decision:
+        context.authoritative_decision,
+    },
+  )
 
   const methodAlignmentSummary =
     requireNullableString(
