@@ -98,6 +98,53 @@ Confirmado que os três testes falham no código anterior à correção
 (`git stash` do arquivo de produção com os testes aplicados) e passam
 depois dela — não são testes vácuos.
 
+## Achado adicional (mapa completo do pipeline) — MENSAGEM tem um segundo cérebro real, não alinhado
+
+Uma auditoria de todo o pipeline (contexto → LLM → reading → reasoning →
+decision → presenters → extensão) foi conduzida nesta sessão e confirma,
+com citação de código, um problema que o item 24 da missão da FASE 16.9
+já antecipava ("reasoning diz agendar mas message engine volta a
+perguntar o que ela quer"):
+
+- O checkpoint da FASE 16-R6
+  (`docs/companion-v2/product/phase16-r6-seller-facing-checkpoint.md`)
+  afirma que, no runtime real, "Commercial Reading + estado + Company
+  Knowledge produzem o mesmo Commercial Reasoning usado pelas demais
+  abas" e que "um adaptador alinha o `commercial_move` e a técnica do
+  MIE ao Reasoning antes do Message Planner".
+- **Isso só é verdade para o Message Intelligence Engine V1.**
+  `app/lib/companion/message-intelligence/reasoning-strategy-adapter.ts`
+  (o adaptador citado) é importado exclusivamente por
+  `message-intelligence-runner.ts` (V1) e pelo próprio teste do
+  adaptador — confirmado por grep, zero outros importadores no
+  repositório.
+- `app/api/companion/method-guidance/route.ts` tenta o **V2 primeiro**
+  (linha 536, `tryGenerateActivatedMessageIntelligenceSellerMessageV2`)
+  e só cai para o V1 (linha 596) quando o V2 está inativo para a empresa
+  ou falha. V2 é o pipeline realmente em piloto hoje.
+- `app/lib/companion/message-intelligence/v2/` (execution-plan, runner,
+  context-assembler, executor, critic) **não importa nem referencia
+  `CommercialReasoning` nem `DecisionState` em nenhum arquivo**
+  (confirmado por grep). O V2 decide `commercial_move`/técnica/mensagem
+  a partir de `CommercialReading` bruto + `seller_intent`, por conta
+  própria, via seu próprio prompt (`v2/execution-plan.ts:135-179`) — sem
+  visibilidade do que AGORA está mostrando ao vendedor nem da técnica
+  que `CommercialReasoning` já selecionou.
+- Consequência prática: para qualquer empresa com MIE V2 ativo, a
+  mensagem sugerida pode genuinamente divergir do que AGORA/ANÁLISE
+  já decidiram — exatamente o risco que o item 24 da missão descreve,
+  e que o checkpoint R6 registrou como resolvido sem estar, para o
+  pipeline que hoje tem prioridade.
+
+Este achado não foi corrigido nesta sessão — reescrever o contexto/prompt
+do MIE V2 para consumir `DecisionState.primary_decision` (reaproveitando
+a ponte já existente e não utilizada,
+`canonical-communication-context-source.ts`) é uma mudança de escopo
+próprio, que toca uma feature em piloto real, e merece uma sessão
+dedicada com sua própria validação — não uma correção apressada. Fica
+registrado aqui como o próximo alvo de maior alavancagem para a missão
+mais ampla da FASE 16.9.
+
 ## Escopo desta fase vs. escopo da missão completa
 
 A missão da FASE 16.9 pede uma reorganização arquitetural ampla (contexto
