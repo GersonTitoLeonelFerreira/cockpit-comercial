@@ -1285,6 +1285,27 @@
     }
   }
 
+  function observeCompanionSessionHash() {
+    window.addEventListener(
+      'hashchange',
+      async () => {
+        const captured =
+          await captureSessionFromHash()
+
+        if (!captured) {
+          return
+        }
+
+        await loadYolenSession({
+          showLoading: true,
+        })
+
+        refreshConversationSnapshot()
+      },
+    )
+  }
+
+
   function sleep(ms) {
     return new Promise((resolve) => {
       window.setTimeout(resolve, ms)
@@ -16823,6 +16844,7 @@
     createPanel()
     renderPanel()
     await captureSessionFromHash()
+    observeCompanionSessionHash()
     refreshConversationSnapshot()
     observeWhatsAppChanges()
     observeRuntimeRecovery()
