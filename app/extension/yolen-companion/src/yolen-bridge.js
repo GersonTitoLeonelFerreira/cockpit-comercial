@@ -1,12 +1,6 @@
 /* global browser, chrome */
 
 ;(function initYolenCompanionBridge() {
-  if (typeof document !== 'undefined') {
-    document.documentElement.setAttribute(
-      'data-yolen-bridge-loaded',
-      window.location.origin,
-    )
-  }
   const PAGE_BRIDGE_SOURCE = 'YOLEN_COMPANION_PAGE_BRIDGE'
 
   function getRuntime() {
