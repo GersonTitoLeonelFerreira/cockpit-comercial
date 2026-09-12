@@ -292,6 +292,64 @@ test('T29: compensação antiga não derruba queued de tentativa posterior', asy
   assert.equal(data.jobs[0].failure_code, null)
 })
 
+test('refresh manual reabre succeeded quando allow_succeeded=true', async () => {
+  const data = fixtures()
+
+  data.jobs[0].status = 'succeeded'
+  data.jobs[0].candidate_state_version = 1
+
+  data.events.push({
+    company_id: IDS.company,
+    cycle_id: IDS.cycle,
+    conversation_key: CONVERSATION,
+    candidate_state_version: 1,
+    output_contract_version: 'phase-5.2-stateful-copilot-v4',
+    generated_at: '2026-08-23T10:01:00.000Z',
+    normalized_output: {
+      contract_version: 'phase-5.2-stateful-copilot-v4',
+      commercial_role: 'buyer',
+      commercial_relevance: 'commercial',
+      interpretation: {
+        current_moment: {
+          summary: 'ok',
+        },
+      },
+      strategy: {
+        next_move: 'seguir',
+        recommended_question: null,
+        suggested_message: null,
+      },
+      communication: {
+        contract_version: 'phase-5.2-communication-v5',
+        commercial_reading: {
+          contract_version: 'commercial-reading-v1',
+        },
+      },
+    },
+  })
+
+  const published = []
+
+  const result =
+    await retryCompanionAnalysisJob({
+      ...retryArgs(
+        data,
+        async (...args) => {
+          published.push(args)
+        },
+      ),
+      allow_succeeded: true,
+    })
+
+  assert.equal(result.status, 'queued')
+  assert.equal(data.jobs[0].status, 'queued')
+  assert.equal(
+    data.jobs[0].candidate_state_version,
+    null,
+  )
+  assert.equal(published.length, 1)
+})
+
 test('succeeded/superseded/queued/running nunca são reabertos', async () => {
   for (const status of ['succeeded', 'superseded', 'queued', 'running']) {
     const data = fixtures()

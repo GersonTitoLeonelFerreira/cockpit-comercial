@@ -244,7 +244,7 @@ export async function retryCompanionAnalysisJob({
       authorized.conversation_key ||
     failedJob.message_watermark !==
       authorized.message_watermark ||
-    failedJob.status !== 'failed' ||
+    failedJob.status !== requeueFromStatus ||
     typeof failedJob.requested_at !== 'string' ||
     typeof failedJob.updated_at !== 'string'
   ) {
