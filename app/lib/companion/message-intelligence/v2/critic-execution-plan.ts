@@ -21,15 +21,14 @@ import type {
   MessageIntelligenceV2ExecutionPlan,
 } from './execution-plan'
 
-// v4: fortalece a fronteira entre seller_intent_not_executed e
-// unnatural_seller_message para o caso de retomada/follow-up (Round 3,
-// P0-A) — uma mensagem que apenas expressa disponibilidade futura sem
-// nenhuma ação comercial material do vendedor não executa a retomada,
-// mesmo sendo natural e sem pressão. Nenhum campo novo no contrato
-// estruturado, só reforço conceitual do prompt — contract version não
-// muda.
+// v5 (FASE 16.9): o critic passa a receber authoritative_decision (a
+// mesma decisão comercial já tomada para AGORA/ANÁLISE) e a tratar uma
+// mensagem que a contradiz — muda o próximo movimento, volta para
+// descoberta já concluída, ou devolve ao cliente uma ação que já é do
+// vendedor — como method_violation. Nenhum reason code novo (contrato
+// estruturado do critic não muda), só reforço de um gate já existente.
 export const MESSAGE_INTELLIGENCE_V2_CRITIC_PROMPT_VERSION =
-  'message-intelligence-v2-critic-prompt-v4' as const
+  'message-intelligence-v2-critic-prompt-v5' as const
 
 export type MessageIntelligenceV2CriticExecutionPlan = {
   prompt_version:
@@ -56,7 +55,9 @@ function buildSystemPrompt(): string {
 
     'candidate.grounded_claims já vem com source_content: o conteúdo real e completo da fonte que cada claim cita. Avalie se esse conteúdo realmente sustenta semanticamente a claim — não apenas se palavras coincidem, mas se o significado bate. Overlap de palavras é um sinal auxiliar barato, nunca prova suficiente.',
 
-    'Responda a cada uma destas perguntas através dos campos booleanos do schema: a mensagem faz alguma afirmação factual/comercial que não está declarada em grounded_claims (missing_grounded_claim)? alguma grounded_claim não é realmente sustentada pelo source_content citado, mesmo citando uma fonte real (claim_source_mismatch)? a mensagem adicionou algum detalhe, nuance ou intensidade (ex.: "automático", "ilimitado", "garantido") que a fonte não sustenta, mesmo sem ser uma claim isolada (semantic_mismatch)? a mensagem pergunta ou trata como não resolvido algo que commercial_state.resolved_information, commercial_state.commitments ou a conversa já deixam claro (repeated_resolved_question)? a mensagem assume ou declara um compromisso como confirmado além do que commercial_state.commitments realmente sustenta (commitment_assumption)? seller_intent foi tratado como se fosse um fato do cliente, em vez de um objetivo do vendedor (seller_intent_became_fact)? a candidate entendeu corretamente seller_intent mas suggested_message não a executa materialmente dentro dos limites permitidos (seller_intent_not_executed)? o conteúdo de suggested_message está correto, mas sua forma customer-facing está artificial, institucional, genérica demais ou perceptivelmente distante de uma mensagem que um vendedor competente realmente enviaria nesta conversa (unnatural_seller_message)? a condução viola required_behaviors, prohibited_behaviors ou sales_method (method_violation)?',
+    'Responda a cada uma destas perguntas através dos campos booleanos do schema: a mensagem faz alguma afirmação factual/comercial que não está declarada em grounded_claims (missing_grounded_claim)? alguma grounded_claim não é realmente sustentada pelo source_content citado, mesmo citando uma fonte real (claim_source_mismatch)? a mensagem adicionou algum detalhe, nuance ou intensidade (ex.: "automático", "ilimitado", "garantido") que a fonte não sustenta, mesmo sem ser uma claim isolada (semantic_mismatch)? a mensagem pergunta ou trata como não resolvido algo que commercial_state.resolved_information, commercial_state.commitments ou a conversa já deixam claro (repeated_resolved_question)? a mensagem assume ou declara um compromisso como confirmado além do que commercial_state.commitments realmente sustenta (commitment_assumption)? seller_intent foi tratado como se fosse um fato do cliente, em vez de um objetivo do vendedor (seller_intent_became_fact)? a candidate entendeu corretamente seller_intent mas suggested_message não a executa materialmente dentro dos limites permitidos (seller_intent_not_executed)? o conteúdo de suggested_message está correto, mas sua forma customer-facing está artificial, institucional, genérica demais ou perceptivelmente distante de uma mensagem que um vendedor competente realmente enviaria nesta conversa (unnatural_seller_message)? a condução viola required_behaviors, prohibited_behaviors, sales_method OU authoritative_decision (method_violation)?',
+
+    'Quando authoritative_decision.available=true, ela é a decisão comercial já tomada centralmente (a mesma que decide AGORA/ANÁLISE) — recommended_action diz o que fazer agora, prohibited_moves lista o que está proibido. Marque method_violation=true quando suggested_message: mudar o próximo movimento ou voltar a uma etapa (ex.: descoberta) que a decisão já superou; fizer algo listado em authoritative_decision.prohibited_moves; ou, quando recommended_action atribui a próxima ação ao vendedor/à empresa, devolver essa ação ao cliente (ex.: dizer que está aguardando resposta dele) em vez de executá-la ou anunciar que será feita agora. Não marque method_violation por isso quando authoritative_decision.available=false ou quando suggested_message estiver genuinamente alinhada a recommended_action, apenas com palavras diferentes.',
 
     'seller_intent_not_executed é uma falha diferente de seller_intent_became_fact: became_fact é a candidate transformando o objetivo do vendedor em uma afirmação sobre o cliente sem evidência; not_executed é a candidate não contradizer nada e não inventar fato, mas mesmo assim não cumprir na prática o que seller_intent pede, quando essa intenção exige uma ação comercial (retomar, responder uma objeção, buscar entender um motivo, facilitar uma decisão, propor um próximo passo). Avalie sempre estas três perguntas separadas antes de marcar seller_intent_not_executed: (1) entendimento — a candidate entendeu corretamente o objetivo declarado pelo vendedor, refletido em seller_intent_interpretation? (2) execução — suggested_message realmente realiza esse objetivo de forma material, e não apenas reconhece o timing, empatiza ou devolve toda a iniciativa ao cliente? (3) limites — a execução respeita conversation, commercial_state, sales_method, required_behaviors, prohibited_behaviors, grounding, commitments, timing e qualquer limite explícito colocado pelo cliente na própria conversa?',
 
@@ -180,6 +181,10 @@ export function buildMessageIntelligenceV2CriticExecutionPlan({
           .commercial_context as
           Record<string, unknown>
       )?.prohibited_behaviors ?? [],
+
+    authoritative_decision:
+      primaryPayload.authoritative_decision ??
+      null,
 
     candidate: {
       customer_meaning:

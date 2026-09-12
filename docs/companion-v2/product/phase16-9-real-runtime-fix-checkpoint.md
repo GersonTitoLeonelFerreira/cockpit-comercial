@@ -217,6 +217,150 @@ ausência de Commercial Brain duplicado em ANÁLISE) — confirmados via
 Chrome dev, Chrome prod, Firefox dev e Firefox prod todos gerados com
 sucesso, `companion-reasoning-view.js` presente nos 4 pacotes.
 
+## MENSAGEM (MIE V2) passa a consumir a mesma decisão autoritativa de AGORA/ANÁLISE
+
+Correção do achado registrado na seção anterior: o Message Intelligence
+Engine V2 (`app/lib/companion/message-intelligence/v2/`) decidia sua
+própria estratégia comercial (objetivo, próximo passo) do zero, sem
+nenhuma visibilidade sobre o que `DecisionState`/`CommunicationContext`
+já haviam decidido para AGORA/ANÁLISE. Isso permitia exatamente a
+divergência que a missão da FASE 16.9 (item 24) descreve: "reasoning diz
+agendar mas message engine volta a perguntar o que ela quer".
+
+### Arquitetura
+
+```
+Commercial Reading (LLM) -> Decision State -> Communication Context
+                                   |                    |
+                                   v                    v
+                              AGORA/ANÁLISE     MessageIntelligenceV2AuthoritativeDecision
+                                                          |
+                                                          v
+                                              MIE V2 (execution-plan/executor/critic)
+```
+
+- **`app/lib/companion/message-intelligence/v2/authoritative-decision.ts`** (novo): define
+  `MessageIntelligenceV2AuthoritativeDecision` — formato server-agnostic,
+  vive em `app/lib/companion/` (que nunca importa de `app/lib/server/`,
+  disciplina já estabelecida no repositório) — e
+  `mapDecisionKindToAllowedObjectives()`, uma tabela exaustiva e
+  determinística `CommercialReadingDecision` (23 valores) →
+  `CommercialObjectiveV1[]` compatíveis, usada como HARD gate.
+- **`app/lib/server/message-intelligence-v2-authoritative-decision-adapter.ts`** (novo):
+  único arquivo que conhece os dois lados — carrega `current_reading`
+  (leitura + ledger + state read), `DecisionState`
+  (`loadCanonicalDecisionState`, `client_context: null` — SLA/espera não
+  são necessários para este gate) e `CommunicationContext`
+  (`loadCanonicalCommunicationContext`, a mesma ponte da FASE 16.3F que
+  já existia mas nunca tinha sido conectada a nada), e projeta o
+  resultado no formato acima. Best-effort por construção: qualquer falha
+  degrada para "indisponível", nunca derruba a geração da mensagem.
+- **`execution-plan.ts`**: `buildMessageIntelligenceV2ExecutionPlan` ganha
+  `authoritative_decision` (opcional, default "indisponível"). Prompt
+  reescrito (`v3`→`v4`): quando disponível, a tarefa do modelo deixa de
+  ser "decida a melhor condução comercial" e passa a ser "execute
+  fielmente `recommended_action`, adaptando tom/tamanho/formato/
+  naturalidade — não decida uma nova estratégia".
+- **`executor.ts`**: dois HARD gates novos — (1)
+  `recommended_commercial_objective` do modelo precisa pertencer a
+  `authoritative_decision.allowed_objectives` quando disponível (rejeita/
+  repara caso contrário — código `V2_OBJECTIVE_INCONSISTENT_WITH_AUTHORITATIVE_DECISION`);
+  (2) `authoritative_decision.do_not_generate=true` força
+  `intervention_needed=false`/`suggested_message=null`, mesmo function
+  `applyCommercialGates` já usada para os gates canônicos de role/relevance.
+- **`critic-execution-plan.ts`** (`v4`→`v5`): o revisor semântico recebe
+  `authoritative_decision` e passa a marcar `method_violation` quando a
+  mensagem muda o próximo movimento, faz algo em `prohibited_moves`, ou
+  devolve ao cliente uma ação que a decisão já atribuiu ao vendedor —
+  reforço de um reason code já existente, sem novo campo no contrato
+  estruturado do critic.
+- **`runner.ts`**: novo parâmetro opcional `load_authoritative_decision`
+  (mesmo padrão de `load_sources`); quando omitido ou falha, degrada para
+  "indisponível" — nunca falha o run.
+- **`message-intelligence-seller-activation-v2.ts`**: passa a fornecer o
+  loader real (`createMessageIntelligenceV2AuthoritativeDecisionLoader`)
+  em produção.
+
+### Gates (classificação da missão, seção 8)
+
+| Gate | Classe | Onde |
+|---|---|---|
+| `recommended_commercial_objective` precisa pertencer a `allowed_objectives` | **HARD** | `executor.ts` |
+| `do_not_generate=true` força silêncio | **HARD** | `executor.ts` (`applyCommercialGates`) |
+| evidência/grounded_claims/fatos protegidos/commitment_status | **HARD** (pré-existente, inalterado) | `executor.ts` |
+| fidelidade textual a `recommended_action` (tom, se "executou" em vez de devolver a ação) | **SOFT** (prompt) + reforço no critic (`method_violation`) | `execution-plan.ts` / `critic-execution-plan.ts` |
+| qualidade/naturalidade da redação | **SOFT** (pré-existente, inalterado) | critic |
+| caso Carla ponta-a-ponta | **EVAL** | testes descritos abaixo |
+
+Deliberadamente **não** foi transformado em hard gate: a redação exata da
+mensagem (isso seria "centenas de regex para simular raciocínio", que a
+missão proíbe). O que virou hard gate é a categoria estrutural do
+objetivo — o suficiente para impedir uma regressão de "concluir" para
+"descoberta", sem policiar a linguagem natural.
+
+### Caso Carla
+
+Com `authoritative_decision` = `{ decision_kind: 'confirm_information',
+recommended_action: 'Verificar a disponibilidade real para duas pessoas
+nesse horário e, se houver vaga, confirmar o agendamento — sem pedir de
+novo nenhuma informação que a cliente já deu.', allowed_objectives:
+['secure_next_step', 'confirm_decision', 'answer_factually'],
+do_not_generate: false }`:
+
+- um `recommended_commercial_objective: 'secure_next_step'` passa;
+- um `recommended_commercial_objective: 'advance_discovery'` (voltar para
+  descoberta) ou `'obtain_context'` (perguntar o que já se sabe) é
+  **rejeitado** pelo executor antes mesmo de chegar à mensagem final;
+- se a decisão central fosse "não comunicar agora"
+  (`do_not_generate: true`), a mensagem seria neutralizada mesmo que o
+  modelo tivesse sugerido uma.
+
+Isso é testado literalmente com o texto do caso Carla em
+`executor.test.mjs` (`carlaAuthoritativeDecision()`).
+
+### Testes
+
+Novos/estendidos: `authoritative-decision.test.mjs` (4),
+`execution-plan.test.mjs` (+2), `executor.test.mjs` (+6, incluindo os
+3 casos Carla), `critic-execution-plan.test.mjs` (+2). Confirmado via
+`git stash` que os testes de gate (executor +3 dos 6, todos os de
+`critic-execution-plan` que checam o payload) falham no código anterior
+e passam no atual — não são testes vácuos.
+
+Suite completa executada sem regressão: `v2/*.test.mjs` +
+`message-intelligence-seller-activation-v2.test.mjs` +
+`canonical-decision-state-source.test.mjs` +
+`canonical-communication-context-source.test.mjs` +
+`message-intelligence-runner.test.mjs` (V1) — 284 testes, 284 passando.
+`tsc --noEmit` e `git diff --check` limpos. Build da extensão
+(chrome/firefox, dev/prod) revalidado após as mudanças anteriores desta
+sessão — nenhum arquivo de extensão foi tocado nesta parte.
+
+### Pendências explícitas desta correção
+
+- O adapter (`message-intelligence-v2-authoritative-decision-adapter.ts`)
+  faz sua própria leitura de `state_read`/ledger em vez de reaproveitar
+  `sources.commercial_reading` do source loader do MIE — os dois tipos
+  são estruturalmente incompatíveis
+  (`MessageIntelligenceCommercialReadingSourceV1` descarta
+  `state_record_id`/`state_version`/`state_updated_at` que
+  `loadCanonicalDecisionState` exige). Isso paga uma leitura adicional de
+  estado por execução do V2 — aceito em troca de correção; oportunidade
+  de otimização futura, não bloqueante.
+- `client_context` (SLA/espera) é passado como `null` ao Decision State
+  dentro deste adapter — os candidatos `client_sla`/`customer_waiting`
+  não competem nesta chamada específica (continuam funcionando
+  normalmente em AGORA/ANÁLISE, que carregam `client_context` real). Não
+  afeta o caso Carla nem a maioria dos cenários (method/coaching/
+  best_approach bastam), mas é uma diferença real de cobertura a
+  considerar se um cenário futuro depender de SLA para MENSAGEM
+  especificamente.
+- V2 não tem um campo de "técnica" próprio no contrato de saída (ao
+  contrário de `CommercialReasoning.selected_techniques`); a consistência
+  de técnica é coberta indiretamente pela consistência de objetivo +
+  fidelidade a `recommended_action`, não por um gate estrutural dedicado
+  a técnica.
+
 ## Escopo desta fase vs. escopo da missão completa
 
 A missão da FASE 16.9 pede uma reorganização arquitetural ampla (contexto
