@@ -623,6 +623,9 @@
     const retryFailedJob =
       payload?.retry_failed_job === true
 
+    const forceReanalysis =
+      payload?.force_reanalysis === true
+
     const backendPayload =
       isRecord(payload)
         ? {
@@ -631,6 +634,7 @@
         : {}
 
     delete backendPayload.retry_failed_job
+    delete backendPayload.force_reanalysis
 
     const conversationKey =
       normalizeConversationKey(
@@ -711,13 +715,22 @@
         freshness,
       )
 
-      if (
-        deepAnalysis.status === 'failed' &&
+      const shouldRequeueAnalysis =
         (
-          retryFailedJob ||
-          failedJobAtStart ===
-            deepAnalysis.analysis_job_id
-        ) &&
+          deepAnalysis.status === 'failed' &&
+          (
+            retryFailedJob ||
+            failedJobAtStart ===
+              deepAnalysis.analysis_job_id
+          )
+        ) ||
+        (
+          deepAnalysis.status === 'succeeded' &&
+          forceReanalysis
+        )
+
+      if (
+        shouldRequeueAnalysis &&
         isFreshnessStillCurrent(
           freshness,
         )
@@ -728,6 +741,9 @@
             {
               analysis_job_id:
                 deepAnalysis.analysis_job_id,
+              allow_succeeded:
+                deepAnalysis.status ===
+                  'succeeded',
             },
           )
 

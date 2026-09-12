@@ -123,12 +123,14 @@ export async function retryCompanionAnalysisJob({
   token,
   analysis_job_id,
   device_key,
+  allow_succeeded = false,
   publish,
 }: {
   admin: SupabaseClient
   token: CompanionTokenPayload
   analysis_job_id: unknown
   device_key: unknown
+  allow_succeeded?: boolean
   publish: QueuePublisher
 }): Promise<CompanionAnalysisJobRetryResult> {
   const deviceKey =
@@ -148,9 +150,17 @@ export async function retryCompanionAnalysisJob({
       analysis_job_id,
     })
 
-  if (
-    authorized.status !== 'failed'
-  ) {
+  const requeueFromStatus =
+    authorized.status === 'failed'
+      ? 'failed'
+      : (
+          allow_succeeded &&
+          authorized.status === 'succeeded'
+        )
+        ? 'succeeded'
+        : null
+
+  if (!requeueFromStatus) {
     return publicStatus(
       authorized,
     )
@@ -194,7 +204,7 @@ export async function retryCompanionAnalysisJob({
       )
       .eq(
         'status',
-        'failed',
+        requeueFromStatus,
       )
       .maybeSingle()
 
@@ -346,7 +356,7 @@ export async function retryCompanionAnalysisJob({
       )
       .eq(
         'status',
-        'failed',
+        requeueFromStatus,
       )
       .eq(
         'updated_at',

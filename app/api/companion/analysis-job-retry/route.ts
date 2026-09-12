@@ -29,6 +29,7 @@ import {
 type RetryAnalysisJobBody = {
   analysis_job_id?: unknown
   device_key?: unknown
+  allow_succeeded?: unknown
 }
 
 function getCorsHeaders(
@@ -188,6 +189,8 @@ export async function POST(
           body.analysis_job_id,
         device_key:
           body.device_key,
+        allow_succeeded:
+          body.allow_succeeded === true,
         publish:
           useLocalInlineWorker
             ? async (

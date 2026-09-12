@@ -338,6 +338,9 @@ async function handleAnalysisJobRetry(message) {
         ? message.payload.analysis_job_id
         : null
 
+    const allowSucceeded =
+      message.payload?.allow_succeeded === true
+
     return requestYolenWithToken(
       message,
       '/api/companion/analysis-job-retry',
@@ -346,6 +349,8 @@ async function handleAnalysisJobRetry(message) {
           analysisJobId,
         device_key:
           deviceKey,
+        allow_succeeded:
+          allowSucceeded,
       },
     )
   } catch (error) {

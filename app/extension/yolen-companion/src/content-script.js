@@ -14964,6 +14964,7 @@
       )
 
     const forceReanalysis =
+      !isAutomatic ||
       messageLedgerRequiresRebase
 
     const mutationRevisionAtRequest =
