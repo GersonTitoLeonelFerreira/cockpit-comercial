@@ -12,6 +12,14 @@ import {
 
 const HEADER_TITLE = '+55 11 98888-7777'
 const FILE_NAME = 'GRADE ATUALIZADA EM 12-08-26 (1).pdf'
+const MESSAGE_MUTATIONS_SOURCE =
+  fs.readFileSync(
+    new URL(
+      '../../src/message-mutations.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
 const PHASE_16_9_RUNTIME_SOURCE =
   fs.readFileSync(
     new URL(
@@ -22,12 +30,41 @@ const PHASE_16_9_RUNTIME_SOURCE =
   )
 
 function installPhase169RuntimeGuard(window) {
+  // O manifest real carrega message-mutations.js antes do runtime guard e
+  // ambos compartilham o mesmo isolated world. O harness E3, por outro lado,
+  // executava o guard num segundo vm.Context sem expor esse helper; assim o
+  // fallback do teste lia textContent cru e perdia o espaço representado por
+  // <br>, algo que não corresponde ao runtime real do Firefox. Carregamos
+  // somente a API pura de message-mutations (sem document/observer) e a
+  // injetamos no mesmo contexto do guard para reproduzir a ordem real.
+  const messageMutationsSandbox = {
+    console,
+  }
+
+  messageMutationsSandbox.globalThis =
+    messageMutationsSandbox
+
+  vm.createContext(
+    messageMutationsSandbox,
+  )
+  vm.runInContext(
+    MESSAGE_MUTATIONS_SOURCE,
+    messageMutationsSandbox,
+    {
+      filename:
+        'message-mutations.js',
+    },
+  )
+
   const sandbox = {
     window,
     document: window.document,
     MutationObserver:
       window.MutationObserver,
     Node: window.Node,
+    YolenCompanionMessageMutations:
+      messageMutationsSandbox
+        .YolenCompanionMessageMutations,
     console,
   }
 
