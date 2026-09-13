@@ -10,6 +10,8 @@
     '[data-yolen-seller-message-mount]'
   const SELLER_MESSAGE_BOX_SELECTOR =
     '[data-yolen-seller-message-box]'
+  const ANALYZE_ACTION_SELECTOR =
+    '[data-yolen-action="analyze-conversation"]'
   const EDITABLE_SELECTOR = [
     'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([readonly]):not([disabled])',
     'textarea:not([readonly]):not([disabled])',
@@ -18,10 +20,149 @@
   ].join(',')
 
   let composerPlacementCheckQueued = false
+  let capturedAnalyzeClickHandler = null
 
   function getUx8Panel() {
     return document.querySelector(
       UX8_PANEL_SELECTOR,
+    )
+  }
+
+  function isAnalyzeActionElement(value) {
+    return Boolean(
+      value &&
+      value.nodeType === 1 &&
+      typeof value.matches === 'function' &&
+      value.matches(
+        ANALYZE_ACTION_SELECTOR,
+      ),
+    )
+  }
+
+  // content-script.js instala o handler real de análise diretamente no
+  // botão renderizado. panel-stability-runtime.js e
+  // editable-field-stability-runtime.js podem, legitimamente, substituir
+  // panel.innerHTML inteiro depois disso para preservar scroll/foco. O
+  // novo botão visual criado por essa substituição não carrega listeners
+  // JS nem a propriedade __yolenWiredEvents do node anterior — ficava com
+  // aparência clicável, mas o clique não chegava a analyzeCurrentConversation.
+  //
+  // Capturamos UMA vez a closure real instalada pelo content-script antes
+  // de os runtimes de estabilidade começarem a substituir nodes. Depois
+  // restauramos EventTarget.prototype.addEventListener imediatamente para
+  // não manter nenhum monkey-patch global durante a vida da página.
+  function installAnalyzeActionHandlerCapture() {
+    const eventTargetPrototype =
+      root.EventTarget?.prototype ||
+      globalThis.EventTarget?.prototype
+
+    const originalAddEventListener =
+      eventTargetPrototype
+        ?.addEventListener
+
+    if (
+      !eventTargetPrototype ||
+      typeof originalAddEventListener !==
+        'function'
+    ) {
+      return null
+    }
+
+    const wrappedAddEventListener =
+      function yolenAnalyzeActionAwareAddEventListener(
+        type,
+        listener,
+        options,
+      ) {
+        if (
+          type === 'click' &&
+          typeof listener === 'function' &&
+          isAnalyzeActionElement(this)
+        ) {
+          capturedAnalyzeClickHandler =
+            listener
+
+          queueMicrotask(() => {
+            if (
+              eventTargetPrototype
+                .addEventListener ===
+              wrappedAddEventListener
+            ) {
+              eventTargetPrototype
+                .addEventListener =
+                originalAddEventListener
+            }
+          })
+        }
+
+        return originalAddEventListener.call(
+          this,
+          type,
+          listener,
+          options,
+        )
+      }
+
+    eventTargetPrototype.addEventListener =
+      wrappedAddEventListener
+
+    return {
+      restore() {
+        if (
+          eventTargetPrototype
+            .addEventListener ===
+          wrappedAddEventListener
+        ) {
+          eventTargetPrototype
+            .addEventListener =
+            originalAddEventListener
+        }
+      },
+    }
+  }
+
+  function invokeCapturedAnalyzeHandlerWhenNodeLost(
+    event,
+  ) {
+    const action =
+      event.target?.closest?.(
+        ANALYZE_ACTION_SELECTOR,
+      )
+
+    if (
+      !action ||
+      typeof capturedAnalyzeClickHandler !==
+        'function'
+    ) {
+      return
+    }
+
+    const panel =
+      document.getElementById(
+        PANEL_ID,
+      )
+
+    if (
+      !panel ||
+      !panel.contains(action)
+    ) {
+      return
+    }
+
+    // Um botão ainda ligado pelo wireOnce() possui essa marca e executará
+    // o próprio listener normal no target. O fallback só assume a ação
+    // quando um full innerHTML replacement criou um node novo e, portanto,
+    // perdeu simultaneamente marca + listener.
+    if (
+      action.__yolenWiredEvents
+        ?.has?.('click')
+    ) {
+      return
+    }
+
+    capturedAnalyzeClickHandler.call(
+      action,
+      event,
     )
   }
 
@@ -139,6 +280,18 @@
     })
   }
 
+  installAnalyzeActionHandlerCapture()
+
+  // Delegação de segurança instalada antes de content-script.js. Em nodes
+  // normais ela é no-op; em um clone visual sem listener, reutiliza a
+  // closure real capturada e mantém toda a regra de retry/ownership no
+  // único dono existente, sem duplicar lógica de análise neste runtime.
+  document.addEventListener(
+    'click',
+    invokeCapturedAnalyzeHandlerWhenNodeLost,
+    true,
+  )
+
   // Capture phase: executa antes dos handlers de click das tabs instalados
   // por content-script.js. pointerdown cobre o fluxo real do mouse/touch;
   // click cobre ativação sintética/assistiva em que não houve pointerdown.
@@ -171,6 +324,12 @@
     Object.freeze({
       enforceComposerPlacement:
         enforceUx8ComposerPlacement,
+      hasCapturedAnalyzeHandler() {
+        return (
+          typeof capturedAnalyzeClickHandler ===
+          'function'
+        )
+      },
     })
 })(
   typeof globalThis !== 'undefined'
