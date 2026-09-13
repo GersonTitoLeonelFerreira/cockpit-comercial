@@ -118,11 +118,16 @@ test(
       runtimeCalls[0].baseUrl,
       'http://localhost:3000',
     )
-    assert.deepEqual(
-      runtimeCalls[0].payload,
-      {
-        analysis_job_id: JOB_ID,
-      },
+    assert.equal(
+      runtimeCalls[0].payload
+        ?.analysis_job_id,
+      JOB_ID,
+    )
+    assert.equal(
+      Object.keys(
+        runtimeCalls[0].payload || {},
+      ).length,
+      1,
     )
     assert.equal(
       result.payload.data.deep_analysis.status,
