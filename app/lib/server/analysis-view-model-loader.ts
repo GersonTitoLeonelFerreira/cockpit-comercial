@@ -31,6 +31,10 @@ import {
 } from './analysis-view-model'
 
 import {
+  reconcileAnalysisSellerQuality,
+} from './analysis-seller-quality-reconciler'
+
+import {
   buildSellerFacingReasoningProjection,
   type SellerFacingReasoningProjection,
 } from './seller-facing-reasoning-projection'
@@ -184,13 +188,27 @@ export async function loadAnalysisViewModel({
       integratedContext,
     )
 
-  const viewModel =
+  const responsibilityAwareViewModel =
     reconcileCoachingWithResponsibility({
       viewModel:
         baseViewModel,
       waitingState:
         canonicalContext.client_context
           .waiting.state,
+    })
+
+  const viewModel =
+    reconcileAnalysisSellerQuality({
+      viewModel:
+        responsibilityAwareViewModel,
+      canonicalMessages:
+        canonicalContext.canonical_messages,
+      openLoops:
+        canonicalContext.state_read.mode ===
+          'found'
+          ? canonicalContext.state_read.state
+              .open_loops
+          : [],
     })
 
   const reasoning =
