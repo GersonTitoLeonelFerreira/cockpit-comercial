@@ -88,7 +88,7 @@ const WAITING_ON_CUSTOMER_COACHING_KINDS =
     'insufficient_discovery',
   ])
 
-function reconcileCoachingWithResponsibility({
+export function reconcileCoachingWithResponsibility({
   viewModel,
   waitingState,
   sellerStillOwesAction,
