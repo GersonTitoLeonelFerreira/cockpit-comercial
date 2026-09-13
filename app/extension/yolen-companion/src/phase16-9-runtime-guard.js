@@ -1,5 +1,3 @@
-/* global browser, chrome */
-
 ;(function initPhase169RuntimeGuard(root) {
   const INSTALL_KEY =
     '__yolenPhase169RuntimeGuardInstalled'
@@ -45,159 +43,13 @@
     return
   }
 
-  function getRuntime() {
-    if (
-      typeof browser !== 'undefined' &&
-      browser.runtime?.sendMessage
-    ) {
-      return browser.runtime
-    }
-
-    if (
-      typeof chrome !== 'undefined' &&
-      chrome.runtime?.sendMessage
-    ) {
-      return chrome.runtime
-    }
-
-    return (
-      root.browser?.runtime ||
-      root.chrome?.runtime ||
-      windowRef.browser?.runtime ||
-      windowRef.chrome?.runtime ||
-      null
-    )
-  }
-
-  function installManualRetryGuard() {
-    const api =
-      root.YolenCompanionApi ||
-      windowRef.YolenCompanionApi
-
-    if (
-      !api ||
-      typeof api.analyzeConversation !==
-        'function' ||
-      api.__phase169ManualRetryGuard ===
-        true
-    ) {
-      return false
-    }
-
-    const original =
-      api.analyzeConversation.bind(api)
-
-    api.analyzeConversation =
-      async function phase169ManualRetry(
-        payload,
-      ) {
-        const result =
-          await original(payload)
-
-        const deepAnalysis =
-          result?.payload?.data
-            ?.deep_analysis
-
-        const retryFailed =
-          payload?.retry_failed_job === true &&
-          deepAnalysis?.status === 'failed'
-
-        const retrySucceeded =
-          payload?.force_reanalysis === true &&
-          deepAnalysis?.status === 'succeeded'
-
-        if (
-          !retryFailed &&
-          !retrySucceeded
-        ) {
-          return result
-        }
-
-        const analysisJobId =
-          typeof deepAnalysis
-            ?.analysis_job_id === 'string'
-            ? deepAnalysis.analysis_job_id
-            : ''
-
-        if (!analysisJobId) {
-          return result
-        }
-
-        const runtime = getRuntime()
-
-        if (
-          !runtime ||
-          typeof runtime.sendMessage !==
-            'function'
-        ) {
-          return result
-        }
-
-        let retryResult = null
-
-        try {
-          retryResult =
-            await runtime.sendMessage({
-              source: 'YOLEN_COMPANION',
-              action:
-                'RETRY_ANALYSIS_JOB',
-              baseUrl:
-                typeof api.getBaseUrl ===
-                  'function'
-                  ? api.getBaseUrl()
-                  : undefined,
-              payload: {
-                analysis_job_id:
-                  analysisJobId,
-                allow_succeeded:
-                  retrySucceeded,
-              },
-            })
-        } catch {
-          return result
-        }
-
-        const retried =
-          retryResult?.payload?.data
-
-        if (
-          retryResult?.ok !== true ||
-          retryResult?.payload?.ok !==
-            true ||
-          retried?.analysis_job_id !==
-            analysisJobId ||
-          ![
-            'queued',
-            'running',
-          ].includes(retried?.status)
-        ) {
-          return result
-        }
-
-        result.payload.data.deep_analysis = {
-          ...deepAnalysis,
-          status: retried.status,
-          message_watermark:
-            retried.message_watermark ||
-            deepAnalysis.message_watermark,
-        }
-
-        return result
-      }
-
-    Object.defineProperty(
-      api,
-      '__phase169ManualRetryGuard',
-      {
-        configurable: false,
-        enumerable: false,
-        value: true,
-        writable: false,
-      },
-    )
-
-    return true
-  }
+  // FASE 16.9 — retry manual de análise ("Tentar novamente") passou a ser
+  // resolvido inteiramente pelo caminho canônico em yolen-api.js
+  // (analyzeConversation/getAnalysisJobStatus), que já não condiciona a
+  // intenção explícita do vendedor a messageDomRevision/captureRevision.
+  // Este arquivo não precisa mais envolver analyzeConversation com um
+  // wrapper próprio de retry — a responsabilidade dele aqui é só a
+  // materialização de bubbles somente-anexo (PDF/documento) abaixo.
 
   function getTools() {
     return (
@@ -656,7 +508,6 @@
     )
   }
 
-  installManualRetryGuard()
   scanAttachmentOnlyBubbles(
     documentRef,
   )
@@ -721,7 +572,6 @@
 
   windowRef.YolenPhase169RuntimeGuard =
     Object.freeze({
-      installManualRetryGuard,
       materializeAttachmentOnlyBubble,
       scanAttachmentOnlyBubbles,
     })
