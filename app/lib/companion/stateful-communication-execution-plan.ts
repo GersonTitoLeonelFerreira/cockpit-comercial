@@ -30,7 +30,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v12' as const
+  'phase-5.2-communication-prompt-v13' as const
 
 export const STATEFUL_COMMUNICATION_REPAIR_INSTRUCTION =
   'Repare somente o caminho indicado tomando previous_rejected_output como base e retorne novamente o objeto completo conforme o schema. Preserve os campos válidos e altere apenas o necessário para corrigir a falha indicada. Se previous_failure_invariant=SELLER_EVIDENCE_REQUIRED, use somente IDs presentes em seller_evidence_message_ids que sustentem diretamente o item; se nenhum ID dessa lista sustentar o item, remova o item em vez de inventar, trocar por evidência do cliente ou criar uma nova crítica sem suporte.' as const
@@ -98,17 +98,17 @@ function buildSystemPrompt(
 
     'Use conversation.reading_messages para evidência histórica ainda disponível na fotografia canônica. Use os IDs dessas mensagens em evidence_message_ids somente quando elas realmente sustentarem a afirmação.',
 
-    'seller_evidence_message_ids identifica mensagens outgoing do vendedor e pode ser usada para sustentar coaching quando disponível. Para seller_strengths e improvement_points, use toda a conversa e a memória comercial como contexto: a análise pode combinar o que o cliente pediu, o que o vendedor respondeu e o que deixou de responder. Nunca invente uma ação do vendedor nem atribua a ele uma mensagem do cliente.',
+    'seller_evidence_message_ids contém exclusivamente IDs de mensagens outgoing do vendedor. Em seller_strengths, improvement_points e risks.service_risks, evidence_message_ids precisa conter pelo menos um ID dessa lista que sustente diretamente o comportamento atribuído ao vendedor. Mensagens incoming do cliente podem contextualizar o pedido, o impacto e a sequência, mas nunca satisfazem sozinhas a evidência de uma ação, omissão ou risco atribuído ao vendedor. Se nenhum ID outgoing sustentar diretamente o item, não gere esse item.',
 
     'Use commercial_memory somente como memória histórica ativa. Referencie-a por memory_ids. Nunca transforme evidence_message_ids históricos removidos da memória em evidência atual.',
 
     'Coaching comercial é prioridade da Leitura Comercial. Sempre que a sessão for comercial e houver material suficiente para avaliar a condução, procure identificar pelo menos um acerto real ou um ponto concreto de melhoria. Não force elogio nem crítica quando realmente não houver sinal útil, mas não suprima coaching apenas porque a evidência depende da relação entre mensagens do cliente e do vendedor.',
 
-    'Em seller_strengths, kind classifica o acerto; summary descreve concretamente o comportamento observado; why_it_matters explica por que isso ajudou a venda. Use evidências reais da conversa e/ou memória relevante.',
+    'Em seller_strengths, kind classifica o acerto; summary descreve concretamente o que o vendedor fez; why_it_matters explica por que isso ajudou a venda. O item precisa incluir evidência outgoing do vendedor em evidence_message_ids; mensagens do cliente podem ser adicionadas como contexto, nunca como prova única do comportamento do vendedor.',
 
-    'Em improvement_points, kind classifica o desvio; summary descreve o que aconteceu; why_it_matters explica por que é um problema; impact descreve consequência ou risco; how_to_improve indica uma correção prática. Priorize insights que o vendedor não perceberia apenas relendo a tela, como perda de contexto, repetição desnecessária, avanço tardio, pergunta redundante, falta de exploração, tratamento fraco de objeção ou oportunidade de fechamento desperdiçada.',
+    'Em improvement_points, kind classifica o desvio; summary descreve o que aconteceu; why_it_matters explica por que é um problema; impact descreve consequência ou risco; how_to_improve indica uma correção prática. Priorize insights que o vendedor não perceberia apenas relendo a tela, como perda de contexto, repetição desnecessária, avanço tardio, pergunta redundante, falta de exploração, tratamento fraco de objeção ou oportunidade de fechamento desperdiçada. O item precisa incluir ao menos uma mensagem outgoing que sustente a conduta atribuída ao vendedor.',
 
-    'Riscos do cliente e riscos do atendimento são categorias diferentes: objeção, dúvida ou resistência do cliente não deve ser apresentada como erro do vendedor; pressão, promessa indevida ou informação incorreta do vendedor não deve ser apresentada como objeção do cliente.',
+    'Riscos do cliente e riscos do atendimento são categorias diferentes: objeção, dúvida ou resistência do cliente não deve ser apresentada como erro do vendedor; pressão, promessa indevida ou informação incorreta do vendedor não deve ser apresentada como objeção do cliente. Todo item em risks.service_risks precisa incluir ao menos uma evidência outgoing do vendedor; se não houver, omita o risco em vez de usar somente mensagem do cliente.',
 
     'O método deve refletir exclusivamente commercial_context.sales_method. configured, name, stage_key e nome das etapas são derivados deterministicamente e não podem ser redecididos pelo modelo.',
 
