@@ -5,6 +5,10 @@ import type {
 } from '@/app/lib/companion/companion-client-context-contract'
 
 import type {
+  CommercialReadingImprovementKind,
+} from '@/app/lib/companion/commercial-reading-contract'
+
+import type {
   CommercialReasoning,
 } from '@/app/lib/companion/commercial-reasoning-contract'
 
@@ -13,6 +17,10 @@ import {
   loadCanonicalDecisionState,
   type DecisionState,
 } from './canonical-decision-state-source'
+
+import type {
+  CanonicalCommercialReadingSource,
+} from './canonical-commercial-reading-source'
 
 const WAIT_OVERRIDE_DECISIONS = new Set([
   'ask',
@@ -33,6 +41,46 @@ const WAIT_OVERRIDE_DECISIONS = new Set([
   'deepen_discovery',
   'insufficient_information',
 ])
+
+// O client_context calcula "quem escreveu por último" de forma
+// determinística. Isso é informação operacional útil, mas não prova por si
+// só quem deve a próxima ação comercial. Uma retomada genérica do vendedor
+// depois de um pedido ainda aberto, por exemplo, continua deixando a ação
+// sob responsabilidade do vendedor. Estes kinds já vêm da Commercial
+// Reading canônica e funcionam apenas como hard guard para impedir que o
+// sinal operacional apague uma pendência semanticamente comprovada.
+const SELLER_STILL_OWES_ACTION_KINDS =
+  new Set<CommercialReadingImprovementKind>([
+    'unanswered_question',
+    'repetition',
+    'missing_next_commitment',
+    'missed_commitment',
+  ])
+
+function readingShowsSellerStillOwesAction(
+  currentReading:
+    CanonicalCommercialReadingSource | null | undefined,
+): boolean {
+  const reading =
+    currentReading?.reading
+
+  if (!reading) {
+    return false
+  }
+
+  if (
+    reading.customer.open_questions.length > 0
+  ) {
+    return true
+  }
+
+  return reading.improvement_points.some(
+    improvement =>
+      SELLER_STILL_OWES_ACTION_KINDS.has(
+        improvement.kind,
+      ),
+  )
+}
 
 function isActiveSellerWaitingMoment({
   clientContext,
@@ -75,12 +123,18 @@ function isActiveSellerWaitingMoment({
 export function reconcileDecisionStateWithCommercialResponsibility({
   decisionState,
   clientContext,
+  currentReading = null,
 }: {
   decisionState: DecisionState | null
   clientContext: CompanionClientContext | null
+  currentReading?:
+    CanonicalCommercialReadingSource | null
 }): DecisionState | null {
   if (
     !decisionState ||
+    readingShowsSellerStillOwesAction(
+      currentReading,
+    ) ||
     !isActiveSellerWaitingMoment({
       clientContext,
       referenceTime:
@@ -137,13 +191,19 @@ export function reconcileReasoningWithCommercialResponsibility({
   reasoning,
   clientContext,
   referenceTime,
+  currentReading = null,
 }: {
   reasoning: CommercialReasoning | null
   clientContext: CompanionClientContext | null
   referenceTime: string
+  currentReading?:
+    CanonicalCommercialReadingSource | null
 }): CommercialReasoning | null {
   if (
     !reasoning ||
+    readingShowsSellerStillOwesAction(
+      currentReading,
+    ) ||
     !isActiveSellerWaitingMoment({
       clientContext,
       referenceTime,
@@ -183,5 +243,7 @@ export async function loadCanonicalDecisionStateWithResponsibility(
     decisionState,
     clientContext:
       args.client_context,
+    currentReading:
+      args.current_reading,
   })
 }
