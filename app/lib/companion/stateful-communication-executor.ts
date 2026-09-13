@@ -12,6 +12,10 @@ import {
 } from './commercial-reading-contract'
 
 import {
+  sanitizeSellerAttributedEvidence,
+} from './seller-evidence-sanitizer'
+
+import {
   STATEFUL_COMMUNICATION_PROMPT_VERSION,
   buildStatefulCommunicationRepairExecutionPlan,
   type StatefulCommunicationExecutionPlan,
@@ -1073,6 +1077,18 @@ async function executeAttempt({
       response.content,
     )
 
+  const sanitizedOutput =
+    sanitizeSellerAttributedEvidence({
+      value:
+        rawOutput,
+
+      seller_message_ids:
+        plan
+          .normalization_context
+          .commercial_reading
+          .seller_message_ids ?? [],
+    }).value
+
   let normalizedOutput:
     StatefulCommunicationOutput
 
@@ -1080,7 +1096,7 @@ async function executeAttempt({
     normalizedOutput =
       normalizeCommunicationOutput({
         value:
-          rawOutput,
+          sanitizedOutput,
 
         context:
           plan
@@ -1094,7 +1110,7 @@ async function executeAttempt({
       rejectedCommunicationOutputByError
         .set(
           error,
-          rawOutput,
+          sanitizedOutput,
         )
     }
 
