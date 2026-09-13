@@ -91,23 +91,45 @@
       '[aria-label*="mensagem citada" i]',
       '[aria-label*="resposta" i]',
     ].join(',')
+    const DOCUMENT_MARKER_SELECTOR = [
+      'a[download]',
+      '[download]',
+      '[data-testid*="document" i]',
+      '[data-testid*="attachment" i]',
+      '[data-icon*="document" i]',
+      '[data-icon*="download" i]',
+    ].join(',')
     const EVIDENCE_ATTRIBUTE =
       'data-yolen-attachment-evidence'
     const BRIDGE_ATTRIBUTE =
       'data-yolen-attachment-bubble-bridge'
+    const SYNTHETIC_MESSAGE_ATTRIBUTE =
+      'data-yolen-attachment-synthetic-message'
+
+    function getCanonicalMessageNodes(
+      bubble,
+    ) {
+      if (!bubble?.querySelectorAll) {
+        return []
+      }
+
+      return Array.from(
+        bubble.querySelectorAll(
+          MESSAGE_SELECTOR,
+        ),
+      ).filter((node) => {
+        return !node.closest?.(
+          QUOTED_SELECTOR,
+        )
+      })
+    }
 
     function uniqueMessageNodeFromBubble(
       bubble,
     ) {
-      if (!bubble?.querySelectorAll) {
-        return null
-      }
-
       const nodes =
-        Array.from(
-          bubble.querySelectorAll(
-            MESSAGE_SELECTOR,
-          ),
+        getCanonicalMessageNodes(
+          bubble,
         )
 
       return nodes.length === 1
@@ -158,23 +180,28 @@
       return null
     }
 
-    function getTextOutsideCanonicalMessage(
+    function cloneBubbleForAttachmentRead(
       bubble,
+      {
+        removeCanonicalMessages = false,
+      } = {},
     ) {
       if (!bubble?.cloneNode) {
-        return ''
+        return null
       }
 
       const clone =
         bubble.cloneNode(true)
 
-      clone
-        .querySelectorAll?.(
-          MESSAGE_SELECTOR,
-        )
-        .forEach((element) => {
-          element.remove?.()
-        })
+      if (removeCanonicalMessages) {
+        clone
+          .querySelectorAll?.(
+            MESSAGE_SELECTOR,
+          )
+          .forEach((element) => {
+            element.remove?.()
+          })
+      }
 
       clone
         .querySelectorAll?.(
@@ -186,16 +213,355 @@
 
       clone
         .querySelectorAll?.(
-          `[${EVIDENCE_ATTRIBUTE}], [${BRIDGE_ATTRIBUTE}]`,
+          `[${EVIDENCE_ATTRIBUTE}], [${BRIDGE_ATTRIBUTE}], [${SYNTHETIC_MESSAGE_ATTRIBUTE}]`,
         )
         .forEach((element) => {
           element.remove?.()
         })
 
-      return tools
-        .readCapturedElementText(
-          clone,
+      return clone
+    }
+
+    function getTextOutsideCanonicalMessage(
+      bubble,
+    ) {
+      const clone =
+        cloneBubbleForAttachmentRead(
+          bubble,
+          {
+            removeCanonicalMessages:
+              true,
+          },
         )
+
+      return clone
+        ? tools.readCapturedElementText(
+            clone,
+          )
+        : ''
+    }
+
+    function getWholeBubbleAttachmentText(
+      bubble,
+    ) {
+      const clone =
+        cloneBubbleForAttachmentRead(
+          bubble,
+        )
+
+      return clone
+        ? tools.readCapturedElementText(
+            clone,
+          )
+        : ''
+    }
+
+    function readAttachmentFileNameFromAttributes(
+      bubble,
+    ) {
+      if (!bubble?.querySelectorAll) {
+        return null
+      }
+
+      const candidates = [
+        bubble,
+        ...Array.from(
+          bubble.querySelectorAll(
+            '[download], [title], [aria-label]',
+          ),
+        ),
+      ]
+
+      for (const element of candidates) {
+        if (
+          element.closest?.(
+            QUOTED_SELECTOR,
+          )
+        ) {
+          continue
+        }
+
+        for (const attribute of [
+          'download',
+          'title',
+          'aria-label',
+        ]) {
+          const fileName =
+            tools.extractAttachmentFileName(
+              element.getAttribute?.(
+                attribute,
+              ),
+            )
+
+          if (fileName) {
+            return fileName
+          }
+        }
+      }
+
+      return null
+    }
+
+    function getAttachmentOnlyDescriptor(
+      bubble,
+    ) {
+      if (!bubble?.querySelector) {
+        return null
+      }
+
+      const text =
+        getWholeBubbleAttachmentText(
+          bubble,
+        )
+
+      const fileName =
+        readAttachmentFileNameFromAttributes(
+          bubble,
+        ) ||
+        tools.extractAttachmentFileName(
+          text,
+        )
+
+      if (!fileName) {
+        return null
+      }
+
+      const hasDocumentMarker =
+        Boolean(
+          bubble.querySelector(
+            DOCUMENT_MARKER_SELECTOR,
+          ),
+        )
+
+      const hasFileMetadata =
+        /\b(?:pdf|docx?|xlsx?|pptx?|csv|txt|rtf|zip|rar|7z|jpg|jpeg|png|webp|gif|heic|mp4|mov|avi|mp3|wav|ogg|m4a)\b/i.test(
+          text,
+        ) &&
+        (
+          /\b\d+(?:[.,]\d+)?\s*(?:bytes?|kb|kib|mb|mib|gb|gib)\b/i.test(
+            text,
+          ) ||
+          /\b\d+\s*p[aá]ginas?\b/i.test(
+            text,
+          )
+        )
+
+      if (
+        !hasDocumentMarker &&
+        !hasFileMetadata
+      ) {
+        return null
+      }
+
+      const timeMatches =
+        Array.from(
+          String(text || '')
+            .matchAll(
+              /(?:^|\D)([01]?\d|2[0-3]):([0-5]\d)(?!\d)/g,
+            ),
+        )
+
+      const lastTime =
+        timeMatches.at(-1)
+
+      if (!lastTime) {
+        return null
+      }
+
+      return {
+        fileName,
+        time:
+          `${String(lastTime[1]).padStart(2, '0')}:${lastTime[2]}`,
+      }
+    }
+
+    function getDateFromPrePlainText(
+      value,
+    ) {
+      const text =
+        String(value || '')
+
+      const timeFirst =
+        text.match(
+          /\d{1,2}:\d{2}(?::\d{2})?\s*,\s*(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})/,
+        )
+
+      const dateFirst =
+        text.match(
+          /(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})\s*,\s*\d{1,2}:\d{2}/,
+        )
+
+      const match =
+        timeFirst || dateFirst
+
+      if (!match) {
+        return null
+      }
+
+      let year = Number(match[3])
+
+      if (year < 100) {
+        year += 2000
+      }
+
+      const day = Number(match[1])
+      const month = Number(match[2])
+      const date = new Date(
+        year,
+        month - 1,
+        day,
+      )
+
+      if (
+        date.getFullYear() !== year ||
+        date.getMonth() !== month - 1 ||
+        date.getDate() !== day
+      ) {
+        return null
+      }
+
+      return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`
+    }
+
+    function inferBubbleDateFromNeighbors(
+      bubble,
+    ) {
+      if (!bubble) {
+        return null
+      }
+
+      const NodeRef =
+        windowRef.Node
+
+      const precedingFlag =
+        NodeRef?.DOCUMENT_POSITION_PRECEDING ??
+        2
+      const followingFlag =
+        NodeRef?.DOCUMENT_POSITION_FOLLOWING ??
+        4
+
+      let precedingDate = null
+      let followingDate = null
+
+      const allMessageNodes =
+        Array.from(
+          documentRef.querySelectorAll(
+            MESSAGE_SELECTOR,
+          ),
+        ).filter((node) => {
+          return (
+            !bubble.contains?.(node) &&
+            !node.hasAttribute?.(
+              SYNTHETIC_MESSAGE_ATTRIBUTE,
+            ) &&
+            !node.closest?.(
+              QUOTED_SELECTOR,
+            )
+          )
+        })
+
+      for (const node of allMessageNodes) {
+        const position =
+          bubble.compareDocumentPosition?.(
+            node,
+          ) || 0
+
+        const date =
+          getDateFromPrePlainText(
+            node.getAttribute?.(
+              'data-pre-plain-text',
+            ),
+          )
+
+        if (!date) {
+          continue
+        }
+
+        if (
+          position & precedingFlag
+        ) {
+          precedingDate = date
+          continue
+        }
+
+        if (
+          position & followingFlag
+        ) {
+          followingDate = date
+          break
+        }
+      }
+
+      if (
+        precedingDate &&
+        followingDate &&
+        precedingDate !== followingDate
+      ) {
+        return null
+      }
+
+      return (
+        precedingDate ||
+        followingDate ||
+        null
+      )
+    }
+
+    function createSyntheticCanonicalMessage(
+      bubble,
+    ) {
+      if (
+        !bubble ||
+        getCanonicalMessageNodes(
+          bubble,
+        ).length !== 0
+      ) {
+        return null
+      }
+
+      const descriptor =
+        getAttachmentOnlyDescriptor(
+          bubble,
+        )
+
+      const date =
+        inferBubbleDateFromNeighbors(
+          bubble,
+        )
+
+      if (!descriptor || !date) {
+        return null
+      }
+
+      const synthetic =
+        documentRef.createElement(
+          'span',
+        )
+
+      synthetic.setAttribute(
+        SYNTHETIC_MESSAGE_ATTRIBUTE,
+        'true',
+      )
+      synthetic.setAttribute(
+        'data-pre-plain-text',
+        `[${descriptor.time}, ${date}] ${
+          bubble.matches?.('.message-out')
+            ? 'Yolen'
+            : 'Cliente'
+        }: `,
+      )
+      synthetic.setAttribute(
+        'aria-hidden',
+        'true',
+      )
+      synthetic.style.display =
+        'none'
+
+      bubble.appendChild(
+        synthetic,
+      )
+
+      return synthetic
     }
 
     function reconcileBubbleBridge(
@@ -300,6 +666,40 @@
       )
     }
 
+    function reconcileBubble(
+      bubble,
+    ) {
+      if (!bubble?.querySelectorAll) {
+        return false
+      }
+
+      let messageNode =
+        uniqueMessageNodeFromBubble(
+          bubble,
+        )
+
+      if (!messageNode) {
+        if (
+          getCanonicalMessageNodes(
+            bubble,
+          ).length !== 0
+        ) {
+          return false
+        }
+
+        messageNode =
+          createSyntheticCanonicalMessage(
+            bubble,
+          )
+      }
+
+      return messageNode
+        ? reconcileBubbleBridge(
+            messageNode,
+          )
+        : false
+    }
+
     function collectMessageNodes(node) {
       const element =
         node?.nodeType === 1
@@ -331,36 +731,61 @@
           }
         })
 
-      const bubble =
+      return result
+    }
+
+    function collectBubbles(node) {
+      const element =
+        node?.nodeType === 1
+          ? node
+          : node?.parentElement
+
+      if (!element) {
+        return []
+      }
+
+      const result = []
+      const direct =
         element.closest?.(
           BUBBLE_SELECTOR,
         )
 
-      const bubbleMessage =
-        uniqueMessageNodeFromBubble(
-          bubble,
-        )
-
-      if (
-        bubbleMessage &&
-        !result.includes(
-          bubbleMessage,
-        )
-      ) {
-        result.push(
-          bubbleMessage,
-        )
+      if (direct) {
+        result.push(direct)
       }
+
+      element
+        .querySelectorAll?.(
+          BUBBLE_SELECTOR,
+        )
+        .forEach((bubble) => {
+          if (!result.includes(bubble)) {
+            result.push(bubble)
+          }
+        })
 
       return result
     }
 
     function scanNode(node) {
+      collectBubbles(node)
+        .forEach(
+          reconcileBubble,
+        )
+
       collectMessageNodes(node)
         .forEach(
           reconcileBubbleBridge,
         )
     }
+
+    documentRef
+      .querySelectorAll(
+        BUBBLE_SELECTOR,
+      )
+      .forEach(
+        reconcileBubble,
+      )
 
     documentRef
       .querySelectorAll(
@@ -406,6 +831,7 @@
 
     const installed = {
       observer,
+      reconcileBubble,
       reconcileBubbleBridge,
     }
 
@@ -435,10 +861,11 @@
   // O WhatsApp pode renderizar o cartão de documento fora do nó
   // [data-pre-plain-text], dentro da mesma bolha .message-in/.message-out.
   // O adapter canônico continua sendo o dono da evidência. Este fallback
-  // somente cria um marcador de documento dentro do nó canônico quando
-  // prova, na mesma bolha e sem limite de profundidade, que existe um nome
-  // de arquivo fora dele. Assim os dois observers convergem para o mesmo
-  // estado em vez de disputar/criar-remover a evidência em loop.
+  // cria o marcador dentro do nó canônico quando ele existe e, para cartões
+  // document-only do Firefox que não expõem [data-pre-plain-text], cria um
+  // nó canônico oculto somente quando arquivo + metadata visual + horário +
+  // data cronológica dos vizinhos estão comprovados. Assim o ledger deixa
+  // de depender de uma estrutura DOM que o WhatsApp não garante.
   installAttachmentBubbleFallback()
 
   const base = root.YolenCompanionSellerInformationView
