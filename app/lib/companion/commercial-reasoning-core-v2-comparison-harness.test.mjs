@@ -270,3 +270,122 @@ test(
     )
   },
 )
+
+
+test(
+  'harness continua executando Core V2 quando o legado falha',
+  async () => {
+    const times = [
+      100,
+      60_100,
+      60_200,
+      60_500,
+    ]
+
+    const timeoutError =
+      new Error(
+        'A solicitação stateful excedeu o tempo máximo permitido.',
+      )
+
+    timeoutError.name =
+      'StatefulCopilotOpenAIProviderError'
+
+    timeoutError.code =
+      'OPENAI_REQUEST_TIMEOUT'
+
+    timeoutError.status_code =
+      504
+
+    timeoutError.retryable =
+      true
+
+    let v2Calls = 0
+
+    const result =
+      await runCommercialReasoningCoreV2Comparison({
+        diagnostic_input:
+          buildDiagnosticInput(),
+        previous_state:
+          null,
+        known_message_ids: [
+          'm1',
+        ],
+        provider:
+          async () => {
+            throw new Error(
+              'provider não deve ser chamado diretamente',
+            )
+          },
+        create_memory_id:
+          () => 'memory-a',
+        dependencies: {
+          now:
+            () => times.shift(),
+
+          run_legacy_engine:
+            async () => {
+              throw timeoutError
+            },
+
+          run_v2:
+            async () => {
+              v2Calls += 1
+
+              return {
+                execution: {
+                  attempts:
+                    1,
+                },
+                factual_guard: {
+                  adjusted:
+                    false,
+                  adjustment_codes:
+                    [],
+                },
+              }
+            },
+        },
+      })
+
+    assert.equal(
+      v2Calls,
+      1,
+    )
+
+    assert.equal(
+      result.legacy.mode,
+      'failed',
+    )
+
+    assert.equal(
+      result.legacy
+        .total_model_attempts,
+      null,
+    )
+
+    assert.equal(
+      result.legacy.error.code,
+      'OPENAI_REQUEST_TIMEOUT',
+    )
+
+    assert.equal(
+      result.legacy.error.status_code,
+      504,
+    )
+
+    assert.equal(
+      result.legacy.error.retryable,
+      true,
+    )
+
+    assert.equal(
+      result.v2.attempts,
+      1,
+    )
+
+    assert.equal(
+      result.delta.model_attempts,
+      null,
+    )
+  },
+)

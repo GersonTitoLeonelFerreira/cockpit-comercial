@@ -45,11 +45,24 @@ export type CommercialReasoningCoreV2ComparisonResult = {
 
   legacy: {
     duration_ms: number
-    mode: StatefulCopilotEngineResult['mode']
-    diagnostic_attempts: number
-    communication_attempts: number
-    total_model_attempts: number
-    result: StatefulCopilotEngineResult
+    mode:
+      StatefulCopilotEngineResult['mode'] |
+      'failed'
+    diagnostic_attempts:
+      number | null
+    communication_attempts:
+      number | null
+    total_model_attempts:
+      number | null
+    result:
+      StatefulCopilotEngineResult | null
+    error: {
+      name: string
+      message: string
+      code: string | null
+      status_code: number | null
+      retryable: boolean | null
+    } | null
   }
 
   v2: {
@@ -61,7 +74,8 @@ export type CommercialReasoningCoreV2ComparisonResult = {
   }
 
   delta: {
-    model_attempts: number
+    model_attempts:
+      number | null
     duration_ms: number
   }
 }
@@ -118,6 +132,44 @@ function getLegacyAttemptCounts(
   }
 }
 
+function serializeComparisonError(
+  error: unknown,
+) {
+  const record =
+    error &&
+    typeof error === 'object' &&
+    !Array.isArray(error)
+      ? error as Record<string, unknown>
+      : null
+
+  return {
+    name:
+      error instanceof Error
+        ? error.name
+        : 'Error',
+
+    message:
+      error instanceof Error
+        ? error.message
+        : String(error),
+
+    code:
+      typeof record?.code === 'string'
+        ? record.code
+        : null,
+
+    status_code:
+      typeof record?.status_code === 'number'
+        ? record.status_code
+        : null,
+
+    retryable:
+      typeof record?.retryable === 'boolean'
+        ? record.retryable
+        : null,
+  }
+}
+
 function elapsedMs(
   startedAt: number,
   finishedAt: number,
@@ -166,16 +218,33 @@ export async function runCommercialReasoningCoreV2Comparison({
   const legacyStartedAt =
     now()
 
-  const legacyResult =
-    await runLegacyEngine({
-      diagnostic_input,
-      previous_state,
-      known_message_ids,
-      provider:
-        legacy_provider,
-      create_memory_id,
-      durable_memory_seed,
-    })
+  let legacyResult:
+    StatefulCopilotEngineResult | null =
+      null
+
+  let legacyError:
+    ReturnType<
+      typeof serializeComparisonError
+    > | null =
+      null
+
+  try {
+    legacyResult =
+      await runLegacyEngine({
+        diagnostic_input,
+        previous_state,
+        known_message_ids,
+        provider:
+          legacy_provider,
+        create_memory_id,
+        durable_memory_seed,
+      })
+  } catch (error) {
+    legacyError =
+      serializeComparisonError(
+        error,
+      )
+  }
 
   const legacyFinishedAt =
     now()
@@ -206,9 +275,18 @@ export async function runCommercialReasoningCoreV2Comparison({
     )
 
   const legacyAttempts =
-    getLegacyAttemptCounts(
-      legacyResult,
-    )
+    legacyResult
+      ? getLegacyAttemptCounts(
+          legacyResult,
+        )
+      : {
+          diagnostic_attempts:
+            null,
+          communication_attempts:
+            null,
+          total_model_attempts:
+            null,
+        }
 
   return {
     snapshot: {
@@ -231,10 +309,13 @@ export async function runCommercialReasoningCoreV2Comparison({
       duration_ms:
         legacyDurationMs,
       mode:
-        legacyResult.mode,
+        legacyResult?.mode ??
+        'failed',
       ...legacyAttempts,
       result:
         legacyResult,
+      error:
+        legacyError,
     },
 
     v2: {
@@ -257,8 +338,15 @@ export async function runCommercialReasoningCoreV2Comparison({
 
     delta: {
       model_attempts:
-        v2Result.execution.attempts -
-        legacyAttempts.total_model_attempts,
+        legacyAttempts
+          .total_model_attempts ===
+        null
+          ? null
+          : v2Result
+              .execution
+              .attempts -
+            legacyAttempts
+              .total_model_attempts,
       duration_ms:
         v2DurationMs -
         legacyDurationMs,

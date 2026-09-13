@@ -262,27 +262,230 @@ function resolveReferenceTime(
     Number.NEGATIVE_INFINITY
 
   for (const row of activeRows) {
-    const timestamp =
+    const occurredTimestamp =
       Date.parse(
         row.occurred_at ?? '',
       )
 
-    if (!Number.isFinite(timestamp)) {
+    const observedTimestamp =
+      Date.parse(
+        row.observed_at ?? '',
+      )
+
+    if (
+      !Number.isFinite(
+        occurredTimestamp,
+      ) ||
+      !Number.isFinite(
+        observedTimestamp,
+      )
+    ) {
       throw new Error(
-        'Ledger retornou occurred_at inválido para o replay.',
+        'Ledger retornou occurred_at ou observed_at inválido para o replay.',
       )
     }
+
+    // O loader real usa observed_at <= reference_time.
+    // Portanto, o replay precisa respeitar a fronteira causal em que
+    // a mensagem já era conhecida pelo sistema, e não apenas o horário
+    // em que ela ocorreu no WhatsApp.
+    const activityTimestamp =
+      Math.max(
+        occurredTimestamp,
+        observedTimestamp,
+      )
 
     latestTimestamp =
       Math.max(
         latestTimestamp,
-        timestamp,
+        activityTimestamp,
       )
   }
 
   return new Date(
     latestTimestamp,
   ).toISOString()
+}
+
+async function loadReplayCheckpoint(
+  client,
+  companyId,
+  cycleId,
+  conversationKey,
+) {
+  const {
+    data: targetRows,
+    error: targetError,
+  } =
+    await client
+      .from(
+        'companion_commercial_state_events',
+      )
+      .select(
+        'candidate_state_version, previous_state_version, generated_at, persisted_at',
+      )
+      .eq(
+        'company_id',
+        companyId,
+      )
+      .eq(
+        'cycle_id',
+        cycleId,
+      )
+      .eq(
+        'conversation_key',
+        conversationKey,
+      )
+      .order(
+        'candidate_state_version',
+        {
+          ascending: false,
+        },
+      )
+      .limit(1)
+
+  if (targetError) {
+    throw new Error(
+      `Falha ao localizar checkpoint histórico: ${targetError.message}`,
+    )
+  }
+
+  const target =
+    targetRows?.[0] ?? null
+
+  if (!target) {
+    return null
+  }
+
+  const targetVersion =
+    Number(
+      target.candidate_state_version,
+    )
+
+  const previousVersion =
+    Number(
+      target.previous_state_version,
+    )
+
+  const generatedTimestamp =
+    Date.parse(
+      target.generated_at ?? '',
+    )
+
+  if (
+    !Number.isSafeInteger(
+      targetVersion,
+    ) ||
+    targetVersion <= 0 ||
+    !Number.isFinite(
+      generatedTimestamp,
+    )
+  ) {
+    throw new Error(
+      'Checkpoint histórico possui dados inválidos.',
+    )
+  }
+
+  if (
+    !Number.isSafeInteger(
+      previousVersion,
+    ) ||
+    previousVersion <= 0
+  ) {
+    return {
+      target_state_version:
+        targetVersion,
+      previous_state_version:
+        null,
+      generated_at:
+        new Date(
+          generatedTimestamp,
+        ).toISOString(),
+      previous_state:
+        null,
+      previous_persisted_at:
+        null,
+    }
+  }
+
+  const {
+    data: previousRows,
+    error: previousError,
+  } =
+    await client
+      .from(
+        'companion_commercial_state_events',
+      )
+      .select(
+        'candidate_state_version, state_snapshot, generated_at, persisted_at',
+      )
+      .eq(
+        'company_id',
+        companyId,
+      )
+      .eq(
+        'cycle_id',
+        cycleId,
+      )
+      .eq(
+        'conversation_key',
+        conversationKey,
+      )
+      .eq(
+        'candidate_state_version',
+        previousVersion,
+      )
+      .limit(1)
+
+  if (previousError) {
+    throw new Error(
+      `Falha ao carregar estado predecessor: ${previousError.message}`,
+    )
+  }
+
+  const previous =
+    previousRows?.[0] ?? null
+
+  if (
+    !previous ||
+    !previous.state_snapshot
+  ) {
+    throw new Error(
+      `Estado predecessor v${previousVersion} não foi encontrado no histórico.`,
+    )
+  }
+
+  const previousPersistedTimestamp =
+    Date.parse(
+      previous.persisted_at ?? '',
+    )
+
+  if (
+    !Number.isFinite(
+      previousPersistedTimestamp,
+    )
+  ) {
+    throw new Error(
+      'Checkpoint predecessor possui persisted_at inválido.',
+    )
+  }
+
+  return {
+    target_state_version:
+      targetVersion,
+    previous_state_version:
+      previousVersion,
+    generated_at:
+      new Date(
+        generatedTimestamp,
+      ).toISOString(),
+    previous_state:
+      previous.state_snapshot,
+    previous_persisted_at:
+      new Date(
+        previousPersistedTimestamp,
+      ).toISOString(),
+  }
 }
 
 function resolveConversationKey({
@@ -321,12 +524,34 @@ function getPreviousState(
 }
 
 function compactLegacyResult(
-  result,
+  legacy,
 ) {
+  if (!legacy.result) {
+    return {
+      mode:
+        legacy.mode,
+      duration_ms:
+        legacy.duration_ms,
+      diagnostic_attempts:
+        legacy.diagnostic_attempts,
+      communication_attempts:
+        legacy.communication_attempts,
+      total_model_attempts:
+        legacy.total_model_attempts,
+      error:
+        legacy.error,
+    }
+  }
+
+  const result =
+    legacy.result
+
   if (result.mode !== 'model') {
     return {
       mode:
         result.mode,
+      duration_ms:
+        legacy.duration_ms,
       limitations:
         result.limitations,
     }
@@ -335,6 +560,8 @@ function compactLegacyResult(
   return {
     mode:
       result.mode,
+    duration_ms:
+      legacy.duration_ms,
     diagnostic_model:
       result.execution.model,
     diagnostic_attempts:
@@ -400,14 +627,60 @@ async function main() {
         scope.conversationKeys,
     })
 
-  const referenceTime =
+  const ledgerReferenceTime =
     resolveReferenceTime(
       scope.rows,
       conversationKey,
     )
 
+  const replayCheckpoint =
+    await loadReplayCheckpoint(
+      client,
+      scope.companyId,
+      cycleId,
+      conversationKey,
+    )
+
+  const referenceTime =
+    replayCheckpoint?.generated_at ??
+    ledgerReferenceTime
+
   const contextLoader =
-    createStatefulCopilotServerRealContextLoader()
+    createStatefulCopilotServerRealContextLoader(
+      replayCheckpoint?.previous_state
+        ? {
+            loader_dependencies: {
+              state_reader:
+                async (request) => ({
+                  mode:
+                    'found',
+                  found:
+                    true,
+                  company_id:
+                    request.company_id,
+                  cycle_id:
+                    request.cycle_id,
+                  conversation_key:
+                    request.conversation_key,
+                  state_record_id:
+                    `replay-history-v${replayCheckpoint.previous_state_version}`,
+                  state_version:
+                    replayCheckpoint.previous_state_version,
+                  state_updated_at:
+                    replayCheckpoint
+                      .previous_state
+                      .updated_at,
+                  persisted_at:
+                    replayCheckpoint
+                      .previous_persisted_at,
+                  state:
+                    replayCheckpoint
+                      .previous_state,
+                }),
+            },
+          }
+        : {},
+    )
 
   const context =
     await contextLoader({
@@ -547,7 +820,7 @@ async function main() {
   console.log(
     JSON.stringify(
       compactLegacyResult(
-        comparison.legacy.result,
+        comparison.legacy,
       ),
       null,
       2,
