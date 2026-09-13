@@ -130,7 +130,7 @@ export function reconcileAnalysisSellerQuality({
             .map(normalizeId)
             .filter(
               (id): id is string =>
-                Boolean(id) &&
+                id !== null &&
                 outgoingIds.has(id),
             )
 
