@@ -147,7 +147,13 @@ test(
       'ações fora do botão de análise nunca podem disparar o fallback',
     )
 
-    dom.window.close()
+    // Não chamamos window.close() aqui: o runtime real mantém um
+    // MutationObserver ativo durante toda a vida da página. O teardown do
+    // jsdom destrói document/location e ainda agenda a entrega das mutações
+    // de remoção, produzindo um uncaughtException depois de as asserções já
+    // terem passado. Isso é ruído do ambiente de teste, não comportamento
+    // do Companion. O processo do node:test encerra normalmente sem esse
+    // teardown artificial.
   },
 )
 
@@ -210,7 +216,5 @@ test(
       1,
       'node já religado deve executar uma única vez, sem fallback duplicado',
     )
-
-    dom.window.close()
   },
 )
