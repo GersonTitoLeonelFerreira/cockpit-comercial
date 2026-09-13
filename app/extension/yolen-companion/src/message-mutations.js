@@ -7,6 +7,9 @@
     'data-yolen-attachment-evidence'
   const ATTACHMENT_MESSAGE_SELECTOR =
     '[data-pre-plain-text]'
+  const ATTACHMENT_SCOPE_BOUNDARY_SELECTOR =
+    'main, [role="application"], #app'
+  const MAX_ATTACHMENT_SCOPE_ANCESTOR_DEPTH = 6
   const ATTACHMENT_MARKER_SELECTOR = [
     'a[download]',
     '[download]',
@@ -94,7 +97,6 @@
       ? element.textContent
       : ''
   }
-
 
   function cleanCapturedMessageText(value) {
     const text = normalizeText(value)
@@ -380,6 +382,178 @@
     return null
   }
 
+  function collectAttachmentMessageNodes(
+    node,
+  ) {
+    if (!node || node.nodeType !== 1) {
+      return []
+    }
+
+    const messageNodes = []
+
+    if (
+      node.matches?.(
+        ATTACHMENT_MESSAGE_SELECTOR,
+      )
+    ) {
+      messageNodes.push(node)
+    }
+
+    node
+      .querySelectorAll?.(
+        ATTACHMENT_MESSAGE_SELECTOR,
+      )
+      .forEach((messageNode) => {
+        if (!messageNodes.includes(messageNode)) {
+          messageNodes.push(messageNode)
+        }
+      })
+
+    return messageNodes
+  }
+
+  function findUniqueAttachmentMessageNode(
+    node,
+  ) {
+    if (!node || node.nodeType !== 1) {
+      return null
+    }
+
+    const directOwner =
+      node.closest?.(
+        ATTACHMENT_MESSAGE_SELECTOR,
+      )
+
+    if (directOwner) {
+      return directOwner
+    }
+
+    let current = node
+
+    for (
+      let depth = 0;
+      current &&
+      depth <=
+        MAX_ATTACHMENT_SCOPE_ANCESTOR_DEPTH;
+      depth += 1
+    ) {
+      if (
+        depth > 0 &&
+        current.matches?.(
+          ATTACHMENT_SCOPE_BOUNDARY_SELECTOR,
+        )
+      ) {
+        return null
+      }
+
+      const messageNodes =
+        collectAttachmentMessageNodes(
+          current,
+        )
+
+      if (messageNodes.length === 1) {
+        return messageNodes[0]
+      }
+
+      if (messageNodes.length > 1) {
+        return null
+      }
+
+      current = current.parentElement
+    }
+
+    return null
+  }
+
+  function findAttachmentScopeForMessage(
+    messageNode,
+  ) {
+    if (
+      !messageNode ||
+      messageNode.nodeType !== 1
+    ) {
+      return messageNode
+    }
+
+    let scope = messageNode
+    let current = messageNode
+
+    for (
+      let depth = 0;
+      current &&
+      depth <=
+        MAX_ATTACHMENT_SCOPE_ANCESTOR_DEPTH;
+      depth += 1
+    ) {
+      if (
+        depth > 0 &&
+        current.matches?.(
+          ATTACHMENT_SCOPE_BOUNDARY_SELECTOR,
+        )
+      ) {
+        break
+      }
+
+      const messageNodes =
+        collectAttachmentMessageNodes(
+          current,
+        )
+
+      if (messageNodes.length > 1) {
+        break
+      }
+
+      if (
+        messageNodes.length === 1 &&
+        messageNodes[0] === messageNode
+      ) {
+        scope = current
+      }
+
+      current = current.parentElement
+    }
+
+    return scope
+  }
+
+  function readAttachmentOnlyText(
+    scope,
+  ) {
+    if (!scope?.cloneNode) {
+      return ''
+    }
+
+    const clone = scope.cloneNode(true)
+
+    clone
+      .querySelectorAll?.(
+        SELECTABLE_MESSAGE_TEXT_SELECTOR,
+      )
+      .forEach((element) => {
+        element.remove?.()
+      })
+
+    clone
+      .querySelectorAll?.(
+        QUOTED_MESSAGE_SELECTOR,
+      )
+      .forEach((element) => {
+        element.remove?.()
+      })
+
+    clone
+      .querySelectorAll?.(
+        `[${ATTACHMENT_EVIDENCE_ATTRIBUTE}]`,
+      )
+      .forEach((element) => {
+        element.remove?.()
+      })
+
+    return readCapturedElementText(
+      clone,
+    )
+  }
+
   function findAttachmentFileName(
     messageNode,
   ) {
@@ -387,13 +561,27 @@
       return null
     }
 
-    const marker =
-      messageNode.querySelector(
-        ATTACHMENT_MARKER_SELECTOR,
+    const scope =
+      findAttachmentScopeForMessage(
+        messageNode,
       )
 
+    if (!scope?.querySelectorAll) {
+      return null
+    }
+
+    const marker = Array.from(
+      scope.querySelectorAll(
+        ATTACHMENT_MARKER_SELECTOR,
+      ),
+    ).find((element) => {
+      return !element.closest?.(
+        QUOTED_MESSAGE_SELECTOR,
+      )
+    })
+
     const attributeElements =
-      messageNode.querySelectorAll?.(
+      scope.querySelectorAll?.(
         [
           '[download]',
           '[title]',
@@ -402,6 +590,26 @@
       ) || []
 
     for (const element of attributeElements) {
+      if (
+        element.closest?.(
+          QUOTED_MESSAGE_SELECTOR,
+        )
+      ) {
+        continue
+      }
+
+      const owningMessage =
+        element.closest?.(
+          ATTACHMENT_MESSAGE_SELECTOR,
+        )
+
+      if (
+        owningMessage &&
+        owningMessage !== messageNode
+      ) {
+        continue
+      }
+
       const isSelectableText =
         Boolean(
           element.closest?.(
@@ -446,13 +654,24 @@
       }
     }
 
+    const attachmentOnlyFileName =
+      extractAttachmentFileName(
+        readAttachmentOnlyText(
+          scope,
+        ),
+      )
+
+    if (attachmentOnlyFileName) {
+      return attachmentOnlyFileName
+    }
+
     if (!marker) {
       return null
     }
 
     const rendered =
       readCapturedElementText(
-        messageNode,
+        scope,
       )
 
     return extractAttachmentFileName(
@@ -512,6 +731,11 @@
       return false
     }
 
+    const scope =
+      findAttachmentScopeForMessage(
+        messageNode,
+      )
+
     const fileName =
       findAttachmentFileName(
         messageNode,
@@ -529,7 +753,7 @@
 
     const baseText =
       getNonQuotedSelectableText(
-        messageNode,
+        scope,
       )
 
     const evidenceText = [
@@ -584,23 +808,10 @@
       return 0
     }
 
-    const messageNodes = []
-
-    if (
-      node.matches?.(
-        ATTACHMENT_MESSAGE_SELECTOR,
+    const messageNodes =
+      collectAttachmentMessageNodes(
+        node,
       )
-    ) {
-      messageNodes.push(node)
-    }
-
-    node
-      .querySelectorAll?.(
-        ATTACHMENT_MESSAGE_SELECTOR,
-      )
-      .forEach((messageNode) => {
-        messageNodes.push(messageNode)
-      })
 
     const owner =
       node.closest?.(
@@ -612,6 +823,22 @@
       !messageNodes.includes(owner)
     ) {
       messageNodes.push(owner)
+    }
+
+    const relatedMessage =
+      findUniqueAttachmentMessageNode(
+        node,
+      )
+
+    if (
+      relatedMessage &&
+      !messageNodes.includes(
+        relatedMessage,
+      )
+    ) {
+      messageNodes.push(
+        relatedMessage,
+      )
     }
 
     return messageNodes.reduce(
