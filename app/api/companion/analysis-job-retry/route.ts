@@ -11,6 +11,10 @@ import {
 } from '@vercel/queue'
 
 import {
+  processStatefulCopilotBackgroundMessage,
+} from '@/app/lib/server/stateful-copilot-background-worker'
+
+import {
   CompanionAnalysisJobReadError,
 } from '@/app/lib/server/companion-analysis-job-reader'
 
@@ -25,6 +29,7 @@ import {
 type RetryAnalysisJobBody = {
   analysis_job_id?: unknown
   device_key?: unknown
+  allow_succeeded?: unknown
 }
 
 function getCorsHeaders(
@@ -172,6 +177,10 @@ export async function POST(
     )
 
   try {
+    const useLocalInlineWorker =
+      process.env.NODE_ENV === 'development' &&
+      process.env.COMPANION_LOCAL_INLINE_QUEUE === '1'
+
     const result =
       await retryCompanionAnalysisJob({
         admin,
@@ -180,8 +189,70 @@ export async function POST(
           body.analysis_job_id,
         device_key:
           body.device_key,
+        allow_succeeded:
+          body.allow_succeeded === true,
         publish:
-          send,
+          useLocalInlineWorker
+            ? async (
+                _topic,
+                message,
+                _options,
+              ) => {
+                console.info(
+                  'YOLEN_COMPANION_BACKGROUND_JOB',
+                  JSON.stringify({
+                    event:
+                      'local_inline_retry_worker_started',
+                    analysis_job_id:
+                      body.analysis_job_id ?? null,
+                  }),
+                )
+
+                void (async () => {
+                  for (
+                    let deliveryCount = 1;
+                    deliveryCount <= 5;
+                    deliveryCount += 1
+                  ) {
+                    try {
+                      await processStatefulCopilotBackgroundMessage(
+                        message,
+                        {
+                          delivery_count:
+                            deliveryCount,
+                        },
+                      )
+
+                      return
+                    } catch (error) {
+                      console.warn(
+                        'YOLEN_COMPANION_BACKGROUND_JOB',
+                        JSON.stringify({
+                          event:
+                            'local_inline_retry_worker_failed',
+                          analysis_job_id:
+                            body.analysis_job_id ?? null,
+                          delivery_count:
+                            deliveryCount,
+                          error:
+                            error instanceof Error
+                              ? error.message
+                              : 'unknown_error',
+                        }),
+                      )
+
+                      if (
+                        deliveryCount >= 5
+                      ) {
+                        return
+                      }
+                    }
+                  }
+                })()
+
+                return null
+              }
+            : send,
       })
 
     return NextResponse.json(

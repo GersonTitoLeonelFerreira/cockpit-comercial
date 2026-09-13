@@ -4,11 +4,15 @@ import { createClient } from '@supabase/supabase-js'
 import { send } from '@vercel/queue'
 
 import {
+  STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS,
   STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
   buildStatefulCopilotBackgroundJobDescriptor,
   buildStatefulCopilotBackgroundJobMessage,
   isStatefulCopilotBackgroundJobStatus,
 } from '@/app/lib/server/stateful-copilot-background-job'
+import {
+  processStatefulCopilotBackgroundMessage,
+} from '@/app/lib/server/stateful-copilot-background-worker'
 import type {
   AISalesContext,
   AISalesRecentEvent,
@@ -873,65 +877,281 @@ export async function POST(request: Request) {
     }
 
     if (shouldScheduleBackground) {
-      try {
-        await send(
-          STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
-          buildStatefulCopilotBackgroundJobMessage({
-            descriptor: backgroundJob,
-            device_key: deviceKey,
-          }),
-          {
-            idempotencyKey: backgroundJob.analysis_job_id,
-            retentionSeconds: 24 * 60 * 60,
-          },
-        )
+      const backgroundMessage =
+        buildStatefulCopilotBackgroundJobMessage({
+          descriptor: backgroundJob,
+          device_key: deviceKey,
+        })
+
+      const useLocalInlineWorker =
+        process.env.NODE_ENV === 'development' &&
+        process.env.COMPANION_LOCAL_INLINE_QUEUE === '1'
+
+      if (useLocalInlineWorker) {
+        /*
+         * Harness exclusivamente local para smoke real da extensão.
+         * Produção continua usando Vercel Queue. No local, emulamos a
+         * redelivery da Queue com o MESMO limite de tentativas do contrato
+         * durable. Uma falha retryable do worker não pode ser convertida em
+         * terminal apenas porque o dev server não possui a Vercel Queue.
+         */
+        void (async () => {
+          let lastError: unknown = null
+
+          for (
+            let deliveryCount = 1;
+            deliveryCount <=
+              STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS;
+            deliveryCount += 1
+          ) {
+            try {
+              await processStatefulCopilotBackgroundMessage(
+                backgroundMessage,
+                {
+                  delivery_count:
+                    deliveryCount,
+                },
+              )
+
+              return
+            } catch (error) {
+              lastError = error
+
+              console.warn(
+                'YOLEN_COMPANION_BACKGROUND_JOB',
+                JSON.stringify({
+                  event:
+                    'local_inline_worker_delivery_failed',
+                  company_id:
+                    backgroundJob.company_id,
+                  cycle_id:
+                    backgroundJob.cycle_id,
+                  analysis_job_id:
+                    backgroundJob.analysis_job_id,
+                  delivery_count:
+                    deliveryCount,
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : 'unknown_error',
+                }),
+              )
+            }
+          }
+
+          const {
+            data: latestLocalJob,
+            error: latestLocalJobError,
+          } = await admin
+            .from(
+              'companion_background_analysis_jobs',
+            )
+            .select('status')
+            .eq(
+              'analysis_job_id',
+              backgroundJob.analysis_job_id,
+            )
+            .eq(
+              'company_id',
+              backgroundJob.company_id,
+            )
+            .eq(
+              'cycle_id',
+              backgroundJob.cycle_id,
+            )
+            .eq(
+              'conversation_key',
+              backgroundJob.conversation_key,
+            )
+            .eq(
+              'message_watermark',
+              backgroundJob.message_watermark,
+            )
+            .maybeSingle()
+
+          if (
+            latestLocalJobError ||
+            latestLocalJob?.status !==
+              'queued'
+          ) {
+            return
+          }
+
+          const completedAt =
+            new Date().toISOString()
+
+          const {
+            error:
+              localWorkerFailurePersistenceError,
+          } = await admin
+            .from(
+              'companion_background_analysis_jobs',
+            )
+            .update({
+              status: 'failed',
+              completed_at: completedAt,
+              updated_at: completedAt,
+              failure_code:
+                'LOCAL_INLINE_WORKER_FAILED',
+              automatic_crm_write: false,
+              automatic_agenda_write: false,
+            })
+            .eq(
+              'analysis_job_id',
+              backgroundJob.analysis_job_id,
+            )
+            .eq(
+              'company_id',
+              backgroundJob.company_id,
+            )
+            .eq(
+              'cycle_id',
+              backgroundJob.cycle_id,
+            )
+            .eq(
+              'conversation_key',
+              backgroundJob.conversation_key,
+            )
+            .eq(
+              'message_watermark',
+              backgroundJob.message_watermark,
+            )
+            .eq('status', 'queued')
+
+          console.warn(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event:
+                'local_inline_worker_exhausted',
+              company_id:
+                backgroundJob.company_id,
+              cycle_id:
+                backgroundJob.cycle_id,
+              analysis_job_id:
+                backgroundJob.analysis_job_id,
+              persistence_failed:
+                Boolean(
+                  localWorkerFailurePersistenceError,
+                ),
+              error:
+                lastError instanceof Error
+                  ? lastError.message
+                  : 'unknown_error',
+            }),
+          )
+        })()
 
         console.info(
           'YOLEN_COMPANION_BACKGROUND_JOB',
           JSON.stringify({
-            event: 'background_job_published',
-            company_id: backgroundJob.company_id,
-            cycle_id: backgroundJob.cycle_id,
-            analysis_job_id: backgroundJob.analysis_job_id,
-            message_watermark: backgroundJob.message_watermark,
+            event:
+              'local_inline_worker_started',
+            company_id:
+              backgroundJob.company_id,
+            cycle_id:
+              backgroundJob.cycle_id,
+            analysis_job_id:
+              backgroundJob.analysis_job_id,
+            message_watermark:
+              backgroundJob.message_watermark,
           }),
         )
-      } catch {
-        const completedAt = new Date().toISOString()
+      } else {
+        try {
+          await send(
+            STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
+            backgroundMessage,
+            {
+              idempotencyKey:
+                backgroundJob.analysis_job_id,
+              retentionSeconds:
+                24 * 60 * 60,
+            },
+          )
 
-        const { error: publishFailurePersistenceError } = await admin
-          .from('companion_background_analysis_jobs')
-          .update({
+          console.info(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event:
+                'background_job_published',
+              company_id:
+                backgroundJob.company_id,
+              cycle_id:
+                backgroundJob.cycle_id,
+              analysis_job_id:
+                backgroundJob.analysis_job_id,
+              message_watermark:
+                backgroundJob.message_watermark,
+            }),
+          )
+        } catch {
+          const completedAt =
+            new Date().toISOString()
+
+          const {
+            error:
+              publishFailurePersistenceError,
+          } = await admin
+            .from(
+              'companion_background_analysis_jobs',
+            )
+            .update({
+              status: 'failed',
+              completed_at: completedAt,
+              updated_at: completedAt,
+              failure_code:
+                'QUEUE_PUBLISH_FAILED',
+              automatic_crm_write: false,
+              automatic_agenda_write: false,
+            })
+            .eq(
+              'analysis_job_id',
+              backgroundJob.analysis_job_id,
+            )
+            .eq(
+              'company_id',
+              backgroundJob.company_id,
+            )
+            .eq(
+              'cycle_id',
+              backgroundJob.cycle_id,
+            )
+            .eq(
+              'conversation_key',
+              backgroundJob.conversation_key,
+            )
+            .eq(
+              'message_watermark',
+              backgroundJob.message_watermark,
+            )
+            .eq('status', 'queued')
+
+          deepAnalysis = {
+            analysis_job_id:
+              backgroundJob.analysis_job_id,
             status: 'failed',
-            completed_at: completedAt,
-            updated_at: completedAt,
-            failure_code: 'QUEUE_PUBLISH_FAILED',
-            automatic_crm_write: false,
-            automatic_agenda_write: false,
-          })
-          .eq('analysis_job_id', backgroundJob.analysis_job_id)
-          .eq('company_id', backgroundJob.company_id)
-          .eq('cycle_id', backgroundJob.cycle_id)
-          .eq('conversation_key', backgroundJob.conversation_key)
-          .eq('message_watermark', backgroundJob.message_watermark)
-          .eq('status', 'queued')
+            message_watermark:
+              backgroundJob.message_watermark,
+          }
 
-        deepAnalysis = {
-          analysis_job_id: backgroundJob.analysis_job_id,
-          status: 'failed',
-          message_watermark: backgroundJob.message_watermark,
+          console.warn(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event:
+                'background_job_publish_failed',
+              company_id:
+                backgroundJob.company_id,
+              cycle_id:
+                backgroundJob.cycle_id,
+              analysis_job_id:
+                backgroundJob.analysis_job_id,
+              persistence_failed:
+                Boolean(
+                  publishFailurePersistenceError,
+                ),
+            }),
+          )
         }
-
-        console.warn(
-          'YOLEN_COMPANION_BACKGROUND_JOB',
-          JSON.stringify({
-            event: 'background_job_publish_failed',
-            company_id: backgroundJob.company_id,
-            cycle_id: backgroundJob.cycle_id,
-            analysis_job_id: backgroundJob.analysis_job_id,
-            persistence_failed: Boolean(publishFailurePersistenceError),
-          }),
-        )
       }
     }
 

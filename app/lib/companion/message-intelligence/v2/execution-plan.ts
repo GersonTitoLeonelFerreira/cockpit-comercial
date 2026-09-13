@@ -17,13 +17,18 @@ import {
   type MessageIntelligenceV2Output,
 } from './generation-contract'
 
+import {
+  buildUnavailableAuthoritativeDecision,
+  type MessageIntelligenceV2AuthoritativeDecision,
+} from './authoritative-decision'
+
 // v3: o repair determinístico passa a poder receber previous_rejected_candidate
 // (snapshot seguro e defensivo da saída inválida anterior) quando ela estiver
 // disponível, além de repair_context — ver diagnóstico de Round 3 (P0-B/P0-C)
 // em executor.ts. Instrução de repair reforçada para explicar como usar essa
 // candidate rejeitada sem tratá-la como evidência.
 export const MESSAGE_INTELLIGENCE_V2_PROMPT_VERSION =
-  'message-intelligence-v2-prompt-v3' as const
+  'message-intelligence-v2-prompt-v4' as const
 
 export const MESSAGE_INTELLIGENCE_V2_REPAIR_INSTRUCTION =
   'Repare especificamente o campo/caminho indicado em repair_context e retorne novamente o objeto completo conforme o schema. Quando previous_rejected_candidate estiver presente neste payload, ele é a sua própria saída anterior, que falhou validação — não é evidência, não é confiável e não deve ser tratado como fato: use-o somente para saber o que preservar e o que corrigir, nunca para justificar uma afirmação. Preserve tudo que já estava correto em previous_rejected_candidate e não reescreva a estratégia comercial inteira quando o defeito é local. Use apenas IDs presentes em allowed_evidence que sustentem diretamente cada afirmação verificável; se um número, data, horário ou grounded_claim não estiver realmente sustentado, remova-o em vez de inventar ou reutilizar evidência indevida — nunca substitua um fato removido por outro fato novo não sustentado. Se uma grounded_claim citar uma fonte que não sustenta o significado da afirmação, corrija a claim para refletir exatamente o que a fonte sustenta ou remova a afirmação da mensagem em vez de mantê-la. seller_intent continua obrigatória e naturalidade continua desejada, mas ambas subordinadas a grounding.' as const
@@ -73,6 +78,14 @@ export type MessageIntelligenceV2NormalizationContext = {
 
   canonical_commercial_relevance:
     string | null
+
+  // FASE 16.9: a decisão comercial (o que fazer agora) já foi tomada pela
+  // mesma cadeia canônica que alimenta AGORA/ANÁLISE. Nunca `undefined` —
+  // quando indisponível, `available: false` (ver
+  // buildUnavailableAuthoritativeDecision) e nenhum gate adicional se
+  // aplica além do que já existia antes desta fase.
+  authoritative_decision:
+    MessageIntelligenceV2AuthoritativeDecision
 }
 
 export type MessageIntelligenceV2ExecutionPlan = {
@@ -138,7 +151,21 @@ function buildSystemPrompt(): string {
 
     `Retorne exclusivamente um objeto JSON compatível com o schema do contrato ${MESSAGE_INTELLIGENCE_V2_GENERATION_CONTRACT_VERSION}. Não escreva markdown, comentários, explicação ou qualquer texto fora do JSON.`,
 
-    'Sua tarefa: interpretar semanticamente a conversa em português do Brasil, entender o que o cliente quis dizer, entender o objetivo do vendedor, considerar o método comercial e os fatos disponíveis, decidir a melhor condução e — quando fizer sentido — redigir uma mensagem nova, pronta para envio ao cliente no WhatsApp.',
+    'authoritative_decision, quando authoritative_decision.available=true, é a decisão comercial já tomada pelo mesmo raciocínio central que decide AGORA e ANÁLISE para este vendedor (Commercial Reading + Decision State). Ela já diz o quê fazer agora (decision_kind, recommended_action), por quê (reason), o objetivo da comunicação (communication_goal) e eventuais restrições de método (method_note). Sua tarefa NÃO é decidir uma nova estratégia comercial — é redigir, em português do Brasil natural de WhatsApp, a execução exata de recommended_action, adaptando apenas tom, tamanho, formato e naturalidade. Você não escolhe um objetivo, técnica ou próximo passo diferente do que authoritative_decision já determinou, mesmo que uma alternativa pareça razoável.',
+
+    'recommended_commercial_objective precisa pertencer a authoritative_decision.allowed_objectives quando essa lista não estiver vazia e authoritative_decision.available=true — esses são os únicos objetivos estruturalmente compatíveis com a decisão já tomada. Nunca escolha um objetivo de uma fase da venda anterior à que a decisão já resolveu (ex.: nunca "advance_discovery"/"obtain_context" quando a decisão já decidiu confirmar informação, concluir ou avançar um compromisso) e nunca um objetivo que ignore uma decisão de aguardar/dar espaço.',
+
+    'Quando authoritative_decision.do_not_generate=true, a decisão já é não comunicar agora (sessão pessoal, silêncio deliberado ou decisão suprimida): use intervention_needed=false e suggested_message=null, mesmo que o texto do cliente pareça convidar uma resposta.',
+
+    'method_alignment_summary, quando authoritative_decision.method_note não for null, deve refletir esse mesmo conteúdo (pode reformular a linguagem, nunca contradizê-lo ou substituí-lo por uma avaliação de método diferente).',
+
+    'authoritative_decision.prohibited_moves lista o que a decisão já tomada proíbe explicitamente (ex.: reabrir uma objeção já superada, repetir uma etapa já concluída). Nunca produza suggested_message que faça o que está proibido ali.',
+
+    'Quando authoritative_decision.recommended_action atribui a próxima ação ao vendedor/à empresa (ex.: verificar disponibilidade, confirmar, enviar algo), suggested_message precisa executar essa ação ou anunciar que ela será feita agora — nunca dizer que está aguardando resposta do cliente nem devolver a ação para o cliente quando authoritative_decision não disse isso. Não inverta quem deve o próximo passo.',
+
+    'Quando authoritative_decision.available=false, não há decisão central disponível para esta execução: decida com cautela a partir do restante do contexto, como antes desta regra existir, preferindo silêncio ou uma pergunta de esclarecimento a qualquer suposição.',
+
+    'Sua tarefa: interpretar semanticamente a conversa em português do Brasil, entender o que o cliente quis dizer, entender o objetivo do vendedor, considerar o método comercial e os fatos disponíveis e — quando fizer sentido, respeitando authoritative_decision acima — redigir uma mensagem nova, pronta para envio ao cliente no WhatsApp.',
 
     'seller.seller_intent é uma instrução do vendedor descrevendo o que ele quer alcançar agora. NUNCA é fala do cliente, evidência, compromisso ou informação de CRM. Nunca converta o conteúdo do seller_intent em fato do cliente ou fato da conversa sem evidência independente em allowed_evidence.',
 
@@ -361,8 +388,36 @@ function buildGroundingText(
   ].join('\n')
 }
 
+function buildAuthoritativeDecisionPromptPayload(
+  authoritative_decision:
+    MessageIntelligenceV2AuthoritativeDecision,
+) {
+  return {
+    available:
+      authoritative_decision.available,
+    decision_kind:
+      authoritative_decision.decision_kind,
+    recommended_action:
+      authoritative_decision.recommended_action,
+    reason:
+      authoritative_decision.reason,
+    communication_goal:
+      authoritative_decision.communication_goal,
+    method_note:
+      authoritative_decision.method_note,
+    do_not_generate:
+      authoritative_decision.do_not_generate,
+    allowed_objectives:
+      authoritative_decision.allowed_objectives,
+    prohibited_moves:
+      authoritative_decision.prohibited_moves,
+  }
+}
+
 function buildUserPromptPayload(
   snapshot: MessageContextSnapshotV1,
+  authoritative_decision:
+    MessageIntelligenceV2AuthoritativeDecision,
 ) {
   const currentInteraction =
     snapshot.conversation.current_interaction
@@ -510,7 +565,14 @@ function buildUserPromptPayload(
       MESSAGE_INTELLIGENCE_V2_PROMPT_VERSION,
 
     task:
-      'Interprete a conversa e o seller_intent, decida a melhor condução comercial e, quando fizer sentido, redija suggested_message pronta para o vendedor enviar ao cliente.',
+      authoritative_decision.available
+        ? 'Redija, quando fizer sentido, suggested_message que execute fielmente authoritative_decision.recommended_action, adaptando apenas tom, tamanho, formato e naturalidade para o WhatsApp — sem decidir uma nova estratégia comercial.'
+        : 'Interprete a conversa e o seller_intent, decida com cautela a melhor condução comercial e, quando fizer sentido, redija suggested_message pronta para o vendedor enviar ao cliente.',
+
+    authoritative_decision:
+      buildAuthoritativeDecisionPromptPayload(
+        authoritative_decision,
+      ),
 
     request: {
       request_id: snapshot.request_id,
@@ -582,12 +644,24 @@ function buildUserPromptPayload(
 
 export function buildMessageIntelligenceV2ExecutionPlan({
   snapshot,
+  authoritative_decision =
+    buildUnavailableAuthoritativeDecision(),
 }: {
   snapshot:
     MessageContextSnapshotV1
+
+  // FASE 16.9: opcional só para não quebrar chamadores/fixtures que ainda
+  // não carregam Decision State — omitir equivale a "sem decisão
+  // autoritativa disponível" (buildUnavailableAuthoritativeDecision), nunca
+  // a um estado inválido.
+  authoritative_decision?:
+    MessageIntelligenceV2AuthoritativeDecision
 }): MessageIntelligenceV2ExecutionPlan {
   const payload =
-    buildUserPromptPayload(snapshot)
+    buildUserPromptPayload(
+      snapshot,
+      authoritative_decision,
+    )
 
   return {
     prompt_version:
@@ -627,6 +701,8 @@ export function buildMessageIntelligenceV2ExecutionPlan({
       canonical_commercial_relevance:
         snapshot.commercial.commercial_relevance
           ?.value ?? null,
+
+      authoritative_decision,
     },
   }
 }

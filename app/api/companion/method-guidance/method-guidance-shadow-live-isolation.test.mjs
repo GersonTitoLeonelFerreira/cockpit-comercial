@@ -1044,8 +1044,19 @@ test(
 )
 
 
+// FASE 16.9 (correção final) — a rota deixou de ter um "gate de
+// ativação" onde o Message Intelligence Engine podia substituir a
+// resposta seller-facing (arquitetura antiga: "if env off usa
+// canonical, else usa MIE independente" — uma segunda autoridade
+// comercial sempre que MESSAGE_INTELLIGENCE_SELLER_MODE=active
+// estivesse configurado). Route.ts não importa mais
+// tryGenerateActivatedMessageIntelligenceSellerMessageV1/V2: nenhuma
+// configuração de ambiente pode reabrir esse caminho. O único caminho
+// de resposta seller-facing é contexto canônico → Commercial
+// Reasoning → composeSellerMessage; o MIE V1 continua existindo
+// somente como shadow/telemetria (ver testes acima).
 test(
-  'active seller gate: resultado MIE ready substitui legacy sem gerar shadow paralelo',
+  'MIE nunca é chamado para a resposta seller-facing, mesmo quando configurado para responder',
   async () => {
     const { admin } =
       createFakeAdmin(
@@ -1063,6 +1074,9 @@ test(
 
     afterBox.callbacks = []
 
+    // Mesmo configurando o mock do MIE para responder com uma
+    // mensagem própria, ele nunca deve ser invocado: route.ts não tem
+    // mais nenhuma chamada a esse módulo.
     activationBox.calls = []
     activationBox.result = {
       status: 'ready',
@@ -1082,43 +1096,39 @@ test(
       200,
     )
 
-    assert.deepEqual(
-      body,
-      {
-        ok: true,
-        data: {
-          status: 'ready',
-          message:
-            'Mensagem final produzida pelo MIE.',
-          error: null,
-        },
-      },
-    )
-
     assert.equal(
       activationBox.calls.length,
-      1,
+      0,
+    )
+
+    assert.notEqual(
+      body.data.message,
+      'Mensagem final produzida pelo MIE.',
     )
 
     assert.equal(
-      providerBox.calls.length,
-      0,
+      body.ok,
+      true,
+    )
+
+    assert.equal(
+      body.data.status,
+      'ready',
+    )
+
+    assert.ok(
+      providerBox.calls.length > 0,
     )
 
     assert.equal(
       sendBox.calls.length,
-      0,
-    )
-
-    assert.equal(
-      afterBox.callbacks.length,
-      0,
+      1,
     )
   },
 )
 
 test(
-  'active seller gate: ausência de mensagem MIE preserva legacy e shadow',
+  'MIE nunca é chamado mesmo quando configurado para retornar ausência de mensagem',
   async () => {
     const { admin } =
       createFakeAdmin(
@@ -1171,7 +1181,7 @@ test(
 
     assert.equal(
       activationBox.calls.length,
-      1,
+      0,
     )
 
     assert.ok(

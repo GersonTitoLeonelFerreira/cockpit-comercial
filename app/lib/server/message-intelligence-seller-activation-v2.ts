@@ -28,6 +28,10 @@ import {
   isMessageIntelligenceSellerActiveForCompanyV1,
 } from './message-intelligence-seller-activation'
 
+import {
+  createMessageIntelligenceV2AuthoritativeDecisionLoader,
+} from './message-intelligence-v2-authoritative-decision-adapter'
+
 type SellerActivationEnvironment =
   Readonly<
     Record<
@@ -64,6 +68,9 @@ export type MessageIntelligenceSellerActivationV2Dependencies = {
 
   create_source_loader?:
     typeof createMessageIntelligenceSourceLoaderV1
+
+  create_authoritative_decision_loader?:
+    typeof createMessageIntelligenceV2AuthoritativeDecisionLoader
 
   run_message_intelligence_v2?:
     typeof runMessageIntelligenceV2
@@ -190,6 +197,11 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV2({
     dependencies.create_source_loader ??
     createMessageIntelligenceSourceLoaderV1
 
+  const createAuthoritativeDecisionLoader =
+    dependencies
+      .create_authoritative_decision_loader ??
+    createMessageIntelligenceV2AuthoritativeDecisionLoader
+
   const runV2 =
     dependencies.run_message_intelligence_v2 ??
     runMessageIntelligenceV2
@@ -232,6 +244,11 @@ export async function tryGenerateActivatedMessageIntelligenceSellerMessageV2({
 
         load_sources:
           createSourceLoader({
+            admin,
+          }),
+
+        load_authoritative_decision:
+          createAuthoritativeDecisionLoader({
             admin,
           }),
 

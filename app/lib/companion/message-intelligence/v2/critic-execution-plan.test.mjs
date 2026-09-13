@@ -266,3 +266,71 @@ test(
     )
   },
 )
+
+// FASE 16.9 — o critic recebe authoritative_decision (a mesma decisão já
+// tomada para AGORA/ANÁLISE) para poder marcar method_violation quando a
+// mensagem a contradiz — sem isso, o critic não teria como saber que "o
+// próximo movimento" já foi decidido centralmente.
+test(
+  'FASE 16.9 — payload do critic inclui authoritative_decision quando o plano primário a fornece',
+  () => {
+    const primaryPlan = buildMessageIntelligenceV2ExecutionPlan({
+      snapshot: priceScenario.build(),
+      authoritative_decision: {
+        available: true,
+        decision_kind: 'confirm_information',
+        recommended_action:
+          'Verificar disponibilidade e confirmar o agendamento.',
+        reason: 'Cliente já escolheu tudo e pediu para agendar.',
+        communication_goal:
+          'Confirmar informação com o cliente.',
+        method_note: null,
+        do_not_generate: false,
+        allowed_objectives: ['secure_next_step'],
+        prohibited_moves: ['resend_schedule'],
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+    })
+
+    const output = goodOutput(primaryPlan)
+
+    const criticPlan =
+      buildMessageIntelligenceV2CriticExecutionPlan({
+        primaryPlan,
+        output,
+      })
+
+    const payload = JSON.parse(criticPlan.user_prompt)
+
+    assert.equal(
+      payload.authoritative_decision.decision_kind,
+      'confirm_information',
+    )
+    assert.deepEqual(
+      payload.authoritative_decision.prohibited_moves,
+      ['resend_schedule'],
+    )
+  },
+)
+
+test(
+  'FASE 16.9 — payload do critic tem authoritative_decision "indisponível" por padrão quando o plano primário não a fornece',
+  () => {
+    const primaryPlan = buildPrimaryPlan(priceScenario)
+    const output = goodOutput(primaryPlan)
+
+    const criticPlan =
+      buildMessageIntelligenceV2CriticExecutionPlan({
+        primaryPlan,
+        output,
+      })
+
+    const payload = JSON.parse(criticPlan.user_prompt)
+
+    assert.equal(
+      payload.authoritative_decision.available,
+      false,
+    )
+  },
+)

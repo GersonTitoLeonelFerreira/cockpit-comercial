@@ -1,7 +1,7 @@
 // Carrega src/content-script.js (e suas dependências reais de manifest —
 // yolen-api.js, message-mutations.js, capture-batch.js,
 // capture-resilience.js, capture-resilience-null-base.js,
-// lead-enrichment.js) de verdade, em uma sandbox `node:vm` com um DOM real
+// lead-enrichment.js, companion-reasoning-view.js) de verdade, em uma sandbox `node:vm` com um DOM real
 // fornecido por `jsdom` — a única dependência nova adicionada pela E3, e
 // só para teste (nunca é carregada pelo runtime da extensão).
 //
@@ -36,6 +36,7 @@ const DEPENDENCY_FILES = [
   'companion-client-context-view.js',
   'companion-lead-summary-view.js',
   'companion-seller-information-view.js',
+  'companion-reasoning-view.js',
 ]
 
 export function escapeHtml(value) {

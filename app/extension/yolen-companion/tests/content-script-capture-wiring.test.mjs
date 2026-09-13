@@ -493,46 +493,46 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
     )
   })
 
-  test('observador agenda a ingestão depois de atualizar o ledger', () => {
-  const observerStart =
+  test('processamento observado agenda a ingestão depois de atualizar o ledger', () => {
+  const processingStart =
     contentScript.indexOf(
-      '  function observeWhatsAppChanges()',
+      '  function processObservedWhatsAppChange()',
     )
 
-  const observerEnd =
+  const processingEnd =
     contentScript.indexOf(
-      '\n  observeWhatsAppChanges.timeoutId = 0',
-      observerStart,
+      '\n  function observeWhatsAppChanges()',
+      processingStart,
     )
 
   assert.notEqual(
-    observerStart,
+    processingStart,
     -1,
   )
 
   assert.notEqual(
-    observerEnd,
+    processingEnd,
     -1,
   )
 
-  const observerBlock =
+  const processingBlock =
     contentScript.slice(
-      observerStart,
-      observerEnd,
+      processingStart,
+      processingEnd,
     )
 
   const refreshIndex =
-    observerBlock.indexOf(
+    processingBlock.indexOf(
       'refreshConversationSnapshot()',
     )
 
   const pendingMessageIndex =
-    observerBlock.indexOf(
+    processingBlock.indexOf(
       'checkPendingSuggestedMessageSentFromConversation()',
     )
 
   const ingestionIndex =
-    observerBlock.indexOf(
+    processingBlock.indexOf(
       'scheduleCaptureIngestion()',
     )
 
@@ -806,25 +806,35 @@ test('captura usa corpo selecionável e chave estável', () => {
       /pendingMutationKeys:\s*pendingCaptureMutationIds/,
     )
 
-    const observerStart =
+    const processingStart =
       contentScript.indexOf(
-        '  function observeWhatsAppChanges()',
+        '  function processObservedWhatsAppChange()',
       )
 
-    const observerEnd =
+    const processingEnd =
       contentScript.indexOf(
-        '\n  observeWhatsAppChanges.timeoutId = 0',
-        observerStart,
+        '\n  function observeWhatsAppChanges()',
+        processingStart,
       )
 
-    const observerBlock =
+    assert.notEqual(
+      processingStart,
+      -1,
+    )
+
+    assert.notEqual(
+      processingEnd,
+      -1,
+    )
+
+    const processingBlock =
       contentScript.slice(
-        observerStart,
-        observerEnd,
+        processingStart,
+        processingEnd,
       )
 
     assert.match(
-      observerBlock,
+      processingBlock,
       /if \(messageMutationDetected\) \{\s*scheduleCaptureIngestion\(0\)/,
     )
   })

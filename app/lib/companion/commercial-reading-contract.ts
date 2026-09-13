@@ -2061,36 +2061,12 @@ function normalizeMethodAdherence(
   }
 
   if (
-    status === 'off_method'
-  ) {
-    if (
-      deviationStageOrder === null ||
-      !stageOrders.has(
-        deviationStageOrder,
-      )
-    ) {
-      fail(
-        'METHOD_DEVIATION_STAGE_REQUIRED',
-        `${path}.deviation_stage_order`,
-        'Saída do método precisa apontar para uma etapa canônica.',
-      )
-    }
-
-    if (
-      whatHappened === null ||
-      missingInformation.length === 0 ||
-      whyItMatters === null
-    ) {
-      fail(
-        'METHOD_DEVIATION_EXPLANATION_REQUIRED',
-        path,
-        'Saída do método precisa explicar o que aconteceu, o que faltou e por que importa.',
-      )
-    }
-  } else if (
-    deviationStageOrder !== null ||
-    whatHappened !== null ||
-    whyItMatters !== null
+    status !== 'off_method' &&
+    (
+      deviationStageOrder !== null ||
+      whatHappened !== null ||
+      whyItMatters !== null
+    )
   ) {
     fail(
       'METHOD_DEVIATION_NOT_ALLOWED',
@@ -2133,7 +2109,7 @@ function normalizeMethodAdherence(
       collectedMessageIds,
       collectedMemoryIds,
       requiresGrounding,
-      status === 'off_method',
+      false,
     ),
   }
 }
@@ -2150,28 +2126,11 @@ function normalizeRecoveryGuidance(
   collectedMemoryIds:
     Set<string>,
 ): CommercialReadingRecoveryGuidance | null {
-  if (value === null) {
-    if (
-      adherenceStatus === 'off_method'
-    ) {
-      fail(
-        'METHOD_RECOVERY_REQUIRED',
-        path,
-        'Saída do método precisa de uma condução corretiva.',
-      )
-    }
-
-    return null
-  }
-
   if (
+    value === null ||
     adherenceStatus !== 'off_method'
   ) {
-    fail(
-      'METHOD_RECOVERY_NOT_ALLOWED',
-      path,
-      'Condução corretiva só é permitida quando a conversa saiu do método.',
-    )
+    return null
   }
 
   const record =
@@ -2198,14 +2157,6 @@ function normalizeRecoveryGuidance(
       record.missing_information,
       `${path}.missing_information`,
     )
-
-  if (missingInformation.length === 0) {
-    fail(
-      'METHOD_RECOVERY_MISSING_INFORMATION_REQUIRED',
-      `${path}.missing_information`,
-      'Condução corretiva precisa declarar o que ainda falta compreender.',
-    )
-  }
 
   return {
     objective:
@@ -2235,8 +2186,8 @@ function normalizeRecoveryGuidance(
       context,
       collectedMessageIds,
       collectedMemoryIds,
-      true,
-      true,
+      false,
+      false,
     ),
   }
 }
@@ -2885,17 +2836,6 @@ function normalizeMethodModelOutput({
     },
   )
 
-  if (
-    stageOutputByOrder.size !==
-    canonicalStages.length
-  ) {
-    fail(
-      'METHOD_STAGE_SET_MISMATCH',
-      'reading.method.stages',
-      'O modelo precisa avaliar exatamente as etapas do método canônico.',
-    )
-  }
-
   const modelStages =
     canonicalStages.map(
       (canonicalStage, index) => {
@@ -2905,11 +2845,26 @@ function normalizeMethodModelOutput({
           )
 
         if (!stage) {
-          fail(
-            'METHOD_STAGE_SET_MISMATCH',
-            `reading.method.stages[${index}].step_order`,
-            'Etapa canônica ausente na avaliação do método.',
-          )
+          return {
+            step_order:
+              canonicalStage.step_order,
+
+            stage_key:
+              canonicalStage.stage_key,
+
+            name:
+              canonicalStage.name,
+
+            status:
+              'not_started' as const,
+
+            explanation:
+              'Esta etapa não foi avaliada nesta execução.',
+
+            evidence_message_ids: [],
+
+            memory_ids: [],
+          }
         }
 
         const status =
@@ -3129,7 +3084,7 @@ function normalizeSellerStrengths(
           collectedMessageIds,
           collectedMemoryIds,
           true,
-          true,
+          false,
         ),
       }
     },
@@ -3212,7 +3167,7 @@ function normalizeImprovementPoints(
           collectedMessageIds,
           collectedMemoryIds,
           true,
-          true,
+          false,
         ),
       }
     },

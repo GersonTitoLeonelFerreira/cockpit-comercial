@@ -10,29 +10,40 @@ const contentScript = readFileSync(
 test(
   'nova mensagem usa a fotografia real da conversa para rearmar a analise automatica',
   () => {
+    const processingStart =
+      contentScript.indexOf(
+        'function processObservedWhatsAppChange()',
+      )
+
     const observerStart =
       contentScript.indexOf(
         'function observeWhatsAppChanges()',
+        processingStart,
       )
+
+    assert.notEqual(
+      processingStart,
+      -1,
+    )
 
     assert.notEqual(
       observerStart,
       -1,
     )
 
-    const observerBlock =
+    const processingBlock =
       contentScript.slice(
+        processingStart,
         observerStart,
-        observerStart + 3500,
       )
 
     assert.match(
-      observerBlock,
-      /scheduleCaptureIngestion\(\)[\s\S]*scheduleAutomaticAnalysis\([\s\S]*Nova mensagem detectada/,
+      processingBlock,
+      /refreshConversationSnapshot\(\)[\s\S]*scheduleCaptureIngestion\(\)[\s\S]*scheduleAutomaticAnalysis\([\s\S]*Nova mensagem detectada/,
     )
 
     assert.doesNotMatch(
-      observerBlock,
+      processingBlock,
       /handleConversationActivityForAutomaticAnalysis\(\)/,
     )
   },

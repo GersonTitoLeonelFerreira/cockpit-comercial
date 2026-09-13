@@ -1773,3 +1773,244 @@ test(
     )
   },
 )
+
+// ---------------------------------------------------------------------------
+// FASE 16.9 — MENSAGEM deixa de decidir uma estratégia comercial própria.
+// authoritative_decision carrega a mesma decisão já tomada para AGORA/
+// ANÁLISE (Decision State); estes testes travam que o V2 não pode
+// declarar um objetivo de categoria diferente da decisão já tomada, e que
+// uma decisão de "não comunicar agora" é hard-gated, não uma preferência
+// que o texto do modelo possa contornar. Caso Carla (fixture de
+// referência da missão): grade já enviada, Pilates/sexta/18h/2 pessoas já
+// escolhidos, agendamento já pedido duas vezes, vendedor perdeu contexto
+// — a decisão autoritativa já é "confirmar informação e concluir o
+// agendamento", nunca "voltar para descoberta".
+// ---------------------------------------------------------------------------
+
+function carlaAuthoritativeDecision(overrides = {}) {
+  return {
+    available: true,
+    decision_kind: 'confirm_information',
+    recommended_action:
+      'Verificar a disponibilidade real para duas pessoas nesse horário e, se houver vaga, confirmar o agendamento — sem pedir de novo nenhuma informação que a cliente já deu.',
+    reason:
+      'Carla e Juscelaine já escolheram Pilates, sexta-feira às 18h, para duas pessoas, e pediram o agendamento duas vezes sem receber confirmação.',
+    communication_goal:
+      'Confirmar informação com o cliente.',
+    method_note: null,
+    do_not_generate: false,
+    allowed_objectives: [
+      'secure_next_step',
+      'confirm_decision',
+      'answer_factually',
+    ],
+    prohibited_moves: [
+      'ask_activity',
+      'ask_day',
+      'ask_time',
+      'ask_how_can_i_help',
+      'resend_schedule',
+    ],
+    evidence_message_ids: [],
+    memory_ids: [],
+    ...overrides,
+  }
+}
+
+test(
+  'FASE 16.9 — caso Carla: objetivo compatível com a decisão autoritativa (secure_next_step) passa',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    plan.normalization_context.authoritative_decision =
+      carlaAuthoritativeDecision()
+
+    const good = generatedOutput(plan, {
+      recommended_commercial_objective:
+        'secure_next_step',
+    })
+
+    const provider = queueProvider([
+      { output: good },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(
+      result.output
+        .recommended_commercial_objective,
+      'secure_next_step',
+    )
+  },
+)
+
+test(
+  'FASE 16.9 — caso Carla: objetivo de descoberta (advance_discovery) é rejeitado quando a decisão já resolveu concluir',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    plan.normalization_context.authoritative_decision =
+      carlaAuthoritativeDecision()
+
+    const bad = generatedOutput(plan, {
+      recommended_commercial_objective:
+        'advance_discovery',
+    })
+
+    const provider = queueProvider([
+      { output: bad },
+      { output: bad },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_OBJECTIVE_INCONSISTENT_WITH_AUTHORITATIVE_DECISION',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'FASE 16.9 — objetivo fora do conjunto autorizado (obtain_context) também é rejeitado, não só o exemplo de descoberta',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    plan.normalization_context.authoritative_decision =
+      carlaAuthoritativeDecision()
+
+    const bad = generatedOutput(plan, {
+      recommended_commercial_objective:
+        'obtain_context',
+    })
+
+    const provider = queueProvider([
+      { output: bad },
+      { output: bad },
+    ])
+
+    await assert.rejects(
+      () =>
+        executeMessageIntelligenceV2Plan({
+          plan,
+          provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'V2_OBJECTIVE_INCONSISTENT_WITH_AUTHORITATIVE_DECISION',
+        )
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'FASE 16.9 — objetivo null nunca é bloqueado pelo gate de consistência (silêncio continua permitido)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    plan.normalization_context.authoritative_decision =
+      carlaAuthoritativeDecision()
+
+    const silent = silenceOutput()
+
+    const provider = queueProvider([
+      { output: silent },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(
+      result.output
+        .recommended_commercial_objective,
+      null,
+    )
+  },
+)
+
+test(
+  'FASE 16.9 — authoritative_decision.do_not_generate neutraliza o modelo mesmo quando ele sugere mensagem',
+  async () => {
+    const plan = buildPlan(angryCustomerScenario)
+    plan.normalization_context.authoritative_decision =
+      carlaAuthoritativeDecision({
+        do_not_generate: true,
+      })
+
+    const good = generatedOutput(plan, {
+      recommended_commercial_objective:
+        'secure_next_step',
+    })
+
+    const provider = queueProvider([
+      { output: good },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(
+      result.output.intervention_needed,
+      false,
+    )
+    assert.equal(
+      result.output.suggested_message,
+      null,
+    )
+  },
+)
+
+test(
+  'FASE 16.9 — sem authoritative_decision disponível (available=false), o gate de consistência não se aplica (degrada para o comportamento anterior)',
+  async () => {
+    const plan = buildPlan(priceScenario)
+    // buildMessageIntelligenceV2ExecutionPlan já usa
+    // buildUnavailableAuthoritativeDecision() por padrão quando nenhuma
+    // decisão é fornecida — este teste confirma explicitamente que esse
+    // é o estado do plano e que um objetivo "de descoberta" continua
+    // passando (nenhuma decisão central para contradizer).
+    assert.equal(
+      plan.normalization_context.authoritative_decision
+        .available,
+      false,
+    )
+
+    const good = generatedOutput(plan, {
+      recommended_commercial_objective:
+        'advance_discovery',
+    })
+
+    const provider = queueProvider([
+      { output: good },
+    ])
+
+    const result =
+      await executeMessageIntelligenceV2Plan({
+        plan,
+        provider,
+      })
+
+    assert.equal(
+      result.output
+        .recommended_commercial_objective,
+      'advance_discovery',
+    )
+  },
+)

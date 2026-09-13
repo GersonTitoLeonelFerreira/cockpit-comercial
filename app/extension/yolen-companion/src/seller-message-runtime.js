@@ -419,8 +419,13 @@
     state.feedback = null
     queueRender()
 
-    const guidance = getGuidance(context)
-
+    // FASE 16.9 — a mensagem não envia mais uma orientação própria
+    // (guidance_status/guidance_stage_name/guidance_next_step) ao
+    // servidor. O servidor carrega, ele mesmo, a mesma fotografia
+    // canônica e o mesmo Commercial Reasoning usados por AGORA/ANÁLISE/
+    // CLIENTE (ver app/api/companion/method-guidance/route.ts) — nunca a
+    // orientação legada que este runtime ainda lê localmente só para
+    // sugerir presets de intenção (getGuidance/getPresets abaixo).
     let result
 
     try {
@@ -440,12 +445,6 @@
             context.workingSummary,
           seller_intent:
             state.intent.trim(),
-          guidance_status:
-            guidance?.status ?? null,
-          guidance_stage_name:
-            guidance?.stage_name ?? null,
-          guidance_next_step:
-            guidance?.next_step ?? null,
         },
       })
     } catch (error) {

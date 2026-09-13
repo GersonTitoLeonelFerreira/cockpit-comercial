@@ -16,7 +16,6 @@ import {
 
 import {
   composeSellerMessage,
-  type SellerMessageGuidance,
 } from '../../../lib/companion/lead-seller-message'
 
 import {
@@ -54,16 +53,21 @@ import {
 } from '../../../lib/server/message-intelligence-shadow-enqueue'
 
 import {
-  tryGenerateActivatedMessageIntelligenceSellerMessageV1,
-} from '../../../lib/server/message-intelligence-seller-activation'
+  CanonicalSellerStateReadError,
+  loadCanonicalSellerCommercialContext,
+} from '../../../lib/server/canonical-seller-commercial-context-loader'
 
 import {
-  tryGenerateActivatedMessageIntelligenceSellerMessageV2,
-} from '../../../lib/server/message-intelligence-seller-activation-v2'
+  loadCanonicalSellerReasoning,
+} from '../../../lib/server/canonical-seller-reasoning-source'
 
 import {
-  resolveMessageIntelligenceEngineVersion,
-} from '../../../lib/server/message-intelligence-engine-version'
+  buildSellerFacingReasoningProjection,
+} from '../../../lib/server/seller-facing-reasoning-projection'
+
+import {
+  CompanionClientContextError,
+} from '../../../lib/server/companion-client-context-loader'
 
 type MethodGuidanceBody = {
   cycle_id?: unknown
@@ -71,9 +75,6 @@ type MethodGuidanceBody = {
   working_summary?: unknown
   operation?: unknown
   seller_intent?: unknown
-  guidance_status?: unknown
-  guidance_stage_name?: unknown
-  guidance_next_step?: unknown
 }
 
 const CURRENT_INTERACTION_GAP_MS =
@@ -262,49 +263,6 @@ async function loadLegacyCurrentInteractionAtReferenceTime({
   return buildCurrentInteraction(
     legacyMessages,
   )
-}
-
-function buildClientGuidance(
-  body: MethodGuidanceBody,
-  methodName: string,
-): SellerMessageGuidance | null {
-  const status =
-    typeof body.guidance_status === 'string'
-      ? body.guidance_status
-      : null
-
-  if (status === 'not_applicable') {
-    return {
-      status: 'not_applicable',
-      method_name: methodName,
-      stage_name: null,
-      next_step: null,
-    }
-  }
-
-  if (status !== 'ready') {
-    return null
-  }
-
-  const stageName =
-    typeof body.guidance_stage_name === 'string'
-      ? body.guidance_stage_name.trim() || null
-      : null
-  const nextStep =
-    typeof body.guidance_next_step === 'string'
-      ? body.guidance_next_step.trim() || null
-      : null
-
-  if (!nextStep) {
-    return null
-  }
-
-  return {
-    status: 'ready',
-    method_name: methodName,
-    stage_name: stageName,
-    next_step: nextStep,
-  }
 }
 
 export async function OPTIONS(request: Request) {
@@ -516,112 +474,29 @@ export async function POST(request: Request) {
     })
 
     if (operation === 'generate_message') {
-      // Congela o mesmo corte temporal que identifica o contexto
-      // usado para a geração legacy. Qualquer mensagem observada
-      // depois deste instante pertence à próxima comparação shadow.
+      // FASE 16.9 (correção final) — o Message Intelligence Engine
+      // (V1 ou V2) NÃO PODE MAIS produzir a resposta seller-facing.
+      // V1 já alinhava situação/técnica ao Commercial Reasoning
+      // canônico via applyCommercialReasoningToMessageStrategy, mas
+      // resolvia conhecimento de empresa de forma independente
+      // (fora da allowlist de reasoning.company_knowledge_used). V2
+      // não tinha NENHUMA integração com o Commercial Reasoning —
+      // situação, técnica, conhecimento e silêncio eram decisões
+      // inteiramente próprias. Isso permitia uma segunda autoridade
+      // comercial sempre que MESSAGE_INTELLIGENCE_SELLER_MODE=active
+      // estivesse configurado para a empresa — "está desligado por
+      // padrão" não é garantia arquitetural.
+      //
+      // Por isso o caminho que pode responder ao vendedor passa a ser
+      // incondicional: contexto canônico → Commercial Reasoning →
+      // composeSellerMessage. Nenhuma variável de ambiente reabre uma
+      // segunda autoridade. O pipeline do MIE V1 continua existindo
+      // apenas como shadow/telemetria (ver enqueue abaixo), nunca
+      // como resposta ativa; o MIE V2 fica sem nenhum chamador ativo
+      // até que, se algum dia for reintegrado, receba o mesmo
+      // reasoning como restrição em vez de recalculá-lo.
       const shadowReferenceTime =
         new Date().toISOString()
-
-      // Seleção de motor backward-safe: default V1. V2 só entra quando
-      // MESSAGE_INTELLIGENCE_ENGINE_VERSION=v2 estiver explicitamente
-      // configurada (nenhum env do Vercel é alterado por este código).
-      // Em ambos os casos, MESSAGE_INTELLIGENCE_SELLER_MODE /
-      // MESSAGE_INTELLIGENCE_SELLER_COMPANY_IDS continuam sendo o gate de
-      // ativação por empresa.
-      const engineVersion =
-        resolveMessageIntelligenceEngineVersion()
-
-      if (engineVersion === 'v2') {
-        const v2Result =
-          await tryGenerateActivatedMessageIntelligenceSellerMessageV2({
-            admin,
-            company_id:
-              identity.company_id,
-            seller_user_id:
-              token.sub,
-            cycle_id:
-              identity.cycle_id,
-            conversation_key:
-              identity.conversation_key,
-            seller_intent:
-              sellerIntent,
-            reference_time:
-              shadowReferenceTime,
-          })
-
-        if (v2Result?.outcome === 'message') {
-          return NextResponse.json(
-            {
-              ok: true,
-              data: {
-                status: v2Result.status,
-                message: v2Result.message,
-                error: v2Result.error,
-              },
-            },
-            {
-              status: 200,
-              headers: corsHeaders,
-            },
-          )
-        }
-
-        if (v2Result?.outcome === 'silence') {
-          // Silêncio válido: o MIE V2 concluiu, sem erro, que nenhuma
-          // mensagem deveria ser sugerida agora. Isso NÃO é um fallback
-          // técnico — não chamamos composeSellerMessage aqui, ou a
-          // decisão de silêncio do V2 seria substituída por uma mensagem
-          // legacy não solicitada.
-          return NextResponse.json(
-            {
-              ok: true,
-              data: {
-                status: 'no_message',
-                message: null,
-                error: null,
-              },
-            },
-            {
-              status: 200,
-              headers: corsHeaders,
-            },
-          )
-        }
-
-        // v2Result === null: V2 não está ativo para a empresa ou falhou
-        // tecnicamente (config/provider/output inválido) — segue para o
-        // fallback legacy abaixo, exatamente como o V1 já faz hoje.
-      } else {
-        const v1Result =
-          await tryGenerateActivatedMessageIntelligenceSellerMessageV1({
-            admin,
-            company_id:
-              identity.company_id,
-            seller_user_id:
-              token.sub,
-            cycle_id:
-              identity.cycle_id,
-            conversation_key:
-              identity.conversation_key,
-            seller_intent:
-              sellerIntent,
-            reference_time:
-              shadowReferenceTime,
-          })
-
-        if (v1Result) {
-          return NextResponse.json(
-            {
-              ok: true,
-              data: v1Result,
-            },
-            {
-              status: 200,
-              headers: corsHeaders,
-            },
-          )
-        }
-      }
 
       const currentInteraction =
         await loadLegacyCurrentInteractionAtReferenceTime({
@@ -636,15 +511,44 @@ export async function POST(request: Request) {
             shadowReferenceTime,
         })
 
+      // FASE 16.9 — MENSAGEM não pode mais decidir situação, papéis,
+      // objeção, técnica ou conhecimento de empresa por conta própria.
+      // Carrega exatamente a mesma fotografia canônica e o mesmo
+      // Commercial Reasoning que já sustentam AGORA/ANÁLISE/CLIENTE
+      // (loadCanonicalSellerCommercialContext + loadCanonicalSellerReasoning)
+      // e entrega o resultado como restrição ao gerador — que só redige.
+      const canonicalContext =
+        await loadCanonicalSellerCommercialContext({
+          admin,
+          token,
+          cycle_id: body.cycle_id,
+          conversation_key: body.conversation_key,
+          reference_time: shadowReferenceTime,
+        })
+
+      const canonicalReasoning =
+        await loadCanonicalSellerReasoning({
+          admin,
+          context: canonicalContext,
+        })
+
+      const reasoningProjection =
+        buildSellerFacingReasoningProjection({
+          reasoning: canonicalReasoning,
+          reading: canonicalContext.current_reading,
+          state:
+            canonicalContext.state_read.mode === 'found'
+              ? canonicalContext.state_read.state
+              : null,
+        })
+
       const generation = await composeSellerMessage({
         workingSummary: workingSummary || null,
         currentInteraction,
         sellerIntent,
         method,
-        guidance: buildClientGuidance(
-          body,
-          method.name,
-        ),
+        reasoning: canonicalReasoning,
+        roles: reasoningProjection.customer_roles,
         provider,
       })
 
@@ -844,6 +748,28 @@ export async function POST(request: Request) {
         },
         {
           status: error.status_code,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (
+      error instanceof CanonicalSellerStateReadError ||
+      error instanceof CompanionClientContextError
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: error.code,
+          error:
+            'Não foi possível carregar o contexto comercial canônico para gerar a mensagem.',
+          retryable: error.retryable,
+        },
+        {
+          status:
+            error instanceof CompanionClientContextError
+              ? error.status_code
+              : 500,
           headers: corsHeaders,
         },
       )

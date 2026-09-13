@@ -668,11 +668,14 @@ test('objeção não mais listada na leitura atual não produz intervenção', a
 })
 
 // 6. Descoberta incompleta: só sobe quando impede próxima ação.
-test('descoberta incompleta sobe quando best_approach é insufficient_information', async () => {
+test('descoberta incompleta preserva o raciocínio real do modelo como recommended_action', async () => {
+  const reason =
+    'Falta entender orçamento e prazo antes de prosseguir.'
+
   const reading = buildReading({
     best_approach: {
       decision: 'insufficient_information',
-      reason: 'Falta entender orçamento e prazo antes de prosseguir.',
+      reason,
       channel: 'text',
       evidence_message_ids: ['m2'],
       memory_ids: [],
@@ -690,6 +693,11 @@ test('descoberta incompleta sobe quando best_approach é insufficient_informatio
 
   assert.equal(state.primary_decision.kind, 'insufficient_information')
   assert.equal(state.primary_decision.silent, false)
+  assert.equal(state.primary_decision.recommended_action, reason)
+  assert.notEqual(
+    state.primary_decision.recommended_action,
+    'Aprofundar a descoberta antes de avançar para a próxima etapa.',
+  )
 })
 
 test('insufficient_information com intervention_needed=false não vira candidato — cai para o passthrough, preservando silent', async () => {
@@ -797,6 +805,51 @@ test('desvio de método na leitura atual sobe como intervenção relevante', asy
   assert.equal(state.primary_decision.silent, true)
 })
 
+test('desvio de método sem recovery concreto não cria fallback genérico no AGORA', async () => {
+  const reading = buildReading({
+    method: {
+      configured: true,
+      name: 'SPIN',
+      stages: [],
+      current_stage: {
+        step_order: 2,
+        stage_key: 'proposta',
+        name: 'Proposta',
+      },
+      adherence: {
+        status: 'off_method',
+        summary: 'A condução saiu do método.',
+        deviation_stage_order: 2,
+        what_happened: 'Houve um desvio de condução.',
+        missing_information: [],
+        why_it_matters: 'O vendedor precisa ajustar a condução.',
+        evidence_message_ids: ['m3'],
+        memory_ids: [],
+      },
+      recovery_guidance: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(
+    state.primary_decision.source,
+    null,
+  )
+
+  assert.equal(
+    state.primary_decision.kind,
+    'no_intervention',
+  )
+
+  assert.doesNotMatch(
+    JSON.stringify(state),
+    /Retomar a etapa adequada do método antes de avançar\./,
+  )
+})
+
 // 8. Method divergence não confiável: não criar intervenção falsa.
 test('divergência de estágio não confiável não gera intervenção inventada', async () => {
   const admin = createAdmin({
@@ -885,6 +938,51 @@ test('coaching de preço prematuro sobe quando o vendedor está negociando agora
   // seller_coaching também é derivado da leitura atual — mesma
   // disciplina do teste de commercial_risk acima.
   assert.equal(state.primary_decision.silent, true)
+})
+
+test('coaching atual sobe no AGORA quando há intervenção necessária, mesmo fora da whitelist antiga', async () => {
+  const reading = buildReading({
+    improvement_points: [{
+      kind: 'missing_next_commitment',
+      summary: 'Próximo compromisso ficou indefinido.',
+      why_it_matters: 'A oportunidade pode ficar sem avanço claro.',
+      impact: 'Risco de perda de continuidade comercial.',
+      how_to_improve: 'Confirmar diretamente disponibilidade e próximo horário com o cliente.',
+      evidence_message_ids: ['m8'],
+      memory_ids: [],
+    }],
+    best_approach: {
+      decision: 'respond',
+      reason: 'Existe uma pendência comercial concreta a resolver.',
+      channel: 'text',
+      evidence_message_ids: ['m8'],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: null,
+      recommended_message: null,
+    },
+  })
+
+  const state = await load({
+    current_reading: buildCurrentReading({ reading }),
+  })
+
+  assert.equal(
+    state.primary_decision.source,
+    'seller_coaching',
+  )
+
+  assert.equal(
+    state.primary_decision.kind,
+    'clarify',
+  )
+
+  assert.equal(
+    state.primary_decision.recommended_action,
+    'Confirmar diretamente disponibilidade e próximo horário com o cliente.',
+  )
 })
 
 test('coaching de preço prematuro NÃO sobe quando a análise não recomenda avançar agora', async () => {
@@ -2276,14 +2374,20 @@ test('primary_decision.priority é null quando give_space é sintetizado (sem ca
   assert.equal(state.primary_decision.priority, null)
 })
 
-test('primary_decision.priority é null no passthrough de best_approach (sem candidato ranqueado)', async () => {
+test('caso Carla — passthrough preserva o raciocínio real e nunca reduz AGORA a Canal recomendado', async () => {
+  const reason =
+    'Carla e Juscelaine já escolheram Pilates, sexta-feira às 18h, ' +
+    'para duas pessoas e pediram o agendamento. Verificar a ' +
+    'disponibilidade real e, se houver vaga, confirmar o agendamento ' +
+    'sem pedir novamente informações que a cliente já forneceu.'
+
   const reading = buildReading({
     commercial_relevance: 'commercial',
     best_approach: {
-      decision: 'send_material',
-      reason: 'Cliente pediu material sobre o produto.',
-      channel: 'document',
-      evidence_message_ids: ['m10'],
+      decision: 'confirm_information',
+      reason,
+      channel: 'text',
+      evidence_message_ids: ['m-carla-1', 'm-carla-2'],
       memory_ids: [],
     },
   })
@@ -2292,9 +2396,14 @@ test('primary_decision.priority é null no passthrough de best_approach (sem can
     current_reading: buildCurrentReading({ reading }),
   })
 
-  assert.equal(state.primary_decision.kind, 'send_material')
+  assert.equal(state.primary_decision.kind, 'confirm_information')
   assert.equal(state.primary_decision.source, null)
   assert.equal(state.primary_decision.priority, null)
+  assert.equal(state.primary_decision.recommended_action, reason)
+  assert.doesNotMatch(
+    state.primary_decision.recommended_action,
+    /^Canal recomendado:/,
+  )
 })
 
 test('primary_decision.priority é null no fallback sem nenhuma fonte disponível', async () => {

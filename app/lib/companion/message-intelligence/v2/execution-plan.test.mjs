@@ -17,6 +17,10 @@ import {
   priceScenario,
 } from './fixtures.ts'
 
+import {
+  buildUnavailableAuthoritativeDecision,
+} from './authoritative-decision.ts'
+
 function buildPlan(scenario) {
   return buildMessageIntelligenceV2ExecutionPlan({
     snapshot: scenario.build(),
@@ -473,5 +477,94 @@ test(
         false,
       )
     }
+  },
+)
+
+// FASE 16.9 — sem authoritative_decision explícita, o plano usa
+// buildUnavailableAuthoritativeDecision() (available=false), nunca
+// undefined/omitido — garante que o executor sempre tem um objeto
+// consistente para checar, mesmo em fixtures/chamadores que ainda não
+// carregam Decision State.
+test(
+  'FASE 16.9 — sem authoritative_decision explícita, o plano usa o estado "indisponível" por padrão, nunca omite o campo',
+  () => {
+    const plan = buildPlan(priceScenario)
+    const payload = JSON.parse(plan.user_prompt)
+
+    assert.deepEqual(
+      payload.authoritative_decision,
+      {
+        available: false,
+        decision_kind: null,
+        recommended_action: null,
+        reason: null,
+        communication_goal: null,
+        method_note: null,
+        do_not_generate: false,
+        allowed_objectives: [],
+        prohibited_moves: [],
+      },
+    )
+    assert.deepEqual(
+      plan.normalization_context
+        .authoritative_decision,
+      buildUnavailableAuthoritativeDecision(),
+    )
+  },
+)
+
+// FASE 16.9 — quando authoritative_decision é fornecida (caso Carla), ela
+// chega ao payload do modelo E ao normalization_context do executor —
+// nenhuma das duas cópias pode ficar para trás.
+test(
+  'FASE 16.9 — authoritative_decision fornecida (caso Carla) chega ao payload do modelo e ao normalization_context',
+  () => {
+    const carlaDecision = {
+      available: true,
+      decision_kind: 'confirm_information',
+      recommended_action:
+        'Verificar disponibilidade para duas pessoas e confirmar o agendamento.',
+      reason:
+        'Cliente já escolheu Pilates, sexta às 18h, para duas pessoas, e pediu o agendamento duas vezes.',
+      communication_goal:
+        'Confirmar informação com o cliente.',
+      method_note: null,
+      do_not_generate: false,
+      allowed_objectives: [
+        'secure_next_step',
+        'confirm_decision',
+      ],
+      prohibited_moves: ['resend_schedule'],
+      evidence_message_ids: ['m1'],
+      memory_ids: ['mem1'],
+    }
+
+    const plan = buildMessageIntelligenceV2ExecutionPlan({
+      snapshot: priceScenario.build(),
+      authoritative_decision: carlaDecision,
+    })
+
+    const payload = JSON.parse(plan.user_prompt)
+
+    assert.equal(
+      payload.authoritative_decision.decision_kind,
+      'confirm_information',
+    )
+    assert.equal(
+      payload.authoritative_decision
+        .recommended_action,
+      carlaDecision.recommended_action,
+    )
+    assert.deepEqual(
+      payload.authoritative_decision
+        .allowed_objectives,
+      ['secure_next_step', 'confirm_decision'],
+    )
+
+    assert.deepEqual(
+      plan.normalization_context
+        .authoritative_decision,
+      carlaDecision,
+    )
   },
 )

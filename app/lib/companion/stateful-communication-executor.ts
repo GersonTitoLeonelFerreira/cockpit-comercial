@@ -12,6 +12,10 @@ import {
 } from './commercial-reading-contract'
 
 import {
+  sanitizeSellerAttributedEvidence,
+} from './seller-evidence-sanitizer'
+
+import {
   STATEFUL_COMMUNICATION_PROMPT_VERSION,
   buildStatefulCommunicationRepairExecutionPlan,
   type StatefulCommunicationExecutionPlan,
@@ -149,6 +153,12 @@ export class StatefulCommunicationExecutionError
       'StatefulCommunicationExecutionError'
   }
 }
+
+const rejectedCommunicationOutputByError =
+  new WeakMap<
+    StatefulCommunicationExecutionError,
+    JsonRecord
+  >()
 
 function fail({
   code,
@@ -1067,16 +1077,49 @@ async function executeAttempt({
       response.content,
     )
 
-  return {
-    output:
+  const sanitizedOutput =
+    sanitizeSellerAttributedEvidence({
+      value:
+        rawOutput,
+
+      seller_message_ids:
+        plan
+          .normalization_context
+          .commercial_reading
+          .seller_message_ids ?? [],
+    }).value
+
+  let normalizedOutput:
+    StatefulCommunicationOutput
+
+  try {
+    normalizedOutput =
       normalizeCommunicationOutput({
         value:
-          rawOutput,
+          sanitizedOutput,
 
         context:
           plan
             .normalization_context,
-      }),
+      })
+  } catch (error) {
+    if (
+      error instanceof
+        StatefulCommunicationExecutionError
+    ) {
+      rejectedCommunicationOutputByError
+        .set(
+          error,
+          sanitizedOutput,
+        )
+    }
+
+    throw error
+  }
+
+  return {
+    output:
+      normalizedOutput,
 
     execution: {
       mode:
@@ -1315,6 +1358,11 @@ export async function executeStatefulCommunicationPlan({
 
       previous_failure_invariant:
         firstFailure.invariant,
+
+      previous_rejected_output:
+        rejectedCommunicationOutputByError
+          .get(firstError) ??
+        null,
     })
 
   let secondResult:

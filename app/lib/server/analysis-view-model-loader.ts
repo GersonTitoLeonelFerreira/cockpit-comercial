@@ -74,6 +74,38 @@ export class AnalysisViewModelReadError
   }
 }
 
+const WAITING_ON_CUSTOMER_COACHING_KINDS =
+  new Set([
+    'unanswered_question',
+    'insufficient_discovery',
+  ])
+
+function reconcileCoachingWithResponsibility({
+  viewModel,
+  waitingState,
+}: {
+  viewModel: AnalysisViewModel
+  waitingState: string | null
+}): AnalysisViewModel {
+  if (
+    waitingState !==
+      'seller_waiting_for_customer' ||
+    viewModel.improvements.length === 0
+  ) {
+    return viewModel
+  }
+
+  return {
+    ...viewModel,
+    improvements:
+      viewModel.improvements.filter(
+        improvement =>
+          !WAITING_ON_CUSTOMER_COACHING_KINDS
+            .has(improvement.kind),
+      ),
+  }
+}
+
 export async function loadAnalysisViewModel({
   admin,
   token,
@@ -147,10 +179,19 @@ export async function loadAnalysisViewModel({
       }),
     ])
 
-  const viewModel =
+  const baseViewModel =
     buildAnalysisViewModel(
       integratedContext,
     )
+
+  const viewModel =
+    reconcileCoachingWithResponsibility({
+      viewModel:
+        baseViewModel,
+      waitingState:
+        canonicalContext.client_context
+          .waiting.state,
+    })
 
   const reasoning =
     buildSellerFacingReasoningProjection({

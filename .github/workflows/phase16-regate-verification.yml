@@ -1,0 +1,56 @@
+name: Phase 16.9 Product Re-gate Verification
+
+on:
+  push:
+    branches:
+      - 'chatgpt/phase16-regate-product-corrections'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'app/lib/companion/**'
+      - 'app/lib/server/**'
+      - 'app/extension/yolen-companion/**'
+      - '.github/workflows/phase16-regate-verification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  full-regate:
+    name: Full Companion regression + package gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Companion regression suite
+        run: npm run test:companion
+
+      - name: E3 DOM suite
+        run: node --test app/extension/yolen-companion/tests/e3-dom/*.test.mjs
+
+      - name: Stateful shadow wiring isolated
+        run: node --test app/extension/yolen-companion/tests/stateful-shadow-wiring.test.mjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Build all extension packages
+        run: node app/extension/yolen-companion/scripts/build-package.mjs
+
+      - name: Validate release candidate
+        run: node app/extension/yolen-companion/scripts/validate-release-candidate.mjs
+
+      - name: Whitespace and conflict markers
+        run: git diff --check

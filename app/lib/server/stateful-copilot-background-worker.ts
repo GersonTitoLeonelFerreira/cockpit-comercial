@@ -70,6 +70,16 @@ function safeFailureCode(
   return fallback
 }
 
+function shouldUseLocalInlineRedelivery() {
+  return (
+    process.env.NODE_ENV ===
+      'development' &&
+    process.env
+      .COMPANION_LOCAL_INLINE_QUEUE ===
+      '1'
+  )
+}
+
 function createAdminClient() {
   const supabaseUrl =
     process.env
@@ -1228,6 +1238,12 @@ export async function processStatefulCopilotBackgroundMessage(
           failure_code:
             failureCode,
 
+          failure_path:
+            failurePath,
+
+          failure_invariant:
+            failureInvariant,
+
           engine_mode:
             execution?.engine_mode ??
             null,
@@ -1240,9 +1256,39 @@ export async function processStatefulCopilotBackgroundMessage(
         }),
       )
 
+      if (
+        shouldUseLocalInlineRedelivery()
+      ) {
+        console.info(
+          'YOLEN_COMPANION_STATEFUL_BACKGROUND',
+          JSON.stringify({
+            event:
+              'local_inline_background_redelivery',
+            company_id:
+              job.company_id,
+            cycle_id:
+              job.cycle_id,
+            analysis_job_id:
+              job.analysis_job_id,
+            delivery_count:
+              delivery_count + 1,
+          }),
+        )
+
+        return processStatefulCopilotBackgroundMessage(
+          rawMessage,
+          {
+            delivery_count:
+              delivery_count + 1,
+          },
+          dependencies,
+        )
+      }
+
       /*
-       * Lançar erro faz o handleCallback não dar ack
-       * e a Vercel Queue agenda nova entrega.
+       * Em produção, lançar erro faz o handleCallback não dar ack e a
+       * Vercel Queue agenda nova entrega. No modo local-inline, a nova
+       * entrega já foi executada acima com o mesmo contador da Queue.
        */
       throw new StatefulCopilotBackgroundRetryError(
         failureCode,
@@ -1481,6 +1527,19 @@ export async function processStatefulCopilotBackgroundMessage(
       ) {
         throw new StatefulCopilotBackgroundRetryError(
           'BACKGROUND_RETRY_WRITE_FAILED',
+        )
+      }
+
+      if (
+        shouldUseLocalInlineRedelivery()
+      ) {
+        return processStatefulCopilotBackgroundMessage(
+          rawMessage,
+          {
+            delivery_count:
+              delivery_count + 1,
+          },
+          dependencies,
         )
       }
 

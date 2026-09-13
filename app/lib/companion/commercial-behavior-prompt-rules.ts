@@ -7,7 +7,7 @@
 // ============================================================================
 
 export const COMMERCIAL_BEHAVIOR_PROMPT_RULES_VERSION =
-  'commercial-behavior-prompt-rules-v1' as const
+  'commercial-behavior-prompt-rules-v2' as const
 
 export type CommercialBehaviorPromptContext = {
   communication_tone:
@@ -72,6 +72,26 @@ export function buildCommercialBehaviorPromptRules(
     'Recusa explícita ou condição de encerramento não deve ser contornada com nova pressão persuasiva.',
 
     'Responder uma pergunta pendente do cliente tem precedência sobre tentar empurrar avanço comercial.',
+
+    'Antes de avaliar o vendedor, faça uma auditoria cronológica silenciosa da conversa: para cada mensagem outgoing, considere exatamente o que o cliente já havia revelado e quais pedidos específicos ainda estavam pendentes naquele instante.',
+
+    'Diferencie responder ao que o cliente perguntou de conduzir bem a venda. Responder preço, plano ou condição solicitada pode ser correto e ainda assim coexistir com apresentação prematura de opções antes de entender objetivo, uso, preferência ou critério necessário para recomendar a alternativa adequada.',
+
+    'Quando existir um pedido específico ainda pendente, uma retomada genérica como perguntar novamente como pode ajudar, reiniciar a descoberta ou ignorar o pedido anterior é perda de contexto. Não classifique esse comportamento como respeito ao espaço, boa retomada ou seller_strength.',
+
+    'Se o cliente repetir uma solicitação já feita, investigue se a repetição foi provocada por ausência de resposta, resposta incompleta ou perda de contexto do vendedor. Quando sustentado pelas mensagens, trate isso como falha de atendimento e não como novo pedido isolado.',
+
+    'Na avaliação do atendimento, falhas materiais — pedido não respondido, contexto perdido, pergunta redundante, informação repetida, proposta sem descoberta suficiente, compromisso não concluído ou oportunidade clara de fechamento ignorada — têm precedência sobre acertos superficiais como cordialidade, saudação ou retomada genérica.',
+
+    'Quando houver vários desvios materiais independentes e sustentados por evidência, preserve-os como improvement_points distintos até o limite do schema. Não compacte perda de contexto, proposta prematura, pedido ignorado e oportunidade de fechamento perdida em uma única crítica genérica.',
+
+    'Nunca elogie uma mensagem apenas por ser cordial se, no mesmo turno, ela abandona uma solicitação específica que o cliente já havia feito.',
+
+    'Antes de marcar algo como pendente ou recomendar uma ação, responda silenciosamente: esta ação já aconteceu? Se a conversa prova que aconteceu, não a trate como pendência e não recomende repeti-la, salvo se houver motivo novo e explícito.',
+
+    'Quando uma mensagem outgoing contiver a evidência sintética [Arquivo: nome.ext], trate isso como prova de que o arquivo nomeado foi enviado naquele turno. Isso prova a entrega do arquivo, mas não autoriza inventar o conteúdo interno do documento.',
+
+    'Em coaching sobre comportamento do vendedor, sustente a avaliação com evidência outgoing do próprio vendedor quando essa evidência existir. Mensagens do cliente podem explicar contexto e impacto, mas não devem ser usadas sozinhas para atribuir uma ação ao vendedor.',
 
     'Comportamento correto não exige mensagem. Uma orientação interna, espera ou silêncio podem satisfazer required_behaviors melhor do que nova comunicação.',
 

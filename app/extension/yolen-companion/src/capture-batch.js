@@ -291,13 +291,6 @@
           text_content: null,
           audio_transcription: null,
           is_deleted: true,
-          // Blocker 2 (Fase 12A, Frente 2B): distingue exclusão
-          // confirmada pelo WhatsApp de mero desaparecimento do DOM
-          // (virtualização/rolagem), que NUNCA prova exclusão real.
-          // 'explicit_deletion' é o único valor tratado como fato
-          // comercial confirmado a jusante; qualquer outro valor
-          // (incluindo ausência do campo, para compatibilidade com
-          // snapshots antigos) é tratado como não confirmado.
           deletion_reason:
             message.deletionReason ===
               'explicit_deletion'
@@ -365,7 +358,7 @@
               .filter(Boolean),
           )
 
-        const shouldIncludeMessage =
+        const isCurrentDateOrPending =
           (message) => {
             return (
               message?.dateKey ===
@@ -376,14 +369,31 @@
             )
           }
 
+        // Em captura normal (sem edição/exclusão pendente), toda mensagem
+        // ATIVA que continua visível é evidência real e participa do backfill,
+        // inclusive de dias anteriores. Isso corrige o caso real em que uma
+        // objeção em 18/08 era descartada porque havia um "Bom dia" em 19/08.
+        // O RPC é idempotente para estado já conhecido (unchanged).
+        //
+        // Quando existe uma mutação explícita pendente, preservamos o recorte
+        // enxuto anterior: data mais recente + chaves mutadas. Assim a captura
+        // específica de edição/exclusão continua determinística e não mistura
+        // mensagens antigas sem relação com a mutação em andamento.
+        const selectedActiveMessages =
+          pendingKeys.size === 0
+            ? [
+                ...safeActiveMessages,
+              ]
+            : safeActiveMessages.filter(
+                isCurrentDateOrPending,
+              )
+
         return {
           activeMessages:
-            safeActiveMessages.filter(
-              shouldIncludeMessage,
-            ),
+            selectedActiveMessages,
           deletedMessages:
             safeDeletedMessages.filter(
-              shouldIncludeMessage,
+              isCurrentDateOrPending,
             ),
         }
       }
