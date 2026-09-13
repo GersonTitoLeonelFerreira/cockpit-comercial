@@ -70,7 +70,16 @@ export type RunCommercialReasoningCoreV2ComparisonArgs = {
   diagnostic_input: CompanionDiagnosticInput
   previous_state: unknown | null
   known_message_ids: unknown
+
+  // Compatibilidade com os chamadores/testes existentes. Quando os providers
+  // específicos abaixo não forem informados, ambos os motores usam este.
   provider: StatefulCopilotProvider
+
+  // O replay real precisa preservar a arquitetura atual (diagnóstico +
+  // comunicação) sem obrigar o novo Core V2 a usar o mesmo modelo.
+  legacy_provider?: StatefulCopilotProvider
+  v2_provider?: StatefulCopilotProvider
+
   create_memory_id: StatefulCommercialMemoryIdFactory
   durable_memory_seed?: DurableMemorySeed | null
 
@@ -126,6 +135,8 @@ export async function runCommercialReasoningCoreV2Comparison({
   previous_state,
   known_message_ids,
   provider,
+  legacy_provider = provider,
+  v2_provider = provider,
   create_memory_id,
   durable_memory_seed = null,
   dependencies = {},
@@ -160,7 +171,8 @@ export async function runCommercialReasoningCoreV2Comparison({
       diagnostic_input,
       previous_state,
       known_message_ids,
-      provider,
+      provider:
+        legacy_provider,
       create_memory_id,
       durable_memory_seed,
     })
@@ -174,7 +186,8 @@ export async function runCommercialReasoningCoreV2Comparison({
   const v2Result =
     await runV2({
       input: v2Input,
-      provider,
+      provider:
+        v2_provider,
     })
 
   const v2FinishedAt =
