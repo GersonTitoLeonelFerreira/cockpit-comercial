@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import test from 'node:test'
+import vm from 'node:vm'
 
 import {
   buildWhatsAppPageHtml,
@@ -10,6 +12,37 @@ import {
 
 const HEADER_TITLE = '+55 11 98888-7777'
 const FILE_NAME = 'GRADE ATUALIZADA EM 12-08-26 (1).pdf'
+const PHASE_16_9_RUNTIME_SOURCE =
+  fs.readFileSync(
+    new URL(
+      '../../src/phase16-9-runtime-guard.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
+function installPhase169RuntimeGuard(window) {
+  const sandbox = {
+    window,
+    document: window.document,
+    MutationObserver:
+      window.MutationObserver,
+    Node: window.Node,
+    console,
+  }
+
+  sandbox.globalThis = sandbox
+
+  vm.createContext(sandbox)
+  vm.runInContext(
+    PHASE_16_9_RUNTIME_SOURCE,
+    sandbox,
+    {
+      filename:
+        'phase16-9-runtime-guard.js',
+    },
+  )
+}
 
 function buildDocumentMessageHtml({
   id = 'msg-pdf-1',
@@ -184,7 +217,7 @@ test('content-script captura documento quando cartão está fora do limite ances
   assert.equal(captured.is_deleted, false)
 })
 
-test('content-script captura cartão PDF sem data-pre-plain-text usando data cronológica dos vizinhos', async () => {
+test('runtime final captura cartão PDF sem data-pre-plain-text usando data cronológica dos vizinhos', async () => {
   const messagesHtml = [
     `
       <div class="message-in" data-id="msg-before-pdf">
@@ -211,9 +244,16 @@ test('content-script captura cartão PDF sem data-pre-plain-text usando data cro
     messagesHtml,
   })
 
-  const { calls } = loadContentScript({
+  const {
+    calls,
+    window,
+  } = loadContentScript({
     initialHtml,
   })
+
+  installPhase169RuntimeGuard(
+    window,
+  )
 
   const captured = await waitFor(() => {
     const message = findCapturedMessage(
