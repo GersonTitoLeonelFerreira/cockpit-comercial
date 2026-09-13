@@ -14,10 +14,25 @@ const FILE_NAME = 'GRADE ATUALIZADA EM 12-08-26 (1).pdf'
 function buildDocumentMessageHtml({
   id = 'msg-pdf-1',
   caption = null,
+  siblingCard = false,
 } = {}) {
   const captionHtml = caption
     ? `<span data-testid="selectable-text" class="selectable-text copyable-text"><span>${caption}</span></span>`
     : ''
+
+  if (siblingCard) {
+    return `
+      <div class="message-out" data-id="${id}">
+        <div class="bubble-shell">
+          <div class="document-card">
+            <span>${FILE_NAME}</span>
+          </div>
+          ${captionHtml}
+          <div data-pre-plain-text="[10:31, 12/09/2026] Rayane: "></div>
+        </div>
+      </div>
+    `
+  }
 
   return `
     <div class="message-out" data-id="${id}">
@@ -67,6 +82,36 @@ test('content-script captura documento do WhatsApp que não possui selectable-te
   )
 })
 
+test('content-script captura documento quando cartão real é irmão do data-pre-plain-text', async () => {
+  const initialHtml = buildWhatsAppPageHtml({
+    headerTitle: HEADER_TITLE,
+    messagesHtml: buildDocumentMessageHtml({
+      id: 'msg-pdf-sibling',
+      siblingCard: true,
+    }),
+  })
+
+  const { calls } = loadContentScript({
+    initialHtml,
+  })
+
+  const captured = await waitFor(() => {
+    const message = findCapturedMessage(
+      calls,
+      'msg-pdf-sibling',
+    )
+
+    return message?.text_content ===
+      `[Arquivo: ${FILE_NAME}]`
+      ? message
+      : false
+  })
+
+  assert.equal(captured.direction, 'outgoing')
+  assert.equal(captured.content_type, 'text')
+  assert.equal(captured.is_deleted, false)
+})
+
 test('content-script preserva legenda e registra o documento como fato já entregue', async () => {
   const initialHtml = buildWhatsAppPageHtml({
     headerTitle: HEADER_TITLE,
@@ -84,6 +129,39 @@ test('content-script preserva legenda e registra o documento como fato já entre
     const message = findCapturedMessage(
       calls,
       'msg-pdf-caption',
+    )
+
+    return message?.text_content?.includes(
+      `[Arquivo: ${FILE_NAME}]`,
+    )
+      ? message
+      : false
+  })
+
+  assert.equal(
+    captured.text_content,
+    `Segue a grade atualizada.\n[Arquivo: ${FILE_NAME}]`,
+  )
+})
+
+test('content-script preserva legenda quando cartão e legenda são irmãos do nó canônico', async () => {
+  const initialHtml = buildWhatsAppPageHtml({
+    headerTitle: HEADER_TITLE,
+    messagesHtml: buildDocumentMessageHtml({
+      id: 'msg-pdf-caption-sibling',
+      caption: 'Segue a grade atualizada.',
+      siblingCard: true,
+    }),
+  })
+
+  const { calls } = loadContentScript({
+    initialHtml,
+  })
+
+  const captured = await waitFor(() => {
+    const message = findCapturedMessage(
+      calls,
+      'msg-pdf-caption-sibling',
     )
 
     return message?.text_content?.includes(
