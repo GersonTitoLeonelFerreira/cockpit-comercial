@@ -26,6 +26,13 @@
     '[data-icon*="document" i]',
     '[data-icon*="download" i]',
   ].join(',')
+  // O guard é carregado antes do content-script no manifest. Se o PDF já
+  // estiver visível no momento do bootstrap, materializá-lo imediatamente
+  // pode acontecer antes de observeWhatsAppChanges() existir; nesse caso o
+  // nó sintético fica correto no DOM, mas nenhuma ingestão é rearmada.
+  // A pequena defasagem deixa o content-script concluir seu bootstrap antes
+  // da primeira materialização sem atrasar attachments que chegam depois.
+  const INITIAL_ATTACHMENT_SCAN_DELAY_MS = 250
 
   const windowRef =
     root.window || root
@@ -48,22 +55,13 @@
   }
 
   // FASE 16.9 — retry manual de análise ("Tentar novamente") passou a ser
-  // resolvido inteiramente pelo caminho canônico em yolen-api.js
-  // (analyzeConversation/getAnalysisJobStatus), que já não condiciona a
-  // intenção explícita do vendedor a messageDomRevision/captureRevision.
-  // Este arquivo NÃO volta a envolver analyzeConversation/getAnalysisJobStatus.
+  // resolvido inteiramente pelo caminho canônico em yolen-api.js.
+  // Este arquivo não volta a envolver analyzeConversation/getAnalysisJobStatus.
   //
-  // Há, porém, uma responsabilidade seller-facing distinta: uma tentativa
-  // nova pode falhar enquanto já existe um AnalysisViewModel canônico e
-  // persistido para a mesma conversa. O content-script legado prioriza
-  // conversationAnalysisError antes do AnalysisViewModel `ready`, o que
-  // fazia a falha da atualização esconder uma leitura válida já disponível.
-  // A guarda abaixo preserva essa última leitura válida sem falsificar o
-  // resultado da tentativa nova: mostra a leitura canônica e mantém um aviso
-  // explícito + o botão de retry original. Ela nunca reaproveita leitura de
-  // outra conversa/ciclo, porque cache e requisição corrente são chaveados
-  // pelo mesmo par cycle_id/conversation_key.
-
+  // Há uma responsabilidade seller-facing distinta: uma tentativa nova pode
+  // falhar enquanto já existe AnalysisViewModel canônico e persistido para a
+  // mesma conversa. A continuidade abaixo preserva essa última leitura sem
+  // falsificar o resultado da tentativa nova.
   let latestAnalysisViewRequestKey = null
   let cachedAnalysisView = null
 
@@ -303,8 +301,7 @@
   function getTools() {
     return (
       root.YolenCompanionMessageMutations ||
-      windowRef
-        .YolenCompanionMessageMutations ||
+      windowRef.YolenCompanionMessageMutations ||
       null
     )
   }
@@ -414,6 +411,39 @@
         if (fileName) {
           return fileName
         }
+      }
+    }
+
+    // Firefox/WhatsApp nem sempre expõe o nome em title/download. Lê cada
+    // nó textual relevante separadamente antes de cair para o texto agregado;
+    // isso evita perder nomes quando a UI quebra visualmente o filename em
+    // múltiplos elementos/linhas.
+    const textCandidates = [
+      bubble,
+      ...Array.from(
+        bubble.querySelectorAll(
+          'span, div',
+        ),
+      ),
+    ]
+
+    for (const element of textCandidates) {
+      if (
+        element !== bubble &&
+        element.closest?.(
+          QUOTED_SELECTOR,
+        )
+      ) {
+        continue
+      }
+
+      const fileName =
+        extractFileName(
+          readText(element),
+        )
+
+      if (fileName) {
+        return fileName
       }
     }
 
@@ -757,10 +787,24 @@
     )
   }
 
-  scanAttachmentOnlyBubbles(
-    documentRef,
-  )
-  reconcileAnalysisViewModelContinuity()
+  function runInitialRuntimeReconciliation() {
+    scanAttachmentOnlyBubbles(
+      documentRef,
+    )
+    reconcileAnalysisViewModelContinuity()
+  }
+
+  if (
+    typeof windowRef.setTimeout ===
+      'function'
+  ) {
+    windowRef.setTimeout(
+      runInitialRuntimeReconciliation,
+      INITIAL_ATTACHMENT_SCAN_DELAY_MS,
+    )
+  } else {
+    runInitialRuntimeReconciliation()
+  }
 
   if (
     typeof MutationObserverRef ===
