@@ -1,3 +1,5 @@
+/* global browser, chrome */
+
 ;(function initUx8InteractionConsistencyRuntime(root) {
   const PANEL_ID = 'yolen-companion-panel'
   const UX8_PANEL_SELECTOR =
@@ -31,6 +33,20 @@
   }
 
   function getCompanionRuntime() {
+    if (
+      typeof browser !== 'undefined' &&
+      browser.runtime?.sendMessage
+    ) {
+      return browser.runtime
+    }
+
+    if (
+      typeof chrome !== 'undefined' &&
+      chrome.runtime?.sendMessage
+    ) {
+      return chrome.runtime
+    }
+
     return (
       root.browser?.runtime ||
       root.chrome?.runtime ||
