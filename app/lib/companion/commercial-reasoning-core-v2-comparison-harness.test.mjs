@@ -10,7 +10,7 @@ function buildDiagnosticInput() {
     input_version:
       'phase-5-input-v1',
     diagnostic_contract_version:
-      'phase-4-diagnostic-v3',
+      'phase-1-v1',
     company_id:
       'company-a',
     cycle_id:
