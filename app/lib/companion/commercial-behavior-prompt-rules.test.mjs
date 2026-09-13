@@ -35,7 +35,7 @@ test(
 
     assert.equal(
       COMMERCIAL_BEHAVIOR_PROMPT_RULES_VERSION,
-      'commercial-behavior-prompt-rules-v1',
+      'commercial-behavior-prompt-rules-v2',
     )
 
     assert.match(
@@ -239,6 +239,126 @@ test(
     assert.match(
       rules,
       /Nenhuma regra comportamental, isoladamente, autoriza alteração automática de CRM, Agenda, fechamento, preço, contrato ou qualquer estado operacional/,
+    )
+  },
+)
+
+test(
+  'coaching audita cronologia e não transforma perda de contexto em acerto',
+  () => {
+    const rules =
+      buildCommercialBehaviorPromptRules(
+        buildContext(),
+      )
+
+    assert.match(
+      rules,
+      /auditoria cronológica silenciosa/,
+    )
+
+    assert.match(
+      rules,
+      /cada mensagem outgoing/,
+    )
+
+    assert.match(
+      rules,
+      /retomada genérica/,
+    )
+
+    assert.match(
+      rules,
+      /é perda de contexto/,
+    )
+
+    assert.match(
+      rules,
+      /não classifique esse comportamento como respeito ao espaço/,
+    )
+
+    assert.match(
+      rules,
+      /Nunca elogie uma mensagem apenas por ser cordial/,
+    )
+  },
+)
+
+test(
+  'coaching distingue resposta solicitada de proposta sem descoberta suficiente',
+  () => {
+    const rules =
+      buildCommercialBehaviorPromptRules(
+        buildContext(),
+      )
+
+    assert.match(
+      rules,
+      /Responder preço, plano ou condição solicitada pode ser correto/,
+    )
+
+    assert.match(
+      rules,
+      /apresentação prematura de opções antes de entender objetivo/,
+    )
+
+    assert.match(
+      rules,
+      /proposta sem descoberta suficiente/,
+    )
+  },
+)
+
+test(
+  'repetição do cliente exige investigar falha anterior e priorizar desvio material',
+  () => {
+    const rules =
+      buildCommercialBehaviorPromptRules(
+        buildContext(),
+      )
+
+    assert.match(
+      rules,
+      /cliente repetir uma solicitação/,
+    )
+
+    assert.match(
+      rules,
+      /falha de atendimento/,
+    )
+
+    assert.match(
+      rules,
+      /falhas materiais/,
+    )
+  },
+)
+
+test(
+  'ação já realizada e arquivo enviado não podem ser tratados como pendência',
+  () => {
+    const rules =
+      buildCommercialBehaviorPromptRules(
+        buildContext(),
+      )
+
+    assert.match(
+      rules,
+      /esta ação já aconteceu/,
+    )
+
+    assert.match(
+      rules,
+      /não a trate como pendência/,
+    )
+
+    assert.match(
+      rules,
+      /\[Arquivo: nome\.ext\]/,
+    )
+
+    assert.match(
+      rules,
+      /prova de que o arquivo nomeado foi enviado/,
     )
   },
 )
