@@ -15,10 +15,39 @@ function buildDocumentMessageHtml({
   id = 'msg-pdf-1',
   caption = null,
   siblingCard = false,
+  distantSiblingCard = false,
 } = {}) {
   const captionHtml = caption
     ? `<span data-testid="selectable-text" class="selectable-text copyable-text"><span>${caption}</span></span>`
     : ''
+
+  if (distantSiblingCard) {
+    return `
+      <div class="message-out" data-id="${id}">
+        <div class="document-card">
+          <span>${FILE_NAME}</span>
+        </div>
+        <div class="level-1">
+          <div class="level-2">
+            <div class="level-3">
+              <div class="level-4">
+                <div class="level-5">
+                  <div class="level-6">
+                    <div class="level-7">
+                      <div class="level-8">
+                        ${captionHtml}
+                        <div data-pre-plain-text="[10:31, 12/09/2026] Rayane: "></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+  }
 
   if (siblingCard) {
     return `
@@ -99,6 +128,36 @@ test('content-script captura documento quando cartão real é irmão do data-pre
     const message = findCapturedMessage(
       calls,
       'msg-pdf-sibling',
+    )
+
+    return message?.text_content ===
+      `[Arquivo: ${FILE_NAME}]`
+      ? message
+      : false
+  })
+
+  assert.equal(captured.direction, 'outgoing')
+  assert.equal(captured.content_type, 'text')
+  assert.equal(captured.is_deleted, false)
+})
+
+test('content-script captura documento quando cartão está fora do limite ancestral do adapter canônico', async () => {
+  const initialHtml = buildWhatsAppPageHtml({
+    headerTitle: HEADER_TITLE,
+    messagesHtml: buildDocumentMessageHtml({
+      id: 'msg-pdf-distant-sibling',
+      distantSiblingCard: true,
+    }),
+  })
+
+  const { calls } = loadContentScript({
+    initialHtml,
+  })
+
+  const captured = await waitFor(() => {
+    const message = findCapturedMessage(
+      calls,
+      'msg-pdf-distant-sibling',
     )
 
     return message?.text_content ===
