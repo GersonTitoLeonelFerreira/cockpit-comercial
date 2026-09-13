@@ -20,6 +20,7 @@ const JOB_ID = 'a'.repeat(64)
 function createWindow({
   analyzeStatus = 'failed',
   retryStatus = 'queued',
+  lexicalBrowserRuntime = false,
 } = {}) {
   const dom = new JSDOM(
     '<!doctype html><html><body></body></html>',
@@ -54,27 +55,41 @@ function createWindow({
     },
   }
 
-  window.browser = {
-    runtime: {
-      async sendMessage(message) {
-        runtimeCalls.push(message)
+  const runtime = {
+    async sendMessage(message) {
+      runtimeCalls.push(message)
 
-        return {
+      return {
+        ok: true,
+        payload: {
           ok: true,
-          payload: {
-            ok: true,
-            data: {
-              analysis_job_id: JOB_ID,
-              status: retryStatus,
-              message_watermark: 'wm-1',
-            },
+          data: {
+            analysis_job_id: JOB_ID,
+            status: retryStatus,
+            message_watermark: 'wm-1',
           },
-        }
-      },
+        },
+      }
     },
   }
 
-  window.eval(RUNTIME_SOURCE)
+  if (lexicalBrowserRuntime) {
+    // Firefox/WebExtension pode disponibilizar `browser` como binding do
+    // realm isolado sem expô-lo como propriedade do `globalThis`/window.
+    // Esse foi o cenário ausente na regressão anterior.
+    window.__yolenTestRuntime = runtime
+    window.eval(`
+      const browser = {
+        runtime: window.__yolenTestRuntime,
+      }
+      ${RUNTIME_SOURCE}
+    `)
+  } else {
+    window.browser = {
+      runtime,
+    }
+    window.eval(RUNTIME_SOURCE)
+  }
 
   return {
     window,
@@ -128,6 +143,46 @@ test(
         runtimeCalls[0].payload || {},
       ).length,
       1,
+    )
+    assert.equal(
+      result.payload.data.deep_analysis.status,
+      'queued',
+    )
+  },
+)
+
+test(
+  'retry manual usa browser lexical do realm isolado do Firefox',
+  async () => {
+    const {
+      window,
+      runtimeCalls,
+    } = createWindow({
+      lexicalBrowserRuntime: true,
+    })
+
+    assert.equal(
+      window.browser,
+      undefined,
+      'o teste não pode mascarar o caso real expondo browser em window',
+    )
+
+    const result =
+      await window
+        .YolenCompanionApi
+        .analyzeConversation({
+          conversation_key:
+            'phone:5511953442244',
+          retry_failed_job: true,
+        })
+
+    assert.equal(
+      runtimeCalls.length,
+      1,
+    )
+    assert.equal(
+      runtimeCalls[0].action,
+      'RETRY_ANALYSIS_JOB',
     )
     assert.equal(
       result.payload.data.deep_analysis.status,
