@@ -3,6 +3,10 @@
     '__yolenPhase169RuntimeGuardInstalled'
   const SYNTHETIC_ATTRIBUTE =
     'data-yolen-phase16-9-attachment-message'
+  const ANALYSIS_CONTINUITY_ATTRIBUTE =
+    'data-yolen-analysis-continuity-view'
+  const ANALYSIS_CONTINUITY_KEY_ATTRIBUTE =
+    'data-yolen-analysis-continuity-key'
   const MESSAGE_SELECTOR =
     '[data-pre-plain-text]'
   const BUBBLE_SELECTOR =
@@ -47,9 +51,254 @@
   // resolvido inteiramente pelo caminho canônico em yolen-api.js
   // (analyzeConversation/getAnalysisJobStatus), que já não condiciona a
   // intenção explícita do vendedor a messageDomRevision/captureRevision.
-  // Este arquivo não precisa mais envolver analyzeConversation com um
-  // wrapper próprio de retry — a responsabilidade dele aqui é só a
-  // materialização de bubbles somente-anexo (PDF/documento) abaixo.
+  // Este arquivo NÃO volta a envolver analyzeConversation/getAnalysisJobStatus.
+  //
+  // Há, porém, uma responsabilidade seller-facing distinta: uma tentativa
+  // nova pode falhar enquanto já existe um AnalysisViewModel canônico e
+  // persistido para a mesma conversa. O content-script legado prioriza
+  // conversationAnalysisError antes do AnalysisViewModel `ready`, o que
+  // fazia a falha da atualização esconder uma leitura válida já disponível.
+  // A guarda abaixo preserva essa última leitura válida sem falsificar o
+  // resultado da tentativa nova: mostra a leitura canônica e mantém um aviso
+  // explícito + o botão de retry original. Ela nunca reaproveita leitura de
+  // outra conversa/ciclo, porque cache e requisição corrente são chaveados
+  // pelo mesmo par cycle_id/conversation_key.
+
+  let latestAnalysisViewRequestKey = null
+  let cachedAnalysisView = null
+
+  function getAnalysisViewRequestKey(payload) {
+    const cycleId =
+      typeof payload?.cycle_id === 'string'
+        ? payload.cycle_id.trim()
+        : ''
+    const conversationKey =
+      typeof payload?.conversation_key === 'string'
+        ? payload.conversation_key.trim()
+        : ''
+
+    if (!cycleId || !conversationKey) {
+      return null
+    }
+
+    return `${cycleId}::${conversationKey}`
+  }
+
+  function getSellerInformationViewTools() {
+    return (
+      root.YolenCompanionSellerInformationView ||
+      windowRef.YolenCompanionSellerInformationView ||
+      null
+    )
+  }
+
+  function installAnalysisViewModelContinuity() {
+    const api =
+      root.YolenCompanionApi ||
+      windowRef.YolenCompanionApi
+
+    if (
+      !api ||
+      typeof api.loadAnalysisViewModel !== 'function' ||
+      api.loadAnalysisViewModel
+        .__yolenPhase169ContinuityWrapped === true
+    ) {
+      return false
+    }
+
+    const original =
+      api.loadAnalysisViewModel.bind(api)
+
+    async function loadAnalysisViewModelWithContinuity(
+      payload,
+    ) {
+      const requestKey =
+        getAnalysisViewRequestKey(payload)
+
+      if (requestKey) {
+        latestAnalysisViewRequestKey =
+          requestKey
+      }
+
+      const result =
+        await original(payload)
+
+      const data =
+        result?.payload?.data
+
+      if (
+        requestKey &&
+        requestKey ===
+          latestAnalysisViewRequestKey &&
+        result?.ok === true &&
+        result?.payload?.ok === true &&
+        data &&
+        typeof data === 'object'
+      ) {
+        cachedAnalysisView = {
+          key: requestKey,
+          data,
+        }
+
+        Promise.resolve().then(() => {
+          reconcileAnalysisViewModelContinuity()
+        })
+      }
+
+      return result
+    }
+
+    Object.defineProperty(
+      loadAnalysisViewModelWithContinuity,
+      '__yolenPhase169ContinuityWrapped',
+      {
+        configurable: false,
+        enumerable: false,
+        value: true,
+        writable: false,
+      },
+    )
+
+    api.loadAnalysisViewModel =
+      loadAnalysisViewModelWithContinuity
+
+    return true
+  }
+
+  function reconcileAnalysisViewModelContinuity() {
+    if (
+      !cachedAnalysisView ||
+      cachedAnalysisView.key !==
+        latestAnalysisViewRequestKey
+    ) {
+      return false
+    }
+
+    const errorNode =
+      documentRef.querySelector?.(
+        '[data-yolen-seller-panel="analysis"] [data-yolen-analysis-error]',
+      )
+
+    if (!errorNode) {
+      return false
+    }
+
+    const card =
+      errorNode.closest?.(
+        '.yolen-card',
+      )
+
+    if (!card) {
+      return false
+    }
+
+    if (
+      card.getAttribute?.(
+        ANALYSIS_CONTINUITY_KEY_ATTRIBUTE,
+      ) === cachedAnalysisView.key &&
+      card.querySelector?.(
+        `[${ANALYSIS_CONTINUITY_ATTRIBUTE}="true"]`,
+      )
+    ) {
+      return false
+    }
+
+    const viewTools =
+      getSellerInformationViewTools()
+
+    if (
+      !viewTools ||
+      typeof viewTools.renderAnalysisViewModel !==
+        'function'
+    ) {
+      return false
+    }
+
+    const rendered =
+      viewTools.renderAnalysisViewModel(
+        cachedAnalysisView.data,
+      )
+
+    if (
+      typeof rendered !== 'string' ||
+      !rendered.trim()
+    ) {
+      return false
+    }
+
+    card
+      .querySelectorAll?.(
+        `[${ANALYSIS_CONTINUITY_ATTRIBUTE}="true"]`,
+      )
+      .forEach((node) => node.remove())
+
+    errorNode.style.display = 'none'
+    errorNode.setAttribute(
+      'aria-hidden',
+      'true',
+    )
+
+    const continuity =
+      documentRef.createElement('div')
+
+    continuity.setAttribute(
+      ANALYSIS_CONTINUITY_ATTRIBUTE,
+      'true',
+    )
+
+    const warning =
+      documentRef.createElement('div')
+
+    warning.className =
+      'yolen-operational-note yolen-status-warning'
+    warning.setAttribute(
+      'data-yolen-analysis-refresh-warning',
+      'true',
+    )
+    warning.setAttribute(
+      'role',
+      'status',
+    )
+    warning.textContent =
+      'A última atualização da análise não foi concluída. Exibindo a última leitura comercial válida.'
+
+    const content =
+      documentRef.createElement('div')
+
+    content.setAttribute(
+      'data-yolen-analysis-canonical-view',
+      'true',
+    )
+    content.innerHTML = rendered
+
+    continuity.appendChild(warning)
+    continuity.appendChild(content)
+
+    const actions =
+      card.querySelector?.(
+        '.yolen-inline-actions',
+      )
+
+    if (actions) {
+      card.insertBefore(
+        continuity,
+        actions,
+      )
+    } else {
+      card.appendChild(
+        continuity,
+      )
+    }
+
+    card.setAttribute(
+      ANALYSIS_CONTINUITY_KEY_ATTRIBUTE,
+      cachedAnalysisView.key,
+    )
+
+    return true
+  }
+
+  installAnalysisViewModelContinuity()
 
   function getTools() {
     return (
@@ -511,6 +760,7 @@
   scanAttachmentOnlyBubbles(
     documentRef,
   )
+  reconcileAnalysisViewModelContinuity()
 
   if (
     typeof MutationObserverRef ===
@@ -534,6 +784,8 @@
                 })
             },
           )
+
+          reconcileAnalysisViewModelContinuity()
         },
       )
 
@@ -572,6 +824,8 @@
 
   windowRef.YolenPhase169RuntimeGuard =
     Object.freeze({
+      installAnalysisViewModelContinuity,
+      reconcileAnalysisViewModelContinuity,
       materializeAttachmentOnlyBubble,
       scanAttachmentOnlyBubbles,
     })
