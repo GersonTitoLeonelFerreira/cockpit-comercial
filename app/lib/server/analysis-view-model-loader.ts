@@ -35,6 +35,10 @@ import {
 } from './analysis-seller-quality-reconciler'
 
 import {
+  commercialReadingShowsSellerStillOwesAction,
+} from './canonical-commercial-responsibility'
+
+import {
   buildSellerFacingReasoningProjection,
   type SellerFacingReasoningProjection,
 } from './seller-facing-reasoning-projection'
@@ -87,13 +91,16 @@ const WAITING_ON_CUSTOMER_COACHING_KINDS =
 function reconcileCoachingWithResponsibility({
   viewModel,
   waitingState,
+  sellerStillOwesAction,
 }: {
   viewModel: AnalysisViewModel
   waitingState: string | null
+  sellerStillOwesAction: boolean
 }): AnalysisViewModel {
   if (
     waitingState !==
       'seller_waiting_for_customer' ||
+    sellerStillOwesAction ||
     viewModel.improvements.length === 0
   ) {
     return viewModel
@@ -195,6 +202,10 @@ export async function loadAnalysisViewModel({
       waitingState:
         canonicalContext.client_context
           .waiting.state,
+      sellerStillOwesAction:
+        commercialReadingShowsSellerStillOwesAction(
+          canonicalContext.current_reading,
+        ),
     })
 
   const viewModel =
