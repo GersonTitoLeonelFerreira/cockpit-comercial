@@ -65,6 +65,8 @@
       typeof tools.extractAttachmentFileName !==
         'function' ||
       typeof tools.readCapturedElementText !==
+        'function' ||
+      typeof tools.materializeAttachmentEvidence !==
         'function'
     ) {
       return null
@@ -89,12 +91,10 @@
       '[aria-label*="mensagem citada" i]',
       '[aria-label*="resposta" i]',
     ].join(',')
-    const SELECTABLE_SELECTOR = [
-      '[data-testid="selectable-text"]',
-      'span.selectable-text.copyable-text',
-    ].join(',')
     const EVIDENCE_ATTRIBUTE =
       'data-yolen-attachment-evidence'
+    const BRIDGE_ATTRIBUTE =
+      'data-yolen-attachment-bubble-bridge'
 
     function uniqueMessageNodeFromBubble(
       bubble,
@@ -186,7 +186,7 @@
 
       clone
         .querySelectorAll?.(
-          `[${EVIDENCE_ATTRIBUTE}]`,
+          `[${EVIDENCE_ATTRIBUTE}], [${BRIDGE_ATTRIBUTE}]`,
         )
         .forEach((element) => {
           element.remove?.()
@@ -198,57 +198,7 @@
         )
     }
 
-    function getBaseMessageText(
-      messageNode,
-    ) {
-      if (!messageNode?.querySelectorAll) {
-        return ''
-      }
-
-      const parts = []
-
-      messageNode
-        .querySelectorAll(
-          SELECTABLE_SELECTOR,
-        )
-        .forEach((element) => {
-          if (
-            element.hasAttribute?.(
-              EVIDENCE_ATTRIBUTE,
-            ) ||
-            element.closest?.(
-              QUOTED_SELECTOR,
-            )
-          ) {
-            return
-          }
-
-          const value =
-            typeof tools
-              .cleanCapturedMessageText ===
-              'function'
-              ? tools.cleanCapturedMessageText(
-                  tools.readCapturedElementText(
-                    element,
-                  ),
-                )
-              : String(
-                  tools.readCapturedElementText(
-                    element,
-                  ) || '',
-                ).trim()
-
-          if (value) {
-            parts.push(value)
-          }
-        })
-
-      return Array.from(
-        new Set(parts),
-      ).join('\n')
-    }
-
-    function materializeFromBubble(
+    function reconcileBubbleBridge(
       messageNode,
     ) {
       if (
@@ -258,82 +208,96 @@
         return false
       }
 
-      tools
-        .materializeAttachmentEvidence
-        ?.(
-          messageNode,
-        )
-
-      if (
-        messageNode.querySelector?.(
-          `[${EVIDENCE_ATTRIBUTE}]`,
-        )
-      ) {
-        return true
-      }
-
       const bubble =
         findSafeBubble(
           messageNode,
         )
 
       if (!bubble) {
-        return false
+        return tools
+          .materializeAttachmentEvidence(
+            messageNode,
+          )
       }
-
-      const outsideText =
-        getTextOutsideCanonicalMessage(
-          bubble,
-        )
 
       const fileName =
         tools.extractAttachmentFileName(
-          outsideText,
+          getTextOutsideCanonicalMessage(
+            bubble,
+          ),
+        )
+
+      const existingBridge =
+        messageNode.querySelector?.(
+          `[${BRIDGE_ATTRIBUTE}]`,
         )
 
       if (!fileName) {
-        return false
+        existingBridge?.remove?.()
+
+        return tools
+          .materializeAttachmentEvidence(
+            messageNode,
+          )
       }
 
-      const evidence =
+      const bridge =
+        existingBridge ||
         messageNode.ownerDocument
           ?.createElement?.('span')
 
-      if (!evidence) {
+      if (!bridge) {
         return false
       }
 
-      const baseText =
-        getBaseMessageText(
-          messageNode,
+      let changed = false
+
+      if (!existingBridge) {
+        bridge.setAttribute(
+          BRIDGE_ATTRIBUTE,
+          'true',
         )
+        bridge.setAttribute(
+          'data-testid',
+          'document',
+        )
+        bridge.setAttribute(
+          'aria-hidden',
+          'true',
+        )
+        bridge.style.display =
+          'none'
+        messageNode.appendChild(
+          bridge,
+        )
+        changed = true
+      }
 
-      evidence.setAttribute(
-        EVIDENCE_ATTRIBUTE,
-        'true',
-      )
-      evidence.setAttribute(
-        'data-testid',
-        'selectable-text',
-      )
-      evidence.setAttribute(
-        'aria-hidden',
-        'true',
-      )
-      evidence.style.display =
-        'none'
-      evidence.textContent = [
-        baseText,
-        `[Arquivo: ${fileName}]`,
-      ]
-        .filter(Boolean)
-        .join('\n')
+      if (
+        bridge.getAttribute?.(
+          'title',
+        ) !== fileName
+      ) {
+        bridge.setAttribute(
+          'title',
+          fileName,
+        )
+        changed = true
+      }
 
-      messageNode.appendChild(
-        evidence,
-      )
+      const evidenceChanged =
+        tools
+          .materializeAttachmentEvidence(
+            messageNode,
+          )
 
-      return true
+      return Boolean(
+        changed ||
+        evidenceChanged ||
+        messageNode.querySelector?.(
+          `[${EVIDENCE_ATTRIBUTE}]`,
+        ),
+      )
     }
 
     function collectMessageNodes(node) {
@@ -394,7 +358,7 @@
     function scanNode(node) {
       collectMessageNodes(node)
         .forEach(
-          materializeFromBubble,
+          reconcileBubbleBridge,
         )
     }
 
@@ -403,7 +367,7 @@
         MESSAGE_SELECTOR,
       )
       .forEach(
-        materializeFromBubble,
+        reconcileBubbleBridge,
       )
 
     const observer =
@@ -442,7 +406,7 @@
 
     const installed = {
       observer,
-      materializeFromBubble,
+      reconcileBubbleBridge,
     }
 
     Object.defineProperty(
@@ -470,9 +434,11 @@
 
   // O WhatsApp pode renderizar o cartão de documento fora do nó
   // [data-pre-plain-text], dentro da mesma bolha .message-in/.message-out.
-  // O adapter canônico continua sendo a primeira opção; este fallback só
-  // materializa o arquivo quando há exatamente uma mensagem canônica na
-  // bolha, evitando contaminar mensagens vizinhas durante virtualização.
+  // O adapter canônico continua sendo o dono da evidência. Este fallback
+  // somente cria um marcador de documento dentro do nó canônico quando
+  // prova, na mesma bolha e sem limite de profundidade, que existe um nome
+  // de arquivo fora dele. Assim os dois observers convergem para o mesmo
+  // estado em vez de disputar/criar-remover a evidência em loop.
   installAttachmentBubbleFallback()
 
   const base = root.YolenCompanionSellerInformationView
