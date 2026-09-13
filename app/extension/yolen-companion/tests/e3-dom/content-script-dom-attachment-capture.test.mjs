@@ -337,3 +337,67 @@ test('content-script preserva legenda quando cartão e legenda são irmãos do n
     `Segue a grade atualizada.\n[Arquivo: ${FILE_NAME}]`,
   )
 })
+
+test('runtime final preserva filename de PDF quebrado em múltiplas linhas e entrega no capture payload', async () => {
+  const messagesHtml = [
+    `
+      <div class="message-in" data-id="msg-before-wrapped-pdf">
+        <div data-pre-plain-text="[10:22, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">Pode enviar o material?</span>
+        </div>
+      </div>
+    `,
+    `
+      <div class="message-out" data-id="msg-wrapped-pdf">
+        <div class="document-card">
+          <span>GRADE ATUALIZADA EM 12-08-26<br>(1).pdf</span>
+          <span>1 página • PDF • 221 kB</span>
+        </div>
+        <span class="message-time">10:31</span>
+      </div>
+    `,
+    `
+      <div class="message-in" data-id="msg-after-wrapped-pdf">
+        <div data-pre-plain-text="[14:40, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">Obrigada.</span>
+        </div>
+      </div>
+    `,
+  ].join('')
+
+  const initialHtml = buildWhatsAppPageHtml({
+    headerTitle: HEADER_TITLE,
+    messagesHtml,
+  })
+
+  const {
+    calls,
+    window,
+  } = loadContentScript({
+    initialHtml,
+  })
+
+  installPhase169RuntimeGuard(
+    window,
+  )
+
+  const captured = await waitFor(() => {
+    const message = findCapturedMessage(
+      calls,
+      'msg-wrapped-pdf',
+    )
+
+    return message?.text_content ===
+      `[Arquivo: ${FILE_NAME}]`
+      ? message
+      : false
+  })
+
+  assert.equal(captured.direction, 'outgoing')
+  assert.equal(captured.content_type, 'text')
+  assert.equal(captured.is_deleted, false)
+  assert.equal(
+    captured.text_content,
+    `[Arquivo: ${FILE_NAME}]`,
+  )
+})
