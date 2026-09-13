@@ -83,6 +83,8 @@ export function buildCommercialBehaviorPromptRules(
 
     'respected_space só é mérito quando a cronologia mostra que esperar era a conduta correta — por exemplo, pedido explícito de espaço/tempo ou ausência legítima de pendência do vendedor. Cordialidade, silêncio ou retomada genérica não bastam quando já existe pergunta, pedido, compromisso ou próxima ação pendente.',
 
+    'Não determine responsabilidade comercial apenas por quem enviou a última mensagem. Uma mensagem outgoing genérica não transfere a responsabilidade ao cliente quando um pedido, pergunta ou compromisso anterior continua sem conclusão; nesse caso o vendedor continua devendo a próxima ação.',
+
     'Se o cliente repetir uma solicitação já feita, investigue se a repetição foi provocada por ausência de resposta, resposta incompleta ou perda de contexto do vendedor. Quando sustentado pelas mensagens, trate isso como falha de atendimento e não como novo pedido isolado.',
 
     'Na avaliação do atendimento, falhas materiais — pedido não respondido, contexto perdido, pergunta redundante, informação repetida, proposta sem descoberta suficiente, compromisso não concluído ou oportunidade clara de fechamento ignorada — têm precedência sobre acertos superficiais como cordialidade, saudação ou retomada genérica.',
