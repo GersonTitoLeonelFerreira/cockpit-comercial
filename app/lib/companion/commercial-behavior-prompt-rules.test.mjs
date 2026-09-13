@@ -273,7 +273,7 @@ test(
 
     assert.match(
       rules,
-      /não classifique esse comportamento como respeito ao espaço/,
+      /não classifique esse comportamento como respeito ao espaço/i,
     )
 
     assert.match(
