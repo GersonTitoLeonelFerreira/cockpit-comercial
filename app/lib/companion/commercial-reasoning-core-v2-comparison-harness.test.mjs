@@ -134,6 +134,27 @@ test(
       },
     }
 
+    const defaultProvider =
+      async () => {
+        throw new Error(
+          'provider default não deve ser chamado pelos mocks do teste',
+        )
+      }
+
+    const legacyProvider =
+      async () => {
+        throw new Error(
+          'legacy provider não deve chegar ao provider real neste teste',
+        )
+      }
+
+    const v2Provider =
+      async () => {
+        throw new Error(
+          'v2 provider não deve chegar ao provider real neste teste',
+        )
+      }
+
     let legacyCalls = 0
     let v2Calls = 0
 
@@ -147,29 +168,48 @@ test(
           'm1',
         ],
         provider:
-          async () => {
-            throw new Error(
-              'provider não deve ser chamado pelos mocks do teste',
-            )
-          },
+          defaultProvider,
+        legacy_provider:
+          legacyProvider,
+        v2_provider:
+          v2Provider,
         create_memory_id:
           () => 'memory-a',
         dependencies: {
           now:
             () => times.shift(),
           run_legacy_engine:
-            async ({ diagnostic_input }) => {
+            async ({
+              diagnostic_input,
+              provider,
+            }) => {
               legacyCalls += 1
+
+              assert.equal(
+                provider,
+                legacyProvider,
+              )
+
               assert.equal(
                 diagnostic_input
                   .conversation_key,
                 'conversation-a',
               )
+
               return legacyResult
             },
           run_v2:
-            async ({ input }) => {
+            async ({
+              input,
+              provider,
+            }) => {
               v2Calls += 1
+
+              assert.equal(
+                provider,
+                v2Provider,
+              )
+
               assert.equal(
                 input
                   .diagnostic_input
