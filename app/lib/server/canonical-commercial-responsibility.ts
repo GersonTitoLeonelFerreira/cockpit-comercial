@@ -57,7 +57,7 @@ const SELLER_STILL_OWES_ACTION_KINDS =
     'missed_commitment',
   ])
 
-function readingShowsSellerStillOwesAction(
+export function commercialReadingShowsSellerStillOwesAction(
   currentReading:
     CanonicalCommercialReadingSource | null | undefined,
 ): boolean {
@@ -132,7 +132,7 @@ export function reconcileDecisionStateWithCommercialResponsibility({
 }): DecisionState | null {
   if (
     !decisionState ||
-    readingShowsSellerStillOwesAction(
+    commercialReadingShowsSellerStillOwesAction(
       currentReading,
     ) ||
     !isActiveSellerWaitingMoment({
@@ -201,7 +201,7 @@ export function reconcileReasoningWithCommercialResponsibility({
 }): CommercialReasoning | null {
   if (
     !reasoning ||
-    readingShowsSellerStillOwesAction(
+    commercialReadingShowsSellerStillOwesAction(
       currentReading,
     ) ||
     !isActiveSellerWaitingMoment({
