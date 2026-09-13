@@ -269,7 +269,7 @@ function requireEnum<T extends readonly string[]>(
 ): T[number] {
   if (
     typeof value !== 'string' ||
-    !allowed.includes(value)
+    !(allowed as readonly string[]).includes(value)
   ) {
     fail(
       'ENUM_VALUE_REQUIRED',
