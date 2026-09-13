@@ -75,7 +75,7 @@ function sanitizeSellerAttributedList({
 
       // Estrutura inválida continua no payload para o contrato rejeitar.
       // Este saneador corrige apenas o caso semanticamente conhecido:
-      // item seller-facing bem formado sem nenhuma evidência outgoing.
+      // elogio/risco seller-facing bem formado sem nenhuma evidência outgoing.
       if (hasSellerEvidence === null) {
         return true
       }
@@ -121,24 +121,25 @@ export function sanitizeSellerAttributedEvidence({
 
   let removedItems = 0
 
-  for (
-    const field of [
-      'seller_strengths',
-      'improvement_points',
-    ] as const
-  ) {
-    const result =
-      sanitizeSellerAttributedList({
-        value: reading[field],
-        sellerMessageIds,
-      })
+  const strengths =
+    sanitizeSellerAttributedList({
+      value:
+        reading.seller_strengths,
+      sellerMessageIds,
+    })
 
-    reading[field] =
-      result.value
+  reading.seller_strengths =
+    strengths.value
 
-    removedItems +=
-      result.removed_items
-  }
+  removedItems +=
+    strengths.removed_items
+
+  // improvement_points pode representar uma omissão real do vendedor
+  // (pedido repetido, compromisso não concluído, ausência de resposta).
+  // Nesses casos a sequência incoming é evidência contextual legítima e
+  // não existe necessariamente uma mensagem outgoing que represente a
+  // omissão. Por isso não filtramos improvement_points aqui. O prompt
+  // continua proibindo atribuir ao vendedor uma ação que ele não realizou.
 
   const risks =
     reading.risks
