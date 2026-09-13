@@ -10,7 +10,7 @@
   const MESSAGE_SELECTOR =
     '[data-pre-plain-text]'
   const BUBBLE_SELECTOR =
-    '.message-in, .message-out, [data-id]'
+    '.message-in, .message-out, [data-id], [role="row"]'
   const QUOTED_SELECTOR = [
     '[data-testid*="quoted" i]',
     '[data-testid*="reply" i]',
@@ -55,9 +55,154 @@
   }
 
   // FASE 16.9 — retry manual de análise ("Tentar novamente") passou a ser
-  // resolvido inteiramente pelo caminho canônico em yolen-api.js.
-  // Este arquivo não volta a envolver analyzeConversation/getAnalysisJobStatus.
-  //
+  // resolvido inteiramente pelo caminho canônico em yolen-api.js para jobs
+  // failed/succeeded. Existe, porém, um estado terminal diferente:
+  // `superseded`. O endpoint normal é idempotente por watermark e devolve o
+  // MESMO superseded para sempre; o yolen-api canônico não o reabre porque
+  // reexecutar o requested_at antigo seria causalmente incorreto. O wrapper
+  // abaixo trata SOMENTE esse beco sem saída e pede ao backend um refresh
+  // explícito, que cria uma nova identidade/corte causal. Não duplica a regra
+  // de retry de failed/succeeded.
+  function getCompanionRuntime() {
+    if (
+      typeof browser !== 'undefined' &&
+      browser.runtime?.sendMessage
+    ) {
+      return browser.runtime
+    }
+
+    if (
+      typeof chrome !== 'undefined' &&
+      chrome.runtime?.sendMessage
+    ) {
+      return chrome.runtime
+    }
+
+    return (
+      root.browser?.runtime ||
+      root.chrome?.runtime ||
+      windowRef.browser?.runtime ||
+      windowRef.chrome?.runtime ||
+      null
+    )
+  }
+
+  function installSupersededManualRefresh() {
+    const api =
+      root.YolenCompanionApi ||
+      windowRef.YolenCompanionApi
+
+    if (
+      !api ||
+      typeof api.analyzeConversation !== 'function' ||
+      api.analyzeConversation
+        .__yolenPhase169SupersededRefreshWrapped === true
+    ) {
+      return false
+    }
+
+    const original =
+      api.analyzeConversation.bind(api)
+
+    async function analyzeConversationWithSupersededRefresh(
+      payload,
+    ) {
+      const result =
+        await original(payload)
+
+      const deepAnalysis =
+        result?.payload?.data?.deep_analysis
+
+      if (
+        payload?.force_reanalysis !== true ||
+        !deepAnalysis?.analysis_job_id ||
+        deepAnalysis.status !== 'superseded'
+      ) {
+        return result
+      }
+
+      const runtime =
+        getCompanionRuntime()
+
+      if (!runtime?.sendMessage) {
+        return result
+      }
+
+      let refreshedResult = null
+
+      try {
+        refreshedResult =
+          await runtime.sendMessage({
+            source:
+              'YOLEN_COMPANION',
+            action:
+              'RETRY_ANALYSIS_JOB',
+            baseUrl:
+              typeof api.getBaseUrl ===
+                'function'
+                ? api.getBaseUrl()
+                : undefined,
+            payload: {
+              analysis_job_id:
+                deepAnalysis.analysis_job_id,
+              // O backend interpreta allow_succeeded=true como intenção
+              // explícita de refresh de um estado terminal. Para
+              // superseded ele NÃO reabre a fotografia antiga: cria um
+              // novo job com requested_at atual.
+              allow_succeeded:
+                true,
+            },
+          })
+      } catch {
+        return result
+      }
+
+      const refreshed =
+        refreshedResult?.payload?.data
+
+      if (
+        refreshedResult?.ok !== true ||
+        refreshedResult?.payload?.ok !== true ||
+        !refreshed?.analysis_job_id ||
+        !(
+          refreshed.status === 'queued' ||
+          refreshed.status === 'running'
+        )
+      ) {
+        return result
+      }
+
+      result.payload.data.deep_analysis = {
+        ...deepAnalysis,
+        analysis_job_id:
+          refreshed.analysis_job_id,
+        status:
+          refreshed.status,
+        message_watermark:
+          refreshed.message_watermark ||
+          deepAnalysis.message_watermark,
+      }
+
+      return result
+    }
+
+    Object.defineProperty(
+      analyzeConversationWithSupersededRefresh,
+      '__yolenPhase169SupersededRefreshWrapped',
+      {
+        configurable: false,
+        enumerable: false,
+        value: true,
+        writable: false,
+      },
+    )
+
+    api.analyzeConversation =
+      analyzeConversationWithSupersededRefresh
+
+    return true
+  }
+
   // Há uma responsabilidade seller-facing distinta: uma tentativa nova pode
   // falhar enquanto já existe AnalysisViewModel canônico e persistido para a
   // mesma conversa. A continuidade abaixo preserva essa última leitura sem
@@ -296,6 +441,7 @@
     return true
   }
 
+  installSupersededManualRefresh()
   installAnalysisViewModelContinuity()
 
   function getTools() {
@@ -631,13 +777,97 @@
     }
   }
 
+  function getBubbleDataId(
+    bubble,
+  ) {
+    if (!bubble) {
+      return null
+    }
+
+    const owner =
+      bubble.matches?.('[data-id]')
+        ? bubble
+        : bubble.closest?.('[data-id]') ||
+          bubble.querySelector?.('[data-id]')
+
+    return (
+      owner
+        ?.getAttribute?.('data-id')
+        ?.trim() ||
+      null
+    )
+  }
+
+  function inferBubbleDirection(
+    bubble,
+    dataId,
+  ) {
+    const hasOutgoingClass =
+      Boolean(
+        bubble.matches?.('.message-out') ||
+        bubble.closest?.('.message-out') ||
+        bubble.querySelector?.('.message-out'),
+      )
+
+    const hasIncomingClass =
+      Boolean(
+        bubble.matches?.('.message-in') ||
+        bubble.closest?.('.message-in') ||
+        bubble.querySelector?.('.message-in'),
+      )
+
+    const tools = getTools()
+
+    if (
+      tools &&
+      typeof tools
+        .inferCapturedMessageDirection ===
+        'function'
+    ) {
+      return tools.inferCapturedMessageDirection({
+        hasOutgoingClass,
+        hasIncomingClass,
+        dataId:
+          dataId || '',
+      })
+    }
+
+    if (hasOutgoingClass) {
+      return 'outgoing'
+    }
+
+    if (hasIncomingClass) {
+      return 'incoming'
+    }
+
+    if (
+      String(dataId || '')
+        .startsWith('true_') ||
+      String(dataId || '')
+        .includes('_true_')
+    ) {
+      return 'outgoing'
+    }
+
+    return 'incoming'
+  }
+
   function materializeAttachmentOnlyBubble(
     bubble,
   ) {
+    const mainConversation =
+      documentRef.querySelector?.('#main')
+
     if (
       !bubble ||
       !bubble.matches?.(
         BUBBLE_SELECTOR,
+      ) ||
+      (
+        mainConversation &&
+        !mainConversation.contains?.(
+          bubble,
+        )
       ) ||
       bubble.closest?.(
         QUOTED_SELECTOR,
@@ -653,8 +883,9 @@
     }
 
     const dataId =
-      bubble.getAttribute?.('data-id')
-        ?.trim()
+      getBubbleDataId(
+        bubble,
+      )
 
     if (!dataId) {
       return false
@@ -669,6 +900,12 @@
       return false
     }
 
+    const direction =
+      inferBubbleDirection(
+        bubble,
+        dataId,
+      )
+
     const synthetic =
       documentRef.createElement('div')
 
@@ -679,7 +916,7 @@
     synthetic.setAttribute(
       'data-pre-plain-text',
       `[${descriptor.time}, ${date}] ${
-        bubble.matches?.('.message-out')
+        direction === 'outgoing'
           ? 'Yolen'
           : 'Cliente'
       }: `,
@@ -694,17 +931,11 @@
     )
     synthetic.style.display = 'none'
 
-    if (bubble.matches?.('.message-out')) {
-      synthetic.classList.add(
-        'message-out',
-      )
-    } else if (
-      bubble.matches?.('.message-in')
-    ) {
-      synthetic.classList.add(
-        'message-in',
-      )
-    }
+    synthetic.classList.add(
+      direction === 'outgoing'
+        ? 'message-out'
+        : 'message-in',
+    )
 
     const evidence =
       documentRef.createElement('span')
@@ -868,6 +1099,7 @@
 
   windowRef.YolenPhase169RuntimeGuard =
     Object.freeze({
+      installSupersededManualRefresh,
       installAnalysisViewModelContinuity,
       reconcileAnalysisViewModelContinuity,
       materializeAttachmentOnlyBubble,
