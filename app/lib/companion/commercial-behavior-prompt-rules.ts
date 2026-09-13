@@ -83,6 +83,8 @@ export function buildCommercialBehaviorPromptRules(
 
     'Na avaliação do atendimento, falhas materiais — pedido não respondido, contexto perdido, pergunta redundante, informação repetida, proposta sem descoberta suficiente, compromisso não concluído ou oportunidade clara de fechamento ignorada — têm precedência sobre acertos superficiais como cordialidade, saudação ou retomada genérica.',
 
+    'Quando houver vários desvios materiais independentes e sustentados por evidência, preserve-os como improvement_points distintos até o limite do schema. Não compacte perda de contexto, proposta prematura, pedido ignorado e oportunidade de fechamento perdida em uma única crítica genérica.',
+
     'Nunca elogie uma mensagem apenas por ser cordial se, no mesmo turno, ela abandona uma solicitação específica que o cliente já havia feito.',
 
     'Antes de marcar algo como pendente ou recomendar uma ação, responda silenciosamente: esta ação já aconteceu? Se a conversa prova que aconteceu, não a trate como pendência e não recomende repeti-la, salvo se houver motivo novo e explícito.',
