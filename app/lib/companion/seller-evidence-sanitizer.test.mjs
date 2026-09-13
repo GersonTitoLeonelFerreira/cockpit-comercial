@@ -30,8 +30,8 @@ function buildOutput() {
       improvement_points: [
         {
           kind: 'repetition',
-          summary: 'Crítica sem mensagem do vendedor.',
-          why_it_matters: 'Não deve sobreviver.',
+          summary: 'Pedido repetido sem resposta conclusiva.',
+          why_it_matters: 'Omissão pode ser provada pela sequência do cliente.',
           impact: 'Risco de contexto.',
           how_to_improve: 'Retomar o pedido.',
           evidence_message_ids: ['customer-2'],
@@ -79,7 +79,7 @@ function buildOutput() {
 }
 
 test(
-  'remove somente itens seller-facing sem nenhuma evidência outgoing',
+  'remove elogio e risco de atendimento sem outgoing mas preserva melhoria por omissão',
   () => {
     const original =
       buildOutput()
@@ -96,7 +96,7 @@ test(
 
     assert.equal(
       result.removed_items,
-      3,
+      2,
     )
 
     assert.deepEqual(
@@ -115,6 +115,7 @@ test(
         .improvement_points
         .map(item => item.summary),
       [
+        'Pedido repetido sem resposta conclusiva.',
         'Apresentou solução cedo demais.',
       ],
     )
@@ -142,13 +143,6 @@ test(
     assert.equal(
       original
         .commercial_reading
-        .service_risks,
-      undefined,
-    )
-
-    assert.equal(
-      original
-        .commercial_reading
         .seller_strengths
         .length,
       2,
@@ -158,7 +152,7 @@ test(
 )
 
 test(
-  'sem mensagens outgoing remove apenas itens seller-facing bem formados',
+  'sem mensagens outgoing remove elogios e service risks bem formados sem apagar improvement points',
   () => {
     const output =
       buildOutput()
@@ -176,7 +170,7 @@ test(
 
     assert.equal(
       result.removed_items,
-      6,
+      4,
     )
 
     assert.deepEqual(
@@ -185,6 +179,14 @@ test(
         .seller_strengths,
       ['shape-invalido'],
       'shape inválido deve permanecer para o contrato rejeitar',
+    )
+
+    assert.equal(
+      result.value
+        .commercial_reading
+        .improvement_points
+        .length,
+      2,
     )
 
     assert.equal(
