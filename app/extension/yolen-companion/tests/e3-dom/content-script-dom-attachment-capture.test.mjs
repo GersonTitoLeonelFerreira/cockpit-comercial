@@ -310,6 +310,74 @@ test('runtime final captura cartão PDF sem data-pre-plain-text usando data cron
   assert.equal(captured.occurred_at, '2026-09-12T13:31:00.000Z')
 })
 
+test('runtime final captura PDF quando o card está na role row e o data-id real está aninhado', async () => {
+  const nestedDataId =
+    'true_5511953442244@c.us_MSG-PDF-ROW-NESTED'
+
+  const messagesHtml = [
+    `
+      <div class="message-in" data-id="msg-before-row-pdf">
+        <div data-pre-plain-text="[10:22, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">Pode enviar a grade?</span>
+        </div>
+      </div>
+    `,
+    `
+      <div role="row" class="whatsapp-message-row">
+        <div class="document-card">
+          <span>${FILE_NAME}</span>
+          <span>1 página • PDF • 221 kB</span>
+        </div>
+        <div class="message-identity" data-id="${nestedDataId}"></div>
+        <span class="message-time">10:31</span>
+      </div>
+    `,
+    `
+      <div class="message-in" data-id="msg-after-row-pdf">
+        <div data-pre-plain-text="[14:40, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">Obrigada.</span>
+        </div>
+      </div>
+    `,
+  ].join('')
+
+  const initialHtml = buildWhatsAppPageHtml({
+    headerTitle: HEADER_TITLE,
+    messagesHtml,
+  })
+
+  const {
+    calls,
+    window,
+  } = loadContentScript({
+    initialHtml,
+  })
+
+  installPhase169RuntimeGuard(
+    window,
+  )
+
+  const captured = await waitFor(() => {
+    const message = findCapturedMessage(
+      calls,
+      'MSG-PDF-ROW-NESTED',
+    )
+
+    return message?.text_content ===
+      `[Arquivo: ${FILE_NAME}]`
+      ? message
+      : false
+  })
+
+  assert.equal(captured.direction, 'outgoing')
+  assert.equal(captured.content_type, 'text')
+  assert.equal(captured.is_deleted, false)
+  assert.equal(
+    captured.text_content,
+    `[Arquivo: ${FILE_NAME}]`,
+  )
+})
+
 test('content-script preserva legenda e registra o documento como fato já entregue', async () => {
   const initialHtml = buildWhatsAppPageHtml({
     headerTitle: HEADER_TITLE,
