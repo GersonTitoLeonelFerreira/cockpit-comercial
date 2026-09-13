@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { send } from '@vercel/queue'
 
 import {
+  STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS,
   STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
   buildStatefulCopilotBackgroundJobDescriptor,
   buildStatefulCopilotBackgroundJobMessage,
@@ -889,22 +890,93 @@ export async function POST(request: Request) {
       if (useLocalInlineWorker) {
         /*
          * Harness exclusivamente local para smoke real da extensão.
-         *
-         * Produção continua usando Vercel Queue sem qualquer alteração.
-         * Aqui executamos exatamente o MESMO worker registrado no consumer
-         * app/api/queues/companion-deep-analysis-v3/route.ts.
-         *
-         * Não aguardamos o worker porque o contrato seller-facing continua
-         * sendo assíncrono: analyze-conversation devolve "queued" e o
-         * polling existente observa queued -> succeeded/failed exatamente
-         * como acontece na Vercel.
+         * Produção continua usando Vercel Queue. No local, emulamos a
+         * redelivery da Queue com o MESMO limite de tentativas do contrato
+         * durable. Uma falha retryable do worker não pode ser convertida em
+         * terminal apenas porque o dev server não possui a Vercel Queue.
          */
-        void processStatefulCopilotBackgroundMessage(
-          backgroundMessage,
-          {
-            delivery_count: 1,
-          },
-        ).catch(async error => {
+        void (async () => {
+          let lastError: unknown = null
+
+          for (
+            let deliveryCount = 1;
+            deliveryCount <=
+              STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS;
+            deliveryCount += 1
+          ) {
+            try {
+              await processStatefulCopilotBackgroundMessage(
+                backgroundMessage,
+                {
+                  delivery_count:
+                    deliveryCount,
+                },
+              )
+
+              return
+            } catch (error) {
+              lastError = error
+
+              console.warn(
+                'YOLEN_COMPANION_BACKGROUND_JOB',
+                JSON.stringify({
+                  event:
+                    'local_inline_worker_delivery_failed',
+                  company_id:
+                    backgroundJob.company_id,
+                  cycle_id:
+                    backgroundJob.cycle_id,
+                  analysis_job_id:
+                    backgroundJob.analysis_job_id,
+                  delivery_count:
+                    deliveryCount,
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : 'unknown_error',
+                }),
+              )
+            }
+          }
+
+          const {
+            data: latestLocalJob,
+            error: latestLocalJobError,
+          } = await admin
+            .from(
+              'companion_background_analysis_jobs',
+            )
+            .select('status')
+            .eq(
+              'analysis_job_id',
+              backgroundJob.analysis_job_id,
+            )
+            .eq(
+              'company_id',
+              backgroundJob.company_id,
+            )
+            .eq(
+              'cycle_id',
+              backgroundJob.cycle_id,
+            )
+            .eq(
+              'conversation_key',
+              backgroundJob.conversation_key,
+            )
+            .eq(
+              'message_watermark',
+              backgroundJob.message_watermark,
+            )
+            .maybeSingle()
+
+          if (
+            latestLocalJobError ||
+            latestLocalJob?.status !==
+              'queued'
+          ) {
+            return
+          }
+
           const completedAt =
             new Date().toISOString()
 
@@ -950,7 +1022,7 @@ export async function POST(request: Request) {
             'YOLEN_COMPANION_BACKGROUND_JOB',
             JSON.stringify({
               event:
-                'local_inline_worker_failed',
+                'local_inline_worker_exhausted',
               company_id:
                 backgroundJob.company_id,
               cycle_id:
@@ -962,12 +1034,12 @@ export async function POST(request: Request) {
                   localWorkerFailurePersistenceError,
                 ),
               error:
-                error instanceof Error
-                  ? error.message
+                lastError instanceof Error
+                  ? lastError.message
                   : 'unknown_error',
             }),
           )
-        })
+        })()
 
         console.info(
           'YOLEN_COMPANION_BACKGROUND_JOB',
