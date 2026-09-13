@@ -16,10 +16,23 @@ function buildDocumentMessageHtml({
   caption = null,
   siblingCard = false,
   distantSiblingCard = false,
+  attachmentOnlyCard = false,
 } = {}) {
   const captionHtml = caption
     ? `<span data-testid="selectable-text" class="selectable-text copyable-text"><span>${caption}</span></span>`
     : ''
+
+  if (attachmentOnlyCard) {
+    return `
+      <div class="message-out" data-id="${id}">
+        <div class="document-card">
+          <span>${FILE_NAME}</span>
+          <span>1 página • PDF • 221 kB</span>
+        </div>
+        <span class="message-time">10:31</span>
+      </div>
+    `
+  }
 
   if (distantSiblingCard) {
     return `
@@ -169,6 +182,55 @@ test('content-script captura documento quando cartão está fora do limite ances
   assert.equal(captured.direction, 'outgoing')
   assert.equal(captured.content_type, 'text')
   assert.equal(captured.is_deleted, false)
+})
+
+test('content-script captura cartão PDF sem data-pre-plain-text usando data cronológica dos vizinhos', async () => {
+  const messagesHtml = [
+    `
+      <div class="message-in" data-id="msg-before-pdf">
+        <div data-pre-plain-text="[10:22, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">me manda a grade das aulas coletivas pf?</span>
+        </div>
+      </div>
+    `,
+    buildDocumentMessageHtml({
+      id: 'msg-pdf-without-preplain',
+      attachmentOnlyCard: true,
+    }),
+    `
+      <div class="message-in" data-id="msg-after-pdf">
+        <div data-pre-plain-text="[14:40, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">Olá eu e minha amiga gostariamos de fazer a aula experimental</span>
+        </div>
+      </div>
+    `,
+  ].join('')
+
+  const initialHtml = buildWhatsAppPageHtml({
+    headerTitle: HEADER_TITLE,
+    messagesHtml,
+  })
+
+  const { calls } = loadContentScript({
+    initialHtml,
+  })
+
+  const captured = await waitFor(() => {
+    const message = findCapturedMessage(
+      calls,
+      'msg-pdf-without-preplain',
+    )
+
+    return message?.text_content ===
+      `[Arquivo: ${FILE_NAME}]`
+      ? message
+      : false
+  })
+
+  assert.equal(captured.direction, 'outgoing')
+  assert.equal(captured.content_type, 'text')
+  assert.equal(captured.is_deleted, false)
+  assert.equal(captured.occurred_at, '2026-09-12T13:31:00.000Z')
 })
 
 test('content-script preserva legenda e registra o documento como fato já entregue', async () => {
