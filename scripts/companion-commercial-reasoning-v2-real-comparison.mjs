@@ -14,6 +14,14 @@ import {
 } from '../app/lib/companion/commercial-reasoning-core-v2-comparison-harness.ts'
 
 import {
+  runCommercialReasoningCoreV2,
+} from '../app/lib/companion/commercial-reasoning-core-v2.ts'
+
+import {
+  buildStatefulCopilotInput,
+} from '../app/lib/companion/stateful-copilot-input.ts'
+
+import {
   createStatefulCopilotServerRealContextLoader,
 } from '../app/lib/server/stateful-copilot-real-context-loader.ts'
 
@@ -42,6 +50,10 @@ function parseArgs(argv) {
       get('--cycle-id'),
     conversationKey:
       get('--conversation-key'),
+    v2Only:
+      argv.includes(
+        '--v2-only',
+      ),
   }
 }
 
@@ -587,6 +599,8 @@ function compactV2Result(
       result.execution.attempts,
     duration_ms:
       result.execution.duration_ms,
+    usage:
+      result.execution.usage,
     factual_guard:
       result.factual_guard,
     output:
@@ -601,6 +615,7 @@ async function main() {
     cycleId,
     conversationKey:
       explicitConversationKey,
+    v2Only,
   } = parseArgs(
     process.argv.slice(2),
   )
@@ -726,7 +741,9 @@ async function main() {
     JSON.stringify(
       {
         mode:
-          'read_only',
+          v2Only
+            ? 'read_only_v2_only'
+            : 'read_only',
         reference_time:
           referenceTime,
         active_message_count:
@@ -759,6 +776,77 @@ async function main() {
       2,
     ),
   )
+
+  if (v2Only) {
+    const v2Input =
+      buildStatefulCopilotInput({
+        diagnostic_input:
+          context.diagnostic_input,
+        previous_state:
+          getPreviousState(
+            context.state_read,
+          ),
+        known_message_ids:
+          context.known_message_ids,
+      })
+
+    const v2Result =
+      await runCommercialReasoningCoreV2({
+        input:
+          v2Input,
+        provider:
+          v2Provider,
+      })
+
+    console.log(
+      '\n=== MÉTRICAS V2 ONLY ===',
+    )
+
+    console.log(
+      JSON.stringify(
+        {
+          v2_duration_ms:
+            v2Result
+              .execution
+              .duration_ms,
+          v2_model_attempts:
+            v2Result
+              .execution
+              .attempts,
+          usage:
+            v2Result
+              .execution
+              .usage,
+          factual_guard_adjusted:
+            v2Result
+              .factual_guard
+              .adjusted,
+          factual_guard_adjustment_codes:
+            v2Result
+              .factual_guard
+              .adjustment_codes,
+        },
+        null,
+        2,
+      ),
+    )
+
+    console.log(
+      '\n=== CORE V2 ===',
+    )
+
+    console.log(
+      JSON.stringify(
+        compactV2Result(
+          v2Result,
+        ),
+        null,
+        2,
+      ),
+    )
+
+    return
+  }
 
   const comparison =
     await runCommercialReasoningCoreV2Comparison({
