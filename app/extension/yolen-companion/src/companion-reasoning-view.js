@@ -40,6 +40,425 @@
       )
   }
 
+  function installAttachmentBubbleFallback() {
+    const tools =
+      root.YolenCompanionMessageMutations ||
+      root.window
+        ?.YolenCompanionMessageMutations
+
+    const windowRef =
+      root.window || root
+
+    const documentRef =
+      root.document ||
+      windowRef?.document
+
+    const MutationObserverRef =
+      root.MutationObserver ||
+      windowRef?.MutationObserver
+
+    if (
+      !tools ||
+      !documentRef ||
+      typeof MutationObserverRef !==
+        'function' ||
+      typeof tools.extractAttachmentFileName !==
+        'function' ||
+      typeof tools.readCapturedElementText !==
+        'function'
+    ) {
+      return null
+    }
+
+    if (
+      windowRef
+        .__yolenAttachmentBubbleFallback
+    ) {
+      return windowRef
+        .__yolenAttachmentBubbleFallback
+    }
+
+    const MESSAGE_SELECTOR =
+      '[data-pre-plain-text]'
+    const BUBBLE_SELECTOR =
+      '.message-in, .message-out, [data-id]'
+    const QUOTED_SELECTOR = [
+      '[data-testid*="quoted" i]',
+      '[data-testid*="reply" i]',
+      '[aria-label*="quoted" i]',
+      '[aria-label*="mensagem citada" i]',
+      '[aria-label*="resposta" i]',
+    ].join(',')
+    const SELECTABLE_SELECTOR = [
+      '[data-testid="selectable-text"]',
+      'span.selectable-text.copyable-text',
+    ].join(',')
+    const EVIDENCE_ATTRIBUTE =
+      'data-yolen-attachment-evidence'
+
+    function uniqueMessageNodeFromBubble(
+      bubble,
+    ) {
+      if (!bubble?.querySelectorAll) {
+        return null
+      }
+
+      const nodes =
+        Array.from(
+          bubble.querySelectorAll(
+            MESSAGE_SELECTOR,
+          ),
+        )
+
+      return nodes.length === 1
+        ? nodes[0]
+        : null
+    }
+
+    function findSafeBubble(messageNode) {
+      if (!messageNode?.closest) {
+        return null
+      }
+
+      const candidates = []
+      let current =
+        messageNode.parentElement
+
+      while (current) {
+        if (
+          current.matches?.(
+            BUBBLE_SELECTOR,
+          )
+        ) {
+          candidates.push(current)
+        }
+
+        if (
+          current.matches?.(
+            'main, [role="application"], #app',
+          )
+        ) {
+          break
+        }
+
+        current =
+          current.parentElement
+      }
+
+      for (const candidate of candidates) {
+        if (
+          uniqueMessageNodeFromBubble(
+            candidate,
+          ) === messageNode
+        ) {
+          return candidate
+        }
+      }
+
+      return null
+    }
+
+    function getTextOutsideCanonicalMessage(
+      bubble,
+    ) {
+      if (!bubble?.cloneNode) {
+        return ''
+      }
+
+      const clone =
+        bubble.cloneNode(true)
+
+      clone
+        .querySelectorAll?.(
+          MESSAGE_SELECTOR,
+        )
+        .forEach((element) => {
+          element.remove?.()
+        })
+
+      clone
+        .querySelectorAll?.(
+          QUOTED_SELECTOR,
+        )
+        .forEach((element) => {
+          element.remove?.()
+        })
+
+      clone
+        .querySelectorAll?.(
+          `[${EVIDENCE_ATTRIBUTE}]`,
+        )
+        .forEach((element) => {
+          element.remove?.()
+        })
+
+      return tools
+        .readCapturedElementText(
+          clone,
+        )
+    }
+
+    function getBaseMessageText(
+      messageNode,
+    ) {
+      if (!messageNode?.querySelectorAll) {
+        return ''
+      }
+
+      const parts = []
+
+      messageNode
+        .querySelectorAll(
+          SELECTABLE_SELECTOR,
+        )
+        .forEach((element) => {
+          if (
+            element.hasAttribute?.(
+              EVIDENCE_ATTRIBUTE,
+            ) ||
+            element.closest?.(
+              QUOTED_SELECTOR,
+            )
+          ) {
+            return
+          }
+
+          const value =
+            typeof tools
+              .cleanCapturedMessageText ===
+              'function'
+              ? tools.cleanCapturedMessageText(
+                  tools.readCapturedElementText(
+                    element,
+                  ),
+                )
+              : String(
+                  tools.readCapturedElementText(
+                    element,
+                  ) || '',
+                ).trim()
+
+          if (value) {
+            parts.push(value)
+          }
+        })
+
+      return Array.from(
+        new Set(parts),
+      ).join('\n')
+    }
+
+    function materializeFromBubble(
+      messageNode,
+    ) {
+      if (
+        !messageNode ||
+        messageNode.nodeType !== 1
+      ) {
+        return false
+      }
+
+      tools
+        .materializeAttachmentEvidence
+        ?.(
+          messageNode,
+        )
+
+      if (
+        messageNode.querySelector?.(
+          `[${EVIDENCE_ATTRIBUTE}]`,
+        )
+      ) {
+        return true
+      }
+
+      const bubble =
+        findSafeBubble(
+          messageNode,
+        )
+
+      if (!bubble) {
+        return false
+      }
+
+      const outsideText =
+        getTextOutsideCanonicalMessage(
+          bubble,
+        )
+
+      const fileName =
+        tools.extractAttachmentFileName(
+          outsideText,
+        )
+
+      if (!fileName) {
+        return false
+      }
+
+      const evidence =
+        messageNode.ownerDocument
+          ?.createElement?.('span')
+
+      if (!evidence) {
+        return false
+      }
+
+      const baseText =
+        getBaseMessageText(
+          messageNode,
+        )
+
+      evidence.setAttribute(
+        EVIDENCE_ATTRIBUTE,
+        'true',
+      )
+      evidence.setAttribute(
+        'data-testid',
+        'selectable-text',
+      )
+      evidence.setAttribute(
+        'aria-hidden',
+        'true',
+      )
+      evidence.style.display =
+        'none'
+      evidence.textContent = [
+        baseText,
+        `[Arquivo: ${fileName}]`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+
+      messageNode.appendChild(
+        evidence,
+      )
+
+      return true
+    }
+
+    function collectMessageNodes(node) {
+      const element =
+        node?.nodeType === 1
+          ? node
+          : node?.parentElement
+
+      if (!element) {
+        return []
+      }
+
+      const result = []
+
+      const direct =
+        element.closest?.(
+          MESSAGE_SELECTOR,
+        )
+
+      if (direct) {
+        result.push(direct)
+      }
+
+      element
+        .querySelectorAll?.(
+          MESSAGE_SELECTOR,
+        )
+        .forEach((messageNode) => {
+          if (!result.includes(messageNode)) {
+            result.push(messageNode)
+          }
+        })
+
+      const bubble =
+        element.closest?.(
+          BUBBLE_SELECTOR,
+        )
+
+      const bubbleMessage =
+        uniqueMessageNodeFromBubble(
+          bubble,
+        )
+
+      if (
+        bubbleMessage &&
+        !result.includes(
+          bubbleMessage,
+        )
+      ) {
+        result.push(
+          bubbleMessage,
+        )
+      }
+
+      return result
+    }
+
+    function scanNode(node) {
+      collectMessageNodes(node)
+        .forEach(
+          materializeFromBubble,
+        )
+    }
+
+    documentRef
+      .querySelectorAll(
+        MESSAGE_SELECTOR,
+      )
+      .forEach(
+        materializeFromBubble,
+      )
+
+    const observer =
+      new MutationObserverRef(
+        (mutations) => {
+          mutations.forEach(
+            (mutation) => {
+              scanNode(
+                mutation.target,
+              )
+
+              mutation.addedNodes
+                ?.forEach?.(
+                  scanNode,
+                )
+            },
+          )
+        },
+      )
+
+    observer.observe(
+      documentRef.documentElement,
+      {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: [
+          'data-pre-plain-text',
+          'title',
+          'aria-label',
+          'download',
+        ],
+      },
+    )
+
+    const installed = {
+      observer,
+      materializeFromBubble,
+    }
+
+    Object.defineProperty(
+      windowRef,
+      '__yolenAttachmentBubbleFallback',
+      {
+        configurable: false,
+        enumerable: false,
+        value: installed,
+        writable: false,
+      },
+    )
+
+    return installed
+  }
+
   // Firefox pode expor a API da extensão no global isolado enquanto
   // `window.YolenCompanionApi` vive no WindowProxy da página. O hotfix de
   // freshness já existia, mas o bootstrap anterior assumia
@@ -48,6 +467,13 @@
   // content-script.js, localiza a API em qualquer um dos dois realms e
   // preserva o runtime de browser/chrome do realm da extensão.
   installAnalysisScrollFreshnessRuntime()
+
+  // O WhatsApp pode renderizar o cartão de documento fora do nó
+  // [data-pre-plain-text], dentro da mesma bolha .message-in/.message-out.
+  // O adapter canônico continua sendo a primeira opção; este fallback só
+  // materializa o arquivo quando há exatamente uma mensagem canônica na
+  // bolha, evitando contaminar mensagens vizinhas durante virtualização.
+  installAttachmentBubbleFallback()
 
   const base = root.YolenCompanionSellerInformationView
 
