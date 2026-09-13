@@ -9,7 +9,7 @@ import {
 function buildPlan() {
   return {
     prompt_version:
-      'commercial-reasoning-core-v2-prompt-v1',
+      'commercial-reasoning-core-v2-prompt-v2',
     output_contract_version:
       'commercial-reasoning-core-v2',
     system_prompt:
@@ -151,7 +151,7 @@ test(
 
         assert.equal(
           request.prompt_version,
-          'commercial-reasoning-core-v2-prompt-v1',
+          'commercial-reasoning-core-v2-prompt-v2',
         )
 
         assert.equal(

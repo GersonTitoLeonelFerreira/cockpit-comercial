@@ -526,6 +526,43 @@ function sanitizeUnverifiedRecipientGreeting(
   }
 }
 
+function sanitizeUnverifiedRecipientRelation(
+  text: string | null,
+): {
+  text: string | null
+  changed: boolean
+} {
+  if (!text) {
+    return {
+      text,
+      changed: false,
+    }
+  }
+
+  const namePattern =
+    "[A-ZÁÀÂÃÉÊÍÓÔÕÚÇ][A-Za-zÀ-ÖØ-öø-ÿ'’-]{1,39}"
+
+  const relationPattern =
+    new RegExp(
+      `\\bpara\\s+você\\s+e\\s+(?:a\\s+|o\\s+)?${namePattern}\\b`,
+      'g',
+    )
+
+  const sanitized =
+    text.replace(
+      relationPattern,
+      'para duas pessoas',
+    )
+
+  return {
+    text:
+      sanitized,
+
+    changed:
+      sanitized !== text,
+  }
+}
+
 export function applyCommercialReasoningCoreV2FactualGuard({
   input,
   output,
@@ -856,6 +893,29 @@ export function applyCommercialReasoningCoreV2FactualGuard({
 
     codes.push(
       'UNVERIFIED_RECIPIENT_GREETING_SANITIZED',
+    )
+  }
+
+  const recipientRelationGuard =
+    sanitizeUnverifiedRecipientRelation(
+      communication
+        .suggested_message,
+    )
+
+  if (
+    recipientRelationGuard
+      .changed
+  ) {
+    communication = {
+      ...communication,
+
+      suggested_message:
+        recipientRelationGuard
+          .text,
+    }
+
+    codes.push(
+      'UNVERIFIED_RECIPIENT_RELATION_SANITIZED',
     )
   }
 

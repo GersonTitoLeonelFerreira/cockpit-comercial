@@ -128,6 +128,43 @@ test(
     )
 
     assert.equal(
+      payload.invariants
+        .compact_output,
+      true,
+    )
+
+    assert.deepEqual(
+      payload.output_budget,
+      {
+        strengths_max:
+          2,
+        improvement_points_max:
+          3,
+        facts_used_max:
+          5,
+        unknowns_max:
+          5,
+        do_not_do_max:
+          4,
+        suggested_message_max_characters:
+          480,
+        avoid_repeated_reasoning:
+          true,
+      },
+    )
+
+    assert.equal(
+      plan.prompt_version,
+      'commercial-reasoning-core-v2-prompt-v2',
+    )
+
+    assert.ok(
+      plan.system_prompt.includes(
+        'Não converta referências relativas como sexta-feira',
+      ),
+    )
+
+    assert.equal(
       payload.canonical_snapshot
         .diagnostic_input
         .conversation

@@ -7,7 +7,7 @@ import {
 } from './commercial-reasoning-core-v2-contract'
 
 export const COMMERCIAL_REASONING_CORE_V2_PROMPT_VERSION =
-  'commercial-reasoning-core-v2-prompt-v1' as const
+  'commercial-reasoning-core-v2-prompt-v2' as const
 
 export type CommercialReasoningCoreV2ExecutionPlan = {
   prompt_version:
@@ -38,7 +38,15 @@ function buildSystemPrompt(): string {
 
     'A mensagem sugerida é consequência da mesma análise. Não crie uma estratégia diferente apenas para produzir texto. Se nenhuma intervenção acrescentar valor, use silêncio operacional.',
 
+    'Seja compacto sem perder decisão comercial. Não repita a mesma conclusão, justificativa ou evidência em vários campos. Cada resumo, objetivo, razão, impacto, orientação e explicação deve usar uma frase curta sempre que possível. Priorize apenas informação que muda a decisão ou a ação do vendedor.',
+
+    'Respeite os limites editoriais recebidos em output_budget. Eles reduzem verbosidade, não inteligência: selecione os pontos mais relevantes em vez de listar variações da mesma conclusão.',
+
     'Fatos objetivos são rígidos: não invente preço, produto, desconto, prazo, horário, disponibilidade, política, promessa, pagamento, agendamento, cadastro ou conteúdo de anexo não fornecido.',
+
+    'Não converta referências relativas como sexta-feira, amanhã, próxima semana ou próximo mês em uma data de calendário usando reference_time. Se a data exata não estiver explicitamente registrada no contexto canônico, preserve a referência relativa e declare a data exata como desconhecida.',
+
+    'Não transforme nomes de participantes em identidade do destinatário. Se o contexto não declarar explicitamente quem é o interlocutor, use formulações neutras como para duas pessoas e não assuma você e [nome], Carla ou qualquer outro participante como destinatário.',
 
     'Quando houver incerteza factual, registre-a em factuality.unknowns em vez de preencher a lacuna por suposição.',
 
@@ -78,6 +86,32 @@ function buildUserPrompt(
         true,
 
       factual_unknowns_must_remain_unknown:
+        true,
+
+      compact_output:
+        true,
+    },
+
+    output_budget: {
+      strengths_max:
+        2,
+
+      improvement_points_max:
+        3,
+
+      facts_used_max:
+        5,
+
+      unknowns_max:
+        5,
+
+      do_not_do_max:
+        4,
+
+      suggested_message_max_characters:
+        480,
+
+      avoid_repeated_reasoning:
         true,
     },
 

@@ -334,3 +334,95 @@ test(
     )
   },
 )
+
+
+test(
+  'Factual Guard bloqueia materialização de data não presente no contexto',
+  () => {
+    const result =
+      applyCommercialReasoningCoreV2FactualGuard({
+        input:
+          buildInput(),
+
+        output:
+          buildOutput(
+            'Vocês querem tentar no dia 18/09 às 18h?',
+          ),
+      })
+
+    assert.equal(
+      result
+        .output
+        .communication
+        .suggested_message,
+      null,
+    )
+
+    assert.ok(
+      result
+        .report
+        .adjustment_codes
+        .includes(
+          'UNSUPPORTED_NUMERIC_COMMUNICATION_BLOCKED',
+        ),
+    )
+
+    assert.ok(
+      result
+        .output
+        .factuality
+        .unknowns
+        .some(
+          item =>
+            item.includes(
+              '18/09',
+            ),
+        ),
+    )
+  },
+)
+
+
+test(
+  'Factual Guard não transforma participante conhecido em identidade do destinatário',
+  () => {
+    const result =
+      applyCommercialReasoningCoreV2FactualGuard({
+        input:
+          buildInput(
+            'Os nomes informados são Carla e Juscelaine. Quero Pilates para duas pessoas na sexta-feira às 18h.',
+          ),
+
+        output:
+          buildOutput(
+            'Oi, Carla! Vi que você pediu Pilates para você e a Juscelaine, sexta-feira às 18h.',
+          ),
+      })
+
+    assert.equal(
+      result
+        .output
+        .communication
+        .suggested_message,
+      'Oi! Vi que você pediu Pilates para duas pessoas, sexta-feira às 18h.',
+    )
+
+    assert.ok(
+      result
+        .report
+        .adjustment_codes
+        .includes(
+          'UNVERIFIED_RECIPIENT_GREETING_SANITIZED',
+        ),
+    )
+
+    assert.ok(
+      result
+        .report
+        .adjustment_codes
+        .includes(
+          'UNVERIFIED_RECIPIENT_RELATION_SANITIZED',
+        ),
+    )
+  },
+)
