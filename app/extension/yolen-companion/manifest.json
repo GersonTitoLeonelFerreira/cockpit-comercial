@@ -8,7 +8,6 @@
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
-    "https://app.manychat.com/*",
     "https://cockpit-comercial-vocn.vercel.app/*",
     "http://localhost:3000/*"
   ],
@@ -60,16 +59,6 @@
       "css": [
         "src/styles.css",
         "src/lead-automation.css"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://app.manychat.com/*"
-      ],
-      "js": [
-        "src/platform-contract.js",
-        "src/manychat-surface.js"
       ],
       "run_at": "document_idle"
     },
