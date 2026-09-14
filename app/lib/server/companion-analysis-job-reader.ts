@@ -26,6 +26,14 @@ import {
   type CommercialReading,
 } from '../companion/commercial-reading-contract'
 
+import {
+  COMMERCIAL_REASONING_CORE_V2_CONTRACT_VERSION,
+} from '../companion/commercial-reasoning-core-v2-contract'
+
+import {
+  COMMERCIAL_REASONING_CORE_V2_SELLER_ADAPTER_VERSION,
+} from '../companion/commercial-reasoning-core-v2-seller-adapter'
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -43,7 +51,8 @@ export type CompanionDeepSellerResult = {
     typeof COMPANION_DEEP_SELLER_RESULT_CONTRACT_VERSION
 
   engine_source:
-    'stateful'
+    | 'stateful'
+    | 'commercial_reasoning_core_v2'
 
   commercial_relevance:
     string
@@ -383,7 +392,7 @@ function validateCyclePermission({
   }
 }
 
-function buildSellerResult(
+function buildLegacySellerResult(
   value: unknown,
 ): CompanionDeepSellerResult {
   if (
@@ -499,6 +508,156 @@ function buildSellerResult(
     suggested_message:
       suggestedMessage,
   }
+}
+
+function buildCoreV2SellerResult(
+  value: unknown,
+): CompanionDeepSellerResult {
+  if (
+    !isRecord(value) ||
+    value.contract_version !==
+      COMMERCIAL_REASONING_CORE_V2_CONTRACT_VERSION
+  ) {
+    failIntegrity()
+  }
+
+  const coreOutput =
+    isRecord(
+      value.core_output,
+    )
+      ? value.core_output
+      : null
+
+  const sellerProjection =
+    isRecord(
+      value.seller_projection,
+    )
+      ? value.seller_projection
+      : null
+
+  const commercialReading =
+    isRecord(
+      value.commercial_reading,
+    )
+      ? value.commercial_reading
+      : null
+
+  if (
+    !coreOutput ||
+    coreOutput.contract_version !==
+      COMMERCIAL_REASONING_CORE_V2_CONTRACT_VERSION ||
+    !sellerProjection ||
+    sellerProjection.adapter_version !==
+      COMMERCIAL_REASONING_CORE_V2_SELLER_ADAPTER_VERSION ||
+    sellerProjection.engine_source !==
+      'commercial_reasoning_core_v2' ||
+    !commercialReading ||
+    commercialReading.contract_version !==
+      COMMERCIAL_READING_CONTRACT_VERSION
+  ) {
+    failIntegrity()
+  }
+
+  const summary =
+    requiredString(
+      sellerProjection.summary,
+    )
+
+  const nextApproach =
+    requiredString(
+      sellerProjection.recommended_next_approach,
+    )
+
+  const recommendedQuestion =
+    nullableString(
+      sellerProjection.recommended_question,
+    )
+
+  const suggestedMessage =
+    nullableString(
+      sellerProjection.suggested_message,
+    )
+
+  const commercialRelevance =
+    requiredString(
+      sellerProjection.commercial_relevance,
+    )
+
+  const commercialRole =
+    requiredString(
+      sellerProjection.commercial_role,
+    )
+
+  if (
+    !summary ||
+    !nextApproach ||
+    recommendedQuestion === undefined ||
+    suggestedMessage === undefined ||
+    !commercialRelevance ||
+    !commercialRole ||
+    coreOutput.commercial_relevance !==
+      commercialRelevance ||
+    coreOutput.commercial_role !==
+      commercialRole
+  ) {
+    failIntegrity()
+  }
+
+  return {
+    contract_version:
+      COMPANION_DEEP_SELLER_RESULT_CONTRACT_VERSION,
+
+    engine_source:
+      'commercial_reasoning_core_v2',
+
+    commercial_relevance:
+      commercialRelevance,
+
+    commercial_role:
+      commercialRole,
+
+    summary,
+
+    commercial_reading:
+      commercialReading as unknown as CommercialReading,
+
+    recommended_next_approach:
+      nextApproach,
+
+    recommended_question:
+      recommendedQuestion,
+
+    suggested_message:
+      suggestedMessage,
+  }
+}
+
+function buildSellerResult({
+  value,
+  outputContractVersion,
+}: {
+  value: unknown
+  outputContractVersion: string
+}): CompanionDeepSellerResult {
+  if (
+    outputContractVersion ===
+    STATEFUL_COPILOT_CONTRACT_VERSION
+  ) {
+    return buildLegacySellerResult(
+      value,
+    )
+  }
+
+  if (
+    outputContractVersion ===
+    COMMERCIAL_REASONING_CORE_V2_CONTRACT_VERSION
+  ) {
+    return buildCoreV2SellerResult(
+      value,
+    )
+  }
+
+  failIntegrity()
 }
 
 export type CompanionAnalysisJobStatusResult = {
@@ -682,10 +841,6 @@ export async function loadCompanionAnalysisJobStatus({
         'candidate_state_version',
         candidateStateVersion,
       )
-      .eq(
-        'output_contract_version',
-        STATEFUL_COPILOT_CONTRACT_VERSION,
-      )
       .limit(2)
 
   if (eventError) {
@@ -711,14 +866,26 @@ export async function loadCompanionAnalysisJobStatus({
   const event =
     events[0]
 
+  const outputContractVersion =
+    isRecord(event)
+      ? requiredString(
+          event.output_contract_version,
+        )
+      : null
+
   if (
     !isRecord(event) ||
     event.company_id !== companyId ||
     event.cycle_id !== cycleId ||
     event.conversation_key !== conversationKey ||
     event.candidate_state_version !== candidateStateVersion ||
-    event.output_contract_version !==
-      STATEFUL_COPILOT_CONTRACT_VERSION ||
+    !outputContractVersion ||
+    (
+      outputContractVersion !==
+        STATEFUL_COPILOT_CONTRACT_VERSION &&
+      outputContractVersion !==
+        COMMERCIAL_REASONING_CORE_V2_CONTRACT_VERSION
+    ) ||
     typeof event.generated_at !== 'string'
   ) {
     failIntegrity()
@@ -733,9 +900,12 @@ export async function loadCompanionAnalysisJobStatus({
     candidate_state_version: candidateStateVersion,
     failure_code: failureCode,
     result:
-      buildSellerResult(
-        event.normalized_output,
-      ),
+      buildSellerResult({
+        value:
+          event.normalized_output,
+
+        outputContractVersion,
+      }),
     result_generated_at:
       event.generated_at,
   }

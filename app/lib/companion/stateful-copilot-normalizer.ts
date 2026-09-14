@@ -86,7 +86,7 @@ export type StatefulCopilotNormalizationContext = {
   reference_time: string
 }
 
-function validateClientStatePatch(
+export function validateClientStatePatch(
   patch: StatefulCopilotStatePatch,
   context:
     StatefulCopilotNormalizationContext,

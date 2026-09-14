@@ -870,6 +870,26 @@ function buildNormalizationContext(
   }
 }
 
+export function buildStatefulCopilotNormalizationContext(
+  input: StatefulCopilotInput,
+): StatefulCopilotNormalizationContext {
+  ensureInputInvariants(
+    input,
+  )
+
+  const memoryContext =
+    collectStateMemoryContext(
+      input
+        .state_context
+        .previous_state,
+    )
+
+  return buildNormalizationContext(
+    input,
+    memoryContext,
+  )
+}
+
 function buildBlockedLimitations(
   input: StatefulCopilotInput,
 ): string[] {
@@ -1591,19 +1611,9 @@ function buildUserPrompt(
 export function buildStatefulCopilotExecutionPlan(
   input: StatefulCopilotInput,
 ): StatefulCopilotExecutionPlan {
-  ensureInputInvariants(input)
-
-  const memoryContext =
-    collectStateMemoryContext(
-      input
-        .state_context
-        .previous_state,
-    )
-
   const normalizationContext =
-    buildNormalizationContext(
+    buildStatefulCopilotNormalizationContext(
       input,
-      memoryContext,
     )
 
   const analysisStatus =

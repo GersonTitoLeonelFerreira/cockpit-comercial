@@ -156,7 +156,7 @@ test(
 )
 
 test(
-  'consumer é separado da chamada seller-facing',
+  'consumer é separado da chamada seller-facing e passa pelo roteador controlado',
   () => {
     assert.match(
       queueRoute,
@@ -165,7 +165,12 @@ test(
 
     assert.match(
       queueRoute,
-      /processStatefulCopilotBackgroundMessage/,
+      /processCompanionBackgroundMessage/,
+    )
+
+    assert.match(
+      queueRoute,
+      /companion-background-worker-router/,
     )
   },
 )

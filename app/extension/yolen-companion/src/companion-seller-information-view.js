@@ -363,7 +363,12 @@
               <div class="yolen-seller-insight-type">${escapeHtml(kindLabel)}</div>
               <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
 
-              ${renderLabeledCopy('Como melhorar', howToImprove)}
+              ${renderLabeledCopy(
+                howToImprove && /^Técnica:/i.test(howToImprove)
+                  ? 'Técnica e aplicação'
+                  : 'Como melhorar',
+                howToImprove,
+              )}
 
               ${
                 whyItMatters || impact || renderEvidence(item)

@@ -37,12 +37,50 @@ export type StatefulCommercialMemoryIdFactory = (
   input: StatefulCommercialMemoryIdInput,
 ) => string
 
+export type StatefulCommercialStateReductionOutput = {
+  previous_state_version:
+    StatefulCopilotOutput[
+      'previous_state_version'
+    ]
+
+  commercial_role:
+    StatefulCopilotOutput[
+      'commercial_role'
+    ]
+
+  analyzed_message_ids:
+    string[]
+
+  evidence_message_ids:
+    string[]
+
+  state_patch:
+    StatefulCopilotOutput[
+      'state_patch'
+    ]
+
+  interpretation: {
+    current_moment:
+      StatefulCopilotOutput[
+        'interpretation'
+      ]['current_moment']
+  }
+
+  strategy: {
+    next_move:
+      string
+
+    evidence_message_ids:
+      string[]
+  }
+}
+
 export type ReduceStatefulCommercialStateArgs = {
   previous_state:
     StatefulCommercialState | null
 
   output:
-    StatefulCopilotOutput
+    StatefulCommercialStateReductionOutput
 
   cycle_id:
     string

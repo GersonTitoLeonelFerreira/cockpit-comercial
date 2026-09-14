@@ -3,8 +3,8 @@ import {
 } from '@vercel/queue'
 
 import {
-  processStatefulCopilotBackgroundMessage,
-} from '@/app/lib/server/stateful-copilot-background-worker'
+  processCompanionBackgroundMessage,
+} from '@/app/lib/server/companion-background-worker-router'
 
 export const maxDuration =
   180
@@ -15,7 +15,7 @@ export const POST =
       message,
       metadata,
     ) => {
-      await processStatefulCopilotBackgroundMessage(
+      await processCompanionBackgroundMessage(
         message,
         {
           delivery_count:
