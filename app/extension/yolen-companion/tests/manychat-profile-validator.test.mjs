@@ -95,3 +95,40 @@ test('cardinalidade incorreta ou ausência de mensagens falha fechado', () => {
   assert.equal(noMessages.pass, false)
   assert.equal(noMessages.reason, 'messages_not_observed')
 })
+
+test('aprovação read-only exige três passes em pelo menos duas conversas', () => {
+  const session = validator.createReadOnlyProfileValidationSession(candidate())
+
+  session.observe({ document: dom(), surface: surface('A') })
+  session.observe({ document: dom(), surface: surface('A') })
+  assert.equal(session.buildValidatedReadOnlyProfile().ready, false)
+
+  session.observe({ document: dom(), surface: surface('B') })
+  const result = session.buildValidatedReadOnlyProfile()
+
+  assert.equal(result.ready, true)
+  assert.equal(result.state.pass_count, 3)
+  assert.equal(result.state.distinct_conversation_count, 2)
+  assert.equal(result.profile.approved_for_readonly_runtime, true)
+  assert.equal(result.profile.approved_for_runtime, false)
+  assert.equal(result.profile.capture_enabled, false)
+  assert.equal(result.profile.persistence_enabled, false)
+  assert.equal(result.profile.reasoning_enabled, false)
+  assert.equal(result.profile.composer_enabled, false)
+})
+
+test('uma falha observada invalida a sessão inteira', () => {
+  const session = validator.createReadOnlyProfileValidationSession(candidate(), {
+    minimumPasses: 2,
+    minimumDistinctConversations: 2,
+  })
+
+  session.observe({ document: dom(), surface: surface('A') })
+  session.observe({ document: dom(0), surface: surface('B') })
+  session.observe({ document: dom(), surface: surface('B') })
+
+  const result = session.buildValidatedReadOnlyProfile()
+  assert.equal(result.ready, false)
+  assert.equal(result.reason, 'validation_failed')
+  assert.equal(result.state.failure_count, 1)
+})
