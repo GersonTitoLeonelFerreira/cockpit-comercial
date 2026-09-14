@@ -18,6 +18,14 @@ import type {
 } from './stateful-copilot-input'
 
 import type {
+  StatefulCommercialState,
+} from './stateful-commercial-state'
+
+import type {
+  CommercialReasoningCoreV2MemoryReductionResult,
+} from './commercial-reasoning-core-v2-memory-reducer'
+
+import type {
   CommercialReasoningCoreV2Output,
 } from './commercial-reasoning-core-v2-contract'
 
@@ -34,11 +42,12 @@ export type CommercialReasoningCoreV2CommercialReadingAdapterReport = {
     typeof COMMERCIAL_REASONING_CORE_V2_COMMERCIAL_READING_ADAPTER_VERSION
 
   customer_memory_mode:
+    | 'reduced_state_applied'
     | 'previous_state_preserved'
     | 'empty_initial_state'
 
   writes_new_customer_memory:
-    false
+    boolean
 
   method_projection:
     | 'mapped'
@@ -169,15 +178,10 @@ function buildEmptyCustomer():
   }
 }
 
-function collectPreviousMemoryIds(
-  input:
-    StatefulCopilotInput,
+function collectMemoryIds(
+  state:
+    StatefulCommercialState | null,
 ): string[] {
-  const state =
-    input
-      .state_context
-      .previous_state
-
   if (!state) {
     return []
   }
@@ -207,22 +211,22 @@ function collectPreviousMemoryIds(
   ])
 }
 
-function buildCustomer(
+function buildCustomer({
+  input,
+  state,
+}: {
   input:
-    StatefulCopilotInput,
-): CommercialReadingCustomer {
-  const previousState =
-    input
-      .state_context
-      .previous_state
+    StatefulCopilotInput
 
-  if (!previousState) {
+  state:
+    StatefulCommercialState | null
+}): CommercialReadingCustomer {
+  if (!state) {
     return buildEmptyCustomer()
   }
 
   return buildCommercialReadingCustomerFromState({
-    state:
-      previousState,
+    state,
 
     products:
       input
@@ -230,6 +234,75 @@ function buildCustomer(
         .commercial_context
         .products,
   })
+}
+
+function memoryReductionHasChanges(
+  memoryReduction:
+    CommercialReasoningCoreV2MemoryReductionResult,
+): boolean {
+  return Object
+    .values(
+      memoryReduction
+        .applied_patch,
+    )
+    .some(
+      value =>
+        Array.isArray(
+          value,
+        ) &&
+        value.length > 0,
+    )
+}
+
+function validateMemoryReductionForInput({
+  input,
+  memoryReduction,
+}: {
+  input:
+    StatefulCopilotInput
+
+  memoryReduction:
+    CommercialReasoningCoreV2MemoryReductionResult
+}): void {
+  if (
+    memoryReduction
+      .state
+      .cycle_id !==
+    input
+      .diagnostic_input
+      .cycle_id
+  ) {
+    fail({
+      code:
+        'MEMORY_REDUCTION_CYCLE_MISMATCH',
+
+      path:
+        'memory_reduction.state.cycle_id',
+
+      message:
+        'O estado reduzido pertence a outro ciclo comercial.',
+    })
+  }
+
+  if (
+    memoryReduction
+      .state
+      .version !==
+    input
+      .state_context
+      .target_state_version
+  ) {
+    fail({
+      code:
+        'MEMORY_REDUCTION_VERSION_MISMATCH',
+
+      path:
+        'memory_reduction.state.version',
+
+      message:
+        'O estado reduzido não corresponde à versão alvo desta análise.',
+    })
+  }
 }
 
 function buildKnownEvidenceFilter(
@@ -711,13 +784,40 @@ function channelForProjection({
 export function buildCommercialReasoningCoreV2CommercialReading({
   input,
   output,
+  memory_reduction = null,
 }: {
   input:
     StatefulCopilotInput
 
   output:
     CommercialReasoningCoreV2Output
+
+  memory_reduction?:
+    CommercialReasoningCoreV2MemoryReductionResult | null
 }): CommercialReasoningCoreV2CommercialReadingAdapterResult {
+  if (memory_reduction) {
+    validateMemoryReductionForInput({
+      input,
+
+      memoryReduction:
+        memory_reduction,
+    })
+  }
+
+  const customerState =
+    memory_reduction
+      ?.state ??
+    input
+      .state_context
+      .previous_state
+
+  const writesNewCustomerMemory =
+    memory_reduction
+      ? memoryReductionHasChanges(
+          memory_reduction,
+        )
+      : false
+
   const projection =
     buildCommercialReasoningCoreV2SellerProjection(
       output,
@@ -942,13 +1042,16 @@ export function buildCommercialReasoningCoreV2CommercialReading({
     )
 
   const customer =
-    buildCustomer(
+    buildCustomer({
       input,
-    )
 
-  const previousMemoryIds =
-    collectPreviousMemoryIds(
-      input,
+      state:
+        customerState,
+    })
+
+  const availableMemoryIds =
+    collectMemoryIds(
+      customerState,
     )
 
   const modelOutput = {
@@ -1062,7 +1165,7 @@ export function buildCommercialReasoningCoreV2CommercialReading({
           ],
 
         available_memory_ids:
-          previousMemoryIds,
+          availableMemoryIds,
 
         current_crm_status:
           input
@@ -1152,14 +1255,16 @@ export function buildCommercialReasoningCoreV2CommercialReading({
         COMMERCIAL_REASONING_CORE_V2_COMMERCIAL_READING_ADAPTER_VERSION,
 
       customer_memory_mode:
-        input
-          .state_context
-          .previous_state
-          ? 'previous_state_preserved'
-          : 'empty_initial_state',
+        memory_reduction
+          ? 'reduced_state_applied'
+          : input
+              .state_context
+              .previous_state
+            ? 'previous_state_preserved'
+            : 'empty_initial_state',
 
       writes_new_customer_memory:
-        false,
+        writesNewCustomerMemory,
 
       method_projection:
         methodProjection.mode,
