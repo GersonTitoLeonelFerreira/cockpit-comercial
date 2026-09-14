@@ -23,6 +23,14 @@ function buildInput({
       reference_time:
         '2026-09-13T22:00:00-03:00',
 
+      conversation: {
+        active_message_ids:
+          [],
+
+        messages:
+          [],
+      },
+
       analysis_precondition: {
         status,
         limitations,
