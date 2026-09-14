@@ -3,6 +3,10 @@ import type {
 } from './stateful-copilot-input'
 
 import type {
+  DurableMemorySeed,
+} from './durable-memory-seed'
+
+import type {
   StatefulCopilotProvider,
 } from './stateful-copilot-executor'
 
@@ -29,13 +33,19 @@ export type CommercialReasoningCoreV2RunResult =
 export async function runCommercialReasoningCoreV2({
   input,
   provider,
+  durable_memory_seed = null,
 }: {
   input: StatefulCopilotInput
   provider: StatefulCopilotProvider
+
+  durable_memory_seed?:
+    DurableMemorySeed | null
 }): Promise<CommercialReasoningCoreV2RunResult> {
   const plan =
     buildCommercialReasoningCoreV2ExecutionPlan({
       input,
+
+      durable_memory_seed,
     })
 
   const execution =

@@ -2,12 +2,16 @@ import type {
   StatefulCopilotInput,
 } from './stateful-copilot-input'
 
+import type {
+  DurableMemorySeed,
+} from './durable-memory-seed'
+
 import {
   COMMERCIAL_REASONING_CORE_V2_CONTRACT_VERSION,
 } from './commercial-reasoning-core-v2-contract'
 
 export const COMMERCIAL_REASONING_CORE_V2_PROMPT_VERSION =
-  'commercial-reasoning-core-v2-prompt-v4' as const
+  'commercial-reasoning-core-v2-prompt-v5' as const
 
 export type CommercialReasoningCoreV2ExecutionPlan = {
   prompt_version:
@@ -52,6 +56,10 @@ function buildSystemPrompt(): string {
 
     'Quando commercial_role não for buyer ou commercial_relevance não for commercial, memory_delta deve ficar totalmente vazio. Conversas de fornecedor ou assuntos não comerciais não podem contaminar a memória comercial do cliente.',
 
+    'Quando durable_memory_seed estiver disponível, trate-o como memória durável herdada de ciclo anterior do mesmo cliente. Ele é contexto read-only para esta análise: pode orientar interpretação, continuidade e coaching, mas não é evidência da conversa atual.',
+
+    'Não copie automaticamente durable_memory_seed para memory_delta. Só produza nova memória sobre o mesmo assunto quando mensagens atuais trouxerem atualização, contradição ou reconfirmação material. O seed não possui memory_id utilizável para resolve ou supersede.',
+
     'A mensagem sugerida é consequência da mesma análise. Não crie uma estratégia diferente apenas para produzir texto. Se nenhuma intervenção acrescentar valor, use silêncio operacional.',
 
     'Seja compacto sem perder decisão comercial. Não repita a mesma conclusão, justificativa ou evidência em vários campos. Cada resumo, objetivo, razão, impacto, orientação e explicação deve usar uma frase curta sempre que possível. Priorize apenas informação que muda a decisão ou a ação do vendedor.',
@@ -74,6 +82,8 @@ function buildSystemPrompt(): string {
 
 function buildUserPrompt(
   input: StatefulCopilotInput,
+  durableMemorySeed:
+    DurableMemorySeed | null,
 ): string {
   return JSON.stringify({
     prompt_version:
@@ -143,6 +153,9 @@ function buildUserPrompt(
         true,
     },
 
+    durable_memory_seed:
+      durableMemorySeed,
+
     canonical_snapshot:
       input,
   })
@@ -150,8 +163,12 @@ function buildUserPrompt(
 
 export function buildCommercialReasoningCoreV2ExecutionPlan({
   input,
+  durable_memory_seed = null,
 }: {
   input: StatefulCopilotInput
+
+  durable_memory_seed?:
+    DurableMemorySeed | null
 }): CommercialReasoningCoreV2ExecutionPlan {
   return {
     prompt_version:
@@ -164,6 +181,9 @@ export function buildCommercialReasoningCoreV2ExecutionPlan({
       buildSystemPrompt(),
 
     user_prompt:
-      buildUserPrompt(input),
+      buildUserPrompt(
+        input,
+        durable_memory_seed,
+      ),
   }
 }

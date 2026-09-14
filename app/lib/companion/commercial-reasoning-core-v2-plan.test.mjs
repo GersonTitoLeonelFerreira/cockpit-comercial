@@ -108,6 +108,30 @@ test(
       buildCommercialReasoningCoreV2ExecutionPlan({
         input:
           buildInput(),
+
+        durable_memory_seed: {
+          source_cycle_id:
+            'cycle-prior',
+
+          facts: [
+            {
+              kind:
+                'client.preference',
+
+              value:
+                null,
+
+              summary:
+                '[Herdado do ciclo anterior deste cliente] Prefere respostas objetivas.',
+
+              confidence:
+                'medium',
+            },
+          ],
+
+          objections:
+            [],
+        },
       })
 
     const payload =
@@ -167,7 +191,7 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'commercial-reasoning-core-v2-prompt-v4',
+      'commercial-reasoning-core-v2-prompt-v5',
     )
 
     assert.ok(
@@ -191,6 +215,33 @@ test(
         .messages[1]
         .text_content,
       'Como posso ajudar?',
+    )
+
+    assert.equal(
+      payload
+        .durable_memory_seed
+        .source_cycle_id,
+      'cycle-prior',
+    )
+
+    assert.equal(
+      payload
+        .durable_memory_seed
+        .facts[0]
+        .kind,
+      'client.preference',
+    )
+
+    assert.ok(
+      plan.system_prompt.includes(
+        'memória durável herdada de ciclo anterior',
+      ),
+    )
+
+    assert.ok(
+      plan.system_prompt.includes(
+        'Não copie automaticamente durable_memory_seed para memory_delta',
+      ),
     )
 
     assert.equal(
