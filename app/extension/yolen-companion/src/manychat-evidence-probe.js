@@ -19,6 +19,11 @@
     'class',
     'id',
   ])
+  const SAFE_PRESENCE_ATTRIBUTE_NAMES = Object.freeze([
+    'data-title-at',
+    'data-title-offset-bottom',
+    'data-title',
+  ])
   const SIGNAL_PATTERN = /(chat|message|conversation|contact|assign|composer|inbox|reply|channel|thread|bubble)/i
 
   function isObject(value) {
@@ -70,6 +75,23 @@
     }
   }
 
+  function hasAttribute(node, name) {
+    if (!node) return false
+
+    try {
+      if (typeof node.hasAttribute === 'function') {
+        return node.hasAttribute(name)
+      }
+      if (typeof node.getAttribute === 'function') {
+        return node.getAttribute(name) !== null
+      }
+    } catch {
+      return false
+    }
+
+    return false
+  }
+
   function getTagName(node) {
     const raw = node?.tagName
     return typeof raw === 'string' && raw.trim()
@@ -88,10 +110,17 @@
     return Object.freeze(attributes)
   }
 
-  function hasSignal(node, attributes) {
+  function collectAttributePresence(node) {
+    return Object.freeze(
+      SAFE_PRESENCE_ATTRIBUTE_NAMES.filter((name) => hasAttribute(node, name)),
+    )
+  }
+
+  function hasSignal(node, attributes, attributePresence) {
     const tag = getTagName(node)
     if (tag === 'input' || tag === 'textarea' || tag === 'button') return true
 
+    if (attributePresence.length > 0) return true
     if (attributes.contenteditable === 'true') return true
     if (attributes.role) return true
     if (attributes['data-testid']) return true
@@ -110,6 +139,7 @@
     return Object.freeze({
       tag: getTagName(node),
       attributes: collectAttributes(node),
+      attribute_presence: collectAttributePresence(node),
     })
   }
 
@@ -141,12 +171,14 @@
       if (candidates.length >= limit) break
 
       const attributes = collectAttributes(node)
-      if (!hasSignal(node, attributes)) continue
+      const attributePresence = collectAttributePresence(node)
+      if (!hasSignal(node, attributes, attributePresence)) continue
 
       candidates.push(
         Object.freeze({
           tag: getTagName(node),
           attributes,
+          attribute_presence: attributePresence,
           ancestors: describeAncestors(node),
         }),
       )
@@ -164,11 +196,13 @@
     const tags = {}
     const roles = {}
     const attributes = {}
+    const attributePresence = {}
 
     for (const candidate of candidates) {
       increment(tags, candidate.tag)
       increment(roles, candidate.attributes.role)
       for (const name of Object.keys(candidate.attributes)) increment(attributes, name)
+      for (const name of candidate.attribute_presence ?? []) increment(attributePresence, name)
     }
 
     return Object.freeze({
@@ -176,6 +210,7 @@
       tags: Object.freeze(tags),
       roles: Object.freeze(roles),
       attributes: Object.freeze(attributes),
+      attribute_presence: Object.freeze(attributePresence),
     })
   }
 
@@ -254,6 +289,7 @@
   const api = Object.freeze({
     PLATFORM,
     SAFE_ATTRIBUTE_NAMES,
+    SAFE_PRESENCE_ATTRIBUTE_NAMES,
     createManyChatEvidenceProbe,
     sanitizeAttributeValue,
   })
