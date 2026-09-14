@@ -35,7 +35,7 @@ test(
 
     assert.equal(
       COMMERCIAL_BEHAVIOR_PROMPT_RULES_VERSION,
-      'commercial-behavior-prompt-rules-v2',
+      'commercial-behavior-prompt-rules-v3',
     )
 
     assert.match(
@@ -359,6 +359,66 @@ test(
     assert.match(
       rules,
       /prova de que o arquivo nomeado foi enviado/,
+    )
+  },
+)
+
+test(
+  'good discovery e respected space exigem comportamento real do vendedor',
+  () => {
+    const rules =
+      buildCommercialBehaviorPromptRules(
+        buildContext(),
+      )
+
+    assert.match(
+      rules,
+      /good_discovery exige ação real do vendedor/,
+    )
+
+    assert.match(
+      rules,
+      /cliente revelar uma necessidade, preferência, modalidade, horário ou intenção não prova descoberta feita pelo vendedor/,
+    )
+
+    assert.match(
+      rules,
+      /respected_space só é mérito quando a cronologia mostra que esperar era a conduta correta/,
+    )
+
+    assert.match(
+      rules,
+      /retomada genérica não bastam quando já existe pergunta, pedido, compromisso ou próxima ação pendente/,
+    )
+  },
+)
+
+test(
+  'coaching separa ação concluída de pendência e não reinicia descoberta operacional',
+  () => {
+    const rules =
+      buildCommercialBehaviorPromptRules(
+        buildContext(),
+      )
+
+    assert.match(
+      rules,
+      /Não diga que não houve resposta sobre dois itens se um deles já foi entregue/,
+    )
+
+    assert.match(
+      rules,
+      /mantenha como pendência apenas o que realmente falta/,
+    )
+
+    assert.match(
+      rules,
+      /já forneceu modalidade, dia, horário, quantidade de pessoas/,
+    )
+
+    assert.match(
+      rules,
+      /não reinicie descoberta sobre esses mesmos dados/,
     )
   },
 )

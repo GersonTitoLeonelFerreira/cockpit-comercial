@@ -31,6 +31,14 @@ import {
 } from './analysis-view-model'
 
 import {
+  reconcileAnalysisSellerQuality,
+} from './analysis-seller-quality-reconciler'
+
+import {
+  commercialReadingShowsSellerStillOwesAction,
+} from './canonical-commercial-responsibility'
+
+import {
   buildSellerFacingReasoningProjection,
   type SellerFacingReasoningProjection,
 } from './seller-facing-reasoning-projection'
@@ -80,16 +88,19 @@ const WAITING_ON_CUSTOMER_COACHING_KINDS =
     'insufficient_discovery',
   ])
 
-function reconcileCoachingWithResponsibility({
+export function reconcileCoachingWithResponsibility({
   viewModel,
   waitingState,
+  sellerStillOwesAction,
 }: {
   viewModel: AnalysisViewModel
   waitingState: string | null
+  sellerStillOwesAction: boolean
 }): AnalysisViewModel {
   if (
     waitingState !==
       'seller_waiting_for_customer' ||
+    sellerStillOwesAction ||
     viewModel.improvements.length === 0
   ) {
     return viewModel
@@ -184,13 +195,31 @@ export async function loadAnalysisViewModel({
       integratedContext,
     )
 
-  const viewModel =
+  const responsibilityAwareViewModel =
     reconcileCoachingWithResponsibility({
       viewModel:
         baseViewModel,
       waitingState:
         canonicalContext.client_context
           .waiting.state,
+      sellerStillOwesAction:
+        commercialReadingShowsSellerStillOwesAction(
+          canonicalContext.current_reading,
+        ),
+    })
+
+  const viewModel =
+    reconcileAnalysisSellerQuality({
+      viewModel:
+        responsibilityAwareViewModel,
+      canonicalMessages:
+        canonicalContext.canonical_messages,
+      openLoops:
+        canonicalContext.state_read.mode ===
+          'found'
+          ? canonicalContext.state_read.state
+              .open_loops
+          : [],
     })
 
   const reasoning =

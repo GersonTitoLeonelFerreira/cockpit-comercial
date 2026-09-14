@@ -85,6 +85,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/lead-summary-runtime-cache.js',
   'src/message-mutations.js',
   'src/panel-stability-runtime.js',
+  'src/phase16-9-runtime-guard.js',
   'src/seller-message-runtime.js',
   'src/styles.css',
   'src/ux8-interaction-consistency-runtime.js',

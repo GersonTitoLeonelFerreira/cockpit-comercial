@@ -1,14 +1,16 @@
-/* global browser, chrome */
-
 ;(function initPhase169RuntimeGuard(root) {
   const INSTALL_KEY =
     '__yolenPhase169RuntimeGuardInstalled'
   const SYNTHETIC_ATTRIBUTE =
     'data-yolen-phase16-9-attachment-message'
+  const ANALYSIS_CONTINUITY_ATTRIBUTE =
+    'data-yolen-analysis-continuity-view'
+  const ANALYSIS_CONTINUITY_KEY_ATTRIBUTE =
+    'data-yolen-analysis-continuity-key'
   const MESSAGE_SELECTOR =
     '[data-pre-plain-text]'
   const BUBBLE_SELECTOR =
-    '.message-in, .message-out, [data-id]'
+    '.message-in, .message-out, [data-id], [role="row"]'
   const QUOTED_SELECTOR = [
     '[data-testid*="quoted" i]',
     '[data-testid*="reply" i]',
@@ -24,6 +26,13 @@
     '[data-icon*="document" i]',
     '[data-icon*="download" i]',
   ].join(',')
+  // O guard é carregado antes do content-script no manifest. Se o PDF já
+  // estiver visível no momento do bootstrap, materializá-lo imediatamente
+  // pode acontecer antes de observeWhatsAppChanges() existir; nesse caso o
+  // nó sintético fica correto no DOM, mas nenhuma ingestão é rearmada.
+  // A pequena defasagem deixa o content-script concluir seu bootstrap antes
+  // da primeira materialização sem atrasar attachments que chegam depois.
+  const INITIAL_ATTACHMENT_SCAN_DELAY_MS = 250
 
   const windowRef =
     root.window || root
@@ -45,7 +54,16 @@
     return
   }
 
-  function getRuntime() {
+  // FASE 16.9 — retry manual de análise ("Tentar novamente") passou a ser
+  // resolvido inteiramente pelo caminho canônico em yolen-api.js para jobs
+  // failed/succeeded. Existe, porém, um estado terminal diferente:
+  // `superseded`. O endpoint normal é idempotente por watermark e devolve o
+  // MESMO superseded para sempre; o yolen-api canônico não o reabre porque
+  // reexecutar o requested_at antigo seria causalmente incorreto. O wrapper
+  // abaixo trata SOMENTE esse beco sem saída e pede ao backend um refresh
+  // explícito, que cria uma nova identidade/corte causal. Não duplica a regra
+  // de retry de failed/succeeded.
+  function getCompanionRuntime() {
     if (
       typeof browser !== 'undefined' &&
       browser.runtime?.sendMessage
@@ -69,17 +87,16 @@
     )
   }
 
-  function installManualRetryGuard() {
+  function installSupersededManualRefresh() {
     const api =
       root.YolenCompanionApi ||
       windowRef.YolenCompanionApi
 
     if (
       !api ||
-      typeof api.analyzeConversation !==
-        'function' ||
-      api.__phase169ManualRetryGuard ===
-        true
+      typeof api.analyzeConversation !== 'function' ||
+      api.analyzeConversation
+        .__yolenPhase169SupersededRefreshWrapped === true
     ) {
       return false
     }
@@ -87,107 +104,91 @@
     const original =
       api.analyzeConversation.bind(api)
 
-    api.analyzeConversation =
-      async function phase169ManualRetry(
-        payload,
+    async function analyzeConversationWithSupersededRefresh(
+      payload,
+    ) {
+      const result =
+        await original(payload)
+
+      const deepAnalysis =
+        result?.payload?.data?.deep_analysis
+
+      if (
+        payload?.force_reanalysis !== true ||
+        !deepAnalysis?.analysis_job_id ||
+        deepAnalysis.status !== 'superseded'
       ) {
-        const result =
-          await original(payload)
-
-        const deepAnalysis =
-          result?.payload?.data
-            ?.deep_analysis
-
-        const retryFailed =
-          payload?.retry_failed_job === true &&
-          deepAnalysis?.status === 'failed'
-
-        const retrySucceeded =
-          payload?.force_reanalysis === true &&
-          deepAnalysis?.status === 'succeeded'
-
-        if (
-          !retryFailed &&
-          !retrySucceeded
-        ) {
-          return result
-        }
-
-        const analysisJobId =
-          typeof deepAnalysis
-            ?.analysis_job_id === 'string'
-            ? deepAnalysis.analysis_job_id
-            : ''
-
-        if (!analysisJobId) {
-          return result
-        }
-
-        const runtime = getRuntime()
-
-        if (
-          !runtime ||
-          typeof runtime.sendMessage !==
-            'function'
-        ) {
-          return result
-        }
-
-        let retryResult = null
-
-        try {
-          retryResult =
-            await runtime.sendMessage({
-              source: 'YOLEN_COMPANION',
-              action:
-                'RETRY_ANALYSIS_JOB',
-              baseUrl:
-                typeof api.getBaseUrl ===
-                  'function'
-                  ? api.getBaseUrl()
-                  : undefined,
-              payload: {
-                analysis_job_id:
-                  analysisJobId,
-                allow_succeeded:
-                  retrySucceeded,
-              },
-            })
-        } catch {
-          return result
-        }
-
-        const retried =
-          retryResult?.payload?.data
-
-        if (
-          retryResult?.ok !== true ||
-          retryResult?.payload?.ok !==
-            true ||
-          retried?.analysis_job_id !==
-            analysisJobId ||
-          ![
-            'queued',
-            'running',
-          ].includes(retried?.status)
-        ) {
-          return result
-        }
-
-        result.payload.data.deep_analysis = {
-          ...deepAnalysis,
-          status: retried.status,
-          message_watermark:
-            retried.message_watermark ||
-            deepAnalysis.message_watermark,
-        }
-
         return result
       }
 
+      const runtime =
+        getCompanionRuntime()
+
+      if (!runtime?.sendMessage) {
+        return result
+      }
+
+      let refreshedResult = null
+
+      try {
+        refreshedResult =
+          await runtime.sendMessage({
+            source:
+              'YOLEN_COMPANION',
+            action:
+              'RETRY_ANALYSIS_JOB',
+            baseUrl:
+              typeof api.getBaseUrl ===
+                'function'
+                ? api.getBaseUrl()
+                : undefined,
+            payload: {
+              analysis_job_id:
+                deepAnalysis.analysis_job_id,
+              // O backend interpreta allow_succeeded=true como intenção
+              // explícita de refresh de um estado terminal. Para
+              // superseded ele NÃO reabre a fotografia antiga: cria um
+              // novo job com requested_at atual.
+              allow_succeeded:
+                true,
+            },
+          })
+      } catch {
+        return result
+      }
+
+      const refreshed =
+        refreshedResult?.payload?.data
+
+      if (
+        refreshedResult?.ok !== true ||
+        refreshedResult?.payload?.ok !== true ||
+        !refreshed?.analysis_job_id ||
+        !(
+          refreshed.status === 'queued' ||
+          refreshed.status === 'running'
+        )
+      ) {
+        return result
+      }
+
+      result.payload.data.deep_analysis = {
+        ...deepAnalysis,
+        analysis_job_id:
+          refreshed.analysis_job_id,
+        status:
+          refreshed.status,
+        message_watermark:
+          refreshed.message_watermark ||
+          deepAnalysis.message_watermark,
+      }
+
+      return result
+    }
+
     Object.defineProperty(
-      api,
-      '__phase169ManualRetryGuard',
+      analyzeConversationWithSupersededRefresh,
+      '__yolenPhase169SupersededRefreshWrapped',
       {
         configurable: false,
         enumerable: false,
@@ -196,14 +197,257 @@
       },
     )
 
+    api.analyzeConversation =
+      analyzeConversationWithSupersededRefresh
+
     return true
   }
+
+  // Há uma responsabilidade seller-facing distinta: uma tentativa nova pode
+  // falhar enquanto já existe AnalysisViewModel canônico e persistido para a
+  // mesma conversa. A continuidade abaixo preserva essa última leitura sem
+  // falsificar o resultado da tentativa nova.
+  let latestAnalysisViewRequestKey = null
+  let cachedAnalysisView = null
+
+  function getAnalysisViewRequestKey(payload) {
+    const cycleId =
+      typeof payload?.cycle_id === 'string'
+        ? payload.cycle_id.trim()
+        : ''
+    const conversationKey =
+      typeof payload?.conversation_key === 'string'
+        ? payload.conversation_key.trim()
+        : ''
+
+    if (!cycleId || !conversationKey) {
+      return null
+    }
+
+    return `${cycleId}::${conversationKey}`
+  }
+
+  function getSellerInformationViewTools() {
+    return (
+      root.YolenCompanionSellerInformationView ||
+      windowRef.YolenCompanionSellerInformationView ||
+      null
+    )
+  }
+
+  function installAnalysisViewModelContinuity() {
+    const api =
+      root.YolenCompanionApi ||
+      windowRef.YolenCompanionApi
+
+    if (
+      !api ||
+      typeof api.loadAnalysisViewModel !== 'function' ||
+      api.loadAnalysisViewModel
+        .__yolenPhase169ContinuityWrapped === true
+    ) {
+      return false
+    }
+
+    const original =
+      api.loadAnalysisViewModel.bind(api)
+
+    async function loadAnalysisViewModelWithContinuity(
+      payload,
+    ) {
+      const requestKey =
+        getAnalysisViewRequestKey(payload)
+
+      if (requestKey) {
+        latestAnalysisViewRequestKey =
+          requestKey
+      }
+
+      const result =
+        await original(payload)
+
+      const data =
+        result?.payload?.data
+
+      if (
+        requestKey &&
+        requestKey ===
+          latestAnalysisViewRequestKey &&
+        result?.ok === true &&
+        result?.payload?.ok === true &&
+        data &&
+        typeof data === 'object'
+      ) {
+        cachedAnalysisView = {
+          key: requestKey,
+          data,
+        }
+
+        Promise.resolve().then(() => {
+          reconcileAnalysisViewModelContinuity()
+        })
+      }
+
+      return result
+    }
+
+    Object.defineProperty(
+      loadAnalysisViewModelWithContinuity,
+      '__yolenPhase169ContinuityWrapped',
+      {
+        configurable: false,
+        enumerable: false,
+        value: true,
+        writable: false,
+      },
+    )
+
+    api.loadAnalysisViewModel =
+      loadAnalysisViewModelWithContinuity
+
+    return true
+  }
+
+  function reconcileAnalysisViewModelContinuity() {
+    if (
+      !cachedAnalysisView ||
+      cachedAnalysisView.key !==
+        latestAnalysisViewRequestKey
+    ) {
+      return false
+    }
+
+    const errorNode =
+      documentRef.querySelector?.(
+        '[data-yolen-seller-panel="analysis"] [data-yolen-analysis-error]',
+      )
+
+    if (!errorNode) {
+      return false
+    }
+
+    const card =
+      errorNode.closest?.(
+        '.yolen-card',
+      )
+
+    if (!card) {
+      return false
+    }
+
+    if (
+      card.getAttribute?.(
+        ANALYSIS_CONTINUITY_KEY_ATTRIBUTE,
+      ) === cachedAnalysisView.key &&
+      card.querySelector?.(
+        `[${ANALYSIS_CONTINUITY_ATTRIBUTE}="true"]`,
+      )
+    ) {
+      return false
+    }
+
+    const viewTools =
+      getSellerInformationViewTools()
+
+    if (
+      !viewTools ||
+      typeof viewTools.renderAnalysisViewModel !==
+        'function'
+    ) {
+      return false
+    }
+
+    const rendered =
+      viewTools.renderAnalysisViewModel(
+        cachedAnalysisView.data,
+      )
+
+    if (
+      typeof rendered !== 'string' ||
+      !rendered.trim()
+    ) {
+      return false
+    }
+
+    card
+      .querySelectorAll?.(
+        `[${ANALYSIS_CONTINUITY_ATTRIBUTE}="true"]`,
+      )
+      .forEach((node) => node.remove())
+
+    errorNode.style.display = 'none'
+    errorNode.setAttribute(
+      'aria-hidden',
+      'true',
+    )
+
+    const continuity =
+      documentRef.createElement('div')
+
+    continuity.setAttribute(
+      ANALYSIS_CONTINUITY_ATTRIBUTE,
+      'true',
+    )
+
+    const warning =
+      documentRef.createElement('div')
+
+    warning.className =
+      'yolen-operational-note yolen-status-warning'
+    warning.setAttribute(
+      'data-yolen-analysis-refresh-warning',
+      'true',
+    )
+    warning.setAttribute(
+      'role',
+      'status',
+    )
+    warning.textContent =
+      'A última atualização da análise não foi concluída. Exibindo a última leitura comercial válida.'
+
+    const content =
+      documentRef.createElement('div')
+
+    content.setAttribute(
+      'data-yolen-analysis-canonical-view',
+      'true',
+    )
+    content.innerHTML = rendered
+
+    continuity.appendChild(warning)
+    continuity.appendChild(content)
+
+    const actions =
+      card.querySelector?.(
+        '.yolen-inline-actions',
+      )
+
+    if (actions) {
+      card.insertBefore(
+        continuity,
+        actions,
+      )
+    } else {
+      card.appendChild(
+        continuity,
+      )
+    }
+
+    card.setAttribute(
+      ANALYSIS_CONTINUITY_KEY_ATTRIBUTE,
+      cachedAnalysisView.key,
+    )
+
+    return true
+  }
+
+  installSupersededManualRefresh()
+  installAnalysisViewModelContinuity()
 
   function getTools() {
     return (
       root.YolenCompanionMessageMutations ||
-      windowRef
-        .YolenCompanionMessageMutations ||
+      windowRef.YolenCompanionMessageMutations ||
       null
     )
   }
@@ -313,6 +557,39 @@
         if (fileName) {
           return fileName
         }
+      }
+    }
+
+    // Firefox/WhatsApp nem sempre expõe o nome em title/download. Lê cada
+    // nó textual relevante separadamente antes de cair para o texto agregado;
+    // isso evita perder nomes quando a UI quebra visualmente o filename em
+    // múltiplos elementos/linhas.
+    const textCandidates = [
+      bubble,
+      ...Array.from(
+        bubble.querySelectorAll(
+          'span, div',
+        ),
+      ),
+    ]
+
+    for (const element of textCandidates) {
+      if (
+        element !== bubble &&
+        element.closest?.(
+          QUOTED_SELECTOR,
+        )
+      ) {
+        continue
+      }
+
+      const fileName =
+        extractFileName(
+          readText(element),
+        )
+
+      if (fileName) {
+        return fileName
       }
     }
 
@@ -500,13 +777,97 @@
     }
   }
 
+  function getBubbleDataId(
+    bubble,
+  ) {
+    if (!bubble) {
+      return null
+    }
+
+    const owner =
+      bubble.matches?.('[data-id]')
+        ? bubble
+        : bubble.closest?.('[data-id]') ||
+          bubble.querySelector?.('[data-id]')
+
+    return (
+      owner
+        ?.getAttribute?.('data-id')
+        ?.trim() ||
+      null
+    )
+  }
+
+  function inferBubbleDirection(
+    bubble,
+    dataId,
+  ) {
+    const hasOutgoingClass =
+      Boolean(
+        bubble.matches?.('.message-out') ||
+        bubble.closest?.('.message-out') ||
+        bubble.querySelector?.('.message-out'),
+      )
+
+    const hasIncomingClass =
+      Boolean(
+        bubble.matches?.('.message-in') ||
+        bubble.closest?.('.message-in') ||
+        bubble.querySelector?.('.message-in'),
+      )
+
+    const tools = getTools()
+
+    if (
+      tools &&
+      typeof tools
+        .inferCapturedMessageDirection ===
+        'function'
+    ) {
+      return tools.inferCapturedMessageDirection({
+        hasOutgoingClass,
+        hasIncomingClass,
+        dataId:
+          dataId || '',
+      })
+    }
+
+    if (hasOutgoingClass) {
+      return 'outgoing'
+    }
+
+    if (hasIncomingClass) {
+      return 'incoming'
+    }
+
+    if (
+      String(dataId || '')
+        .startsWith('true_') ||
+      String(dataId || '')
+        .includes('_true_')
+    ) {
+      return 'outgoing'
+    }
+
+    return 'incoming'
+  }
+
   function materializeAttachmentOnlyBubble(
     bubble,
   ) {
+    const mainConversation =
+      documentRef.querySelector?.('#main')
+
     if (
       !bubble ||
       !bubble.matches?.(
         BUBBLE_SELECTOR,
+      ) ||
+      (
+        mainConversation &&
+        !mainConversation.contains?.(
+          bubble,
+        )
       ) ||
       bubble.closest?.(
         QUOTED_SELECTOR,
@@ -522,8 +883,9 @@
     }
 
     const dataId =
-      bubble.getAttribute?.('data-id')
-        ?.trim()
+      getBubbleDataId(
+        bubble,
+      )
 
     if (!dataId) {
       return false
@@ -538,6 +900,12 @@
       return false
     }
 
+    const direction =
+      inferBubbleDirection(
+        bubble,
+        dataId,
+      )
+
     const synthetic =
       documentRef.createElement('div')
 
@@ -548,7 +916,7 @@
     synthetic.setAttribute(
       'data-pre-plain-text',
       `[${descriptor.time}, ${date}] ${
-        bubble.matches?.('.message-out')
+        direction === 'outgoing'
           ? 'Yolen'
           : 'Cliente'
       }: `,
@@ -563,17 +931,11 @@
     )
     synthetic.style.display = 'none'
 
-    if (bubble.matches?.('.message-out')) {
-      synthetic.classList.add(
-        'message-out',
-      )
-    } else if (
-      bubble.matches?.('.message-in')
-    ) {
-      synthetic.classList.add(
-        'message-in',
-      )
-    }
+    synthetic.classList.add(
+      direction === 'outgoing'
+        ? 'message-out'
+        : 'message-in',
+    )
 
     const evidence =
       documentRef.createElement('span')
@@ -656,10 +1018,24 @@
     )
   }
 
-  installManualRetryGuard()
-  scanAttachmentOnlyBubbles(
-    documentRef,
-  )
+  function runInitialRuntimeReconciliation() {
+    scanAttachmentOnlyBubbles(
+      documentRef,
+    )
+    reconcileAnalysisViewModelContinuity()
+  }
+
+  if (
+    typeof windowRef.setTimeout ===
+      'function'
+  ) {
+    windowRef.setTimeout(
+      runInitialRuntimeReconciliation,
+      INITIAL_ATTACHMENT_SCAN_DELAY_MS,
+    )
+  } else {
+    runInitialRuntimeReconciliation()
+  }
 
   if (
     typeof MutationObserverRef ===
@@ -683,6 +1059,8 @@
                 })
             },
           )
+
+          reconcileAnalysisViewModelContinuity()
         },
       )
 
@@ -721,7 +1099,9 @@
 
   windowRef.YolenPhase169RuntimeGuard =
     Object.freeze({
-      installManualRetryGuard,
+      installSupersededManualRefresh,
+      installAnalysisViewModelContinuity,
+      reconcileAnalysisViewModelContinuity,
       materializeAttachmentOnlyBubble,
       scanAttachmentOnlyBubbles,
     })

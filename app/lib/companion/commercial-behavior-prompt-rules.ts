@@ -7,7 +7,7 @@
 // ============================================================================
 
 export const COMMERCIAL_BEHAVIOR_PROMPT_RULES_VERSION =
-  'commercial-behavior-prompt-rules-v2' as const
+  'commercial-behavior-prompt-rules-v3' as const
 
 export type CommercialBehaviorPromptContext = {
   communication_tone:
@@ -79,11 +79,21 @@ export function buildCommercialBehaviorPromptRules(
 
     'Quando existir um pedido específico ainda pendente, uma retomada genérica como perguntar novamente como pode ajudar, reiniciar a descoberta ou ignorar o pedido anterior é perda de contexto. Não classifique esse comportamento como respeito ao espaço, boa retomada ou seller_strength.',
 
+    'good_discovery exige ação real do vendedor: pergunta relevante, confirmação, síntese, aprofundamento ou uso explícito da informação já fornecida pelo cliente. O simples fato de o cliente revelar uma necessidade, preferência, modalidade, horário ou intenção não prova descoberta feita pelo vendedor e não pode virar seller_strength.',
+
+    'respected_space só é mérito quando a cronologia mostra que esperar era a conduta correta — por exemplo, pedido explícito de espaço/tempo ou ausência legítima de pendência do vendedor. Cordialidade, silêncio ou retomada genérica não bastam quando já existe pergunta, pedido, compromisso ou próxima ação pendente.',
+
+    'Não determine responsabilidade comercial apenas por quem enviou a última mensagem. Uma mensagem outgoing genérica não transfere a responsabilidade ao cliente quando um pedido, pergunta ou compromisso anterior continua sem conclusão; nesse caso o vendedor continua devendo a próxima ação.',
+
     'Se o cliente repetir uma solicitação já feita, investigue se a repetição foi provocada por ausência de resposta, resposta incompleta ou perda de contexto do vendedor. Quando sustentado pelas mensagens, trate isso como falha de atendimento e não como novo pedido isolado.',
 
     'Na avaliação do atendimento, falhas materiais — pedido não respondido, contexto perdido, pergunta redundante, informação repetida, proposta sem descoberta suficiente, compromisso não concluído ou oportunidade clara de fechamento ignorada — têm precedência sobre acertos superficiais como cordialidade, saudação ou retomada genérica.',
 
     'Quando houver vários desvios materiais independentes e sustentados por evidência, preserve-os como improvement_points distintos até o limite do schema. Não compacte perda de contexto, proposta prematura, pedido ignorado e oportunidade de fechamento perdida em uma única crítica genérica.',
+
+    'Quando uma crítica misturar algo que já foi concluído com algo que continua pendente, separe os fatos. Não diga que não houve resposta sobre dois itens se um deles já foi entregue; reconheça o item concluído e mantenha como pendência apenas o que realmente falta.',
+
+    'Quando o cliente já forneceu modalidade, dia, horário, quantidade de pessoas e pediu execução operacional — por exemplo agendamento — não reinicie descoberta sobre esses mesmos dados. A prioridade passa a ser verificar a condição operacional que ainda falta e confirmar ou concluir a ação.',
 
     'Nunca elogie uma mensagem apenas por ser cordial se, no mesmo turno, ela abandona uma solicitação específica que o cliente já havia feito.',
 
