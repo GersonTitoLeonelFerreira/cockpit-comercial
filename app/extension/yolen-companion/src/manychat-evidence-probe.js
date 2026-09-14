@@ -48,11 +48,11 @@
       /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
       '[redacted-email]',
     )
+    output = output.replace(/\b\d{7,}\b/g, '[redacted-id]')
     output = output.replace(
       /\+?\d[\d\s().-]{7,}\d/g,
       '[redacted-number]',
     )
-    output = output.replace(/\b\d{7,}\b/g, '[redacted-id]')
 
     if (output.length > MAX_ATTRIBUTE_VALUE_LENGTH) {
       output = `${output.slice(0, MAX_ATTRIBUTE_VALUE_LENGTH)}…`
