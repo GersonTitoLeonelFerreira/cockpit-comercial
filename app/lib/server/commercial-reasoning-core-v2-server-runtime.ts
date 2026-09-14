@@ -13,8 +13,10 @@ import {
 } from '../companion/stateful-copilot-composition'
 
 import {
+  STATEFUL_COPILOT_OPENAI_REASONING_EFFORTS,
   createStatefulCopilotOpenAIProvider,
   type StatefulCopilotOpenAIProviderOptions,
+  type StatefulCopilotOpenAIReasoningEffort,
 } from '../companion/stateful-copilot-openai-provider'
 
 import type {
@@ -54,7 +56,6 @@ import {
 
 import type {
   StatefulCopilotRealContext,
-  StatefulCopilotRealContextLoader,
 } from '../companion/stateful-copilot-real-context-loader'
 
 import {
@@ -401,6 +402,32 @@ function resolveOptionalText(
   return normalized || null
 }
 
+function resolveReasoningEffort(
+  value:
+    unknown,
+): StatefulCopilotOpenAIReasoningEffort {
+  if (
+    typeof value ===
+      'string'
+  ) {
+    const normalized =
+      value.trim().toLowerCase()
+
+    if (
+      STATEFUL_COPILOT_OPENAI_REASONING_EFFORTS
+        .includes(
+          normalized as
+            StatefulCopilotOpenAIReasoningEffort,
+        )
+    ) {
+      return normalized as
+        StatefulCopilotOpenAIReasoningEffort
+    }
+  }
+
+  return COMMERCIAL_REASONING_CORE_V2_SERVER_DEFAULT_REASONING_EFFORT
+}
+
 function resolveCycleDeadlineMs(
   value:
     number | undefined,
@@ -585,10 +612,11 @@ export function createCommercialReasoningCoreV2ServerRuntime(
     COMMERCIAL_REASONING_CORE_V2_SERVER_DEFAULT_MODEL
 
   const reasoningEffort =
-    options.openai_reasoning_effort ??
-    process.env
-      .OPENAI_COMMERCIAL_REASONING_CORE_V2_REASONING_EFFORT ??
-    COMMERCIAL_REASONING_CORE_V2_SERVER_DEFAULT_REASONING_EFFORT
+    resolveReasoningEffort(
+      options.openai_reasoning_effort ??
+      process.env
+        .OPENAI_COMMERCIAL_REASONING_CORE_V2_REASONING_EFFORT,
+    )
 
   const createContextLoader =
     dependencies.create_context_loader ??
@@ -728,13 +756,16 @@ export function createCommercialReasoningCoreV2ServerRuntime(
       })
 
     if (
-      result.mode ===
+      result.runtime_result.mode ===
         'model' &&
       result.persistence_mode ===
         'persisted' &&
       result.persisted ===
         true
     ) {
+      const runtimeResult =
+        result.runtime_result
+
       return {
         runtime_version:
           COMMERCIAL_REASONING_CORE_V2_SERVER_RUNTIME_VERSION,
@@ -749,13 +780,11 @@ export function createCommercialReasoningCoreV2ServerRuntime(
           true,
 
         response:
-          result
-            .runtime_result
+          runtimeResult
             .seller_projection,
 
         commercial_reading:
-          result
-            .runtime_result
+          runtimeResult
             .commercial_reading
             .reading,
 
