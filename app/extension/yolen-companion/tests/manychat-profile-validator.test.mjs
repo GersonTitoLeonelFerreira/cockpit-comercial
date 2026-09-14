@@ -12,11 +12,11 @@ function candidate(overrides = {}) {
     fingerprint: 'mc-profile-a1b2c3d4',
     selectors: {
       conversationRoot: 'div[role="main"]',
-      channel: 'span[data-testid="channel-badge"]',
-      contact: 'div[data-testid="contact-card"]',
-      assignment: 'button[data-testid="assignment-control"]',
+      channel: null,
+      contact: null,
+      assignment: null,
       messages: 'div[data-testid="message-row"]',
-      composer: 'textarea[data-testid="reply-box"]',
+      composer: null,
     },
     approved_for_runtime: false,
     capture_enabled: false,
@@ -31,5 +31,12 @@ test('candidato inseguro não entra na validação', () => {
   assert.throws(
     () => validator.createReadOnlyProfileValidationSession(candidate({ capture_enabled: true })),
     (error) => error.code === 'UNSAFE_PROFILE_CANDIDATE',
+  )
+})
+
+test('threshold inválido não é relaxado silenciosamente', () => {
+  assert.throws(
+    () => validator.createReadOnlyProfileValidationSession(candidate(), { minimumPasses: 0 }),
+    (error) => error.code === 'INVALID_THRESHOLD',
   )
 })
