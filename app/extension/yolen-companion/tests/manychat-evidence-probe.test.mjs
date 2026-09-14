@@ -76,6 +76,49 @@ test('probe coleta somente estrutura e atributos, sem textContent ou value', () 
   assert.equal(result.privacy.persisted, false)
 })
 
+test('probe registra apenas presença de data-title estrutural sem coletar seus valores', () => {
+  const root = element('DIV', { 'data-test-id': 'chat-messages-list' })
+  const lane = element('DIV', {}, root)
+  const message = element(
+    'DIV',
+    {
+      'data-title-at': 'cliente-privado-123456789',
+      'data-title-offset-bottom': '12',
+      'data-title': 'CONTEUDO PRIVADO DA MENSAGEM',
+    },
+    lane,
+  )
+
+  const probe = evidence.createManyChatEvidenceProbe({
+    document: documentWith([root, lane, message]),
+    surfaceApi: surface,
+  })
+
+  const result = probe.run(
+    'https://app.manychat.com/fb871594/chat/1443150072',
+  )
+
+  const structural = result.candidates.find((candidate) =>
+    candidate.attribute_presence?.includes('data-title-at'),
+  )
+
+  assert.ok(structural)
+  assert.deepEqual(structural.attribute_presence, [
+    'data-title-at',
+    'data-title-offset-bottom',
+    'data-title',
+  ])
+  assert.equal(structural.ancestors[0].tag, 'div')
+  assert.equal(
+    structural.ancestors[1].attributes['data-test-id'],
+    'chat-messages-list',
+  )
+
+  const serialized = JSON.stringify(result)
+  assert.doesNotMatch(serialized, /cliente-privado/)
+  assert.doesNotMatch(serialized, /CONTEUDO PRIVADO DA MENSAGEM/)
+})
+
 test('probe redige e-mail, telefone e identificadores numéricos longos', () => {
   assert.equal(
     evidence.sanitizeAttributeValue('contato joao@example.com'),
