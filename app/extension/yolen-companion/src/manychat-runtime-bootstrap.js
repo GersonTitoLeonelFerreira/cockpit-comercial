@@ -155,6 +155,23 @@
       return currentSession
     }
 
+    function synchronizeCurrentSurface() {
+      try {
+        return Object.freeze({
+          ok: true,
+          session: admitCurrentSurface(),
+          error_code: null,
+        })
+      } catch (error) {
+        currentSession = null
+        return Object.freeze({
+          ok: false,
+          session: null,
+          error_code: error?.code ?? 'ADMISSION_FAILED',
+        })
+      }
+    }
+
     function createRuntimeParts() {
       const reader = readerApi.createManyChatDomReader({
         document: options.document ?? root.document ?? null,
@@ -172,12 +189,21 @@
       return { reader, adapter }
     }
 
-    function inactiveSnapshot() {
+    function inactiveReason() {
+      if (stopped) return 'stopped'
+      if (!started) return 'not_started'
+      if (!currentSession) return 'surface_not_admitted'
+      if (!runtimeParts) return 'runtime_unavailable'
+      return 'inactive'
+    }
+
+    function inactiveSnapshot(errorCode = null) {
       return Object.freeze({
         schema_version: BOOTSTRAP_SCHEMA_VERSION,
         platform: PLATFORM,
         active: false,
-        reason: stopped ? 'stopped' : 'not_started',
+        reason: inactiveReason(),
+        error_code: errorCode,
         profile_fingerprint:
           validatedProfile.source_fingerprint ?? null,
         conversation_ref: null,
@@ -189,8 +215,13 @@
     }
 
     function snapshot() {
-      if (!started || stopped || !runtimeParts || !currentSession) {
+      if (!started || stopped || !runtimeParts) {
         return inactiveSnapshot()
+      }
+
+      const synchronized = synchronizeCurrentSurface()
+      if (!synchronized.ok || !currentSession) {
+        return inactiveSnapshot(synchronized.error_code)
       }
 
       const readOnly = runtimeParts.adapter.createReadOnlySnapshot()
@@ -200,6 +231,7 @@
         platform: PLATFORM,
         active: true,
         reason: null,
+        error_code: null,
         profile_fingerprint: currentSession.profile_fingerprint,
         conversation_ref: currentSession.conversation_ref,
         observed_at: now(),
@@ -239,22 +271,19 @@
       if (!started || stopped || !isObject(event)) return
 
       if (event.type === 'conversation_changed') {
-        try {
-          admitCurrentSurface()
-          emitSafeEvent('conversation_changed', { admitted: true })
-        } catch (error) {
-          currentSession = null
-          emitSafeEvent('conversation_changed', {
-            admitted: false,
-            error_code: error?.code ?? 'ADMISSION_FAILED',
-          })
-        }
+        const synchronized = synchronizeCurrentSurface()
+        emitSafeEvent('conversation_changed', {
+          admitted: synchronized.ok,
+          error_code: synchronized.error_code,
+        })
         return
       }
 
       if (event.type === 'conversation_mutated') {
+        const synchronized = synchronizeCurrentSurface()
         emitSafeEvent('conversation_mutated', {
-          admitted: Boolean(currentSession),
+          admitted: synchronized.ok,
+          error_code: synchronized.error_code,
         })
       }
     }
@@ -274,7 +303,7 @@
       runtimeParts = createRuntimeParts()
       stopObserver = runtimeParts.reader.observeChanges(handleReaderEvent)
       started = true
-      emitSafeEvent('started', { admitted: true })
+      emitSafeEvent('started', { admitted: true, error_code: null })
       return snapshot()
     }
 
@@ -287,7 +316,7 @@
       currentSession = null
       started = false
       stopped = true
-      emitSafeEvent('stopped', { admitted: false })
+      emitSafeEvent('stopped', { admitted: false, error_code: null })
     }
 
     function getState() {
