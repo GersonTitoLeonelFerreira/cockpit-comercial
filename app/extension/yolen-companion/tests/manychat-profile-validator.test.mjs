@@ -27,6 +27,31 @@ function candidate(overrides = {}) {
   }
 }
 
+function surface(id = 'A') {
+  return {
+    supported: true,
+    conversation_key: `manychat:unknown:account%3Achat%3A${id}`,
+  }
+}
+
+function dom(messageCount = 2, rootCount = 1) {
+  const conversationRoot = {
+    querySelectorAll(selector) {
+      if (selector === 'div[data-testid="message-row"]') {
+        return Array.from({ length: messageCount }, () => ({}))
+      }
+      return []
+    },
+  }
+
+  return {
+    querySelectorAll(selector) {
+      if (selector !== 'div[role="main"]') return []
+      return Array.from({ length: rootCount }, () => conversationRoot)
+    },
+  }
+}
+
 test('candidato inseguro não entra na validação', () => {
   assert.throws(
     () => validator.createReadOnlyProfileValidationSession(candidate({ capture_enabled: true })),
@@ -39,4 +64,34 @@ test('threshold inválido não é relaxado silenciosamente', () => {
     () => validator.createReadOnlyProfileValidationSession(candidate(), { minimumPasses: 0 }),
     (error) => error.code === 'INVALID_THRESHOLD',
   )
+})
+
+test('observação estrutural válida não lê conteúdo e usa referência anonimizada', () => {
+  const result = validator.validateDomObservation(candidate(), {
+    document: dom(),
+    surface: surface('ABC'),
+  })
+
+  assert.equal(result.pass, true)
+  assert.equal(result.counts.conversationRoot, 1)
+  assert.equal(result.counts.messages, 2)
+  assert.match(result.conversation_ref, /^mc-conv-[0-9a-f]{8}$/)
+  assert.equal(result.privacy.text_content_read, false)
+  assert.equal(result.privacy.input_values_read, false)
+})
+
+test('cardinalidade incorreta ou ausência de mensagens falha fechado', () => {
+  const multipleRoots = validator.validateDomObservation(candidate(), {
+    document: dom(2, 2),
+    surface: surface('A'),
+  })
+  assert.equal(multipleRoots.pass, false)
+  assert.equal(multipleRoots.reason, 'conversation_root_cardinality')
+
+  const noMessages = validator.validateDomObservation(candidate(), {
+    document: dom(0, 1),
+    surface: surface('A'),
+  })
+  assert.equal(noMessages.pass, false)
+  assert.equal(noMessages.reason, 'messages_not_observed')
 })
