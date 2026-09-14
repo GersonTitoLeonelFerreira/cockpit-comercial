@@ -5,6 +5,10 @@ import {
   type CommercialReasoningCoreV2RuntimeSelection,
 } from '../companion/commercial-reasoning-core-v2-runtime-selector'
 
+import {
+  createCommercialReasoningCoreV2LegacyV4BridgeWriter,
+} from '../companion/commercial-reasoning-core-v2-v4-storage-bridge'
+
 import type {
   StatefulCopilotOutput,
 } from '../companion/stateful-copilot-contract'
@@ -307,6 +311,11 @@ export function resolveCompanionBackgroundRuntime({
       createCoreRuntime({
         cycle_deadline_ms:
           STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
+
+        dependencies: {
+          create_persistence_writer:
+            createCommercialReasoningCoreV2LegacyV4BridgeWriter,
+        },
       })
 
     return {
