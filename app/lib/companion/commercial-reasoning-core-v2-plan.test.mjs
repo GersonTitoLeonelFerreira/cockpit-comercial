@@ -169,9 +169,9 @@ test(
         strengths_max:
           2,
         improvement_points_max:
-          3,
-        facts_used_max:
           5,
+        facts_used_max:
+          6,
         memory_facts_to_add_max:
           6,
         memory_items_to_add_per_collection_max:
@@ -191,13 +191,28 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'commercial-reasoning-core-v2-prompt-v5',
+      'commercial-reasoning-core-v2-prompt-v6',
     )
 
     assert.ok(
       plan.system_prompt.includes(
         'Não converta referências relativas como sexta-feira',
       ),
+    )
+
+    assert.equal(
+      payload
+        .commercial_dynamics
+        .version,
+      'commercial-reasoning-core-v2-dynamics-v1',
+    )
+
+    assert.equal(
+      payload
+        .commercial_dynamics
+        .explicit_schedule_requests
+        .length,
+      1,
     )
 
     assert.equal(

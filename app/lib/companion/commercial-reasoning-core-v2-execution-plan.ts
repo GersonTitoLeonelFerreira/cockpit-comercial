@@ -10,8 +10,12 @@ import {
   COMMERCIAL_REASONING_CORE_V2_CONTRACT_VERSION,
 } from './commercial-reasoning-core-v2-contract'
 
+import {
+  buildCommercialReasoningCoreV2Dynamics,
+} from './commercial-reasoning-core-v2-dynamics'
+
 export const COMMERCIAL_REASONING_CORE_V2_PROMPT_VERSION =
-  'commercial-reasoning-core-v2-prompt-v5' as const
+  'commercial-reasoning-core-v2-prompt-v6' as const
 
 export type CommercialReasoningCoreV2ExecutionPlan = {
   prompt_version:
@@ -32,6 +36,16 @@ function buildSystemPrompt(): string {
 
     'Leia a conversa inteira disponível, o estado comercial anterior, produtos, método, regras da empresa, CRM, agenda e demais dados canônicos recebidos. Áudio só pode ser considerado quando houver transcrição. Um marcador de arquivo prova que o arquivo foi enviado, mas não prova o conteúdo interno do arquivo se esse conteúdo não estiver explicitamente disponível no contexto.',
 
+    'Você também recebe commercial_dynamics, uma leitura determinística da cronologia. Use os message_ids indicados para conferir a conversa antes de concluir. Esses sinais destacam pedidos repetidos, demora de resposta, anexos enviados após pedidos materiais, terceiros citados e pedidos explícitos de agendamento.',
+
+    'Quando commercial_dynamics.resolved_attachment_requests relacionar um pedido do cliente a um anexo outgoing posterior, considere aquele pedido de envio atendido. Não recomende reenviar o mesmo material apenas porque o conteúdo interno do arquivo não foi lido. O marcador prova o envio; não prova o conteúdo interno.',
+
+    'Pedidos repetidos pelo cliente e seller_response_gaps longos são sinais prioritários de coaching. Quando a mesma intenção reaparecer depois de demora ou ausência de resposta, avalie explicitamente perda de momentum, risco de abandono e falha de continuidade comercial.',
+
+    'Pedido explícito de agendamento com modalidade, quantidade de participantes e referência de dia ou horário representa avanço para compromisso. Não volte para descoberta já concluída. Se disponibilidade e autonomia estiverem comprovadas, oriente confirmar. Se disponibilidade não estiver comprovada, oriente verificar imediatamente e retornar com a confirmação; nunca invente que já está agendado.',
+
+    'Quando o cliente mencionar uma terceira pessoa fora da conversa, reconheça a oportunidade sem assumir identidade nem contato. Só recomende pedir contato, cadastro ou autorização quando isso estiver sustentado pelo método comercial, required_behaviors, regras da empresa ou necessidade operacional disponível.',
+
     'Coaching do vendedor é parte central da análise. Identifique acertos reais, falhas reais de condução, perda de contexto, repetição desnecessária, descoberta insuficiente, avanço prematuro, tratamento fraco de objeção, falta de conclusão operacional ou oportunidade desperdiçada quando houver evidência cronológica para isso.',
 
     'Não exija evidência outgoing isolada para reconhecer toda falha de condução. Omissões, pedidos repetidos do cliente e perda de continuidade podem ser inferidos pela sequência da conversa. Ao mesmo tempo, não atribua uma ação positiva ou negativa ao vendedor sem base factual suficiente.',
@@ -39,6 +53,12 @@ function buildSystemPrompt(): string {
     'O método comercial é referência para avaliar a condução, não um roteiro obrigatório. Se uma etapa já foi satisfeita espontaneamente, não recomende repeti-la. Se a conversa avançou para conclusão operacional, não volte para descoberta apenas para cumprir ordem de etapas.',
 
     'Determine explicitamente a situação atual, a intenção do cliente, quem deve agir agora, o melhor objetivo comercial, a decisão recomendada, o impacto da condução do vendedor, a aderência ao método e a técnica comercial apropriada.',
+
+    'A técnica comercial não pode ser apenas um rótulo. Nos coaching.improvement_points, sempre que houver uma técnica útil, faça how_to_improve começar por "Técnica: <nome> —" e explique como aplicá-la especificamente naquela conversa. Technique representa a técnica principal; técnicas adicionais podem aparecer nos outros pontos de melhoria.',
+
+    'Priorize falhas comerciais distintas. Sinal de compra desperdiçado, demora de resposta, perda de contexto, repetição, falta de próximo compromisso e má aplicação do método não devem ser achatados em uma única recomendação genérica.',
+
+    'Quando aplicável, use kinds compreendidos pela interface, como unanswered_question, repetition, missing_next_commitment, missed_commitment, insufficient_discovery, poor_objection_handling, advance_without_confirmation e method_misapplication.',
 
     'Classifique também commercial_role e commercial_relevance. Use buyer quando o interlocutor estiver no papel de potencial comprador ou cliente, provider quando estiver oferecendo algo à empresa e unknown quando não houver evidência suficiente. Use commercial somente quando a conversa tiver relevância material para venda, decisão, negociação, relacionamento comercial ou próximo passo comercial; use non_commercial quando o conteúdo for alheio ao processo comercial e uncertain quando a evidência for insuficiente.',
 
@@ -85,12 +105,17 @@ function buildUserPrompt(
   durableMemorySeed:
     DurableMemorySeed | null,
 ): string {
+  const commercialDynamics =
+    buildCommercialReasoningCoreV2Dynamics(
+      input,
+    )
+
   return JSON.stringify({
     prompt_version:
       COMMERCIAL_REASONING_CORE_V2_PROMPT_VERSION,
 
     task:
-      'Produza uma leitura comercial holística e acionável desta fotografia em uma única chamada principal de raciocínio, priorizando coaching, continuidade, método, responsabilidade do próximo passo e factualidade.',
+      'Produza uma leitura comercial holística e acionável desta fotografia em uma única chamada principal de raciocínio, priorizando coaching de vendas, continuidade, método, responsabilidade do próximo passo, técnicas aplicáveis e factualidade.',
 
     output_contract_version:
       COMMERCIAL_REASONING_CORE_V2_CONTRACT_VERSION,
@@ -126,10 +151,10 @@ function buildUserPrompt(
         2,
 
       improvement_points_max:
-        3,
+        5,
 
       facts_used_max:
-        5,
+        6,
 
       memory_facts_to_add_max:
         6,
@@ -152,6 +177,9 @@ function buildUserPrompt(
       avoid_repeated_reasoning:
         true,
     },
+
+    commercial_dynamics:
+      commercialDynamics,
 
     durable_memory_seed:
       durableMemorySeed,
