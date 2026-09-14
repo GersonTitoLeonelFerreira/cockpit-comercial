@@ -269,8 +269,9 @@ test('reset apaga estado transitório da validação', () => {
   assert.equal(harness.getValidationState(), null)
 })
 
-test('bundle diagnóstico contém somente a cadeia necessária para validação autenticada', () => {
+test('bundle diagnóstico contém a cadeia completa na ordem de dependência', () => {
   assert.deepEqual(SOURCE_FILES, [
+    'src/platform-contract.js',
     'src/manychat-surface.js',
     'src/manychat-evidence-probe.js',
     'src/manychat-profile-gate.js',
@@ -286,5 +287,10 @@ test('bundle diagnóstico contém somente a cadeia necessária para validação 
   for (const path of SOURCE_FILES) {
     assert.match(bundle, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+
+  assert.ok(
+    bundle.indexOf('src/platform-contract.js') <
+      bundle.indexOf('src/manychat-surface.js'),
+  )
   assert.match(bundle, /createYolenManyChatAuthenticatedValidation/)
 })
