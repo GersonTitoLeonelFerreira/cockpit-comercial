@@ -813,8 +813,12 @@ export function buildCommercialReasoningCoreV2CommercialReading({
 
   const writesNewCustomerMemory =
     memory_reduction
-      ? memoryReductionHasChanges(
-          memory_reduction,
+      ? (
+          memoryReductionHasChanges(
+            memory_reduction,
+          ) ||
+          memory_reduction
+            .durable_memory_seed_applied
         )
       : false
 

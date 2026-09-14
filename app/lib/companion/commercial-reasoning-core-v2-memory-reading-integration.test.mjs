@@ -10,6 +10,10 @@ import {
 } from './commercial-reasoning-core-v2-contract.ts'
 
 import {
+  DURABLE_MEMORY_SEED_SUMMARY_PREFIX,
+} from './durable-memory-seed.ts'
+
+import {
   reduceCommercialReasoningCoreV2Memory,
 } from './commercial-reasoning-core-v2-memory-reducer.ts'
 
@@ -455,6 +459,7 @@ function createMemoryId({
 function reduce({
   input,
   output,
+  durableMemorySeed = null,
 }) {
   return reduceCommercialReasoningCoreV2Memory({
     input,
@@ -465,6 +470,9 @@ function reduce({
 
     create_memory_id:
       createMemoryId,
+
+    durable_memory_seed:
+      durableMemorySeed,
   })
 }
 
@@ -646,6 +654,99 @@ test(
         .memory_ids,
       [
         'preference-old',
+      ],
+    )
+  },
+)
+
+
+test(
+  'Commercial Reading expõe memória durável herdada no primeiro ciclo reduzido',
+  () => {
+    const input =
+      buildInput()
+
+    const output =
+      buildOutput()
+
+    const memoryReduction =
+      reduce({
+        input,
+        output,
+
+        durableMemorySeed: {
+          source_cycle_id:
+            'cycle-prior',
+
+          facts: [
+            {
+              kind:
+                'client.preference',
+
+              value:
+                null,
+
+              summary:
+                `${DURABLE_MEMORY_SEED_SUMMARY_PREFIX}Prefere contato por texto.`,
+
+              confidence:
+                'medium',
+            },
+          ],
+
+          objections:
+            [],
+        },
+      })
+
+    const result =
+      buildCommercialReasoningCoreV2CommercialReading({
+        input,
+        output,
+
+        memory_reduction:
+          memoryReduction,
+      })
+
+    assert.equal(
+      memoryReduction
+        .durable_memory_seed_applied,
+      true,
+    )
+
+    assert.equal(
+      result
+        .report
+        .writes_new_customer_memory,
+      true,
+    )
+
+    assert.equal(
+      result
+        .reading
+        .customer
+        .preferences
+        .length,
+      1,
+    )
+
+    assert.equal(
+      result
+        .reading
+        .customer
+        .preferences[0]
+        .summary,
+      `${DURABLE_MEMORY_SEED_SUMMARY_PREFIX}Prefere contato por texto.`,
+    )
+
+    assert.deepEqual(
+      result
+        .reading
+        .customer
+        .preferences[0]
+        .memory_ids,
+      [
+        'memory-facts-1-1000000',
       ],
     )
   },

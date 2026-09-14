@@ -10,6 +10,10 @@ import {
 } from './commercial-reasoning-core-v2-contract.ts'
 
 import {
+  DURABLE_MEMORY_SEED_SUMMARY_PREFIX,
+} from './durable-memory-seed.ts'
+
+import {
   reduceCommercialReasoningCoreV2Memory,
 } from './commercial-reasoning-core-v2-memory-reducer.ts'
 
@@ -490,6 +494,7 @@ function createMemoryId({
 function reduce({
   input,
   output,
+  durableMemorySeed = null,
 }) {
   return reduceCommercialReasoningCoreV2Memory({
     input,
@@ -500,6 +505,9 @@ function reduce({
 
     create_memory_id:
       createMemoryId,
+
+    durable_memory_seed:
+      durableMemorySeed,
   })
 }
 
@@ -1091,6 +1099,188 @@ test(
 
         return true
       },
+    )
+  },
+)
+
+
+test(
+  'reducer V2 aplica memória durável somente ao primeiro estado do novo ciclo',
+  () => {
+    const input =
+      buildInput()
+
+    const output =
+      buildOutput()
+
+    const result =
+      reduce({
+        input,
+        output,
+
+        durableMemorySeed: {
+          source_cycle_id:
+            'cycle-prior',
+
+          facts: [
+            {
+              kind:
+                'client.preference',
+
+              value:
+                null,
+
+              summary:
+                `${DURABLE_MEMORY_SEED_SUMMARY_PREFIX}Prefere contato objetivo.`,
+
+              confidence:
+                'medium',
+            },
+          ],
+
+          objections: [
+            {
+              kind:
+                'price',
+
+              summary:
+                `${DURABLE_MEMORY_SEED_SUMMARY_PREFIX}Já apresentou objeção de preço.`,
+
+              confidence:
+                'medium',
+            },
+          ],
+        },
+      })
+
+    assert.equal(
+      result
+        .durable_memory_seed_applied,
+      true,
+    )
+
+    assert.equal(
+      result
+        .state
+        .facts
+        .length,
+      1,
+    )
+
+    assert.equal(
+      result
+        .state
+        .facts[0]
+        .id,
+      'memory-facts-1-1000000',
+    )
+
+    assert.equal(
+      result
+        .state
+        .facts[0]
+        .summary,
+      `${DURABLE_MEMORY_SEED_SUMMARY_PREFIX}Prefere contato objetivo.`,
+    )
+
+    assert.deepEqual(
+      result
+        .state
+        .facts[0]
+        .evidence_message_ids,
+      [],
+    )
+
+    assert.equal(
+      result
+        .state
+        .objections
+        .length,
+      1,
+    )
+
+    assert.equal(
+      result
+        .state
+        .objections[0]
+        .id,
+      'memory-objections-1-1000000',
+    )
+  },
+)
+
+
+test(
+  'reducer V2 não reaplica memória durável quando o ciclo já possui estado',
+  () => {
+    const previousState =
+      buildPreviousState()
+
+    const input =
+      buildInput({
+        previousState,
+      })
+
+    const output =
+      buildOutput()
+
+    const result =
+      reduce({
+        input,
+        output,
+
+        durableMemorySeed: {
+          source_cycle_id:
+            'cycle-prior',
+
+          facts: [
+            {
+              kind:
+                'client.preference',
+
+              value:
+                null,
+
+              summary:
+                `${DURABLE_MEMORY_SEED_SUMMARY_PREFIX}Memória que não pode ser reaplicada.`,
+
+              confidence:
+                'medium',
+            },
+          ],
+
+          objections:
+            [],
+        },
+      })
+
+    assert.equal(
+      result
+        .durable_memory_seed_applied,
+      false,
+    )
+
+    assert.equal(
+      result
+        .state
+        .facts
+        .length,
+      previousState
+        .facts
+        .length,
+    )
+
+    assert.equal(
+      result
+        .state
+        .facts
+        .some(
+          fact =>
+            fact.summary.includes(
+              'Memória que não pode ser reaplicada.',
+            ),
+        ),
+      false,
     )
   },
 )

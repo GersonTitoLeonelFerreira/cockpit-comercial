@@ -35,6 +35,11 @@ import type {
   StatefulCommercialState,
 } from './stateful-commercial-state'
 
+import {
+  applyDurableMemorySeedToFreshState,
+  type DurableMemorySeed,
+} from './durable-memory-seed'
+
 export const COMMERCIAL_REASONING_CORE_V2_MEMORY_REDUCER_VERSION =
   'commercial-reasoning-core-v2-memory-reducer-v1' as const
 
@@ -52,6 +57,9 @@ export type CommercialReasoningCoreV2MemoryReductionResult = {
     StatefulCopilotStatePatch
 
   preserved_previous_commercial_state:
+    boolean
+
+  durable_memory_seed_applied:
     boolean
 }
 
@@ -663,6 +671,7 @@ export function reduceCommercialReasoningCoreV2Memory({
   output,
   applied_at,
   create_memory_id,
+  durable_memory_seed = null,
 }: {
   input:
     StatefulCopilotInput
@@ -675,6 +684,9 @@ export function reduceCommercialReasoningCoreV2Memory({
 
   create_memory_id:
     StatefulCommercialMemoryIdFactory
+
+  durable_memory_seed?:
+    DurableMemorySeed | null
 }): CommercialReasoningCoreV2MemoryReductionResult {
   const normalizationContext =
     buildStatefulCopilotNormalizationContext(
@@ -822,6 +834,9 @@ export function reduceCommercialReasoningCoreV2Memory({
 
       preserved_previous_commercial_state:
         true,
+
+      durable_memory_seed_applied:
+        false,
     }
   }
 
@@ -926,27 +941,43 @@ export function reduceCommercialReasoningCoreV2Memory({
     },
   }
 
+  const reducedState =
+    reduceStatefulCommercialState({
+      previous_state:
+        previousState,
+
+      output:
+        projection,
+
+      cycle_id:
+        input
+          .diagnostic_input
+          .cycle_id,
+
+      applied_at,
+
+      create_memory_id,
+    })
+
+  const candidateState =
+    applyDurableMemorySeedToFreshState({
+      candidateState:
+        reducedState,
+
+      previousState,
+
+      seed:
+        durable_memory_seed,
+
+      create_memory_id,
+    })
+
   return {
     reducer_version:
       COMMERCIAL_REASONING_CORE_V2_MEMORY_REDUCER_VERSION,
 
     state:
-      reduceStatefulCommercialState({
-        previous_state:
-          previousState,
-
-        output:
-          projection,
-
-        cycle_id:
-          input
-            .diagnostic_input
-            .cycle_id,
-
-        applied_at,
-
-        create_memory_id,
-      }),
+      candidateState,
 
     normalization_context:
       normalizationContext,
@@ -956,5 +987,9 @@ export function reduceCommercialReasoningCoreV2Memory({
 
     preserved_previous_commercial_state:
       false,
+
+    durable_memory_seed_applied:
+      candidateState !==
+      reducedState,
   }
 }
