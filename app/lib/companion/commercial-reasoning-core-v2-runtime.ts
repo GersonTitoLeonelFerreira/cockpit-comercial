@@ -193,6 +193,93 @@ function buildBaseResult(
   }
 }
 
+function collectPendingAudioMessageIds(
+  input:
+    StatefulCopilotInput,
+): string[] {
+  const activeMessageIds =
+    new Set(
+      input
+        .diagnostic_input
+        .conversation
+        .active_message_ids,
+    )
+
+  return input
+    .diagnostic_input
+    .conversation
+    .messages
+    .filter(
+      message => {
+        if (
+          !activeMessageIds.has(
+            message.id,
+          ) ||
+          message.content_type !==
+            'audio'
+        ) {
+          return false
+        }
+
+        return !(
+          typeof message.audio_transcription ===
+            'string' &&
+          message.audio_transcription.trim()
+        )
+      },
+    )
+    .map(
+      message =>
+        message.id,
+    )
+}
+
+function buildBlockedResult({
+  input,
+  limitations,
+}: {
+  input:
+    StatefulCopilotInput
+
+  limitations:
+    string[]
+}): CommercialReasoningCoreV2RuntimeBlockedResult {
+  return {
+    ...buildBaseResult(
+      input,
+    ),
+
+    mode:
+      'blocked',
+
+    model_calls:
+      0,
+
+    limitations:
+      [
+        ...new Set(
+          limitations.length > 0
+            ? limitations
+            : [
+                'A fotografia comercial está bloqueada para análise.',
+              ],
+        ),
+      ],
+
+    core_result:
+      null,
+
+    memory_reduction:
+      null,
+
+    commercial_reading:
+      null,
+
+    seller_projection:
+      null,
+  }
+}
+
 export async function runCommercialReasoningCoreV2Runtime({
   diagnostic_input,
   previous_state,
@@ -242,41 +329,33 @@ export async function runCommercialReasoningCoreV2Runtime({
     precondition.status ===
     'blocked'
   ) {
-    return {
-      ...buildBaseResult(
-        input,
-      ),
+    return buildBlockedResult({
+      input,
 
-      mode:
-        'blocked',
+      limitations: [
+        ...precondition
+          .limitations,
+      ],
+    })
+  }
 
-      model_calls:
-        0,
+  const pendingAudioMessageIds =
+    collectPendingAudioMessageIds(
+      input,
+    )
 
-      limitations:
-        precondition
-          .limitations
-          .length > 0
-          ? [
-              ...precondition
-                .limitations,
-            ]
-          : [
-              'A fotografia comercial está bloqueada para análise.',
-            ],
+  if (
+    pendingAudioMessageIds.length > 0
+  ) {
+    return buildBlockedResult({
+      input,
 
-      core_result:
-        null,
-
-      memory_reduction:
-        null,
-
-      commercial_reading:
-        null,
-
-      seller_projection:
-        null,
-    }
+      limitations: [
+        ...precondition
+          .limitations,
+        'audio_without_transcription',
+      ],
+    })
   }
 
   const coreResult =
