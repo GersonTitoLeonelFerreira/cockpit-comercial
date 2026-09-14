@@ -1,4 +1,5 @@
 import {
+  COMMERCIAL_REASONING_CORE_V2_COMMITMENT_STATUSES,
   COMMERCIAL_REASONING_CORE_V2_COMMERCIAL_RELEVANCES,
   COMMERCIAL_REASONING_CORE_V2_COMMERCIAL_ROLES,
   COMMERCIAL_REASONING_CORE_V2_CONFIDENCE_LEVELS,
@@ -143,6 +144,149 @@ const improvementSchema =
       stringArraySchema,
   })
 
+const memoryObservedSchema =
+  objectSchema({
+    kind:
+      stringSchema,
+
+    summary:
+      stringSchema,
+
+    confidence:
+      enumSchema(
+        COMMERCIAL_REASONING_CORE_V2_CONFIDENCE_LEVELS,
+      ),
+
+    evidence_message_ids:
+      stringArraySchema,
+  })
+
+const memoryFactSchema =
+  objectSchema({
+    kind:
+      stringSchema,
+
+    value:
+      nullableStringSchema,
+
+    summary:
+      stringSchema,
+
+    confidence:
+      enumSchema(
+        COMMERCIAL_REASONING_CORE_V2_CONFIDENCE_LEVELS,
+      ),
+
+    evidence_message_ids:
+      stringArraySchema,
+  })
+
+const memoryOpenLoopSchema =
+  objectSchema({
+    kind:
+      stringSchema,
+
+    summary:
+      stringSchema,
+
+    evidence_message_ids:
+      stringArraySchema,
+  })
+
+const memoryCommitmentSchema =
+  objectSchema({
+    commitment_id:
+      nullableStringSchema,
+
+    kind:
+      stringSchema,
+
+    status:
+      enumSchema(
+        COMMERCIAL_REASONING_CORE_V2_COMMITMENT_STATUSES,
+      ),
+
+    scheduled_at:
+      nullableStringSchema,
+
+    proposed_at:
+      nullableStringSchema,
+
+    summary:
+      stringSchema,
+
+    evidence_message_ids:
+      stringArraySchema,
+  })
+
+const memoryDeltaSchema =
+  objectSchema({
+    facts_to_add:
+      arraySchema(
+        memoryFactSchema,
+      ),
+
+    fact_ids_to_supersede:
+      stringArraySchema,
+
+    needs_to_add:
+      arraySchema(
+        memoryObservedSchema,
+      ),
+
+    need_ids_to_resolve:
+      stringArraySchema,
+
+    need_ids_to_supersede:
+      stringArraySchema,
+
+    open_loops_to_add:
+      arraySchema(
+        memoryOpenLoopSchema,
+      ),
+
+    open_loop_ids_to_resolve:
+      stringArraySchema,
+
+    open_loop_ids_to_supersede:
+      stringArraySchema,
+
+    objections_to_add:
+      arraySchema(
+        memoryObservedSchema,
+      ),
+
+    objection_ids_to_resolve:
+      stringArraySchema,
+
+    objection_ids_to_supersede:
+      stringArraySchema,
+
+    commitments_to_upsert:
+      arraySchema(
+        memoryCommitmentSchema,
+      ),
+
+    signals_to_add:
+      arraySchema(
+        memoryObservedSchema,
+      ),
+
+    signal_ids_to_resolve:
+      stringArraySchema,
+
+    uncertainties_to_add:
+      arraySchema(
+        memoryObservedSchema,
+      ),
+
+    uncertainty_ids_to_resolve:
+      stringArraySchema,
+
+    uncertainty_ids_to_supersede:
+      stringArraySchema,
+  })
+
 export const COMMERCIAL_REASONING_CORE_V2_JSON_SCHEMA =
   deepFreeze(
     objectSchema({
@@ -283,6 +427,9 @@ export const COMMERCIAL_REASONING_CORE_V2_JSON_SCHEMA =
           suggested_message:
             nullableStringSchema,
         }),
+
+      memory_delta:
+        memoryDeltaSchema,
 
       factuality:
         objectSchema({

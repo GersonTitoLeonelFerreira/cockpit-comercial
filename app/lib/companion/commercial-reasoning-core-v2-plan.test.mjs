@@ -133,6 +133,12 @@ test(
       true,
     )
 
+    assert.equal(
+      payload.invariants
+        .memory_continuity_same_reasoning_pass,
+      true,
+    )
+
     assert.deepEqual(
       payload.output_budget,
       {
@@ -142,6 +148,12 @@ test(
           3,
         facts_used_max:
           5,
+        memory_facts_to_add_max:
+          6,
+        memory_items_to_add_per_collection_max:
+          4,
+        memory_commitments_to_upsert_max:
+          4,
         unknowns_max:
           5,
         do_not_do_max:
@@ -155,7 +167,7 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'commercial-reasoning-core-v2-prompt-v3',
+      'commercial-reasoning-core-v2-prompt-v4',
     )
 
     assert.ok(

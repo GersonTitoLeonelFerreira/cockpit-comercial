@@ -1,5 +1,10 @@
 import type { StatefulCopilotInput } from './stateful-copilot-input'
-import type { CommercialReasoningCoreV2Output } from './commercial-reasoning-core-v2-contract'
+
+import {
+  createEmptyCommercialReasoningCoreV2MemoryDelta,
+  type CommercialReasoningCoreV2MemoryDelta,
+  type CommercialReasoningCoreV2Output,
+} from './commercial-reasoning-core-v2-contract'
 
 export type CommercialReasoningCoreV2FactualGuardReport = {
   adjusted: boolean
@@ -13,6 +18,21 @@ export type CommercialReasoningCoreV2FactualGuardResult = {
 
 type JsonRecord =
   Record<string, unknown>
+
+function memoryDeltaHasChanges(
+  delta:
+    CommercialReasoningCoreV2MemoryDelta,
+): boolean {
+  return Object.values(
+    delta,
+  ).some(
+    value =>
+      Array.isArray(
+        value,
+      ) &&
+      value.length > 0,
+  )
+}
 
 const NUMERIC_TOKEN_PATTERN =
   /R\$\s*\d+(?:[.,]\d+)?|\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b|\b\d{1,2}:\d{2}\b|\b\d+(?:[.,]\d+)?\s*%|\b\d+(?:[.,]\d+)?\s*h\b|\b\d+(?:[.,]\d+)?\b/gi
@@ -286,6 +306,10 @@ function sanitizeOutputEvidence(
       return result.ids
     }
 
+  const memoryDelta =
+    output.memory_delta ??
+    createEmptyCommercialReasoningCoreV2MemoryDelta()
+
   const sanitizedOutput: CommercialReasoningCoreV2Output = {
     ...output,
 
@@ -359,6 +383,156 @@ function sanitizeOutputEvidence(
             .method
             .evidence_message_ids,
         ),
+    },
+
+    memory_delta: {
+      facts_to_add:
+        memoryDelta
+          .facts_to_add
+          .map(
+            item => ({
+              ...item,
+              evidence_message_ids:
+                sanitize(
+                  item
+                    .evidence_message_ids,
+                ),
+            }),
+          ),
+
+      fact_ids_to_supersede: [
+        ...memoryDelta
+          .fact_ids_to_supersede,
+      ],
+
+      needs_to_add:
+        memoryDelta
+          .needs_to_add
+          .map(
+            item => ({
+              ...item,
+              evidence_message_ids:
+                sanitize(
+                  item
+                    .evidence_message_ids,
+                ),
+            }),
+          ),
+
+      need_ids_to_resolve: [
+        ...memoryDelta
+          .need_ids_to_resolve,
+      ],
+
+      need_ids_to_supersede: [
+        ...memoryDelta
+          .need_ids_to_supersede,
+      ],
+
+      open_loops_to_add:
+        memoryDelta
+          .open_loops_to_add
+          .map(
+            item => ({
+              ...item,
+              evidence_message_ids:
+                sanitize(
+                  item
+                    .evidence_message_ids,
+                ),
+            }),
+          ),
+
+      open_loop_ids_to_resolve: [
+        ...memoryDelta
+          .open_loop_ids_to_resolve,
+      ],
+
+      open_loop_ids_to_supersede: [
+        ...memoryDelta
+          .open_loop_ids_to_supersede,
+      ],
+
+      objections_to_add:
+        memoryDelta
+          .objections_to_add
+          .map(
+            item => ({
+              ...item,
+              evidence_message_ids:
+                sanitize(
+                  item
+                    .evidence_message_ids,
+                ),
+            }),
+          ),
+
+      objection_ids_to_resolve: [
+        ...memoryDelta
+          .objection_ids_to_resolve,
+      ],
+
+      objection_ids_to_supersede: [
+        ...memoryDelta
+          .objection_ids_to_supersede,
+      ],
+
+      commitments_to_upsert:
+        memoryDelta
+          .commitments_to_upsert
+          .map(
+            item => ({
+              ...item,
+              evidence_message_ids:
+                sanitize(
+                  item
+                    .evidence_message_ids,
+                ),
+            }),
+          ),
+
+      signals_to_add:
+        memoryDelta
+          .signals_to_add
+          .map(
+            item => ({
+              ...item,
+              evidence_message_ids:
+                sanitize(
+                  item
+                    .evidence_message_ids,
+                ),
+            }),
+          ),
+
+      signal_ids_to_resolve: [
+        ...memoryDelta
+          .signal_ids_to_resolve,
+      ],
+
+      uncertainties_to_add:
+        memoryDelta
+          .uncertainties_to_add
+          .map(
+            item => ({
+              ...item,
+              evidence_message_ids:
+                sanitize(
+                  item
+                    .evidence_message_ids,
+                ),
+            }),
+          ),
+
+      uncertainty_ids_to_resolve: [
+        ...memoryDelta
+          .uncertainty_ids_to_resolve,
+      ],
+
+      uncertainty_ids_to_supersede: [
+        ...memoryDelta
+          .uncertainty_ids_to_supersede,
+      ],
     },
 
     factuality: {
@@ -744,6 +918,25 @@ export function applyCommercialReasoningCoreV2FactualGuard({
     guardedOutput
       .commercial_relevance ===
       'commercial'
+
+  if (
+    !commerciallyActionable &&
+    memoryDeltaHasChanges(
+      guardedOutput
+        .memory_delta,
+    )
+  ) {
+    guardedOutput = {
+      ...guardedOutput,
+
+      memory_delta:
+        createEmptyCommercialReasoningCoreV2MemoryDelta(),
+    }
+
+    codes.push(
+      'NON_ACTIONABLE_MEMORY_DELTA_CLEARED',
+    )
+  }
 
   if (
     !commerciallyActionable &&

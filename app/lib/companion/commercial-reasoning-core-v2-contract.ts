@@ -57,6 +57,14 @@ export const COMMERCIAL_REASONING_CORE_V2_METHOD_ADHERENCE = [
   'insufficient_evidence',
 ] as const
 
+export const COMMERCIAL_REASONING_CORE_V2_COMMITMENT_STATUSES = [
+  'proposed',
+  'confirmed',
+  'reschedule_requested',
+  'cancelled',
+  'completed',
+] as const
+
 export type CommercialReasoningCoreV2Status =
   (typeof COMMERCIAL_REASONING_CORE_V2_STATUSES)[number]
 
@@ -78,6 +86,9 @@ export type CommercialReasoningCoreV2Decision =
 export type CommercialReasoningCoreV2MethodAdherence =
   (typeof COMMERCIAL_REASONING_CORE_V2_METHOD_ADHERENCE)[number]
 
+export type CommercialReasoningCoreV2CommitmentStatus =
+  (typeof COMMERCIAL_REASONING_CORE_V2_COMMITMENT_STATUSES)[number]
+
 export type CommercialReasoningCoreV2Evidence = {
   summary: string
   evidence_message_ids: string[]
@@ -97,6 +108,110 @@ export type CommercialReasoningCoreV2ImprovementPoint = {
   impact: string
   how_to_improve: string
   evidence_message_ids: string[]
+}
+
+export type CommercialReasoningCoreV2MemoryObservedItem = {
+  kind: string
+  summary: string
+  confidence: CommercialReasoningCoreV2Confidence
+  evidence_message_ids: string[]
+}
+
+export type CommercialReasoningCoreV2MemoryFact =
+  CommercialReasoningCoreV2MemoryObservedItem & {
+    value: string | null
+  }
+
+export type CommercialReasoningCoreV2MemoryOpenLoop = {
+  kind: string
+  summary: string
+  evidence_message_ids: string[]
+}
+
+export type CommercialReasoningCoreV2MemoryCommitment = {
+  commitment_id: string | null
+  kind: string
+  status: CommercialReasoningCoreV2CommitmentStatus
+  scheduled_at: string | null
+  proposed_at: string | null
+  summary: string
+  evidence_message_ids: string[]
+}
+
+export type CommercialReasoningCoreV2MemoryDelta = {
+  facts_to_add:
+    CommercialReasoningCoreV2MemoryFact[]
+
+  fact_ids_to_supersede:
+    string[]
+
+  needs_to_add:
+    CommercialReasoningCoreV2MemoryObservedItem[]
+
+  need_ids_to_resolve:
+    string[]
+
+  need_ids_to_supersede:
+    string[]
+
+  open_loops_to_add:
+    CommercialReasoningCoreV2MemoryOpenLoop[]
+
+  open_loop_ids_to_resolve:
+    string[]
+
+  open_loop_ids_to_supersede:
+    string[]
+
+  objections_to_add:
+    CommercialReasoningCoreV2MemoryObservedItem[]
+
+  objection_ids_to_resolve:
+    string[]
+
+  objection_ids_to_supersede:
+    string[]
+
+  commitments_to_upsert:
+    CommercialReasoningCoreV2MemoryCommitment[]
+
+  signals_to_add:
+    CommercialReasoningCoreV2MemoryObservedItem[]
+
+  signal_ids_to_resolve:
+    string[]
+
+  uncertainties_to_add:
+    CommercialReasoningCoreV2MemoryObservedItem[]
+
+  uncertainty_ids_to_resolve:
+    string[]
+
+  uncertainty_ids_to_supersede:
+    string[]
+}
+
+export function createEmptyCommercialReasoningCoreV2MemoryDelta():
+  CommercialReasoningCoreV2MemoryDelta {
+  return {
+    facts_to_add: [],
+    fact_ids_to_supersede: [],
+    needs_to_add: [],
+    need_ids_to_resolve: [],
+    need_ids_to_supersede: [],
+    open_loops_to_add: [],
+    open_loop_ids_to_resolve: [],
+    open_loop_ids_to_supersede: [],
+    objections_to_add: [],
+    objection_ids_to_resolve: [],
+    objection_ids_to_supersede: [],
+    commitments_to_upsert: [],
+    signals_to_add: [],
+    signal_ids_to_resolve: [],
+    uncertainties_to_add: [],
+    uncertainty_ids_to_resolve: [],
+    uncertainty_ids_to_supersede: [],
+  }
 }
 
 export type CommercialReasoningCoreV2Output = {
@@ -159,6 +274,9 @@ export type CommercialReasoningCoreV2Output = {
     recommended_question: string | null
     suggested_message: string | null
   }
+
+  memory_delta:
+    CommercialReasoningCoreV2MemoryDelta
 
   factuality: {
     facts_used: CommercialReasoningCoreV2Evidence[]
@@ -271,6 +389,38 @@ function requireNullableString(
     path,
     maximumLength,
   )
+}
+
+function requireNullableDateTime(
+  value: unknown,
+  path: string,
+): string | null {
+  const normalized =
+    requireNullableString(
+      value,
+      path,
+      100,
+    )
+
+  if (normalized === null) {
+    return null
+  }
+
+  if (
+    !Number.isFinite(
+      Date.parse(
+        normalized,
+      ),
+    )
+  ) {
+    fail(
+      'DATETIME_REQUIRED',
+      path,
+      `${path} precisa possuir uma data válida.`,
+    )
+  }
+
+  return normalized
 }
 
 function requireBoolean(
@@ -477,6 +627,299 @@ function normalizeImprovementPoint(
       requireStringArray(
         record.evidence_message_ids,
         `${path}.evidence_message_ids`,
+      ),
+  }
+}
+
+function normalizeMemoryObservedItem(
+  value: unknown,
+  path: string,
+): CommercialReasoningCoreV2MemoryObservedItem {
+  const record =
+    requireRecord(
+      value,
+      path,
+    )
+
+  return {
+    kind:
+      requireString(
+        record.kind,
+        `${path}.kind`,
+        200,
+      ),
+
+    summary:
+      requireString(
+        record.summary,
+        `${path}.summary`,
+      ),
+
+    confidence:
+      requireEnum(
+        record.confidence,
+        COMMERCIAL_REASONING_CORE_V2_CONFIDENCE_LEVELS,
+        `${path}.confidence`,
+      ),
+
+    evidence_message_ids:
+      requireStringArray(
+        record.evidence_message_ids,
+        `${path}.evidence_message_ids`,
+      ),
+  }
+}
+
+function normalizeMemoryFact(
+  value: unknown,
+  path: string,
+): CommercialReasoningCoreV2MemoryFact {
+  const record =
+    requireRecord(
+      value,
+      path,
+    )
+
+  return {
+    ...normalizeMemoryObservedItem(
+      record,
+      path,
+    ),
+
+    value:
+      requireNullableString(
+        record.value,
+        `${path}.value`,
+        1_000,
+      ),
+  }
+}
+
+function normalizeMemoryOpenLoop(
+  value: unknown,
+  path: string,
+): CommercialReasoningCoreV2MemoryOpenLoop {
+  const record =
+    requireRecord(
+      value,
+      path,
+    )
+
+  return {
+    kind:
+      requireString(
+        record.kind,
+        `${path}.kind`,
+        200,
+      ),
+
+    summary:
+      requireString(
+        record.summary,
+        `${path}.summary`,
+      ),
+
+    evidence_message_ids:
+      requireStringArray(
+        record.evidence_message_ids,
+        `${path}.evidence_message_ids`,
+      ),
+  }
+}
+
+function normalizeMemoryCommitment(
+  value: unknown,
+  path: string,
+): CommercialReasoningCoreV2MemoryCommitment {
+  const record =
+    requireRecord(
+      value,
+      path,
+    )
+
+  return {
+    commitment_id:
+      requireNullableString(
+        record.commitment_id,
+        `${path}.commitment_id`,
+        500,
+      ),
+
+    kind:
+      requireString(
+        record.kind,
+        `${path}.kind`,
+        200,
+      ),
+
+    status:
+      requireEnum(
+        record.status,
+        COMMERCIAL_REASONING_CORE_V2_COMMITMENT_STATUSES,
+        `${path}.status`,
+      ),
+
+    scheduled_at:
+      requireNullableDateTime(
+        record.scheduled_at,
+        `${path}.scheduled_at`,
+      ),
+
+    proposed_at:
+      requireNullableDateTime(
+        record.proposed_at,
+        `${path}.proposed_at`,
+      ),
+
+    summary:
+      requireString(
+        record.summary,
+        `${path}.summary`,
+      ),
+
+    evidence_message_ids:
+      requireStringArray(
+        record.evidence_message_ids,
+        `${path}.evidence_message_ids`,
+      ),
+  }
+}
+
+function normalizeMemoryDelta(
+  value: unknown,
+  path: string,
+): CommercialReasoningCoreV2MemoryDelta {
+  const record =
+    requireRecord(
+      value,
+      path,
+    )
+
+  return {
+    facts_to_add:
+      requireArray(
+        record.facts_to_add,
+        `${path}.facts_to_add`,
+        normalizeMemoryFact,
+        12,
+      ),
+
+    fact_ids_to_supersede:
+      requireStringArray(
+        record.fact_ids_to_supersede,
+        `${path}.fact_ids_to_supersede`,
+        30,
+      ),
+
+    needs_to_add:
+      requireArray(
+        record.needs_to_add,
+        `${path}.needs_to_add`,
+        normalizeMemoryObservedItem,
+        12,
+      ),
+
+    need_ids_to_resolve:
+      requireStringArray(
+        record.need_ids_to_resolve,
+        `${path}.need_ids_to_resolve`,
+        30,
+      ),
+
+    need_ids_to_supersede:
+      requireStringArray(
+        record.need_ids_to_supersede,
+        `${path}.need_ids_to_supersede`,
+        30,
+      ),
+
+    open_loops_to_add:
+      requireArray(
+        record.open_loops_to_add,
+        `${path}.open_loops_to_add`,
+        normalizeMemoryOpenLoop,
+        12,
+      ),
+
+    open_loop_ids_to_resolve:
+      requireStringArray(
+        record.open_loop_ids_to_resolve,
+        `${path}.open_loop_ids_to_resolve`,
+        30,
+      ),
+
+    open_loop_ids_to_supersede:
+      requireStringArray(
+        record.open_loop_ids_to_supersede,
+        `${path}.open_loop_ids_to_supersede`,
+        30,
+      ),
+
+    objections_to_add:
+      requireArray(
+        record.objections_to_add,
+        `${path}.objections_to_add`,
+        normalizeMemoryObservedItem,
+        12,
+      ),
+
+    objection_ids_to_resolve:
+      requireStringArray(
+        record.objection_ids_to_resolve,
+        `${path}.objection_ids_to_resolve`,
+        30,
+      ),
+
+    objection_ids_to_supersede:
+      requireStringArray(
+        record.objection_ids_to_supersede,
+        `${path}.objection_ids_to_supersede`,
+        30,
+      ),
+
+    commitments_to_upsert:
+      requireArray(
+        record.commitments_to_upsert,
+        `${path}.commitments_to_upsert`,
+        normalizeMemoryCommitment,
+        12,
+      ),
+
+    signals_to_add:
+      requireArray(
+        record.signals_to_add,
+        `${path}.signals_to_add`,
+        normalizeMemoryObservedItem,
+        12,
+      ),
+
+    signal_ids_to_resolve:
+      requireStringArray(
+        record.signal_ids_to_resolve,
+        `${path}.signal_ids_to_resolve`,
+        30,
+      ),
+
+    uncertainties_to_add:
+      requireArray(
+        record.uncertainties_to_add,
+        `${path}.uncertainties_to_add`,
+        normalizeMemoryObservedItem,
+        12,
+      ),
+
+    uncertainty_ids_to_resolve:
+      requireStringArray(
+        record.uncertainty_ids_to_resolve,
+        `${path}.uncertainty_ids_to_resolve`,
+        30,
+      ),
+
+    uncertainty_ids_to_supersede:
+      requireStringArray(
+        record.uncertainty_ids_to_supersede,
+        `${path}.uncertainty_ids_to_supersede`,
+        30,
       ),
   }
 }
@@ -762,6 +1205,13 @@ export function normalizeCommercialReasoningCoreV2Output(
           1_200,
         ),
     },
+
+    memory_delta:
+      normalizeMemoryDelta(
+        root.memory_delta ??
+          createEmptyCommercialReasoningCoreV2MemoryDelta(),
+        'output.memory_delta',
+      ),
 
     factuality: {
       facts_used:

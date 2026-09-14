@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  normalizeCommercialReasoningCoreV2Output,
+} from './commercial-reasoning-core-v2-contract.ts'
+
+import {
   CommercialReasoningCoreV2ExecutionError,
   executeCommercialReasoningCoreV2,
 } from './commercial-reasoning-core-v2-executor.ts'
@@ -9,7 +13,7 @@ import {
 function buildPlan() {
   return {
     prompt_version:
-      'commercial-reasoning-core-v2-prompt-v3',
+      'commercial-reasoning-core-v2-prompt-v4',
     output_contract_version:
       'commercial-reasoning-core-v2',
     system_prompt:
@@ -123,6 +127,45 @@ function buildValidOutput() {
       suggested_message:
         'Vou verificar agora a disponibilidade de sexta às 18h para vocês duas e já te confirmo.',
     },
+    memory_delta: {
+      facts_to_add: [
+        {
+          kind:
+            'client.preference',
+
+          value:
+            null,
+
+          summary:
+            'Prefere concluir o agendamento no horário já solicitado.',
+
+          confidence:
+            'high',
+
+          evidence_message_ids: [
+            'm2',
+          ],
+        },
+      ],
+
+      fact_ids_to_supersede: [],
+      needs_to_add: [],
+      need_ids_to_resolve: [],
+      need_ids_to_supersede: [],
+      open_loops_to_add: [],
+      open_loop_ids_to_resolve: [],
+      open_loop_ids_to_supersede: [],
+      objections_to_add: [],
+      objection_ids_to_resolve: [],
+      objection_ids_to_supersede: [],
+      commitments_to_upsert: [],
+      signals_to_add: [],
+      signal_ids_to_resolve: [],
+      uncertainties_to_add: [],
+      uncertainty_ids_to_resolve: [],
+      uncertainty_ids_to_supersede: [],
+    },
+
     factuality: {
       facts_used: [
         {
@@ -155,7 +198,7 @@ test(
 
         assert.equal(
           request.prompt_version,
-          'commercial-reasoning-core-v2-prompt-v3',
+          'commercial-reasoning-core-v2-prompt-v4',
         )
 
         assert.equal(
@@ -206,6 +249,15 @@ test(
     assert.equal(
       result.output.decision.action,
       'schedule',
+    )
+
+    assert.equal(
+      result
+        .output
+        .memory_delta
+        .facts_to_add[0]
+        .kind,
+      'client.preference',
     )
     assert.equal(
       result.output.coaching
@@ -306,5 +358,45 @@ test(
     )
 
     assert.equal(calls, 1)
+  },
+)
+
+
+test(
+  'normalizador inicializa memory_delta vazio para fixture transitória sem o novo campo',
+  () => {
+    const output =
+      buildValidOutput()
+
+    delete output.memory_delta
+
+    const normalized =
+      normalizeCommercialReasoningCoreV2Output(
+        output,
+      )
+
+    assert.deepEqual(
+      normalized
+        .memory_delta,
+      {
+        facts_to_add: [],
+        fact_ids_to_supersede: [],
+        needs_to_add: [],
+        need_ids_to_resolve: [],
+        need_ids_to_supersede: [],
+        open_loops_to_add: [],
+        open_loop_ids_to_resolve: [],
+        open_loop_ids_to_supersede: [],
+        objections_to_add: [],
+        objection_ids_to_resolve: [],
+        objection_ids_to_supersede: [],
+        commitments_to_upsert: [],
+        signals_to_add: [],
+        signal_ids_to_resolve: [],
+        uncertainties_to_add: [],
+        uncertainty_ids_to_resolve: [],
+        uncertainty_ids_to_supersede: [],
+      },
+    )
   },
 )

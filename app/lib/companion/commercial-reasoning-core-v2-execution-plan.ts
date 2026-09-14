@@ -7,7 +7,7 @@ import {
 } from './commercial-reasoning-core-v2-contract'
 
 export const COMMERCIAL_REASONING_CORE_V2_PROMPT_VERSION =
-  'commercial-reasoning-core-v2-prompt-v3' as const
+  'commercial-reasoning-core-v2-prompt-v4' as const
 
 export type CommercialReasoningCoreV2ExecutionPlan = {
   prompt_version:
@@ -39,6 +39,18 @@ function buildSystemPrompt(): string {
     'Classifique também commercial_role e commercial_relevance. Use buyer quando o interlocutor estiver no papel de potencial comprador ou cliente, provider quando estiver oferecendo algo à empresa e unknown quando não houver evidência suficiente. Use commercial somente quando a conversa tiver relevância material para venda, decisão, negociação, relacionamento comercial ou próximo passo comercial; use non_commercial quando o conteúdo for alheio ao processo comercial e uncertain quando a evidência for insuficiente.',
 
     'Não gere intervenção comercial quando commercial_role não for buyer ou commercial_relevance não for commercial. Nesses casos, preserve silêncio operacional.',
+
+    'A mesma análise principal também deve produzir memory_delta. Ele representa somente mudanças de memória sustentadas pela fotografia atual e pela memória anterior; não é uma segunda análise e não deve repetir a narrativa de situation ou factuality.',
+
+    'Só crie nova memória comercial do cliente quando houver evidência factual suficiente. Para inteligência atribuída ao cliente, priorize mensagens incoming do próprio cliente. Não transforme fala do vendedor, hipótese, coaching ou inferência psicológica em fato do cliente.',
+
+    'Preserve as distinções semânticas entre objetivo, problema, impacto, necessidade, interesse, critério de decisão, preferência, pergunta em aberto, objeção, compromisso, sinal e incerteza. Não duplique a mesma afirmação em categorias diferentes.',
+
+    'Para fatos de cliente use os tipos canônicos quando aplicáveis: client.objective, client.problem, client.impact, client.interest, client.decision_criterion, client.preference, client.product.*, client.competitor.* e client.communication.*. Para pergunta aberta use client.open_question. Para lacuna de descoberta use client.missing_discovery.<topico>. Não invente product_id, memory_id ou commitment_id.',
+
+    'Use IDs de memória anterior em listas de resolve ou supersede somente quando o item ativo correspondente realmente estiver presente em canonical_snapshot.state_context.previous_state. Não encerre memória apenas porque ela não apareceu na mensagem mais recente.',
+
+    'Quando commercial_role não for buyer ou commercial_relevance não for commercial, memory_delta deve ficar totalmente vazio. Conversas de fornecedor ou assuntos não comerciais não podem contaminar a memória comercial do cliente.',
 
     'A mensagem sugerida é consequência da mesma análise. Não crie uma estratégia diferente apenas para produzir texto. Se nenhuma intervenção acrescentar valor, use silêncio operacional.',
 
@@ -94,6 +106,9 @@ function buildUserPrompt(
 
       compact_output:
         true,
+
+      memory_continuity_same_reasoning_pass:
+        true,
     },
 
     output_budget: {
@@ -105,6 +120,15 @@ function buildUserPrompt(
 
       facts_used_max:
         5,
+
+      memory_facts_to_add_max:
+        6,
+
+      memory_items_to_add_per_collection_max:
+        4,
+
+      memory_commitments_to_upsert_max:
+        4,
 
       unknowns_max:
         5,

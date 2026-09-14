@@ -146,6 +146,26 @@ function buildOutput(
         suggestedMessage,
     },
 
+    memory_delta: {
+      facts_to_add: [],
+      fact_ids_to_supersede: [],
+      needs_to_add: [],
+      need_ids_to_resolve: [],
+      need_ids_to_supersede: [],
+      open_loops_to_add: [],
+      open_loop_ids_to_resolve: [],
+      open_loop_ids_to_supersede: [],
+      objections_to_add: [],
+      objection_ids_to_resolve: [],
+      objection_ids_to_supersede: [],
+      commitments_to_upsert: [],
+      signals_to_add: [],
+      signal_ids_to_resolve: [],
+      uncertainties_to_add: [],
+      uncertainty_ids_to_resolve: [],
+      uncertainty_ids_to_supersede: [],
+    },
+
     factuality: {
       facts_used: [
         {
@@ -565,6 +585,88 @@ test(
         .adjustment_codes
         .includes(
           'NON_ACTIONABLE_COMMUNICATION_NORMALIZED',
+        ),
+    )
+  },
+)
+
+
+test(
+  'Factual Guard impede provider commercial de gravar memory delta',
+  () => {
+    const output =
+      buildOutput(
+        null,
+      )
+
+    output.commercial_role =
+      'provider'
+
+    output.decision.action =
+      'no_intervention'
+
+    output.communication.intervention_needed =
+      false
+
+    output.memory_delta.facts_to_add.push({
+      kind:
+        'client.preference',
+
+      value:
+        null,
+
+      summary:
+        'Memória que não pode ser atribuída a um cliente comprador.',
+
+      confidence:
+        'high',
+
+      evidence_message_ids: [
+        'm1',
+      ],
+    })
+
+    const result =
+      applyCommercialReasoningCoreV2FactualGuard({
+        input:
+          buildInput(
+            'Olá, quero oferecer meus serviços para sua empresa.',
+          ),
+
+        output,
+      })
+
+    assert.deepEqual(
+      result
+        .output
+        .memory_delta,
+      {
+        facts_to_add: [],
+        fact_ids_to_supersede: [],
+        needs_to_add: [],
+        need_ids_to_resolve: [],
+        need_ids_to_supersede: [],
+        open_loops_to_add: [],
+        open_loop_ids_to_resolve: [],
+        open_loop_ids_to_supersede: [],
+        objections_to_add: [],
+        objection_ids_to_resolve: [],
+        objection_ids_to_supersede: [],
+        commitments_to_upsert: [],
+        signals_to_add: [],
+        signal_ids_to_resolve: [],
+        uncertainties_to_add: [],
+        uncertainty_ids_to_resolve: [],
+        uncertainty_ids_to_supersede: [],
+      },
+    )
+
+    assert.ok(
+      result
+        .report
+        .adjustment_codes
+        .includes(
+          'NON_ACTIONABLE_MEMORY_DELTA_CLEARED',
         ),
     )
   },
