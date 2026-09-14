@@ -18,6 +18,7 @@ export const OUTPUT_FILE = join(
 export const SOURCE_FILES = Object.freeze([
   'src/platform-contract.js',
   'src/manychat-surface.js',
+  'src/manychat-message-semantics.js',
   'src/manychat-evidence-probe.js',
   'src/manychat-profile-gate.js',
   'src/manychat-profile-validator.js',
