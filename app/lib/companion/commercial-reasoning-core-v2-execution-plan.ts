@@ -7,7 +7,7 @@ import {
 } from './commercial-reasoning-core-v2-contract'
 
 export const COMMERCIAL_REASONING_CORE_V2_PROMPT_VERSION =
-  'commercial-reasoning-core-v2-prompt-v2' as const
+  'commercial-reasoning-core-v2-prompt-v3' as const
 
 export type CommercialReasoningCoreV2ExecutionPlan = {
   prompt_version:
@@ -35,6 +35,10 @@ function buildSystemPrompt(): string {
     'O método comercial é referência para avaliar a condução, não um roteiro obrigatório. Se uma etapa já foi satisfeita espontaneamente, não recomende repeti-la. Se a conversa avançou para conclusão operacional, não volte para descoberta apenas para cumprir ordem de etapas.',
 
     'Determine explicitamente a situação atual, a intenção do cliente, quem deve agir agora, o melhor objetivo comercial, a decisão recomendada, o impacto da condução do vendedor, a aderência ao método e a técnica comercial apropriada.',
+
+    'Classifique também commercial_role e commercial_relevance. Use buyer quando o interlocutor estiver no papel de potencial comprador ou cliente, provider quando estiver oferecendo algo à empresa e unknown quando não houver evidência suficiente. Use commercial somente quando a conversa tiver relevância material para venda, decisão, negociação, relacionamento comercial ou próximo passo comercial; use non_commercial quando o conteúdo for alheio ao processo comercial e uncertain quando a evidência for insuficiente.',
+
+    'Não gere intervenção comercial quando commercial_role não for buyer ou commercial_relevance não for commercial. Nesses casos, preserve silêncio operacional.',
 
     'A mensagem sugerida é consequência da mesma análise. Não crie uma estratégia diferente apenas para produzir texto. Se nenhuma intervenção acrescentar valor, use silêncio operacional.',
 

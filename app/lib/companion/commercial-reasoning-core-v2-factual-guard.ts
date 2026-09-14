@@ -737,6 +737,41 @@ export function applyCommercialReasoningCoreV2FactualGuard({
     )
   }
 
+  const commerciallyActionable =
+    guardedOutput
+      .commercial_role ===
+      'buyer' &&
+    guardedOutput
+      .commercial_relevance ===
+      'commercial'
+
+  if (
+    !commerciallyActionable &&
+    (
+      communication
+        .intervention_needed ||
+      communication
+        .recommended_question ||
+      communication
+        .suggested_message
+    )
+  ) {
+    communication = {
+      intervention_needed:
+        false,
+
+      recommended_question:
+        null,
+
+      suggested_message:
+        null,
+    }
+
+    codes.push(
+      'NON_ACTIONABLE_COMMUNICATION_NORMALIZED',
+    )
+  }
+
   const groundingText =
     collectGroundingFragments({
       diagnostic_input:

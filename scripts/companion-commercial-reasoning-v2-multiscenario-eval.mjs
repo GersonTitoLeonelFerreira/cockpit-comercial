@@ -671,6 +671,92 @@ const scenarios = [
         false,
     },
   },
+
+  {
+    id:
+      'non-commercial',
+
+    title:
+      'Cliente envia mensagem sem conteúdo comercial',
+
+    messages: [
+      {
+        direction:
+          'incoming',
+
+        text:
+          'Sou cliente de vocês e só queria agradecer pelo atendimento. Tenham um ótimo final de semana.',
+      },
+    ],
+
+    expected: {
+      allowed_statuses: [
+        'ready',
+        'silent',
+      ],
+
+      commercial_role:
+        'buyer',
+
+      commercial_relevance:
+        'non_commercial',
+
+      allowed_waiting_on: [
+        'none',
+        'customer',
+      ],
+
+      allowed_actions: [
+        'no_intervention',
+      ],
+
+      intervention_needed:
+        false,
+    },
+  },
+
+  {
+    id:
+      'provider',
+
+    title:
+      'Interlocutor está oferecendo serviço para a empresa',
+
+    messages: [
+      {
+        direction:
+          'incoming',
+
+        text:
+          'Olá, sou representante da PrintMax e gostaria de apresentar nosso serviço de impressão para a sua empresa. Posso enviar uma proposta?',
+      },
+    ],
+
+    expected: {
+      allowed_statuses: [
+        'ready',
+        'silent',
+      ],
+
+      commercial_role:
+        'provider',
+
+      commercial_relevance:
+        'commercial',
+
+      allowed_waiting_on: [
+        'none',
+        'seller',
+      ],
+
+      allowed_actions: [
+        'no_intervention',
+      ],
+
+      intervention_needed:
+        false,
+    },
+  },
 ]
 
 function evaluateScenario(
@@ -683,16 +769,82 @@ function evaluateScenario(
   const output =
     result.output
 
+  const allowedStatuses =
+    scenario
+      .expected
+      .allowed_statuses ?? [
+        'ready',
+      ]
+
+  const expectedCommercialRole =
+    scenario
+      .expected
+      .commercial_role ??
+    'buyer'
+
+  const expectedCommercialRelevance =
+    scenario
+      .expected
+      .commercial_relevance ??
+    'commercial'
+
+  const allowedWaitingOn =
+    scenario
+      .expected
+      .allowed_waiting_on ?? [
+        scenario
+          .expected
+          .waiting_on,
+      ]
+
   checks.push({
     name:
-      'status_ready',
+      'status',
 
     pass:
-      output.status ===
-      'ready',
+      allowedStatuses.includes(
+        output.status,
+      ),
 
     actual:
       output.status,
+
+    expected:
+      allowedStatuses,
+  })
+
+  checks.push({
+    name:
+      'commercial_role',
+
+    pass:
+      output
+        .commercial_role ===
+      expectedCommercialRole,
+
+    actual:
+      output
+        .commercial_role,
+
+    expected:
+      expectedCommercialRole,
+  })
+
+  checks.push({
+    name:
+      'commercial_relevance',
+
+    pass:
+      output
+        .commercial_relevance ===
+      expectedCommercialRelevance,
+
+    actual:
+      output
+        .commercial_relevance,
+
+    expected:
+      expectedCommercialRelevance,
   })
 
   checks.push({
@@ -700,12 +852,11 @@ function evaluateScenario(
       'waiting_on',
 
     pass:
-      output
-        .responsibility
-        .waiting_on ===
-      scenario
-        .expected
-        .waiting_on,
+      allowedWaitingOn.includes(
+        output
+          .responsibility
+          .waiting_on,
+      ),
 
     actual:
       output
@@ -713,9 +864,7 @@ function evaluateScenario(
         .waiting_on,
 
     expected:
-      scenario
-        .expected
-        .waiting_on,
+      allowedWaitingOn,
   })
 
   checks.push({
@@ -765,6 +914,43 @@ function evaluateScenario(
         .expected
         .intervention_needed,
   })
+
+  if (
+    scenario
+      .expected
+      .intervention_needed ===
+    false
+  ) {
+    checks.push({
+      name:
+        'silent_communication',
+
+      pass:
+        output
+          .communication
+          .recommended_question ===
+          null &&
+        output
+          .communication
+          .suggested_message ===
+          null,
+
+      actual: {
+        recommended_question:
+          output
+            .communication
+            .recommended_question,
+
+        suggested_message:
+          output
+            .communication
+            .suggested_message,
+      },
+
+      expected:
+        'recommended_question=null e suggested_message=null',
+    })
+  }
 
   checks.push({
     name:
@@ -923,6 +1109,21 @@ async function main() {
           result
             .execution
             .usage,
+
+        status:
+          result
+            .output
+            .status,
+
+        commercial_role:
+          result
+            .output
+            .commercial_role,
+
+        commercial_relevance:
+          result
+            .output
+            .commercial_relevance,
 
         decision:
           result

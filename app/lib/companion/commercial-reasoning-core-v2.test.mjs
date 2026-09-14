@@ -9,7 +9,7 @@ import {
 function buildPlan() {
   return {
     prompt_version:
-      'commercial-reasoning-core-v2-prompt-v2',
+      'commercial-reasoning-core-v2-prompt-v3',
     output_contract_version:
       'commercial-reasoning-core-v2',
     system_prompt:
@@ -28,6 +28,10 @@ function buildValidOutput() {
       'commercial-reasoning-core-v2',
     status:
       'ready',
+    commercial_role:
+      'buyer',
+    commercial_relevance:
+      'commercial',
     situation: {
       summary:
         'A cliente já escolheu a aula e pediu conclusão operacional.',
@@ -151,7 +155,7 @@ test(
 
         assert.equal(
           request.prompt_version,
-          'commercial-reasoning-core-v2-prompt-v2',
+          'commercial-reasoning-core-v2-prompt-v3',
         )
 
         assert.equal(

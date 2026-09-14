@@ -155,7 +155,7 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'commercial-reasoning-core-v2-prompt-v2',
+      'commercial-reasoning-core-v2-prompt-v3',
     )
 
     assert.ok(

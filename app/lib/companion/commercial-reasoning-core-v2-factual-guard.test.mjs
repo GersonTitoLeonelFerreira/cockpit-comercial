@@ -60,6 +60,12 @@ function buildOutput(
     status:
       'ready',
 
+    commercial_role:
+      'buyer',
+
+    commercial_relevance:
+      'commercial',
+
     situation: {
       summary:
         'A cliente pediu uma aula experimental.',
@@ -422,6 +428,143 @@ test(
         .adjustment_codes
         .includes(
           'UNVERIFIED_RECIPIENT_RELATION_SANITIZED',
+        ),
+    )
+  },
+)
+
+
+test(
+  'Factual Guard silencia comunicação quando a conversa não é comercialmente acionável',
+  () => {
+    const output =
+      buildOutput(
+        'Posso te ajudar a fechar agora.',
+      )
+
+    output.commercial_relevance =
+      'non_commercial'
+
+    output.decision.action =
+      'no_intervention'
+
+    const result =
+      applyCommercialReasoningCoreV2FactualGuard({
+        input:
+          buildInput(
+            'Obrigado, tenha um ótimo final de semana.',
+          ),
+
+        output,
+      })
+
+    assert.equal(
+      result
+        .output
+        .communication
+        .intervention_needed,
+      false,
+    )
+
+    assert.equal(
+      result
+        .output
+        .communication
+        .recommended_question,
+      null,
+    )
+
+    assert.equal(
+      result
+        .output
+        .communication
+        .suggested_message,
+      null,
+    )
+
+    assert.ok(
+      result
+        .report
+        .adjustment_codes
+        .includes(
+          'NON_ACTIONABLE_COMMUNICATION_NORMALIZED',
+        ),
+    )
+  },
+)
+
+
+test(
+  'Factual Guard silencia provider mesmo quando a conversa possui relevância comercial',
+  () => {
+    const output =
+      buildOutput(
+        'Posso te ajudar a contratar nosso plano.',
+      )
+
+    output.commercial_role =
+      'provider'
+
+    output.commercial_relevance =
+      'commercial'
+
+    output.decision.action =
+      'no_intervention'
+
+    const result =
+      applyCommercialReasoningCoreV2FactualGuard({
+        input:
+          buildInput(
+            'Olá, sou representante de uma empresa e gostaria de apresentar nossos serviços.',
+          ),
+
+        output,
+      })
+
+    assert.equal(
+      result
+        .output
+        .commercial_role,
+      'provider',
+    )
+
+    assert.equal(
+      result
+        .output
+        .commercial_relevance,
+      'commercial',
+    )
+
+    assert.equal(
+      result
+        .output
+        .communication
+        .intervention_needed,
+      false,
+    )
+
+    assert.equal(
+      result
+        .output
+        .communication
+        .recommended_question,
+      null,
+    )
+
+    assert.equal(
+      result
+        .output
+        .communication
+        .suggested_message,
+      null,
+    )
+
+    assert.ok(
+      result
+        .report
+        .adjustment_codes
+        .includes(
+          'NON_ACTIONABLE_COMMUNICATION_NORMALIZED',
         ),
     )
   },

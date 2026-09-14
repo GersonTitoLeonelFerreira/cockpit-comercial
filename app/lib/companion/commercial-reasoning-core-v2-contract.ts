@@ -1,3 +1,8 @@
+import {
+  COMMERCIAL_RELEVANCES,
+  type CommercialRelevance,
+} from './commercial-relevance'
+
 export const COMMERCIAL_REASONING_CORE_V2_CONTRACT_VERSION =
   'commercial-reasoning-core-v2' as const
 
@@ -12,6 +17,15 @@ export const COMMERCIAL_REASONING_CORE_V2_CONFIDENCE_LEVELS = [
   'medium',
   'high',
 ] as const
+
+export const COMMERCIAL_REASONING_CORE_V2_COMMERCIAL_ROLES = [
+  'buyer',
+  'provider',
+  'unknown',
+] as const
+
+export const COMMERCIAL_REASONING_CORE_V2_COMMERCIAL_RELEVANCES =
+  COMMERCIAL_RELEVANCES
 
 export const COMMERCIAL_REASONING_CORE_V2_WAITING_ON = [
   'seller',
@@ -49,6 +63,12 @@ export type CommercialReasoningCoreV2Status =
 export type CommercialReasoningCoreV2Confidence =
   (typeof COMMERCIAL_REASONING_CORE_V2_CONFIDENCE_LEVELS)[number]
 
+export type CommercialReasoningCoreV2CommercialRole =
+  (typeof COMMERCIAL_REASONING_CORE_V2_COMMERCIAL_ROLES)[number]
+
+export type CommercialReasoningCoreV2CommercialRelevance =
+  CommercialRelevance
+
 export type CommercialReasoningCoreV2WaitingOn =
   (typeof COMMERCIAL_REASONING_CORE_V2_WAITING_ON)[number]
 
@@ -85,6 +105,12 @@ export type CommercialReasoningCoreV2Output = {
 
   status:
     CommercialReasoningCoreV2Status
+
+  commercial_role:
+    CommercialReasoningCoreV2CommercialRole
+
+  commercial_relevance:
+    CommercialReasoningCoreV2CommercialRelevance
 
   situation: {
     summary: string
@@ -532,6 +558,20 @@ export function normalizeCommercialReasoningCoreV2Output(
         root.status,
         COMMERCIAL_REASONING_CORE_V2_STATUSES,
         'output.status',
+      ),
+
+    commercial_role:
+      requireEnum(
+        root.commercial_role,
+        COMMERCIAL_REASONING_CORE_V2_COMMERCIAL_ROLES,
+        'output.commercial_role',
+      ),
+
+    commercial_relevance:
+      requireEnum(
+        root.commercial_relevance,
+        COMMERCIAL_REASONING_CORE_V2_COMMERCIAL_RELEVANCES,
+        'output.commercial_relevance',
       ),
 
     situation: {
