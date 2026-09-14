@@ -83,6 +83,62 @@ function fullMapping() {
   }
 }
 
+function structuralManyChatSnapshot() {
+  const root = {
+    tag: 'div',
+    attributes: { 'data-test-id': 'chat-messages-list' },
+    attribute_presence: [],
+    ancestors: [],
+  }
+  const lane = {
+    tag: 'div',
+    attributes: {},
+    attribute_presence: [],
+    ancestors: [root],
+  }
+  const message = () => ({
+    tag: 'div',
+    attributes: {},
+    attribute_presence: [
+      'data-title-at',
+      'data-title-offset-bottom',
+      'data-title',
+    ],
+    ancestors: [lane, root],
+  })
+
+  return evidenceSnapshot({
+    summary: {
+      candidate_count: 3,
+      tags: { div: 3 },
+      roles: {},
+      attributes: { 'data-test-id': 1 },
+      attribute_presence: {
+        'data-title-at': 2,
+        'data-title-offset-bottom': 2,
+        'data-title': 2,
+      },
+    },
+    candidates: [root, message(), message()],
+  })
+}
+
+function structuralMapping() {
+  return {
+    conversationRoot: { candidate_index: 0, attribute: 'data-test-id' },
+    messages: {
+      mode: 'attribute_presence',
+      relation: 'grandchild_of_conversation_root',
+      candidate_index: 1,
+      presence_attributes: [
+        'data-title-at',
+        'data-title-offset-bottom',
+        'data-title',
+      ],
+    },
+  }
+}
+
 test('gera candidato de profile somente a partir de atributos realmente observados', () => {
   const result = gate.buildEvidenceBoundProfileCandidate(
     evidenceSnapshot(),
@@ -94,6 +150,44 @@ test('gera candidato de profile somente a partir de atributos realmente observad
   assert.equal(result.selectors.messages, 'div[data-testid="message-row"]')
   assert.equal(result.bindings.messages.observed_match_count, 2)
   assert.match(result.fingerprint, /^mc-profile-[0-9a-f]{8}$/)
+})
+
+test('gera seletor relacional de mensagens a partir de presença estrutural observada', () => {
+  const result = gate.buildEvidenceBoundProfileCandidate(
+    structuralManyChatSnapshot(),
+    structuralMapping(),
+  )
+
+  assert.equal(
+    result.selectors.conversationRoot,
+    'div[data-test-id="chat-messages-list"]',
+  )
+  assert.equal(
+    result.selectors.messages,
+    ':scope > div > div[data-title-at][data-title-offset-bottom][data-title]',
+  )
+  assert.equal(result.bindings.messages.mode, 'attribute_presence')
+  assert.equal(result.bindings.messages.observed_match_count, 2)
+})
+
+test('seletor relacional exige evidência de que a mensagem é neta do conversationRoot', () => {
+  const snapshot = structuralManyChatSnapshot()
+  snapshot.candidates[1] = {
+    ...snapshot.candidates[1],
+    ancestors: [
+      snapshot.candidates[1].ancestors[0],
+      {
+        tag: 'div',
+        attributes: { 'data-test-id': 'outro-root' },
+        attribute_presence: [],
+      },
+    ],
+  }
+
+  assert.throws(
+    () => gate.buildEvidenceBoundProfileCandidate(snapshot, structuralMapping()),
+    (error) => error.code === 'CONVERSATION_ROOT_RELATION_NOT_OBSERVED',
+  )
 })
 
 test('candidato nunca sai aprovado para runtime, captura, persistência ou reasoning', () => {
