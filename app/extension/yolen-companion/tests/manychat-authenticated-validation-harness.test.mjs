@@ -273,6 +273,8 @@ test('bundle diagnóstico contém a cadeia completa na ordem de dependência', (
   assert.deepEqual(SOURCE_FILES, [
     'src/platform-contract.js',
     'src/manychat-surface.js',
+    'src/manychat-message-semantics.js',
+    'src/manychat-message-identity.js',
     'src/manychat-evidence-probe.js',
     'src/manychat-profile-gate.js',
     'src/manychat-profile-validator.js',
@@ -288,6 +290,10 @@ test('bundle diagnóstico contém a cadeia completa na ordem de dependência', (
     assert.match(bundle, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
 
+  assert.ok(
+    bundle.indexOf('src/manychat-message-semantics.js') <
+      bundle.indexOf('src/manychat-message-identity.js'),
+  )
   assert.ok(
     bundle.indexOf('src/platform-contract.js') <
       bundle.indexOf('src/manychat-surface.js'),
