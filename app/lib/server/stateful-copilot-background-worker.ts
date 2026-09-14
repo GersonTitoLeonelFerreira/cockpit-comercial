@@ -17,6 +17,10 @@ import {
 } from './stateful-copilot-runtime-orchestrator'
 
 import {
+  resolveCompanionBackgroundRuntime,
+} from './companion-background-runtime-router'
+
+import {
   recordCompanionRuntimePathDiagnostic,
 } from './companion-runtime-path-diagnostics'
 
@@ -177,11 +181,10 @@ export async function processStatefulCopilotBackgroundMessage(
    */
   const runRuntime =
     dependencies.run_runtime ??
-    createStatefulCopilotServerRuntimeOrchestrator(
-      buildStatefulCopilotBackgroundRuntimeOptions(
+    resolveCompanionBackgroundRuntime({
+      company_id:
         job.company_id,
-      ),
-    )
+    }).run_runtime
 
   const admin =
     createAdmin()
