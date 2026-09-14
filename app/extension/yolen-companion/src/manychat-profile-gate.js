@@ -19,6 +19,14 @@
     'name',
   ])
 
+  const SAFE_PRESENCE_SELECTOR_ATTRIBUTES = Object.freeze([
+    'data-title-at',
+    'data-title-offset-bottom',
+    'data-title',
+  ])
+
+  const MESSAGE_PRESENCE_RELATION = 'grandchild_of_conversation_root'
+
   const REQUIRED_BINDINGS = Object.freeze(['conversationRoot', 'messages'])
   const OPTIONAL_BINDINGS = Object.freeze([
     'channel',
@@ -156,7 +164,7 @@
     return count
   }
 
-  function compileBinding(snapshot, bindingName, binding) {
+  function compileValueBinding(snapshot, bindingName, binding) {
     const path = `mapping.${bindingName}`
 
     if (!isObject(binding)) {
@@ -212,10 +220,143 @@
     }
 
     return Object.freeze({
+      mode: 'attribute_value',
       candidate_index: binding.candidate_index,
       tag,
       attribute,
       observed_value: value,
+      observed_match_count: matchCount,
+      selector,
+    })
+  }
+
+  function ancestorMatchesBinding(ancestor, binding) {
+    if (!isObject(ancestor) || !isObject(ancestor.attributes)) return false
+    if (binding.tag && normalizeTag(ancestor.tag) !== binding.tag) return false
+    return ancestor.attributes[binding.attribute] === binding.observed_value
+  }
+
+  function normalizePresenceAttributes(value, path) {
+    if (!Array.isArray(value) || value.length === 0) {
+      fail(
+        'PRESENCE_ATTRIBUTES_REQUIRED',
+        `${path}.presence_attributes precisa conter atributos estruturais.`,
+        `${path}.presence_attributes`,
+      )
+    }
+
+    const normalized = []
+    for (const raw of value) {
+      const name = typeof raw === 'string' ? raw.trim() : ''
+      if (!SAFE_PRESENCE_SELECTOR_ATTRIBUTES.includes(name)) {
+        fail(
+          'UNSAFE_PRESENCE_SELECTOR_ATTRIBUTE',
+          `${name || '<vazio>'} não pertence à allowlist de presença estrutural.`,
+          `${path}.presence_attributes`,
+        )
+      }
+      if (!normalized.includes(name)) normalized.push(name)
+    }
+
+    return normalized
+  }
+
+  function candidateHasPresence(candidate, attributes) {
+    const observed = Array.isArray(candidate?.attribute_presence)
+      ? candidate.attribute_presence
+      : []
+    return attributes.every((name) => observed.includes(name))
+  }
+
+  function observedPresenceMatchCount(snapshot, tag, parentTag, attributes, rootBinding) {
+    let count = 0
+
+    for (const candidate of snapshot.candidates) {
+      if (!isObject(candidate) || normalizeTag(candidate.tag) !== tag) continue
+      if (!candidateHasPresence(candidate, attributes)) continue
+
+      const immediateParent = candidate.ancestors?.[0]
+      const grandParent = candidate.ancestors?.[1]
+      if (normalizeTag(immediateParent?.tag) !== parentTag) continue
+      if (!ancestorMatchesBinding(grandParent, rootBinding)) continue
+      count += 1
+    }
+
+    return count
+  }
+
+  function compilePresenceMessagesBinding(snapshot, binding, conversationRootBinding) {
+    const path = 'mapping.messages'
+
+    if (!isObject(binding)) {
+      fail('BINDING_REQUIRED', `${path} precisa ser um objeto.`, path)
+    }
+
+    if (binding.relation !== MESSAGE_PRESENCE_RELATION) {
+      fail(
+        'UNSAFE_MESSAGE_RELATION',
+        `${path}.relation precisa ser ${MESSAGE_PRESENCE_RELATION}.`,
+        `${path}.relation`,
+      )
+    }
+
+    const candidate = getCandidate(snapshot, binding.candidate_index, path)
+    const attributes = normalizePresenceAttributes(binding.presence_attributes, path)
+
+    if (!candidateHasPresence(candidate, attributes)) {
+      fail(
+        'PRESENCE_ATTRIBUTE_NOT_OBSERVED',
+        'A presença estrutural informada não foi observada no candidato.',
+        path,
+      )
+    }
+
+    const tag = normalizeTag(candidate.tag)
+    const immediateParent = candidate.ancestors?.[0]
+    const grandParent = candidate.ancestors?.[1]
+    const parentTag = normalizeTag(immediateParent?.tag)
+
+    if (!tag || !parentTag) {
+      fail(
+        'RELATIONAL_STRUCTURE_NOT_OBSERVED',
+        'Candidato não possui estrutura ancestral suficiente para o seletor relacional.',
+        path,
+      )
+    }
+
+    if (!ancestorMatchesBinding(grandParent, conversationRootBinding)) {
+      fail(
+        'CONVERSATION_ROOT_RELATION_NOT_OBSERVED',
+        'Candidato de mensagem não foi observado como neto do conversationRoot.',
+        path,
+      )
+    }
+
+    const presenceSelector = attributes.map((name) => `[${name}]`).join('')
+    const selector = `:scope > ${parentTag} > ${tag}${presenceSelector}`
+    const matchCount = observedPresenceMatchCount(
+      snapshot,
+      tag,
+      parentTag,
+      attributes,
+      conversationRootBinding,
+    )
+
+    if (matchCount < 1) {
+      fail(
+        'MESSAGE_SELECTOR_NOT_OBSERVED',
+        'Seletor relacional de mensagens não possui evidência observada.',
+        path,
+      )
+    }
+
+    return Object.freeze({
+      mode: 'attribute_presence',
+      relation: MESSAGE_PRESENCE_RELATION,
+      candidate_index: binding.candidate_index,
+      tag,
+      parent_tag: parentTag,
+      presence_attributes: Object.freeze(attributes.slice()),
       observed_match_count: matchCount,
       selector,
     })
@@ -257,18 +398,30 @@
       }
     }
 
-    const bindings = {}
-
     for (const name of REQUIRED_BINDINGS) {
       if (!mapping[name]) {
         fail('REQUIRED_BINDING_MISSING', `mapping.${name} é obrigatório.`, `mapping.${name}`)
       }
-      bindings[name] = compileBinding(snapshot, name, mapping[name])
     }
+
+    const bindings = {}
+    bindings.conversationRoot = compileValueBinding(
+      snapshot,
+      'conversationRoot',
+      mapping.conversationRoot,
+    )
+
+    bindings.messages = mapping.messages.mode === 'attribute_presence'
+      ? compilePresenceMessagesBinding(
+          snapshot,
+          mapping.messages,
+          bindings.conversationRoot,
+        )
+      : compileValueBinding(snapshot, 'messages', mapping.messages)
 
     for (const name of OPTIONAL_BINDINGS) {
       bindings[name] = mapping[name]
-        ? compileBinding(snapshot, name, mapping[name])
+        ? compileValueBinding(snapshot, name, mapping[name])
         : null
     }
 
@@ -302,6 +455,8 @@
     PROBE_SCHEMA_VERSION,
     PROFILE_CANDIDATE_SCHEMA_VERSION,
     SAFE_SELECTOR_ATTRIBUTES,
+    SAFE_PRESENCE_SELECTOR_ATTRIBUTES,
+    MESSAGE_PRESENCE_RELATION,
     REQUIRED_BINDINGS,
     OPTIONAL_BINDINGS,
     assertEvidenceSnapshot,
