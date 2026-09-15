@@ -2,5 +2,6 @@
 
 importScripts(
   'capture-transport.js',
+  'manychat-audio-background-transport.js',
   'background.js',
 )
