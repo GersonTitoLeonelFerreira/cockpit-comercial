@@ -70,6 +70,8 @@
         "https://app.manychat.com/*"
       ],
       "js": [
+        "src/platform-contract.js",
+        "src/manychat-surface.js",
         "src/manychat-message-semantics.js",
         "src/manychat-message-identity.js",
         "src/manychat-message-content.js",

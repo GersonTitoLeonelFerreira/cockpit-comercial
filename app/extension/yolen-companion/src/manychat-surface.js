@@ -5,6 +5,7 @@
   const CHANNEL_UNKNOWN = 'unknown'
   const MANYCHAT_APP_HOST = 'app.manychat.com'
   const CHAT_ROUTE_PATTERN = /^\/(fb[^/]+)\/chat\/([^/?#]+)/i
+  const IDENTITY_SOURCE = 'authenticated_route'
 
   function getContract() {
     const contract = root.YolenUniversalPlatformContract
@@ -69,6 +70,8 @@
       external_contact_id: null,
       external_conversation_id: null,
       conversation_key: null,
+      identity_source: null,
+      contact_identity_ready: false,
     })
   }
 
@@ -90,14 +93,20 @@
     }
 
     const accountKey = safeDecode(match[1]).trim()
-    const externalContactId = safeDecode(match[2]).trim()
+    const conversationRouteToken = safeDecode(match[2]).trim()
 
-    if (!accountKey || !externalContactId) {
+    if (!accountKey || !conversationRouteToken) {
       return unsupported('incomplete_chat_identity', url)
     }
 
+    // Evidência autenticada A → B → A provou que o segundo token da rota
+    // identifica a conversa de forma estável dentro do workspace. Ela NÃO
+    // provou que esse token seja contact/subscriber/lead id do ManyChat.
+    // Portanto ele alimenta apenas a identidade da conversa. A identidade
+    // do contato permanece explicitamente desconhecida até existir evidência
+    // independente e segura.
     const externalConversationId =
-      `${accountKey}:chat:${externalContactId}`
+      `${accountKey}:chat:${conversationRouteToken}`
 
     const conversationKey =
       getContract().buildNamespacedConversationKey({
@@ -114,9 +123,11 @@
       host: url.host,
       pathname: url.pathname,
       account_key: accountKey,
-      external_contact_id: externalContactId,
+      external_contact_id: null,
       external_conversation_id: externalConversationId,
       conversation_key: conversationKey,
+      identity_source: IDENTITY_SOURCE,
+      contact_identity_ready: false,
     })
   }
 
@@ -141,6 +152,7 @@
       capture_enabled: false,
       persistence_enabled: false,
       reasoning_enabled: false,
+      lead_resolution_enabled: false,
     })
   }
 
@@ -148,6 +160,7 @@
     PLATFORM,
     CHANNEL_UNKNOWN,
     MANYCHAT_APP_HOST,
+    IDENTITY_SOURCE,
     parseManyChatConversationUrl,
     getCurrentConversationSurface,
     createDiagnosticSnapshot,
