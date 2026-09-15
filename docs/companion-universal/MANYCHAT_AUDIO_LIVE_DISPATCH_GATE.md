@@ -1,6 +1,6 @@
 # ManyChat — Gate de dispatch autenticado real de áudio
 
-Estado: runtime mínimo de ManyChat preparado para um probe manual e sem persistência esperada. A captura geral continua desligada.
+Estado: **PASS real concluído em ambiente autenticado**. O runtime mínimo de ManyChat alcançou o backend pela cadeia completa de transporte, sem persistir ciclo real nem executar transcrição OpenAI. A captura geral continua desligada.
 
 ## Objetivo
 
@@ -9,6 +9,23 @@ Provar no navegador real a cadeia:
 ManyChat DOM → evidência estrutural validada → content script Yolen → background privilegiado → download do áudio → sessão autenticada do Companion → `/api/companion/transcribe-audio`.
 
 Este gate NÃO tenta ainda associar automaticamente a conversa do ManyChat a um ciclo comercial real.
+
+## Evidência real de PASS
+
+Validação executada no Firefox 155.0.1, no ManyChat autenticado, com uma conversa real contendo áudio.
+
+O fluxo observado foi:
+
+1. o content script ManyChat foi carregado no domínio `app.manychat.com`;
+2. o probe `#yolen-audio-probe` foi instalado no contexto isolado do Firefox;
+3. um clique humano real no botão `Yolen · validar transporte de áudio` iniciou o fluxo;
+4. o áudio validado foi localizado no DOM;
+5. o background privilegiado obteve a mídia no host `manybot-files.manychat.io`;
+6. a sessão autenticada do Companion foi usada para alcançar `/api/companion/transcribe-audio`;
+7. o backend respondeu `404` para o UUID deliberadamente inexistente;
+8. o botão exibiu exatamente `Yolen · transporte OK (404 esperado)`.
+
+Esse resultado fecha o gate porque o `404` só é considerado PASS quando `transport.ready === true` e a requisição autenticada já alcançou o backend. Nenhuma associação a ciclo real foi feita e nenhuma transcrição OpenAI foi executada.
 
 ## Segurança do probe
 
@@ -28,7 +45,7 @@ Portanto o resultado esperado do backend é HTTP `404` em `sales_cycles`, depois
 
 ## Runtime ativado
 
-O `manifest.json` passa a carregar em `https://app.manychat.com/*`, nesta ordem:
+O `manifest.json` carrega em `https://app.manychat.com/*`, nesta ordem:
 
 1. `manychat-message-semantics.js`;
 2. `manychat-message-identity.js`;
@@ -81,7 +98,7 @@ Para este probe deliberadamente sem ciclo real, o PASS é:
 - `error_present === true`;
 - nenhuma transcrição é criada.
 
-O botão exibirá:
+O PASS real foi observado com:
 
 `Yolen · transporte OK (404 esperado)`
 
@@ -96,6 +113,6 @@ O botão exibirá:
 - automações tratadas como fala humana;
 - exclusão inferida por desaparecimento do DOM.
 
-## Próximo gate após PASS real
+## Próximo gate
 
 Resolver de forma segura a identidade da conversa/contato ManyChat para um ciclo Yolen. Só depois disso executar uma transcrição real associada ao ciclo correto e iniciar a integração das mensagens de texto no contrato universal.
