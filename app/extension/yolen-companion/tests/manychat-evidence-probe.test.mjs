@@ -59,6 +59,7 @@ test('probe coleta somente estrutura e atributos, sem textContent ou value', () 
   )
 
   assert.equal(result.supported, true)
+  assert.equal(result.surface.external_contact_id, null)
   assert.equal(result.candidates.length, 1)
   assert.equal(result.candidates[0].tag, 'div')
   assert.equal(
@@ -216,7 +217,7 @@ test('input e textarea entram como candidatos, mas seus valores nunca entram', (
   assert.doesNotMatch(serialized, /outro segredo/)
 })
 
-test('toJson produz snapshot serializável e mantém a identidade canônica da rota', () => {
+test('toJson produz snapshot serializável e mantém a identidade canônica da rota sem inventar contact id', () => {
   const probe = evidence.createManyChatEvidenceProbe({
     document: documentWith([]),
     surfaceApi: surface,
@@ -229,7 +230,8 @@ test('toJson produz snapshot serializável e mantém a identidade canônica da r
   const parsed = JSON.parse(json)
 
   assert.equal(parsed.schema_version, 'yolen-manychat-evidence-v1')
-  assert.equal(parsed.surface.external_contact_id, '166708683')
+  assert.equal(parsed.surface.external_contact_id, null)
+  assert.equal(parsed.surface.contact_identity_ready, false)
   assert.equal(
     parsed.surface.conversation_key,
     surface.parseManyChatConversationUrl(
