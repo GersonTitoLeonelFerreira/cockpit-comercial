@@ -8,7 +8,7 @@ const identity = require('../src/manychat-message-identity.js')
 
 function messageNode({
   classes = [],
-  title = '2026-09-14T20:30:00',
+  title = '2026-09-14T20:30:00Z',
   mids = [],
 } = {}) {
   const midNodes = mids.map((mid) => ({
