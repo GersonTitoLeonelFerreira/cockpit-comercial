@@ -14,6 +14,7 @@ require('../src/manychat-message-profile.js')
 require('../src/manychat-dom-reader.js')
 require('../src/manychat-adapter.js')
 require('../src/capture-batch.js')
+require('../src/manychat-audio-source.js')
 const runtimeApi = require('../src/manychat-capture-runtime.js')
 
 const CONVERSATION_URL_A = 'https://app.manychat.com/fb3678277/chat/438324835'
@@ -56,7 +57,11 @@ function buildDom(messages = []) {
             data-title-at="1"
             data-title-offset-bottom="1"
           >
-            <span data-mid="${message.mid}">${message.text ?? ''}</span>
+            <span data-mid="${message.mid}">${
+              message.audioUrl
+                ? `<audio><source src="${message.audioUrl}" type="audio/ogg"></audio>`
+                : (message.text ?? '')
+            }</span>
           </div>
         </div>
       `,
@@ -120,6 +125,10 @@ function resolveLeadNotLinked() {
 
 function ingestOk(results = []) {
   return { ok: true, payload: { message_results: results } }
+}
+
+function transcribeOk(text) {
+  return { ok: true, payload: { ok: true, data: { text } } }
 }
 
 function createQueuedSender(responses) {
@@ -349,6 +358,101 @@ test('resposta de ingestão rejeitada não atualiza base_version nem o snapshot 
   const state = runtime.getConversationState(conversationKey)
   assert.deepEqual(state.baseVersionsByMessageKey, {})
   assert.equal(state.lastContentFingerprint, null)
+})
+
+// -----------------------------------------------------------------------
+// Transcrição de áudio com cycle_id REAL (nunca o cycle de teste do probe
+// manual em manychat-audio-dispatch-runtime.js).
+// -----------------------------------------------------------------------
+
+test('mensagem de áudio é transcrita com o cycle_id real e reenviada como nova versão da MESMA mensagem', async () => {
+  const dom = buildDom([
+    { mid: 'audio-1', audioUrl: 'https://manybot-files.manychat.io/audio.ogg' },
+  ])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadOwnedByMe('cycle-real-1'),
+    ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '1' }]),
+    transcribeOk('Quero saber o valor do plano.'),
+    ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '2' }]),
+  ])
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, true)
+  assert.equal(fake.calls.length, 5)
+
+  assert.equal(fake.calls[2].payload.messages[0].content_type, 'audio')
+  assert.equal(fake.calls[2].payload.messages[0].audio_transcription, null)
+
+  assert.equal(fake.calls[3].action, 'TRANSCRIBE_MANYCHAT_AUDIO')
+  assert.equal(fake.calls[3].payload.audio_url, 'https://manybot-files.manychat.io/audio.ogg')
+  assert.equal(fake.calls[3].payload.cycle_id, 'cycle-real-1')
+  assert.equal(fake.calls[3].payload.audio_target_key, 'manychat:audio-1')
+
+  assert.equal(fake.calls[4].action, 'INGEST_CAPTURE_MESSAGES')
+  const resent = fake.calls[4].payload.messages[0]
+  assert.equal(resent.message_key, 'manychat:audio-1')
+  assert.equal(resent.audio_transcription, 'Quero saber o valor do plano.')
+  // Reenvia como NOVA VERSÃO da mesma mensagem (base_version = canonical
+  // confirmado no envio anterior), nunca um registro paralelo.
+  assert.equal(resent.base_version, '1')
+
+  const state = runtime.getConversationState(fake.calls[2].payload.conversation_key)
+  assert.equal(state.baseVersionsByMessageKey['manychat:audio-1'], '2')
+  assert.equal(state.transcribedMessageKeys.has('manychat:audio-1'), true)
+})
+
+test('mensagem já transcrita nesta conversa nunca é reprocessada numa segunda captura', async () => {
+  const dom = buildDom([
+    { mid: 'audio-1', audioUrl: 'https://manybot-files.manychat.io/audio.ogg' },
+  ])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadOwnedByMe(),
+    ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '1' }]),
+    transcribeOk('Quero saber o valor do plano.'),
+    ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '2' }]),
+  ])
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+  await runtime.captureNow()
+  assert.equal(fake.calls.length, 5)
+
+  // O DOM continua mostrando a mesma mensagem de áudio sem transcrição
+  // (a transcrição não altera o DOM — só o ledger no backend), mas o
+  // dedupe local precisa impedir uma segunda tentativa de transcrição.
+  await runtime.captureNow()
+  assert.equal(fake.calls.length, 5)
+})
+
+test('fonte de áudio não confiável (sem HTTPS) nunca dispara transcrição nem quebra a captura de texto', async () => {
+  const dom = buildDom([
+    { mid: 'text-1', text: 'Olá, tudo bem?' },
+    { mid: 'audio-1', audioUrl: 'http://sem-https.example.com/audio.ogg' },
+  ])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadOwnedByMe(),
+    ingestOk([
+      { message_key: 'manychat:text-1', synced: true, canonical_version: '1' },
+      { message_key: 'manychat:audio-1', synced: true, canonical_version: '1' },
+    ]),
+  ])
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, true)
+  assert.equal(fake.calls.length, 3)
+  assert.equal(
+    fake.calls.some((call) => call.action === 'TRANSCRIBE_MANYCHAT_AUDIO'),
+    false,
+  )
 })
 
 // -----------------------------------------------------------------------

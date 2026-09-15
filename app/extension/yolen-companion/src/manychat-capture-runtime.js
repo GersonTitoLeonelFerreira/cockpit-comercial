@@ -58,6 +58,12 @@
       'readManyChatMessage',
     )
 
+    // Áudio é opcional: sem essas duas dependências, a captura de texto
+    // continua funcionando normalmente e só a transcrição de áudio fica
+    // desligada (fail-safe, nunca fail-closed no texto por causa do áudio).
+    const audioSourceApi = options.audioSourceApi ?? root.YolenManyChatAudioSource ?? null
+    const audioIdentityApi = options.audioIdentityApi ?? root.YolenManyChatMessageIdentity ?? null
+
     const sendMessage = options.sendMessage
     if (typeof sendMessage !== 'function') {
       throw new Error('options.sendMessage é obrigatório.')
@@ -118,8 +124,10 @@
         messageProfileApi.readManyChatMessage(node, index, surface),
     })
 
+    const documentRef = options.document ?? root.document ?? null
+
     const reader = readerApi.createManyChatDomReader({
-      document: options.document,
+      document: documentRef,
       MutationObserver: options.MutationObserver,
       profile: readerProfile,
       surfaceProvider: options.surfaceProvider,
@@ -138,6 +146,7 @@
           resolution: null,
           baseVersionsByMessageKey: {},
           lastContentFingerprint: null,
+          transcribedMessageKeys: new Set(),
         })
       }
       return stateByConversationKey.get(conversationKey)
@@ -197,6 +206,132 @@
       return state.resolution
     }
 
+    function queryMessageNodes() {
+      if (!documentRef || typeof documentRef.querySelector !== 'function') {
+        return []
+      }
+
+      const conversationRoot = documentRef.querySelector(selectors.conversationRoot)
+      if (!conversationRoot || typeof conversationRoot.querySelectorAll !== 'function') {
+        return []
+      }
+
+      try {
+        return Array.from(conversationRoot.querySelectorAll(selectors.messages))
+      } catch {
+        return []
+      }
+    }
+
+    function findNodeForMessageKey(messageKey) {
+      if (!audioIdentityApi) return null
+
+      for (const node of queryMessageNodes()) {
+        const identity = audioIdentityApi.extractManyChatMessageIdentity(node)
+        if (
+          identity?.ready === true &&
+          messageProfileApi.buildMessageKey(identity.native_message_id) === messageKey
+        ) {
+          return node
+        }
+      }
+
+      return null
+    }
+
+    // Complementa a captura de texto: para cada mensagem de áudio ainda
+    // sem transcrição, busca a URL real na página, despacha para o
+    // backend (com o cycle_id JÁ resolvido — nunca um cycle de teste) e
+    // reenvia a MESMA mensagem (mesma message_key) pelo caminho normal de
+    // captura assim que a transcrição chega, virando uma nova versão do
+    // ledger em vez de um registro paralelo. Nunca bloqueia nem atrasa a
+    // captura de texto: falhas aqui são sempre silenciosas por mensagem.
+    async function dispatchPendingAudioTranscriptions({ conversationKey, cycleId, channel, messages }) {
+      if (!audioSourceApi || !audioIdentityApi) return
+
+      const state = getConversationState(conversationKey)
+
+      const pending = messages.filter(
+        (message) =>
+          message.content_type === 'audio' &&
+          !message.audio_transcription &&
+          !state.transcribedMessageKeys.has(message.message_key),
+      )
+
+      for (const message of pending) {
+        const node = findNodeForMessageKey(message.message_key)
+        if (!node) continue
+
+        const source = audioSourceApi.extractManyChatAudioSource(node)
+        if (source?.source_ready !== true || source.source_kind !== 'https') continue
+
+        let transcriptionResponse
+        try {
+          transcriptionResponse = await sendMessage({
+            source: SOURCE,
+            action: 'TRANSCRIBE_MANYCHAT_AUDIO',
+            payload: {
+              audio_url: source.source_url,
+              cycle_id: cycleId,
+              audio_target_key: message.message_key,
+              channel,
+              audio_index: 0,
+            },
+          })
+        } catch {
+          continue
+        }
+
+        if (transcriptionResponse?.ok !== true) continue
+
+        const text = transcriptionResponse.payload?.data?.text
+        const normalizedText = typeof text === 'string' ? text.trim() : ''
+        if (!normalizedText) continue
+
+        // Revalida a conversa antes de aplicar qualquer efeito: a
+        // transcrição é assíncrona e o usuário pode ter trocado de
+        // conversa enquanto ela estava em andamento.
+        if (adapter.getCurrentConversation(getConversationUrl())?.conversation_key !== conversationKey) {
+          return
+        }
+
+        const transcribedMessage = {
+          ...message,
+          audio_transcription: normalizedText,
+          observed_at: now(),
+          base_version: state.baseVersionsByMessageKey[message.message_key] ?? null,
+        }
+
+        const plan = captureBatchApi.buildCaptureIngestionPlanFromMessages({
+          cycleId,
+          conversationKey,
+          messages: [transcribedMessage],
+        })
+
+        for (const batch of plan.batches) {
+          let response
+          try {
+            response = await sendMessage({
+              source: SOURCE,
+              action: 'INGEST_CAPTURE_MESSAGES',
+              payload: batch,
+            })
+          } catch {
+            continue
+          }
+
+          if (response?.ok !== true) continue
+
+          for (const result of response.payload?.message_results ?? []) {
+            if (result?.synced === true && typeof result.message_key === 'string') {
+              state.baseVersionsByMessageKey[result.message_key] = result.canonical_version
+              state.transcribedMessageKeys.add(result.message_key)
+            }
+          }
+        }
+      }
+    }
+
     async function captureNow() {
       const current = adapter.getCurrentConversation(getConversationUrl())
       if (!current?.supported) {
@@ -253,35 +388,50 @@
         messages: messagesWithVersion.map((message) => ({ ...message, base_version: null })),
       })
 
-      if (state.lastContentFingerprint === contentFingerprint) {
-        return { ok: true, skipped: true, reason: 'unchanged_snapshot' }
-      }
+      const unchanged = state.lastContentFingerprint === contentFingerprint
 
-      for (const batch of plan.batches) {
-        const response = await sendMessage({
-          source: SOURCE,
-          action: 'INGEST_CAPTURE_MESSAGES',
-          payload: batch,
-        })
+      if (!unchanged) {
+        for (const batch of plan.batches) {
+          const response = await sendMessage({
+            source: SOURCE,
+            action: 'INGEST_CAPTURE_MESSAGES',
+            payload: batch,
+          })
 
-        if (response?.ok !== true) {
-          return { ok: false, reason: 'ingestion_rejected', detail: response ?? null }
-        }
+          if (response?.ok !== true) {
+            return { ok: false, reason: 'ingestion_rejected', detail: response ?? null }
+          }
 
-        for (const result of response.payload?.message_results ?? []) {
-          if (result?.synced === true && typeof result.message_key === 'string') {
-            state.baseVersionsByMessageKey[result.message_key] = result.canonical_version
+          for (const result of response.payload?.message_results ?? []) {
+            if (result?.synced === true && typeof result.message_key === 'string') {
+              state.baseVersionsByMessageKey[result.message_key] = result.canonical_version
+            }
           }
         }
+
+        // A troca de conversa pode ter acontecido durante o despacho
+        // (assíncrono). O estado gravado é sempre o de `conversationKey`
+        // (nunca o da conversa atual no momento em que a resposta chega),
+        // então nunca contamina a conversa para a qual o usuário já
+        // navegou.
+        state.lastContentFingerprint = contentFingerprint
       }
 
-      // A troca de conversa pode ter acontecido durante o despacho
-      // (assíncrono). O estado gravado é sempre o de `conversationKey`
-      // (nunca o da conversa atual no momento em que a resposta chega),
-      // então nunca contamina a conversa para a qual o usuário já navegou.
-      state.lastContentFingerprint = contentFingerprint
+      // Independente de o texto ter mudado: sempre que houver mensagem de
+      // áudio ainda sem transcrição (e ainda não tentada nesta conversa),
+      // tenta transcrever. Isso roda em toda chamada de captureNow — o
+      // dedupe por transcribedMessageKeys evita reprocessar a mesma
+      // mensagem repetidamente.
+      await dispatchPendingAudioTranscriptions({
+        conversationKey,
+        cycleId: resolution.cycle_id,
+        channel: built.conversation.channel,
+        messages: messagesWithVersion,
+      })
 
-      return { ok: true, skipped: false, batches: plan.batches.length }
+      return unchanged
+        ? { ok: true, skipped: true, reason: 'unchanged_snapshot' }
+        : { ok: true, skipped: false, batches: plan.batches.length }
     }
 
     function scheduleCapture() {
