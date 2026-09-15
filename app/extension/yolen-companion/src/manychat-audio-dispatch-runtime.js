@@ -9,6 +9,8 @@
   const PROBE_BUTTON_ID = 'yolen-manychat-audio-probe'
   const PROBE_CYCLE_ID = '00000000-0000-4000-8000-000000000000'
   const PROBE_CHANNEL = 'whatsapp'
+  const CONVERSATION_PROBE_HASH = '#yolen-conversation-probe'
+  const CONVERSATION_PROBE_BUTTON_ID = 'yolen-manychat-conversation-probe'
 
   function isObject(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -276,6 +278,71 @@
     )
   }
 
+  function readConversationRoute(locationRef) {
+    const pathname = requiredText(locationRef?.pathname)
+    if (!pathname) {
+      return Object.freeze({
+        ready: false,
+        reason: 'pathname_missing',
+        workspace_token: null,
+        conversation_token: null,
+      })
+    }
+
+    const match = pathname.match(/^\/([^/]+)\/chat\/([^/]+)\/?$/)
+    if (!match) {
+      return Object.freeze({
+        ready: false,
+        reason: 'conversation_route_not_recognized',
+        workspace_token: null,
+        conversation_token: null,
+      })
+    }
+
+    const workspaceToken = requiredText(match[1])
+    const conversationToken = requiredText(match[2])
+    if (!workspaceToken || !conversationToken) {
+      return Object.freeze({
+        ready: false,
+        reason: 'conversation_route_incomplete',
+        workspace_token: null,
+        conversation_token: null,
+      })
+    }
+
+    return Object.freeze({
+      ready: true,
+      reason: null,
+      workspace_token: workspaceToken,
+      conversation_token: conversationToken,
+    })
+  }
+
+  function safeConversationProbeResult({
+    stage,
+    workspaceSame = null,
+    conversationChanged = null,
+    returnedToBaseline = false,
+  }) {
+    return Object.freeze({
+      schema_version: 'yolen-manychat-conversation-route-probe-v1',
+      platform: PLATFORM,
+      ready: true,
+      stage,
+      route_shape: '/workspace/chat/conversation',
+      workspace_same: workspaceSame,
+      conversation_changed: conversationChanged,
+      returned_to_baseline: returnedToBaseline,
+      privacy: Object.freeze({
+        raw_path_exposed: false,
+        raw_workspace_token_exposed: false,
+        raw_conversation_token_exposed: false,
+        persisted: false,
+        network_sent: false,
+      }),
+    })
+  }
+
   function installDiagnosticProbe({
     window: windowRef = root.window,
     document: documentRef = root.document,
@@ -347,6 +414,136 @@
     return button
   }
 
+  function installConversationIdentityProbe({
+    window: windowRef = root.window,
+    document: documentRef = root.document,
+  } = {}) {
+    if (
+      !windowRef ||
+      !documentRef?.body ||
+      windowRef.location?.hash !== CONVERSATION_PROBE_HASH
+    ) {
+      return null
+    }
+
+    const existing = documentRef.getElementById?.(CONVERSATION_PROBE_BUTTON_ID)
+    if (existing) return existing
+
+    let baseline = null
+    let sawDistinctConversation = false
+
+    const button = documentRef.createElement('button')
+    button.id = CONVERSATION_PROBE_BUTTON_ID
+    button.type = 'button'
+    button.textContent = 'Yolen · capturar conversa A'
+    button.setAttribute('aria-label', 'Validar identidade da conversa ManyChat')
+    Object.assign(button.style, {
+      position: 'fixed',
+      right: '20px',
+      bottom: '20px',
+      zIndex: '2147483647',
+      padding: '10px 14px',
+      borderRadius: '8px',
+      border: '1px solid rgba(255,255,255,.2)',
+      background: '#111318',
+      color: '#edf2f7',
+      font: '600 12px/1.2 system-ui, sans-serif',
+      cursor: 'pointer',
+      boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+    })
+
+    button.addEventListener('click', (event) => {
+      if (event.isTrusted !== true) return
+
+      const current = readConversationRoute(windowRef.location)
+      if (!current.ready) {
+        button.dataset.yolenConversationProbeResult = JSON.stringify({
+          schema_version: 'yolen-manychat-conversation-route-probe-v1',
+          platform: PLATFORM,
+          ready: false,
+          reason: current.reason,
+          privacy: {
+            raw_path_exposed: false,
+            raw_workspace_token_exposed: false,
+            raw_conversation_token_exposed: false,
+            persisted: false,
+            network_sent: false,
+          },
+        })
+        button.dataset.yolenConversationProbePassed = 'false'
+        button.textContent = 'Yolen · rota de conversa não reconhecida'
+        return
+      }
+
+      if (!baseline) {
+        baseline = {
+          workspace_token: current.workspace_token,
+          conversation_token: current.conversation_token,
+        }
+        const safe = safeConversationProbeResult({ stage: 'baseline_captured' })
+        button.dataset.yolenConversationProbeResult = JSON.stringify(safe)
+        button.dataset.yolenConversationProbePassed = 'false'
+        button.textContent = 'Yolen · A capturada — abra outra conversa'
+        return
+      }
+
+      const workspaceSame =
+        current.workspace_token === baseline.workspace_token
+      const conversationChanged =
+        current.conversation_token !== baseline.conversation_token
+
+      if (!workspaceSame) {
+        const safe = safeConversationProbeResult({
+          stage: 'workspace_changed',
+          workspaceSame: false,
+          conversationChanged,
+        })
+        button.dataset.yolenConversationProbeResult = JSON.stringify(safe)
+        button.dataset.yolenConversationProbePassed = 'false'
+        button.textContent = 'Yolen · workspace mudou — volte ao original'
+        return
+      }
+
+      if (conversationChanged) {
+        sawDistinctConversation = true
+        const safe = safeConversationProbeResult({
+          stage: 'distinct_conversation_seen',
+          workspaceSame: true,
+          conversationChanged: true,
+        })
+        button.dataset.yolenConversationProbeResult = JSON.stringify(safe)
+        button.dataset.yolenConversationProbePassed = 'false'
+        button.textContent = 'Yolen · conversa mudou (OK) — volte para A'
+        return
+      }
+
+      if (sawDistinctConversation) {
+        const safe = safeConversationProbeResult({
+          stage: 'returned_to_baseline',
+          workspaceSame: true,
+          conversationChanged: false,
+          returnedToBaseline: true,
+        })
+        button.dataset.yolenConversationProbeResult = JSON.stringify(safe)
+        button.dataset.yolenConversationProbePassed = 'true'
+        button.textContent = 'Yolen · identidade da conversa PASS'
+        return
+      }
+
+      const safe = safeConversationProbeResult({
+        stage: 'baseline_unchanged',
+        workspaceSame: true,
+        conversationChanged: false,
+      })
+      button.dataset.yolenConversationProbeResult = JSON.stringify(safe)
+      button.dataset.yolenConversationProbePassed = 'false'
+      button.textContent = 'Yolen · ainda na conversa A'
+    })
+
+    documentRef.body.appendChild(button)
+    return button
+  }
+
   const api = Object.freeze({
     PLATFORM,
     MESSAGE_SELECTOR,
@@ -354,11 +551,16 @@
     PROBE_BUTTON_ID,
     PROBE_CYCLE_ID,
     PROBE_CHANNEL,
+    CONVERSATION_PROBE_HASH,
+    CONVERSATION_PROBE_BUTTON_ID,
     sha256Hex,
     findSingleAudioCandidate,
     dispatchCurrentAudio,
     probePassed,
+    readConversationRoute,
+    safeConversationProbeResult,
     installDiagnosticProbe,
+    installConversationIdentityProbe,
   })
 
   root.YolenManyChatAudioDispatchRuntime = api
@@ -368,29 +570,34 @@
     root.document ?? runtimeWindow?.document ?? null
 
   const autoInstallDiagnosticProbe = () => {
-    if (
-      !runtimeDocument ||
-      root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__
-    ) {
-      return
+    if (!runtimeDocument) return
+
+    if (!root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__) {
+      const installed = installDiagnosticProbe({
+        window: runtimeWindow,
+        document: runtimeDocument,
+      })
+
+      if (installed) {
+        root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__ = true
+      }
     }
 
-    const installed = installDiagnosticProbe({
-      window: runtimeWindow,
-      document: runtimeDocument,
-    })
+    if (!root.__YOLEN_MANYCHAT_CONVERSATION_PROBE_INSTALLED__) {
+      const installed = installConversationIdentityProbe({
+        window: runtimeWindow,
+        document: runtimeDocument,
+      })
 
-    if (installed) {
-      root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__ = true
+      if (installed) {
+        root.__YOLEN_MANYCHAT_CONVERSATION_PROBE_INSTALLED__ = true
+      }
     }
   }
 
   autoInstallDiagnosticProbe()
 
-  if (
-    !root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__ &&
-    typeof runtimeWindow?.addEventListener === 'function'
-  ) {
+  if (typeof runtimeWindow?.addEventListener === 'function') {
     runtimeWindow.addEventListener(
       'hashchange',
       autoInstallDiagnosticProbe,
