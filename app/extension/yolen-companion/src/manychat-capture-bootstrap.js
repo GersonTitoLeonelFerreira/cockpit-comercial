@@ -17,6 +17,8 @@
   }
 
   const panelMountApi = root.YolenManyChatPanelMount
+  const sellerPanelRuntimeApi = root.YolenManyChatSellerPanelRuntime
+  const composerApi = root.YolenManyChatComposer
 
   // Textos honestos: nunca reivindicam mais do que o Companion sabe de
   // verdade nesta versão. O painel completo (AGORA/ANÁLISE/CLIENTE) ainda
@@ -42,14 +44,22 @@
       return
     }
 
+    // Lead identificado: a partir daqui quem é dono do conteúdo do painel
+    // é o sellerPanelRuntime (AGORA/ANÁLISE/CLIENTE + sugestão), nunca este
+    // texto de status — se o runtime não estiver disponível, ainda assim
+    // não fingimos ter mais informação do que a resolução de lead.
     if (resolution.ready === true) {
-      panelMountApi.setPanelContent('<div class="yolen-status">Yolen · lead identificado</div>')
+      if (!sellerPanelRuntimeApi) {
+        panelMountApi.setPanelContent('<div class="yolen-status">Yolen · lead identificado</div>')
+      }
       return
     }
 
     const label = STATUS_LABELS[resolution.reason] ?? `Yolen · ${resolution.reason ?? 'status desconhecido'}`
     panelMountApi.setPanelContent(`<div class="yolen-status">${label}</div>`)
   }
+
+  let currentConversationKey = null
 
   function syncPanel(conversationKey) {
     if (!panelMountApi) return
@@ -58,8 +68,14 @@
 
     if (!panelMountApi.isConversationOpen(root.document)) return
 
+    currentConversationKey = conversationKey ?? currentConversationKey
+
     const state = conversationKey ? runtime.getConversationState(conversationKey) : null
     renderStatus(state?.resolution ?? null)
+
+    if (state?.resolution?.ready === true && sellerPanelRuntime) {
+      sellerPanelRuntime.renderPanel(conversationKey)
+    }
   }
 
   // Únicos seletores validados ao vivo (A → B → A, com evidência de
@@ -110,10 +126,45 @@
       if (event?.type === 'reader_event') {
         syncPanel(event.event?.conversation_key ?? null)
       } else if (event?.type === 'capture_result') {
-        syncPanel(event.result?.conversation_key ?? null)
+        const conversationKey = event.result?.conversation_key ?? null
+        syncPanel(conversationKey)
+        if (sellerPanelRuntime) {
+          sellerPanelRuntime.handleCaptureResult(event.result)
+        }
       }
     },
   })
+
+  // Reaproveita, sem reescrever, os mesmos view models/actions já
+  // validados no WhatsApp (LOAD_CLIENT_CONTEXT/LOAD_DECISION_STATE/
+  // LOAD_ANALYSIS_VIEW_MODEL/LOAD_CUSTOMER_VIEW_MODEL/LOAD_METHOD_GUIDANCE
+  // + ANALYZE_CONVERSATION). getCycleId nunca inventa um cycle: só devolve
+  // o que a resolução real da captura (backend, via resolve-lead) já
+  // aprovou para esta conversa.
+  const sellerPanelRuntime = sellerPanelRuntimeApi
+    ? sellerPanelRuntimeApi.createManyChatSellerPanelRuntime({
+        sendMessage,
+        panelMountApi,
+        composerApi,
+        getCycleId(conversationKey) {
+          return runtime.getConversationState(conversationKey)?.resolution?.cycle_id ?? null
+        },
+      })
+    : null
+
+  // Delegação de clique única no documento: aplicar a sugestão no composer
+  // é sempre uma ação explícita do vendedor (nunca automática, nunca em
+  // resposta a um evento de captura ou de análise).
+  if (sellerPanelRuntime && typeof root.document?.addEventListener === 'function') {
+    root.document.addEventListener('click', (domEvent) => {
+      const target = domEvent.target
+      const trigger =
+        typeof target?.closest === 'function' ? target.closest('[data-yolen-apply-suggestion]') : null
+      if (!trigger || !currentConversationKey) return
+
+      sellerPanelRuntime.applySuggestedMessage(currentConversationKey)
+    })
+  }
 
   runtime.start()
   syncPanel(null)

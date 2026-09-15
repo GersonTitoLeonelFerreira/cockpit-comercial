@@ -103,6 +103,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/manychat-mainworld-report-export.js',
   'src/manychat-message-profile.js',
   'src/manychat-panel-mount.js',
+  'src/manychat-seller-panel-runtime.js',
   'src/manychat-safe-identity-background.js',
   'src/manychat-safe-identity-bridge.js',
   'src/manychat-safe-identity-main.js',
