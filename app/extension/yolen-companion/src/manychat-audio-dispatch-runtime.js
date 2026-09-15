@@ -363,13 +363,38 @@
 
   root.YolenManyChatAudioDispatchRuntime = api
 
+  const runtimeWindow = root.window ?? root
+  const runtimeDocument =
+    root.document ?? runtimeWindow?.document ?? null
+
+  const autoInstallDiagnosticProbe = () => {
+    if (
+      !runtimeDocument ||
+      root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__
+    ) {
+      return
+    }
+
+    const installed = installDiagnosticProbe({
+      window: runtimeWindow,
+      document: runtimeDocument,
+    })
+
+    if (installed) {
+      root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__ = true
+    }
+  }
+
+  autoInstallDiagnosticProbe()
+
   if (
-    root.window === root &&
-    root.document &&
-    !root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__
+    !root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__ &&
+    typeof runtimeWindow?.addEventListener === 'function'
   ) {
-    root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__ = true
-    installDiagnosticProbe()
+    runtimeWindow.addEventListener(
+      'hashchange',
+      autoInstallDiagnosticProbe,
+    )
   }
 
   if (typeof module !== 'undefined' && module.exports) {
