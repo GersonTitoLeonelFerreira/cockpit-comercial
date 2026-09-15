@@ -202,10 +202,16 @@ test(
       'src/capture-batch.js',
       'src/manychat-feature-flags.js',
       'src/manychat-capture-runtime.js',
+      'src/manychat-composer.js',
+      'src/manychat-panel-mount.js',
       'src/manychat-capture-bootstrap.js',
       'src/manychat-audio-source.js',
       'src/manychat-audio-dispatch-runtime.js',
     ])
-    assert.equal(idleIsolatedBlock.css, undefined)
+    // styles.css é o MESMO CSS já usado pelo painel do WhatsApp
+    // (#yolen-companion-panel é position:fixed relativo à viewport, então
+    // funciona de forma idêntica em qualquer página) — reaproveitado aqui
+    // em vez de duplicado.
+    assert.deepEqual(idleIsolatedBlock.css, ['src/styles.css'])
   },
 )

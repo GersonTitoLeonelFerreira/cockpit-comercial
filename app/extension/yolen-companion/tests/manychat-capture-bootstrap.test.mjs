@@ -144,3 +144,48 @@ test('sendMessage usa browser.runtime.sendMessage (promise nativa) quando dispon
   const result = await receivedOptions.sendMessage({ source: 'YOLEN_COMPANION', action: 'X' })
   assert.deepEqual(result, { ok: true, via: 'browser' })
 })
+
+test('com YolenManyChatPanelMount disponível, sincroniza visibilidade e status já no start()', () => {
+  const panelCalls = []
+  let receivedOptions = null
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState() {
+            return { resolution: { ready: false, reason: 'CONTACT_NOT_LINKED' } }
+          },
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen() {
+        return true
+      },
+      syncPanelVisibility() {
+        panelCalls.push('syncPanelVisibility')
+      },
+      setPanelContent(html) {
+        panelCalls.push(html)
+      },
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  // No start(), a conversa ainda não é conhecida (nenhum evento chegou
+  // ainda), então o status é "carregando", nunca inventa uma resolução.
+  assert.ok(panelCalls.includes('syncPanelVisibility'))
+  assert.ok(panelCalls.some((call) => typeof call === 'string' && call.includes('carregando')))
+
+  // O onEvent repassado ao runtime atualiza o painel a cada evento de
+  // captura/observer, já refletindo a resolução real daquela conversa.
+  panelCalls.length = 0
+  receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'k1' } })
+  assert.ok(panelCalls.includes('syncPanelVisibility'))
+  assert.ok(panelCalls.some((call) => typeof call === 'string' && call.includes('não vinculado')))
+})

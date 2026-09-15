@@ -16,6 +16,52 @@
     return
   }
 
+  const panelMountApi = root.YolenManyChatPanelMount
+
+  // Textos honestos: nunca reivindicam mais do que o Companion sabe de
+  // verdade nesta versão. O painel completo (AGORA/ANÁLISE/CLIENTE) ainda
+  // não está ligado — isto é só o status de identificação do contato, que
+  // já reflete a MESMA resolução usada para decidir se a captura acontece.
+  const STATUS_LABELS = Object.freeze({
+    identity_not_ready: 'Yolen · aguardando identidade do ManyChat…',
+    CONTACT_NOT_LINKED: 'Yolen · contato ainda não vinculado a um lead',
+    NOT_FOUND: 'Yolen · lead não encontrado nesta empresa',
+    OWNED_BY_OTHER: 'Yolen · lead pertence a outro vendedor',
+    IN_POOL: 'Yolen · lead está no Pool',
+    CLOSED_CYCLE: 'Yolen · lead com apenas ciclo fechado',
+    LEAD_WITHOUT_CYCLE: 'Yolen · lead sem ciclo comercial ativo',
+    SOFT_DELETED: 'Yolen · lead arquivado ou excluído',
+    MULTIPLE_MATCHES: 'Yolen · mais de um lead encontrado',
+  })
+
+  function renderStatus(resolution) {
+    if (!panelMountApi) return
+
+    if (!resolution) {
+      panelMountApi.setPanelContent('<div class="yolen-status">Yolen · carregando…</div>')
+      return
+    }
+
+    if (resolution.ready === true) {
+      panelMountApi.setPanelContent('<div class="yolen-status">Yolen · lead identificado</div>')
+      return
+    }
+
+    const label = STATUS_LABELS[resolution.reason] ?? `Yolen · ${resolution.reason ?? 'status desconhecido'}`
+    panelMountApi.setPanelContent(`<div class="yolen-status">${label}</div>`)
+  }
+
+  function syncPanel(conversationKey) {
+    if (!panelMountApi) return
+
+    panelMountApi.syncPanelVisibility()
+
+    if (!panelMountApi.isConversationOpen(root.document)) return
+
+    const state = conversationKey ? runtime.getConversationState(conversationKey) : null
+    renderStatus(state?.resolution ?? null)
+  }
+
   // Únicos seletores validados ao vivo (A → B → A, com evidência de
   // autoria/identidade/conteúdo/áudio real) até esta versão. channel e
   // assignment ficam de fora deliberadamente: nenhuma evidência de DOM ou
@@ -60,9 +106,17 @@
   const runtime = runtimeApi.createManyChatCaptureRuntime({
     selectors: SELECTORS,
     sendMessage,
+    onEvent(event) {
+      if (event?.type === 'reader_event') {
+        syncPanel(event.event?.conversation_key ?? null)
+      } else if (event?.type === 'capture_result') {
+        syncPanel(event.result?.conversation_key ?? null)
+      }
+    },
   })
 
   runtime.start()
+  syncPanel(null)
 
   root.__YOLEN_MANYCHAT_CAPTURE_RUNTIME__ = runtime
 })(typeof globalThis !== 'undefined' ? globalThis : this)

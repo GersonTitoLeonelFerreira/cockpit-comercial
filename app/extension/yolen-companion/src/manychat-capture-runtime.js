@@ -335,26 +335,34 @@
     async function captureNow() {
       const current = adapter.getCurrentConversation(getConversationUrl())
       if (!current?.supported) {
-        return { ok: false, reason: 'conversation_not_supported' }
+        return {
+          ok: false,
+          reason: 'conversation_not_supported',
+          conversation_key: current?.conversation_key ?? null,
+        }
       }
 
       const conversationKey = current.conversation_key
 
       const resolution = await ensureCycleResolved(conversationKey)
       if (!resolution.ready) {
-        return { ok: false, reason: resolution.reason }
+        return { ok: false, reason: resolution.reason, conversation_key: conversationKey }
       }
 
       // A conversa pode ter mudado enquanto a resolução de identidade/lead
       // (assíncrona) estava em andamento — nunca captura para a conversa
       // errada.
       if (adapter.getCurrentConversation(getConversationUrl())?.conversation_key !== conversationKey) {
-        return { ok: false, reason: 'conversation_changed_during_resolution' }
+        return {
+          ok: false,
+          reason: 'conversation_changed_during_resolution',
+          conversation_key: conversationKey,
+        }
       }
 
       const built = adapter.buildUniversalConversation(getConversationUrl())
       if (!built.ready) {
-        return { ok: false, reason: built.reason }
+        return { ok: false, reason: built.reason, conversation_key: conversationKey }
       }
 
       const state = getConversationState(conversationKey)
@@ -373,7 +381,12 @@
       })
 
       if (plan.messages.length === 0) {
-        return { ok: true, skipped: true, reason: 'no_eligible_messages' }
+        return {
+          ok: true,
+          skipped: true,
+          reason: 'no_eligible_messages',
+          conversation_key: conversationKey,
+        }
       }
 
       // A comparação de "mudou desde a última vez" usa um fingerprint SEM
@@ -399,7 +412,12 @@
           })
 
           if (response?.ok !== true) {
-            return { ok: false, reason: 'ingestion_rejected', detail: response ?? null }
+            return {
+              ok: false,
+              reason: 'ingestion_rejected',
+              detail: response ?? null,
+              conversation_key: conversationKey,
+            }
           }
 
           for (const result of response.payload?.message_results ?? []) {
@@ -430,8 +448,8 @@
       })
 
       return unchanged
-        ? { ok: true, skipped: true, reason: 'unchanged_snapshot' }
-        : { ok: true, skipped: false, batches: plan.batches.length }
+        ? { ok: true, skipped: true, reason: 'unchanged_snapshot', conversation_key: conversationKey }
+        : { ok: true, skipped: false, batches: plan.batches.length, conversation_key: conversationKey }
     }
 
     function scheduleCapture() {

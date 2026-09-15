@@ -226,6 +226,8 @@ test('manifest mantém background correto e ativa somente o runtime mínimo Many
     'src/capture-batch.js',
     'src/manychat-feature-flags.js',
     'src/manychat-capture-runtime.js',
+    'src/manychat-composer.js',
+    'src/manychat-panel-mount.js',
     'src/manychat-capture-bootstrap.js',
     'src/manychat-audio-source.js',
     'src/manychat-audio-dispatch-runtime.js',
