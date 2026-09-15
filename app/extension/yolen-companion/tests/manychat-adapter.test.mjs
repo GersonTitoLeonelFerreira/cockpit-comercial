@@ -75,14 +75,14 @@ test('sem reader comprovado o adapter não inventa canal, assignment ou mensagen
   assert.equal(snapshot.composer_enabled, false)
 })
 
-test('identidade mínima do contato vem apenas da rota já validada', () => {
+test('rota validada identifica a conversa, mas não inventa identidade mínima do contato', () => {
   const adapter = manychat.createManyChatAdapter()
   const contact = adapter.getContact(URL)
 
   assert.deepEqual(contact, {
     name: null,
     phone: null,
-    external_contact_id: '1443150072',
+    external_contact_id: null,
   })
 })
 
@@ -98,6 +98,7 @@ test('com evidência suficiente o adapter produz UniversalConversation válido',
   assert.equal(result.conversation.platform, 'manychat')
   assert.equal(result.conversation.channel, 'whatsapp')
   assert.equal(result.conversation.contact.name, 'João')
+  assert.equal(result.conversation.contact.external_contact_id, null)
   assert.equal(result.conversation.assignment.assigned, true)
   assert.equal(result.conversation.messages.length, 1)
   assert.equal(result.conversation.messages[0].direction, 'incoming')
