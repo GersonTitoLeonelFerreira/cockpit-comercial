@@ -45,18 +45,18 @@
     return bytesToHex(new Uint8Array(digest))
   }
 
-  function contactMaterial(workspaceKey, subscriberId) {
+  function contactMaterial(accountKey, subscriberId) {
     return JSON.stringify([
       'yolen-manychat-contact-v1',
-      workspaceKey,
+      accountKey,
       subscriberId,
     ])
   }
 
-  function whatsappMaterial(workspaceKey, whatsappUserId) {
+  function whatsappMaterial(accountKey, whatsappUserId) {
     return JSON.stringify([
       'yolen-manychat-channel-v1',
-      workspaceKey,
+      accountKey,
       'whatsapp',
       whatsappUserId,
     ])
@@ -64,20 +64,20 @@
 
   async function buildIdentityNamespace(
     {
-      workspace_key: rawWorkspaceKey,
+      account_key: rawAccountKey,
       subscriber_id: rawSubscriberId,
       whatsapp_user_id: rawWhatsappUserId = null,
     } = {},
     cryptoRef = root.crypto,
   ) {
-    const workspaceKey = normalizeOpaqueIdentifier(rawWorkspaceKey)
+    const accountKey = normalizeOpaqueIdentifier(rawAccountKey)
     const subscriberId = normalizeOpaqueIdentifier(rawSubscriberId)
     const whatsappUserId = normalizeOpaqueIdentifier(rawWhatsappUserId)
 
-    if (!workspaceKey) {
+    if (!accountKey) {
       return Object.freeze({
         ready: false,
-        reason: 'workspace_key_missing',
+        reason: 'account_key_missing',
         safe: null,
       })
     }
@@ -93,7 +93,7 @@
     let contactDigest
     try {
       contactDigest = await sha256Hex(
-        contactMaterial(workspaceKey, subscriberId),
+        contactMaterial(accountKey, subscriberId),
         cryptoRef,
       )
     } catch (error) {
@@ -110,7 +110,7 @@
       let whatsappDigest
       try {
         whatsappDigest = await sha256Hex(
-          whatsappMaterial(workspaceKey, whatsappUserId),
+          whatsappMaterial(accountKey, whatsappUserId),
           cryptoRef,
         )
       } catch (error) {
@@ -131,20 +131,20 @@
     const safe = Object.freeze({
       schema_version: SCHEMA_VERSION,
       platform: 'manychat',
-      scope: 'workspace',
+      scope: 'manychat_account',
       platform_identity: Object.freeze({
         source: 'subscriber_id',
         key: `${CONTACT_PREFIX}${contactDigest}`,
       }),
       channel_identity: channelIdentity,
       design: Object.freeze({
-        workspace_included_in_digest: true,
-        cross_workspace_collision_resistant: true,
+        account_key_included_in_digest: true,
+        cross_account_collision_resistant: true,
         platform_and_channel_namespaces_separated: true,
         digest_algorithm: 'sha256',
       }),
       privacy: Object.freeze({
-        raw_workspace_key_exposed: false,
+        raw_account_key_exposed: false,
         raw_subscriber_id_exposed: false,
         raw_whatsapp_user_id_exposed: false,
         raw_message_text_exposed: false,
