@@ -132,14 +132,27 @@ test(
 )
 
 test(
-  'ManyChat carrega surface opaca, probe de contexto e probes validados sem runtime WhatsApp ou composer',
+  'ManyChat arma probe MAIN world no document_start e mantém runtime isolado separado',
   () => {
     const manyChatBlocks = manifest.content_scripts.filter((block) =>
       block.matches?.includes('https://app.manychat.com/*'),
     )
 
-    assert.equal(manyChatBlocks.length, 1)
-    assert.deepEqual(manyChatBlocks[0].js, [
+    assert.equal(manyChatBlocks.length, 2)
+
+    const mainWorldBlock = manyChatBlocks.find((block) => block.world === 'MAIN')
+    const isolatedBlock = manyChatBlocks.find((block) => block.world === undefined)
+
+    assert.ok(mainWorldBlock)
+    assert.deepEqual(mainWorldBlock.js, [
+      'src/manychat-mainworld-identity-probe.js',
+      'src/manychat-mainworld-probe-bootstrap.js',
+    ])
+    assert.equal(mainWorldBlock.run_at, 'document_start')
+    assert.equal(mainWorldBlock.css, undefined)
+
+    assert.ok(isolatedBlock)
+    assert.deepEqual(isolatedBlock.js, [
       'src/platform-contract.js',
       'src/manychat-surface.js',
       'src/manychat-context-evidence-probe.js',
@@ -149,8 +162,7 @@ test(
       'src/manychat-audio-source.js',
       'src/manychat-audio-dispatch-runtime.js',
     ])
-    assert.equal(manyChatBlocks[0].run_at, 'document_idle')
-    assert.equal(manyChatBlocks[0].css, undefined)
-    assert.equal(manyChatBlocks[0].world, undefined)
+    assert.equal(isolatedBlock.run_at, 'document_idle')
+    assert.equal(isolatedBlock.css, undefined)
   },
 )
