@@ -86,6 +86,15 @@
         "https://app.manychat.com/*"
       ],
       "js": [
+        "src/manychat-safe-identity-bridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://app.manychat.com/*"
+      ],
+      "js": [
         "src/platform-contract.js",
         "src/manychat-surface.js",
         "src/manychat-context-evidence-probe.js",
@@ -93,8 +102,7 @@
         "src/manychat-message-identity.js",
         "src/manychat-message-content.js",
         "src/manychat-audio-source.js",
-        "src/manychat-audio-dispatch-runtime.js",
-        "src/manychat-safe-identity-bridge.js"
+        "src/manychat-audio-dispatch-runtime.js"
       ],
       "run_at": "document_idle"
     },
