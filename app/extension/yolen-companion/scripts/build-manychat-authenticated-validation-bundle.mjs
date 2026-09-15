@@ -23,6 +23,8 @@ export const SOURCE_FILES = Object.freeze([
   'src/manychat-message-content.js',
   'src/manychat-audio-source.js',
   'src/manychat-audio-source-stability.js',
+  'src/manychat-audio-accessibility.js',
+  'src/manychat-audio-transcription-contract.js',
   'src/manychat-evidence-probe.js',
   'src/manychat-profile-gate.js',
   'src/manychat-profile-validator.js',
