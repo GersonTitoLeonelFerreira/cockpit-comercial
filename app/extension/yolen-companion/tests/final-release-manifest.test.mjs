@@ -147,6 +147,7 @@ test(
     assert.deepEqual(mainWorldBlock.js, [
       'src/manychat-mainworld-identity-probe.js',
       'src/manychat-mainworld-probe-bootstrap.js',
+      'src/manychat-mainworld-report-export.js',
     ])
     assert.equal(mainWorldBlock.run_at, 'document_start')
     assert.equal(mainWorldBlock.css, undefined)
