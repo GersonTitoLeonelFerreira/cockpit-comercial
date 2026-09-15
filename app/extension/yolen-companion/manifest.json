@@ -70,6 +70,16 @@
         "https://app.manychat.com/*"
       ],
       "js": [
+        "src/manychat-mainworld-identity-probe.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://app.manychat.com/*"
+      ],
+      "js": [
         "src/platform-contract.js",
         "src/manychat-surface.js",
         "src/manychat-context-evidence-probe.js",
