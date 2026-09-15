@@ -132,7 +132,7 @@ test(
 )
 
 test(
-  'ManyChat separa probe MAIN world do runtime isolado e não carrega runtime WhatsApp ou composer',
+  'ManyChat arma probe MAIN world no document_start e mantém runtime isolado separado',
   () => {
     const manyChatBlocks = manifest.content_scripts.filter((block) =>
       block.matches?.includes('https://app.manychat.com/*'),
@@ -146,8 +146,9 @@ test(
     assert.ok(mainWorldBlock)
     assert.deepEqual(mainWorldBlock.js, [
       'src/manychat-mainworld-identity-probe.js',
+      'src/manychat-mainworld-probe-bootstrap.js',
     ])
-    assert.equal(mainWorldBlock.run_at, 'document_idle')
+    assert.equal(mainWorldBlock.run_at, 'document_start')
     assert.equal(mainWorldBlock.css, undefined)
 
     assert.ok(isolatedBlock)
