@@ -7,6 +7,8 @@
   const PROBE_BUTTON_ID = 'yolen-manychat-safe-identity-bridge-probe'
   const CONTACT_KEY_PATTERN = /^manychat:contact:v1:sha256:[a-f0-9]{64}$/
   const WHATSAPP_KEY_PATTERN = /^manychat:channel:whatsapp:v1:sha256:[a-f0-9]{64}$/
+  const MAX_BOOTSTRAP_ATTEMPTS = 80
+  const BOOTSTRAP_RETRY_MS = 100
 
   function requiredText(value) {
     return typeof value === 'string' && value.trim() ? value.trim() : null
@@ -291,25 +293,56 @@
 
   const runtimeWindow = root.window ?? root
   const runtimeDocument = root.document ?? runtimeWindow?.document ?? null
+  const armedAtDocumentStart = runtimeWindow?.location?.hash === PROBE_HASH
+  let bootstrapAttempts = 0
 
   const autoInstall = () => {
-    if (!runtimeDocument) return
-    if (root.__YOLEN_MANYCHAT_SAFE_IDENTITY_BRIDGE_PROBE_INSTALLED__) return
+    if (!runtimeDocument) return true
+    if (root.__YOLEN_MANYCHAT_SAFE_IDENTITY_BRIDGE_PROBE_INSTALLED__) {
+      return true
+    }
+
+    const shouldInstall =
+      armedAtDocumentStart ||
+      runtimeWindow?.location?.hash === PROBE_HASH
+
+    if (!shouldInstall) return true
 
     const installed = installDiagnosticProbe({
-      window: runtimeWindow,
+      window: {
+        location: {
+          hash: PROBE_HASH,
+        },
+      },
       document: runtimeDocument,
     })
 
     if (installed) {
       root.__YOLEN_MANYCHAT_SAFE_IDENTITY_BRIDGE_PROBE_INSTALLED__ = true
+      return true
     }
+
+    return false
   }
 
-  autoInstall()
+  const retryInstall = () => {
+    if (autoInstall()) return
+
+    bootstrapAttempts += 1
+    if (bootstrapAttempts >= MAX_BOOTSTRAP_ATTEMPTS) return
+    runtimeWindow?.setTimeout?.(retryInstall, BOOTSTRAP_RETRY_MS)
+  }
+
+  if (runtimeDocument?.readyState === 'loading') {
+    runtimeDocument.addEventListener?.('DOMContentLoaded', retryInstall, {
+      once: true,
+    })
+  }
+
+  retryInstall()
 
   if (typeof runtimeWindow?.addEventListener === 'function') {
-    runtimeWindow.addEventListener('hashchange', autoInstall)
+    runtimeWindow.addEventListener('hashchange', retryInstall)
   }
 
   if (typeof module !== 'undefined' && module.exports) {
