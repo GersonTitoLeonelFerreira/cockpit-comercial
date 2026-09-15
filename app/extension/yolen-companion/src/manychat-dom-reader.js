@@ -256,9 +256,18 @@
       if (!conversationRoot) return []
 
       const nodes = queryAll(conversationRoot, profile.selectors.messages)
-      const messages = nodes.map((node, index) =>
-        normalizeMessage(profile.readMessage(node, index, surface), index),
-      )
+
+      // profile.readMessage pode devolver null/undefined para um nó que a
+      // plataforma não considera uma mensagem elegível para captura (ex.:
+      // divisor de data, ou autoria ainda sem evidência suficiente). Isso é
+      // diferente de devolver um objeto malformado, que continua fail-closed
+      // via normalizeMessage abaixo.
+      const messages = nodes
+        .map((node, index) => {
+          const raw = profile.readMessage(node, index, surface)
+          return raw === null || raw === undefined ? null : normalizeMessage(raw, index)
+        })
+        .filter((message) => message !== null)
 
       const seen = new Set()
       for (const message of messages) {
