@@ -132,7 +132,7 @@ test(
 )
 
 test(
-  'ManyChat carrega surface opaca e probes validados sem runtime WhatsApp ou composer',
+  'ManyChat carrega surface opaca, probe de contexto e probes validados sem runtime WhatsApp ou composer',
   () => {
     const manyChatBlocks = manifest.content_scripts.filter((block) =>
       block.matches?.includes('https://app.manychat.com/*'),
@@ -142,6 +142,7 @@ test(
     assert.deepEqual(manyChatBlocks[0].js, [
       'src/platform-contract.js',
       'src/manychat-surface.js',
+      'src/manychat-context-evidence-probe.js',
       'src/manychat-message-semantics.js',
       'src/manychat-message-identity.js',
       'src/manychat-message-content.js',
