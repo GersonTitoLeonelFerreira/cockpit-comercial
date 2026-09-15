@@ -1,4 +1,4 @@
-/* global browser, chrome, YolenCompanionCaptureTransport */
+/* global browser, chrome, YolenCompanionCaptureTransport, YolenManyChatAudioBackgroundTransport */
 
 const SESSION_STORAGE_KEY = 'yolen_companion_session'
 const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
@@ -11,9 +11,19 @@ const captureTransportTools =
   globalThis.YolenCompanionCaptureTransport ||
   YolenCompanionCaptureTransport
 
+const manyChatAudioTransportTools =
+  globalThis.YolenManyChatAudioBackgroundTransport ||
+  YolenManyChatAudioBackgroundTransport
+
 if (!captureTransportTools) {
   throw new Error(
     'Módulo de transporte da captura do Companion não carregado.',
+  )
+}
+
+if (!manyChatAudioTransportTools) {
+  throw new Error(
+    'Módulo de transporte de áudio do ManyChat não carregado.',
   )
 }
 
@@ -371,6 +381,100 @@ async function handleAnalysisJobRetry(message) {
   }
 }
 
+async function handleManyChatAudioTranscription(message) {
+  const payload =
+    message.payload &&
+    typeof message.payload === 'object' &&
+    !Array.isArray(message.payload)
+      ? message.payload
+      : {}
+
+  try {
+    const media =
+      await manyChatAudioTransportTools
+        .fetchManyChatAudio({
+          url: payload.audio_url,
+        })
+
+    const safeTransport =
+      manyChatAudioTransportTools
+        .safeTransportView(media)
+
+    if (!media?.ready) {
+      return {
+        ok: false,
+        statusCode:
+          Number(media?.status) >= 400
+            ? Number(media.status)
+            : 400,
+        payload: {
+          ok: false,
+          status:
+            'MANYCHAT_AUDIO_FETCH_FAILED',
+          error:
+            media?.reason ||
+            'Não foi possível obter o áudio do ManyChat.',
+          transport: safeTransport,
+        },
+      }
+    }
+
+    const built =
+      manyChatAudioTransportTools
+        .buildTranscriptionPayload({
+          cycle_id: payload.cycle_id,
+          audio_target_key:
+            payload.audio_target_key,
+          channel: payload.channel,
+          audio_index: payload.audio_index,
+          media,
+        })
+
+    if (!built?.ready || !built.payload) {
+      return {
+        ok: false,
+        statusCode: 400,
+        payload: {
+          ok: false,
+          status:
+            'INVALID_MANYCHAT_AUDIO_TRANSCRIPTION_REQUEST',
+          error:
+            built?.reason ||
+            'Não foi possível preparar a transcrição do áudio do ManyChat.',
+          transport: safeTransport,
+        },
+      }
+    }
+
+    const result =
+      await requestYolenWithToken(
+        message,
+        '/api/companion/transcribe-audio',
+        built.payload,
+      )
+
+    return {
+      ...result,
+      transport: safeTransport,
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 500,
+      payload: {
+        ok: false,
+        status:
+          'MANYCHAT_AUDIO_TRANSPORT_ERROR',
+        error:
+          error instanceof Error &&
+          error.message
+            ? error.message
+            : 'Falha inesperada no transporte de áudio do ManyChat.',
+      },
+    }
+  }
+}
+
 async function handleCompanionMessage(message) {
   if (message.action === 'GET_ME') {
     const cachedSession = await getValidCachedSession()
@@ -541,6 +645,12 @@ async function handleCompanionMessage(message) {
       message,
       '/api/companion/actions/events',
       message.payload,
+    )
+  }
+
+  if (message.action === 'TRANSCRIBE_MANYCHAT_AUDIO') {
+    return handleManyChatAudioTranscription(
+      message,
     )
   }
 
