@@ -149,6 +149,36 @@ function createRuntime({ dom, sendMessage, getConversationUrl, now }) {
   })
 }
 
+test('captura funciona mesmo sem NENHUMA evidência de canal ou atribuição (realidade atual do ManyChat)', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadOwnedByMe(),
+    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+  ])
+
+  const runtime = runtimeApi.createManyChatCaptureRuntime({
+    document: dom.window.document,
+    // Sem selectors.channel/selectors.assignment nem readChannel/
+    // readAssignment: nenhuma evidência de DOM ou de estado interno foi
+    // encontrada para nenhum dos dois (busca ao vivo confirmada vazia).
+    selectors: {
+      conversationRoot: SELECTORS.conversationRoot,
+      messages: SELECTORS.messages,
+    },
+    sendMessage: fake.sendMessage,
+    getConversationUrl: () => CONVERSATION_URL_A,
+    now: () => '2026-09-14T20:35:00.000Z',
+  })
+
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, true)
+  assert.equal(result.skipped, false)
+  assert.equal(fake.calls[2].payload.messages[0].message_key, 'manychat:native-1')
+})
+
 test('captureNow resolve identidade, lead e envia o lote de captura', async () => {
   const dom = buildDom([
     { mid: 'native-1', text: 'Quero saber o preço.', classes: '_typeIn_x' },
