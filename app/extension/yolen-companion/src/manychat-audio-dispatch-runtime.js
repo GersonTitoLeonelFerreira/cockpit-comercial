@@ -2,12 +2,13 @@
   'use strict'
 
   const PLATFORM = 'manychat'
-  const REQUEST_SOURCE = 'YOLEN_MANYCHAT_AUDIO_PROBE'
-  const RESPONSE_SOURCE = 'YOLEN_MANYCHAT_AUDIO_PROBE_RESPONSE'
-  const REQUEST_TYPE = 'TRANSCRIBE_CURRENT_AUDIO'
   const MESSAGE_SELECTOR =
     '[data-test-id="chat-messages-list"] > div > div[data-title-at][data-title-offset-bottom][data-title]'
   const CHANNEL_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
+  const PROBE_HASH = '#yolen-audio-probe'
+  const PROBE_BUTTON_ID = 'yolen-manychat-audio-probe'
+  const PROBE_CYCLE_ID = '00000000-0000-4000-8000-000000000000'
+  const PROBE_CHANNEL = 'whatsapp'
 
   function isObject(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -62,7 +63,8 @@
       return null
     }
 
-    const bytes = new TextEncoder().encode(text)
+    const Encoder = root.TextEncoder ?? TextEncoder
+    const bytes = new Encoder().encode(text)
     const digest = await cryptoImpl.subtle.digest('SHA-256', bytes)
 
     return Array.from(new Uint8Array(digest))
@@ -266,71 +268,97 @@
     })
   }
 
-  function postSafeResponse(windowRef, requestId, result) {
-    if (!windowRef || typeof windowRef.postMessage !== 'function') return
-
-    windowRef.postMessage(
-      {
-        source: RESPONSE_SOURCE,
-        request_id: requestId,
-        result,
-      },
-      windowRef.location?.origin || '*',
+  function probePassed(result) {
+    return Boolean(
+      result?.backend?.transport?.ready === true &&
+      result?.backend?.status_code === 404 &&
+      result?.backend?.error_present === true,
     )
   }
 
-  function install({
+  function installDiagnosticProbe({
     window: windowRef = root.window,
     document: documentRef = root.document,
   } = {}) {
-    if (!windowRef || typeof windowRef.addEventListener !== 'function') {
-      return () => {}
+    if (
+      !windowRef ||
+      !documentRef?.body ||
+      windowRef.location?.hash !== PROBE_HASH
+    ) {
+      return null
     }
 
-    const handler = async (event) => {
-      if (event.source !== windowRef) return
+    const existing = documentRef.getElementById?.(PROBE_BUTTON_ID)
+    if (existing) return existing
 
-      const data = event.data
-      if (!isObject(data)) return
-      if (data.source !== REQUEST_SOURCE || data.type !== REQUEST_TYPE) return
+    const button = documentRef.createElement('button')
+    button.id = PROBE_BUTTON_ID
+    button.type = 'button'
+    button.textContent = 'Yolen · validar transporte de áudio'
+    button.setAttribute('aria-label', 'Validar transporte de áudio ManyChat da Yolen')
+    Object.assign(button.style, {
+      position: 'fixed',
+      right: '20px',
+      bottom: '20px',
+      zIndex: '2147483647',
+      padding: '10px 14px',
+      borderRadius: '8px',
+      border: '1px solid rgba(255,255,255,.2)',
+      background: '#111318',
+      color: '#edf2f7',
+      font: '600 12px/1.2 system-ui, sans-serif',
+      cursor: 'pointer',
+      boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+    })
 
-      const requestId = requiredText(data.request_id) || null
+    button.addEventListener('click', async (event) => {
+      if (event.isTrusted !== true || button.disabled) return
+
+      button.disabled = true
+      button.textContent = 'Yolen · validando…'
 
       try {
         const result = await dispatchCurrentAudio({
-          cycle_id: data.cycle_id,
-          channel: data.channel,
-          audio_index: data.audio_index,
+          cycle_id: PROBE_CYCLE_ID,
+          channel: PROBE_CHANNEL,
           document: documentRef,
         })
-        postSafeResponse(windowRef, requestId, result)
-      } catch (error) {
-        postSafeResponse(
-          windowRef,
-          requestId,
-          Object.freeze({
-            ok: false,
-            stage: 'runtime_exception',
-            reason: error?.code || 'runtime_exception',
-          }),
-        )
-      }
-    }
 
-    windowRef.addEventListener('message', handler)
-    return () => windowRef.removeEventListener('message', handler)
+        button.dataset.yolenProbeResult = JSON.stringify(result)
+        button.dataset.yolenProbePassed = probePassed(result) ? 'true' : 'false'
+        button.textContent = probePassed(result)
+          ? 'Yolen · transporte OK (404 esperado)'
+          : `Yolen · falhou (${result?.backend?.status_code || result?.reason || 'erro'})`
+      } catch (error) {
+        const safe = {
+          ok: false,
+          stage: 'runtime_exception',
+          reason: error?.code || 'runtime_exception',
+        }
+        button.dataset.yolenProbeResult = JSON.stringify(safe)
+        button.dataset.yolenProbePassed = 'false'
+        button.textContent = 'Yolen · falhou (runtime)'
+      } finally {
+        button.disabled = false
+      }
+    })
+
+    documentRef.body.appendChild(button)
+    return button
   }
 
   const api = Object.freeze({
     PLATFORM,
-    REQUEST_SOURCE,
-    RESPONSE_SOURCE,
-    REQUEST_TYPE,
     MESSAGE_SELECTOR,
+    PROBE_HASH,
+    PROBE_BUTTON_ID,
+    PROBE_CYCLE_ID,
+    PROBE_CHANNEL,
     sha256Hex,
     findSingleAudioCandidate,
     dispatchCurrentAudio,
-    install,
+    probePassed,
+    installDiagnosticProbe,
   })
 
   root.YolenManyChatAudioDispatchRuntime = api
@@ -341,7 +369,7 @@
     !root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__
   ) {
     root.__YOLEN_MANYCHAT_AUDIO_DISPATCH_RUNTIME_INSTALLED__ = true
-    install()
+    installDiagnosticProbe()
   }
 
   if (typeof module !== 'undefined' && module.exports) {
