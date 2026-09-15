@@ -180,21 +180,6 @@
     })
   }
 
-  function installRuntimeListener(api) {
-    if (!api?.runtime?.onMessage?.addListener) return false
-    if (root.__YOLEN_MANYCHAT_SAFE_IDENTITY_BACKGROUND_INSTALLED__) return true
-
-    api.runtime.onMessage.addListener((message, sender) => {
-      if (message?.action !== ACTION || message?.source !== SOURCE) {
-        return undefined
-      }
-      return handleIdentityRequest(message, sender, api)
-    })
-
-    root.__YOLEN_MANYCHAT_SAFE_IDENTITY_BACKGROUND_INSTALLED__ = true
-    return true
-  }
-
   const api = Object.freeze({
     ACTION,
     SOURCE,
@@ -205,19 +190,9 @@
     sanitizeMainResult,
     executeMainIdentity,
     handleIdentityRequest,
-    installRuntimeListener,
   })
 
   root.YolenManyChatSafeIdentityBackground = api
-
-  const extensionApi =
-    typeof root.browser !== 'undefined'
-      ? root.browser
-      : typeof root.chrome !== 'undefined'
-        ? root.chrome
-        : null
-
-  if (extensionApi) installRuntimeListener(extensionApi)
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api
