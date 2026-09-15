@@ -275,6 +275,7 @@ test('bundle diagnóstico contém a cadeia completa na ordem de dependência', (
     'src/manychat-surface.js',
     'src/manychat-message-semantics.js',
     'src/manychat-message-identity.js',
+    'src/manychat-message-content.js',
     'src/manychat-evidence-probe.js',
     'src/manychat-profile-gate.js',
     'src/manychat-profile-validator.js',
@@ -293,6 +294,10 @@ test('bundle diagnóstico contém a cadeia completa na ordem de dependência', (
   assert.ok(
     bundle.indexOf('src/manychat-message-semantics.js') <
       bundle.indexOf('src/manychat-message-identity.js'),
+  )
+  assert.ok(
+    bundle.indexOf('src/manychat-message-identity.js') <
+      bundle.indexOf('src/manychat-message-content.js'),
   )
   assert.ok(
     bundle.indexOf('src/platform-contract.js') <
