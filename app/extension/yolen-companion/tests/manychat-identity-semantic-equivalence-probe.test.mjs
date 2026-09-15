@@ -4,7 +4,7 @@ import test from 'node:test'
 
 const require = createRequire(import.meta.url)
 const identityProbe = require('../src/manychat-mainworld-identity-probe.js')
-const semanticProbe = require('../src/manychat-identity-semantic-equivalence-probe.js')
+const semanticProbe = require('../src/manychat-mainworld-report-export.js')
 
 function snapshot(entries) {
   return {
@@ -195,6 +195,7 @@ test('download semântico gera JSON seguro com nome próprio', () => {
       },
     },
     documentRef,
+    semanticProbe.SEMANTIC_FILE_NAME,
   )
 
   assert.equal(ok, true)
