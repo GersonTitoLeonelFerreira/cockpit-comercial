@@ -11,6 +11,10 @@ require('../src/manychat-audio-source.js')
 require('../src/manychat-audio-accessibility.js')
 const contract = require('../src/manychat-audio-transcription-contract.js')
 
+const REAL_SHA256 =
+  'd589dcdc0d18fb4db65da008b6e508e9dcb0a09d71da54e9f3d1cf9df5bb96e6'
+const REAL_SIZE = 59817
+
 function sourceNode({ src, type = 'audio/mpeg' } = {}) {
   return {
     src,
@@ -78,20 +82,27 @@ function realAccessibilityProbe(overrides = {}) {
     content_type: 'audio/ogg',
     detected_mime: 'audio/ogg',
     source_mime_hint: 'audio/mpeg',
-    bytes_downloaded: 59817,
-    sha256: 'd589dcdc0d18fb4db65da008b6e508e9dcb0a09d71da54e9f3d1cf9df5bb96e6',
+    bytes_downloaded: REAL_SIZE,
+    sha256: REAL_SHA256,
     accept_ranges: 'bytes',
     ...overrides,
   }
 }
 
-test('plano usa MIME canônico detectado e preserva identidade ManyChat sem liberar dispatch', () => {
-  const plan = contract.buildManyChatAudioTranscriptionPlan({
+function validPlanInput(overrides = {}) {
+  return {
     node: messageNode(),
     cycle_id: 'cycle-123',
     audio_base64: 'T2dnUwAAAAA=',
+    audio_sha256: REAL_SHA256,
+    audio_size_bytes: REAL_SIZE,
     accessibility_probe: realAccessibilityProbe(),
-  })
+    ...overrides,
+  }
+}
+
+test('plano usa MIME canônico detectado e preserva identidade ManyChat sem liberar dispatch', () => {
+  const plan = contract.buildManyChatAudioTranscriptionPlan(validPlanInput())
 
   assert.equal(plan.ready, true)
   assert.equal(plan.reason, null)
@@ -99,6 +110,8 @@ test('plano usa MIME canônico detectado e preserva identidade ManyChat sem libe
   assert.equal(plan.direction, 'incoming')
   assert.equal(plan.message_key, 'manychat:native-manychat-audio-id')
   assert.equal(plan.canonical_mime, 'audio/ogg')
+  assert.equal(plan.audio_digest_bound, true)
+  assert.equal(plan.audio_size_bound, true)
   assert.equal(plan.request_payload.mime_type, 'audio/ogg')
   assert.equal(plan.request_payload.file_name, 'manychat-audio.ogg')
   assert.equal(plan.request_payload.audio_target_key, plan.message_key)
@@ -118,7 +131,7 @@ test('resultado de transcrição válido entra no contrato universal sem perder 
         text: 'Quero saber o valor do plano.',
         event_type: 'whatsapp_audio_transcribed',
         occurred_at: '2026-09-14T20:31:00.000Z',
-        audio_size_bytes: 59817,
+        audio_size_bytes: REAL_SIZE,
       },
     },
   })
@@ -163,15 +176,14 @@ test('autoria humana de saída continua seller action e nunca customer evidence'
 })
 
 test('automação permanece bloqueada e não recebe message_key sintético', () => {
-  const plan = contract.buildManyChatAudioTranscriptionPlan({
-    node: messageNode({
-      classes: ['_wrapper_hash', '_typeOut_hash', '_botMessage_hash'],
-      mid: 'automation-id-that-must-not-be-used',
+  const plan = contract.buildManyChatAudioTranscriptionPlan(
+    validPlanInput({
+      node: messageNode({
+        classes: ['_wrapper_hash', '_typeOut_hash', '_botMessage_hash'],
+        mid: 'automation-id-that-must-not-be-used',
+      }),
     }),
-    cycle_id: 'cycle-123',
-    audio_base64: 'T2dnUwAAAAA=',
-    accessibility_probe: realAccessibilityProbe(),
-  })
+  )
 
   assert.equal(plan.ready, false)
   assert.equal(plan.author_kind, 'automation')
@@ -180,17 +192,43 @@ test('automação permanece bloqueada e não recebe message_key sintético', () 
 })
 
 test('probe de acessibilidade inválido bloqueia preparação do payload', () => {
-  const plan = contract.buildManyChatAudioTranscriptionPlan({
-    node: messageNode(),
-    cycle_id: 'cycle-123',
-    audio_base64: 'T2dnUwAAAAA=',
-    accessibility_probe: realAccessibilityProbe({
-      detected_mime: 'text/html',
+  const plan = contract.buildManyChatAudioTranscriptionPlan(
+    validPlanInput({
+      accessibility_probe: realAccessibilityProbe({
+        detected_mime: 'text/html',
+      }),
     }),
-  })
+  )
 
   assert.equal(plan.ready, false)
   assert.equal(plan.reason, 'detected_mime_not_audio')
+  assert.equal(plan.request_payload, null)
+})
+
+test('digest diferente do probe bloqueia bytes não comprovados', () => {
+  const plan = contract.buildManyChatAudioTranscriptionPlan(
+    validPlanInput({
+      audio_sha256: 'a'.repeat(64),
+    }),
+  )
+
+  assert.equal(plan.ready, false)
+  assert.equal(plan.reason, 'audio_digest_mismatch')
+  assert.equal(plan.audio_digest_bound, false)
+  assert.equal(plan.request_payload, null)
+})
+
+test('tamanho diferente do probe bloqueia payload mesmo com digest informado', () => {
+  const plan = contract.buildManyChatAudioTranscriptionPlan(
+    validPlanInput({
+      audio_size_bytes: REAL_SIZE - 1,
+    }),
+  )
+
+  assert.equal(plan.ready, false)
+  assert.equal(plan.reason, 'audio_size_mismatch')
+  assert.equal(plan.audio_digest_bound, true)
+  assert.equal(plan.audio_size_bound, false)
   assert.equal(plan.request_payload, null)
 })
 
@@ -208,23 +246,27 @@ test('resposta vazia ou com erro nunca produz mensagem normalizada', () => {
   assert.equal(failed.normalized_message, null)
 })
 
-test('safe view não expõe base64 nem identidade bruta', () => {
+test('safe view não expõe base64, digest ou identidade bruta', () => {
   const rawBase64 = 'T2dnUwAAAAA='
-  const plan = contract.buildManyChatAudioTranscriptionPlan({
-    node: messageNode({ mid: 'secret-native-id' }),
-    cycle_id: 'cycle-123',
-    audio_base64: rawBase64,
-    accessibility_probe: realAccessibilityProbe(),
-  })
+  const plan = contract.buildManyChatAudioTranscriptionPlan(
+    validPlanInput({
+      node: messageNode({ mid: 'secret-native-id' }),
+      audio_base64: rawBase64,
+    }),
+  )
   const safe = contract.safeManyChatAudioTranscriptionPlanView(plan)
   const serialized = JSON.stringify(safe)
 
   assert.equal(safe.ready, true)
   assert.equal(safe.audio_base64_present, true)
   assert.equal(safe.message_key_present, true)
+  assert.equal(safe.audio_digest_bound, true)
+  assert.equal(safe.audio_size_bound, true)
   assert.equal(safe.dispatch_enabled, false)
   assert.equal(safe.privacy.audio_base64_exposed, false)
   assert.equal(safe.privacy.raw_message_id_exposed, false)
+  assert.equal(safe.privacy.raw_sha256_exposed, false)
   assert.doesNotMatch(serialized, /T2dnUwAAAAA=/)
   assert.doesNotMatch(serialized, /secret-native-id/)
+  assert.doesNotMatch(serialized, new RegExp(REAL_SHA256))
 })
