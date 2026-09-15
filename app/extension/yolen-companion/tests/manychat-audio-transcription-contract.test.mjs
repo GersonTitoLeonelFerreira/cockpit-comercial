@@ -100,15 +100,18 @@ function validPlanInput(overrides = {}) {
     cycle_id: 'cycle-123',
     audio_base64: AUDIO_BASE64,
     accessibility_probe: accessibilityProbe(),
+    channel: 'whatsapp',
     ...overrides,
   }
 }
 
-test('plano usa MIME canônico e vincula os bytes reais ao probe antes de liberar payload', async () => {
+test('plano usa MIME canônico, contexto ManyChat e vincula os bytes reais ao probe', async () => {
   const plan = await contract.buildManyChatAudioTranscriptionPlan(validPlanInput())
 
   assert.equal(plan.ready, true)
   assert.equal(plan.reason, null)
+  assert.equal(plan.platform, 'manychat')
+  assert.equal(plan.channel, 'whatsapp')
   assert.equal(plan.author_kind, 'customer')
   assert.equal(plan.direction, 'incoming')
   assert.equal(plan.message_key, 'manychat:native-manychat-audio-id')
@@ -119,6 +122,8 @@ test('plano usa MIME canônico e vincula os bytes reais ao probe antes de libera
   assert.equal(plan.request_payload.mime_type, 'audio/ogg')
   assert.equal(plan.request_payload.file_name, 'manychat-audio.ogg')
   assert.equal(plan.request_payload.audio_target_key, plan.message_key)
+  assert.equal(plan.request_payload.platform, 'manychat')
+  assert.equal(plan.request_payload.channel, 'whatsapp')
   assert.equal(plan.endpoint, '/api/companion/transcribe-audio')
   assert.equal(plan.dispatch_enabled, false)
   assert.equal(plan.persistence_enabled, false)
@@ -133,7 +138,9 @@ test('resultado de transcrição válido entra no contrato universal sem perder 
       ok: true,
       data: {
         text: 'Quero saber o valor do plano.',
-        event_type: 'whatsapp_audio_transcribed',
+        event_type: 'companion_audio_transcribed',
+        platform: 'manychat',
+        channel: 'whatsapp',
         occurred_at: '2026-09-14T20:31:00.000Z',
         audio_size_bytes: AUDIO_SIZE,
       },
@@ -193,6 +200,18 @@ test('automação permanece bloqueada e não recebe message_key sintético', asy
   assert.equal(plan.author_kind, 'automation')
   assert.equal(plan.message_key, null)
   assert.equal(plan.dispatch_enabled, false)
+})
+
+test('channel inválido falha fechado antes de preparar payload', async () => {
+  const plan = await contract.buildManyChatAudioTranscriptionPlan(
+    validPlanInput({
+      channel: 'whats app',
+    }),
+  )
+
+  assert.equal(plan.ready, false)
+  assert.equal(plan.reason, 'channel_invalid')
+  assert.equal(plan.request_payload, null)
 })
 
 test('probe de acessibilidade inválido bloqueia preparação do payload', async () => {
@@ -276,6 +295,9 @@ test('safe view não expõe base64, digest ou identidade bruta', async () => {
   const serialized = JSON.stringify(safe)
 
   assert.equal(safe.ready, true)
+  assert.equal(safe.channel, 'whatsapp')
+  assert.equal(safe.request_platform, 'manychat')
+  assert.equal(safe.request_channel, 'whatsapp')
   assert.equal(safe.audio_base64_present, true)
   assert.equal(safe.message_key_present, true)
   assert.equal(safe.audio_digest_bound, true)
