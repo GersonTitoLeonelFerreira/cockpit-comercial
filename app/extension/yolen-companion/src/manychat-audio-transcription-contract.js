@@ -74,6 +74,56 @@
     return Number.isInteger(number) && number > 0 ? number : null
   }
 
+  function cleanBase64(value) {
+    const normalized = requiredText(value)
+    if (!normalized) return null
+
+    const payload = normalized.includes(',')
+      ? normalized.split(',').pop() || ''
+      : normalized
+
+    const compact = payload.replace(/\s/g, '')
+    return compact || null
+  }
+
+  function decodeBase64(value) {
+    const compact = cleanBase64(value)
+    if (!compact) return null
+
+    try {
+      if (typeof root.atob === 'function') {
+        const binary = root.atob(compact)
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index)
+        }
+        return bytes
+      }
+
+      if (typeof Buffer !== 'undefined') {
+        return Uint8Array.from(Buffer.from(compact, 'base64'))
+      }
+    } catch {
+      return null
+    }
+
+    return null
+  }
+
+  async function sha256Hex(bytes) {
+    const subtle = root.crypto?.subtle
+    if (!subtle || typeof subtle.digest !== 'function') return null
+
+    try {
+      const digest = await subtle.digest('SHA-256', bytes)
+      return Array.from(new Uint8Array(digest))
+        .map((value) => value.toString(16).padStart(2, '0'))
+        .join('')
+    } catch {
+      return null
+    }
+  }
+
   function buildMessageKey(nativeMessageId) {
     const value = requiredText(nativeMessageId)
     return value ? `manychat:${encodeURIComponent(value)}` : null
@@ -111,12 +161,10 @@
     }
   }
 
-  function buildManyChatAudioTranscriptionPlan({
+  async function buildManyChatAudioTranscriptionPlan({
     node,
     cycle_id: cycleId,
     audio_base64: audioBase64,
-    audio_sha256: audioSha256,
-    audio_size_bytes: audioSizeBytes,
     accessibility_probe: accessibilityProbe,
     audio_index: audioIndex = 0,
   } = {}) {
@@ -163,26 +211,46 @@
       })
     }
 
-    const probeSha256 = normalizeSha256(rawProbe.sha256)
-    const providedSha256 = normalizeSha256(audioSha256)
-    if (!probeSha256 || !providedSha256 || probeSha256 !== providedSha256) {
+    const normalizedBase64 = cleanBase64(audioBase64)
+    const decodedBytes = decodeBase64(normalizedBase64)
+    if (!normalizedBase64 || !decodedBytes || decodedBytes.length === 0) {
       return Object.freeze({
         ...plan,
         author_kind: identity.author_kind,
         direction: identity.direction,
-        reason: 'audio_digest_mismatch',
+        reason: 'audio_base64_invalid',
       })
     }
 
     const probeSize = normalizePositiveInteger(rawProbe.bytes_downloaded)
-    const providedSize = normalizePositiveInteger(audioSizeBytes)
-    if (!probeSize || !providedSize || probeSize !== providedSize) {
+    if (!probeSize || decodedBytes.length !== probeSize) {
       return Object.freeze({
         ...plan,
         author_kind: identity.author_kind,
         direction: identity.direction,
-        audio_digest_bound: true,
         reason: 'audio_size_mismatch',
+      })
+    }
+
+    const probeSha256 = normalizeSha256(rawProbe.sha256)
+    const computedSha256 = await sha256Hex(decodedBytes)
+    if (!computedSha256) {
+      return Object.freeze({
+        ...plan,
+        author_kind: identity.author_kind,
+        direction: identity.direction,
+        audio_size_bound: true,
+        reason: 'sha256_unavailable',
+      })
+    }
+
+    if (!probeSha256 || computedSha256 !== probeSha256) {
+      return Object.freeze({
+        ...plan,
+        author_kind: identity.author_kind,
+        direction: identity.direction,
+        audio_size_bound: true,
+        reason: 'audio_digest_mismatch',
       })
     }
 
@@ -195,18 +263,6 @@
         audio_digest_bound: true,
         audio_size_bound: true,
         reason: 'cycle_id_required',
-      })
-    }
-
-    const normalizedBase64 = requiredText(audioBase64)
-    if (!normalizedBase64) {
-      return Object.freeze({
-        ...plan,
-        author_kind: identity.author_kind,
-        direction: identity.direction,
-        audio_digest_bound: true,
-        audio_size_bound: true,
-        reason: 'audio_base64_required',
       })
     }
 
