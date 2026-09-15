@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "description": "Assistente comercial da Yolen para canais de conversa.",
   "permissions": [
-    "storage"
+    "storage",
+    "scripting"
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
@@ -17,6 +18,7 @@
     "scripts": [
       "src/capture-transport.js",
       "src/manychat-audio-background-transport.js",
+      "src/manychat-safe-identity-background.js",
       "src/background.js"
     ],
     "service_worker": "src/background-service-worker.js"
@@ -71,6 +73,8 @@
       ],
       "js": [
         "src/manychat-mainworld-identity-probe.js",
+        "src/manychat-identity-namespace.js",
+        "src/manychat-safe-identity-main.js",
         "src/manychat-mainworld-probe-bootstrap.js",
         "src/manychat-mainworld-report-export.js"
       ],
@@ -89,7 +93,8 @@
         "src/manychat-message-identity.js",
         "src/manychat-message-content.js",
         "src/manychat-audio-source.js",
-        "src/manychat-audio-dispatch-runtime.js"
+        "src/manychat-audio-dispatch-runtime.js",
+        "src/manychat-safe-identity-bridge.js"
       ],
       "run_at": "document_idle"
     },
