@@ -23,6 +23,7 @@ type QueryError = {
 }
 
 type AudioHistoryRow = {
+  event_type?: unknown
   occurred_at?: unknown
   metadata?: unknown
 }
@@ -36,6 +37,10 @@ type AudioHistoryQueryBuilder = {
   eq: (
     column: string,
     value: string,
+  ) => AudioHistoryQueryBuilder
+  in: (
+    column: string,
+    values: string[],
   ) => AudioHistoryQueryBuilder
   order: (
     column: string,
@@ -66,6 +71,8 @@ type SavedAudioTranscription = {
   text: string
   occurred_at: string
   audio_fingerprint: string | null
+  platform: string
+  channel: string
 }
 
 type AudioTranscriptionsResponse = {
@@ -75,6 +82,11 @@ type AudioTranscriptionsResponse = {
   }
   error?: string
 }
+
+const AUDIO_EVENT_TYPES = [
+  'whatsapp_audio_transcribed',
+  'companion_audio_transcribed',
+]
 
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
@@ -243,6 +255,28 @@ function getAudioIndex(value: unknown) {
   return 0
 }
 
+function getPlatformAndChannel(
+  eventType: string | null,
+  metadata: JsonRecord | null,
+) {
+  const metadataPlatform =
+    getString(metadata?.platform)?.trim().toLowerCase() || null
+  const metadataChannel =
+    getString(metadata?.channel)?.trim().toLowerCase() || null
+
+  if (eventType === 'whatsapp_audio_transcribed') {
+    return {
+      platform: metadataPlatform || 'whatsapp',
+      channel: metadataChannel || 'whatsapp',
+    }
+  }
+
+  return {
+    platform: metadataPlatform || 'unknown',
+    channel: metadataChannel || 'unknown',
+  }
+}
+
 export async function OPTIONS(request: Request) {
   return new NextResponse(null, {
     status: 204,
@@ -277,7 +311,7 @@ export async function POST(request: Request) {
         .catch(() => ({}))
     ) as AudioTranscriptionsBody
 
-    const cycleId = getString(body.cycle_id)
+    const cycleId = getString(body.cycle_id)?.trim() || null
 
     if (!cycleId) {
       return NextResponse.json<AudioTranscriptionsResponse>(
@@ -443,16 +477,13 @@ export async function POST(request: Request) {
       error: eventsError,
     } = await readAdmin
       .from('cycle_events')
-      .select('occurred_at, metadata')
+      .select('event_type, occurred_at, metadata')
       .eq(
         'company_id',
         tokenPayload.company_id,
       )
       .eq('cycle_id', cycleId)
-      .eq(
-        'event_type',
-        'whatsapp_audio_transcribed',
-      )
+      .in('event_type', AUDIO_EVENT_TYPES)
       .order('occurred_at', {
         ascending: false,
       })
@@ -493,6 +524,10 @@ export async function POST(request: Request) {
         getString(metadata?.audio_target_key)
           ?.trim() || null
 
+      if (!audioTargetKey) {
+        continue
+      }
+
       const audioFingerprint =
         getString(metadata?.audio_fingerprint)
           ?.trim() || null
@@ -500,26 +535,28 @@ export async function POST(request: Request) {
       const audioIndex =
         getAudioIndex(metadata?.audio_index)
 
-        if (!audioTargetKey) {
-            continue
-          }
-    
-          const identity =
-            `target:${audioTargetKey}`
-    
-          if (identities.has(identity)) {
-            continue
-          }
-    
-          identities.add(identity)
-    
-          transcriptions.push({
-            audio_target_key: audioTargetKey,
-            audio_index: audioIndex,
-            text,
-            occurred_at: occurredAt,
-            audio_fingerprint: audioFingerprint,
-          })
+      const eventType = getString(row.event_type)
+      const { platform, channel } =
+        getPlatformAndChannel(eventType, metadata)
+
+      const identity =
+        `platform:${platform}:target:${audioTargetKey}`
+
+      if (identities.has(identity)) {
+        continue
+      }
+
+      identities.add(identity)
+
+      transcriptions.push({
+        audio_target_key: audioTargetKey,
+        audio_index: audioIndex,
+        text,
+        occurred_at: occurredAt,
+        audio_fingerprint: audioFingerprint,
+        platform,
+        channel,
+      })
     }
 
     return NextResponse.json<AudioTranscriptionsResponse>(
