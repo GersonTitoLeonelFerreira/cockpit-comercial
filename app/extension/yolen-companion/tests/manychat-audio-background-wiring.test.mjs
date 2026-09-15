@@ -121,6 +121,15 @@ function createBackgroundHarness({ mediaReady = true } = {}) {
         return { ...payload, device_key: deviceKey }
       },
     },
+    YolenManyChatSafeIdentityBackground: {
+      async handleIdentityRequest() {
+        return {
+          ok: false,
+          statusCode: 409,
+          payload: { ready: false, reason: 'not_stubbed', safe: null },
+        }
+      },
+    },
     YolenManyChatAudioBackgroundTransport: {
       async fetchManyChatAudio({ url }) {
         assert.equal(
@@ -191,16 +200,23 @@ test('manifest mantém background correto e ativa somente o runtime mínimo Many
   assert.deepEqual(MANIFEST.background.scripts, [
     'src/capture-transport.js',
     'src/manychat-audio-background-transport.js',
+    'src/manychat-safe-identity-background.js',
     'src/background.js',
   ])
   assert.equal(MANIFEST.host_permissions.includes(MANYCHAT_MEDIA_HOST), true)
   assert.equal(MANIFEST.host_permissions.includes(MANYCHAT_APP_HOST), true)
 
-  const manyChatBlocks = MANIFEST.content_scripts.filter((block) =>
-    block.matches?.includes(MANYCHAT_APP_HOST),
+  const manyChatBlocks = MANIFEST.content_scripts.filter(
+    (block) =>
+      block.matches?.includes(MANYCHAT_APP_HOST) &&
+      block.run_at === 'document_idle' &&
+      !block.world,
   )
   assert.equal(manyChatBlocks.length, 1)
   assert.deepEqual(manyChatBlocks[0].js, [
+    'src/platform-contract.js',
+    'src/manychat-surface.js',
+    'src/manychat-context-evidence-probe.js',
     'src/manychat-message-semantics.js',
     'src/manychat-message-identity.js',
     'src/manychat-message-content.js',

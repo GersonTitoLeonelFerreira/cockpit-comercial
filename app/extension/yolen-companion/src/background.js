@@ -1,4 +1,4 @@
-/* global browser, chrome, YolenCompanionCaptureTransport, YolenManyChatAudioBackgroundTransport */
+/* global browser, chrome, YolenCompanionCaptureTransport, YolenManyChatAudioBackgroundTransport, YolenManyChatSafeIdentityBackground */
 
 const SESSION_STORAGE_KEY = 'yolen_companion_session'
 const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
@@ -15,6 +15,10 @@ const manyChatAudioTransportTools =
   globalThis.YolenManyChatAudioBackgroundTransport ||
   YolenManyChatAudioBackgroundTransport
 
+const manyChatSafeIdentityTools =
+  globalThis.YolenManyChatSafeIdentityBackground ||
+  YolenManyChatSafeIdentityBackground
+
 if (!captureTransportTools) {
   throw new Error(
     'Módulo de transporte da captura do Companion não carregado.',
@@ -24,6 +28,12 @@ if (!captureTransportTools) {
 if (!manyChatAudioTransportTools) {
   throw new Error(
     'Módulo de transporte de áudio do ManyChat não carregado.',
+  )
+}
+
+if (!manyChatSafeIdentityTools) {
+  throw new Error(
+    'Módulo da bridge segura de identidade do ManyChat não carregado.',
   )
 }
 
@@ -475,7 +485,15 @@ async function handleManyChatAudioTranscription(message) {
   }
 }
 
-async function handleCompanionMessage(message) {
+async function handleCompanionMessage(message, sender) {
+  if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
+    return manyChatSafeIdentityTools.handleIdentityRequest(
+      message,
+      sender,
+      extensionApi,
+    )
+  }
+
   if (message.action === 'GET_ME') {
     const cachedSession = await getValidCachedSession()
 
@@ -754,7 +772,7 @@ async function handleBridgeMessage(message) {
   }
 }
 
-async function handleMessage(message) {
+async function handleMessage(message, sender) {
   if (!message) {
     return {
       ok: false,
@@ -767,7 +785,7 @@ async function handleMessage(message) {
   }
 
   if (message.source === 'YOLEN_COMPANION') {
-    return handleCompanionMessage(message)
+    return handleCompanionMessage(message, sender)
   }
 
   if (message.source === 'YOLEN_COMPANION_BRIDGE') {
@@ -784,6 +802,6 @@ async function handleMessage(message) {
   }
 }
 
-extensionApi.runtime.onMessage.addListener((message) => {
-  return Promise.resolve(handleMessage(message))
+extensionApi.runtime.onMessage.addListener((message, sender) => {
+  return Promise.resolve(handleMessage(message, sender))
 })
