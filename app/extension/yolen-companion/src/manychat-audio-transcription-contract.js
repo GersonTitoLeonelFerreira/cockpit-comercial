@@ -64,6 +64,16 @@
     return typeof value === 'string' && value.trim() ? value.trim() : null
   }
 
+  function normalizeSha256(value) {
+    const normalized = requiredText(value)?.toLowerCase() || null
+    return normalized && /^[a-f0-9]{64}$/.test(normalized) ? normalized : null
+  }
+
+  function normalizePositiveInteger(value) {
+    const number = Number(value)
+    return Number.isInteger(number) && number > 0 ? number : null
+  }
+
   function buildMessageKey(nativeMessageId) {
     const value = requiredText(nativeMessageId)
     return value ? `manychat:${encodeURIComponent(value)}` : null
@@ -90,6 +100,8 @@
       message_key: null,
       occurred_at: null,
       canonical_mime: null,
+      audio_digest_bound: false,
+      audio_size_bound: false,
       endpoint: TRANSCRIBE_ENDPOINT,
       request_payload: null,
       dispatch_enabled: false,
@@ -103,15 +115,16 @@
     node,
     cycle_id: cycleId,
     audio_base64: audioBase64,
+    audio_sha256: audioSha256,
+    audio_size_bytes: audioSizeBytes,
     accessibility_probe: accessibilityProbe,
     audio_index: audioIndex = 0,
   } = {}) {
     const identity = identityApi().extractManyChatMessageIdentity(node)
     const content = contentApi().extractManyChatMessageContent(node)
     const source = audioSourceApi().extractManyChatAudioSource(node)
-    const accessibility = accessibilityApi().evaluateManyChatAudioAccessibilityProbe(
-      accessibilityProbe || {},
-    )
+    const rawProbe = accessibilityProbe || {}
+    const accessibility = accessibilityApi().evaluateManyChatAudioAccessibilityProbe(rawProbe)
     const plan = base()
 
     if (!identity.ready || !identity.native_message_id) {
@@ -150,12 +163,37 @@
       })
     }
 
+    const probeSha256 = normalizeSha256(rawProbe.sha256)
+    const providedSha256 = normalizeSha256(audioSha256)
+    if (!probeSha256 || !providedSha256 || probeSha256 !== providedSha256) {
+      return Object.freeze({
+        ...plan,
+        author_kind: identity.author_kind,
+        direction: identity.direction,
+        reason: 'audio_digest_mismatch',
+      })
+    }
+
+    const probeSize = normalizePositiveInteger(rawProbe.bytes_downloaded)
+    const providedSize = normalizePositiveInteger(audioSizeBytes)
+    if (!probeSize || !providedSize || probeSize !== providedSize) {
+      return Object.freeze({
+        ...plan,
+        author_kind: identity.author_kind,
+        direction: identity.direction,
+        audio_digest_bound: true,
+        reason: 'audio_size_mismatch',
+      })
+    }
+
     const normalizedCycleId = requiredText(cycleId)
     if (!normalizedCycleId) {
       return Object.freeze({
         ...plan,
         author_kind: identity.author_kind,
         direction: identity.direction,
+        audio_digest_bound: true,
+        audio_size_bound: true,
         reason: 'cycle_id_required',
       })
     }
@@ -166,6 +204,8 @@
         ...plan,
         author_kind: identity.author_kind,
         direction: identity.direction,
+        audio_digest_bound: true,
+        audio_size_bound: true,
         reason: 'audio_base64_required',
       })
     }
@@ -176,6 +216,8 @@
         ...plan,
         author_kind: identity.author_kind,
         direction: identity.direction,
+        audio_digest_bound: true,
+        audio_size_bound: true,
         reason: 'message_key_unavailable',
       })
     }
@@ -195,6 +237,8 @@
       message_key: messageKey,
       occurred_at: identity.occurred_at,
       canonical_mime: canonicalMime,
+      audio_digest_bound: true,
+      audio_size_bound: true,
       request_payload: Object.freeze({
         cycle_id: normalizedCycleId,
         audio_base64: normalizedBase64,
@@ -337,6 +381,8 @@
       message_key_present: typeof plan?.message_key === 'string',
       occurred_at_present: typeof plan?.occurred_at === 'string',
       canonical_mime: plan?.canonical_mime ?? null,
+      audio_digest_bound: plan?.audio_digest_bound === true,
+      audio_size_bound: plan?.audio_size_bound === true,
       endpoint: plan?.endpoint ?? TRANSCRIBE_ENDPOINT,
       cycle_id_present: Boolean(requiredText(payload?.cycle_id)),
       audio_base64_present: Boolean(requiredText(payload?.audio_base64)),
@@ -348,6 +394,7 @@
       privacy: Object.freeze({
         raw_message_id_exposed: false,
         raw_source_url_exposed: false,
+        raw_sha256_exposed: false,
         audio_base64_exposed: false,
         transcription_text_exposed: false,
         network_sent: false,
