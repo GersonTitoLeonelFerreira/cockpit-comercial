@@ -39,8 +39,12 @@ O módulo executa duas responsabilidades controladas.
 - o conteúdo foi classificado como áudio;
 - a fonte HTTPS foi validada;
 - o probe externo confirmou acesso real ao arquivo;
+- o SHA-256 informado para os bytes a serem enviados coincide exatamente com o SHA-256 do probe;
+- o tamanho informado para os bytes coincide exatamente com o tamanho observado no probe;
 - existe `cycle_id`;
 - existem bytes em base64 fornecidos pelo chamador.
+
+Esse vínculo impede que um probe válido de um arquivo seja reutilizado acidentalmente para autorizar bytes diferentes.
 
 O `message_key` derivado é namespaced como:
 
@@ -99,7 +103,8 @@ Portanto este gate valida o contrato sem alterar a persistência existente.
 - reasoning continua desligado;
 - composer continua desligado;
 - manifest continua sem injeção ManyChat;
-- automação continua proibida como evidência de cliente.
+- automação continua proibida como evidência de cliente;
+- safe views não expõem URL, `data-mid`, base64 ou SHA-256 bruto.
 
 ## Próximo gate
 
