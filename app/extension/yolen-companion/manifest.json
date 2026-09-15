@@ -70,9 +70,10 @@
         "https://app.manychat.com/*"
       ],
       "js": [
-        "src/manychat-mainworld-identity-probe.js"
+        "src/manychat-mainworld-identity-probe.js",
+        "src/manychat-mainworld-probe-bootstrap.js"
       ],
-      "run_at": "document_idle",
+      "run_at": "document_start",
       "world": "MAIN"
     },
     {
