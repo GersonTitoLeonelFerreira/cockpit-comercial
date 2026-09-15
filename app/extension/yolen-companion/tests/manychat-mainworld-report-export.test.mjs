@@ -61,3 +61,69 @@ test('downloadReport gera arquivo JSON seguro com nome determinístico', () => {
   assert.match(anchor.href, /^data:application\/json;charset=utf-8,/)
   assert.doesNotMatch(anchor.href, /raw_identity_value/)
 })
+
+test('exporter escuta no bubble para ler o relatório depois do handler do probe', () => {
+  let clickHandler = null
+  let captureFlag = null
+  let downloaded = 0
+  let anchor = null
+
+  const documentRef = {
+    body: {
+      appendChild(node) {
+        anchor = node
+      },
+    },
+    addEventListener(type, handler, capture) {
+      assert.equal(type, 'click')
+      clickHandler = handler
+      captureFlag = capture
+    },
+    createElement(tag) {
+      assert.equal(tag, 'a')
+      return {
+        href: '',
+        download: '',
+        style: {},
+        click() {
+          downloaded += 1
+        },
+        remove() {},
+      }
+    },
+  }
+
+  const button = {
+    dataset: {
+      yolenMainworldIdentityProbeResult: JSON.stringify({
+        schema_version: 'yolen-manychat-mainworld-identity-result-v1',
+        stage: 'returned_to_baseline_evaluated',
+        pass: true,
+        proven_locators: ['fiber1.memoizedProps.contact.contactId'],
+      }),
+    },
+    textContent: 'Yolen · identidade interna PASS · relatório copiado',
+    closest(selector) {
+      return selector === '#yolen-manychat-mainworld-identity-probe'
+        ? this
+        : null
+    },
+  }
+
+  assert.equal(reportExport.installReportExport(documentRef), true)
+  assert.equal(typeof clickHandler, 'function')
+  assert.equal(captureFlag, false)
+
+  clickHandler({
+    isTrusted: true,
+    target: button,
+  })
+
+  assert.equal(downloaded, 1)
+  assert.ok(anchor)
+  assert.equal(button.dataset.yolenMainworldReportExported, 'true')
+  assert.equal(
+    button.textContent,
+    'Yolen · identidade interna PASS · relatório baixado',
+  )
+})
