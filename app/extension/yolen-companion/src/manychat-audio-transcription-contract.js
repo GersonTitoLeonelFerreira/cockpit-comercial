@@ -4,6 +4,7 @@
   const PLATFORM = 'manychat'
   const SCHEMA_VERSION = 'yolen-manychat-audio-transcription-contract-v1'
   const TRANSCRIBE_ENDPOINT = '/api/companion/transcribe-audio'
+  const CHANNEL_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
   function identityApi() {
     const api = root.YolenManyChatMessageIdentity
@@ -62,6 +63,11 @@
 
   function requiredText(value) {
     return typeof value === 'string' && value.trim() ? value.trim() : null
+  }
+
+  function normalizeChannel(value) {
+    const normalized = requiredText(value)?.toLowerCase() || 'unknown'
+    return CHANNEL_PATTERN.test(normalized) ? normalized : null
   }
 
   function normalizeSha256(value) {
@@ -143,6 +149,7 @@
     return {
       schema_version: SCHEMA_VERSION,
       platform: PLATFORM,
+      channel: 'unknown',
       ready: false,
       reason: null,
       author_kind: 'unknown',
@@ -167,6 +174,7 @@
     audio_base64: audioBase64,
     accessibility_probe: accessibilityProbe,
     audio_index: audioIndex = 0,
+    channel: channelValue = 'unknown',
   } = {}) {
     const identity = identityApi().extractManyChatMessageIdentity(node)
     const content = contentApi().extractManyChatMessageContent(node)
@@ -174,10 +182,19 @@
     const rawProbe = accessibilityProbe || {}
     const accessibility = accessibilityApi().evaluateManyChatAudioAccessibilityProbe(rawProbe)
     const plan = base()
+    const channel = normalizeChannel(channelValue)
+
+    if (!channel) {
+      return Object.freeze({
+        ...plan,
+        reason: 'channel_invalid',
+      })
+    }
 
     if (!identity.ready || !identity.native_message_id) {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind ?? 'unknown',
         direction: identity.direction ?? 'unknown',
         reason: identity.reason ?? 'message_identity_not_ready',
@@ -187,6 +204,7 @@
     if (!content.content_ready || content.content_type !== 'audio') {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind,
         direction: identity.direction,
         reason: content.reason ?? 'audio_content_not_ready',
@@ -196,6 +214,7 @@
     if (!source.source_ready || !source.source_url) {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind,
         direction: identity.direction,
         reason: source.reason ?? 'audio_source_not_ready',
@@ -205,6 +224,7 @@
     if (!accessibility.ready || !accessibility.canonical_mime) {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind,
         direction: identity.direction,
         reason: accessibility.reason ?? 'audio_accessibility_not_ready',
@@ -216,6 +236,7 @@
     if (!normalizedBase64 || !decodedBytes || decodedBytes.length === 0) {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind,
         direction: identity.direction,
         reason: 'audio_base64_invalid',
@@ -226,6 +247,7 @@
     if (!probeSize || decodedBytes.length !== probeSize) {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind,
         direction: identity.direction,
         reason: 'audio_size_mismatch',
@@ -237,6 +259,7 @@
     if (!computedSha256) {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind,
         direction: identity.direction,
         audio_size_bound: true,
@@ -247,6 +270,7 @@
     if (!probeSha256 || computedSha256 !== probeSha256) {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind,
         direction: identity.direction,
         audio_size_bound: true,
@@ -258,6 +282,7 @@
     if (!normalizedCycleId) {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind,
         direction: identity.direction,
         audio_digest_bound: true,
@@ -270,6 +295,7 @@
     if (!messageKey) {
       return Object.freeze({
         ...plan,
+        channel,
         author_kind: identity.author_kind,
         direction: identity.direction,
         audio_digest_bound: true,
@@ -286,6 +312,7 @@
 
     return Object.freeze({
       ...plan,
+      channel,
       ready: true,
       reason: null,
       author_kind: identity.author_kind,
@@ -302,10 +329,11 @@
         file_name: `manychat-audio.${extension}`,
         audio_index: normalizedAudioIndex,
         audio_target_key: messageKey,
+        platform: PLATFORM,
+        channel,
       }),
-      // O endpoint existente ainda persiste eventos com semântica WhatsApp.
-      // Portanto este contrato prepara/valida o payload, mas não autoriza o
-      // dispatch produtivo do ManyChat até a persistência ser universalizada.
+      // O backend já aceita semântica multi-plataforma, mas o fetch real do
+      // áudio e o dispatch produtivo do ManyChat continuam fora do runtime.
       dispatch_enabled: false,
       production_network_fetch_enabled: false,
       persistence_enabled: false,
@@ -430,6 +458,7 @@
     return Object.freeze({
       schema_version: plan?.schema_version ?? SCHEMA_VERSION,
       platform: plan?.platform ?? PLATFORM,
+      channel: plan?.channel ?? 'unknown',
       ready: plan?.ready === true,
       reason: plan?.reason ?? null,
       author_kind: plan?.author_kind ?? 'unknown',
@@ -443,6 +472,8 @@
       cycle_id_present: Boolean(requiredText(payload?.cycle_id)),
       audio_base64_present: Boolean(requiredText(payload?.audio_base64)),
       audio_target_key_present: Boolean(requiredText(payload?.audio_target_key)),
+      request_platform: payload?.platform ?? null,
+      request_channel: payload?.channel ?? null,
       dispatch_enabled: plan?.dispatch_enabled === true,
       production_network_fetch_enabled: false,
       persistence_enabled: false,
