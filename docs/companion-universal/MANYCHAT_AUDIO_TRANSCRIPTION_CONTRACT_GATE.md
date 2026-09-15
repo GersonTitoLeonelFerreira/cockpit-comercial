@@ -32,19 +32,19 @@ O módulo executa duas responsabilidades controladas.
 
 ### 1. Preparação do payload
 
-`buildManyChatAudioTranscriptionPlan(...)` só produz um payload pronto quando:
+`buildManyChatAudioTranscriptionPlan(...)` é assíncrono e só produz um payload pronto quando:
 
 - a mensagem tem identidade ManyChat validada;
 - a autoria é humana (`customer` ou `human_agent`);
 - o conteúdo foi classificado como áudio;
 - a fonte HTTPS foi validada;
 - o probe externo confirmou acesso real ao arquivo;
-- o SHA-256 informado para os bytes a serem enviados coincide exatamente com o SHA-256 do probe;
-- o tamanho informado para os bytes coincide exatamente com o tamanho observado no probe;
-- existe `cycle_id`;
-- existem bytes em base64 fornecidos pelo chamador.
+- o base64 é decodificado localmente para os bytes reais;
+- o tamanho real dos bytes decodificados coincide exatamente com `bytes_downloaded` do probe;
+- o SHA-256 é calculado localmente com Web Crypto sobre os próprios bytes e coincide exatamente com o SHA-256 do probe;
+- existe `cycle_id`.
 
-Esse vínculo impede que um probe válido de um arquivo seja reutilizado acidentalmente para autorizar bytes diferentes.
+Esse vínculo impede que um probe válido de um arquivo seja reutilizado acidentalmente para autorizar bytes diferentes, inclusive quando os arquivos têm exatamente o mesmo tamanho.
 
 O `message_key` derivado é namespaced como:
 
