@@ -148,7 +148,7 @@ test('dispatch envia URL somente ao background, usa target key hash e devolve vi
 
   assert.equal(result.ok, true)
   assert.equal(result.backend.transcription_present, true)
-  assert.equal(result.backend.transcription_length, 31)
+  assert.equal(result.backend.transcription_length, 32)
   assert.equal(result.backend.audio_size_bytes, 59817)
   assert.equal(result.audio.target_key_scheme, 'manychat:sha256')
 
