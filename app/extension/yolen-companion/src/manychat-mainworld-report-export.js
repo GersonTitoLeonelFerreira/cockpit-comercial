@@ -58,27 +58,25 @@
         const button = event.target?.closest?.(`#${PROBE_BUTTON_ID}`)
         if (!button) return
 
-        queueMicrotask(() => {
-          const report = parseReport(
-            button.dataset?.yolenMainworldIdentityProbeResult,
-          )
+        const report = parseReport(
+          button.dataset?.yolenMainworldIdentityProbeResult,
+        )
 
-          if (!report || report.stage !== FINAL_STAGE) return
-          if (button.dataset?.yolenMainworldReportExported === 'true') return
+        if (!report || report.stage !== FINAL_STAGE) return
+        if (button.dataset?.yolenMainworldReportExported === 'true') return
 
-          const downloaded = downloadReport(report, documentRef)
-          button.dataset.yolenMainworldReportExported = downloaded
-            ? 'true'
-            : 'false'
+        const downloaded = downloadReport(report, documentRef)
+        button.dataset.yolenMainworldReportExported = downloaded
+          ? 'true'
+          : 'false'
 
-          if (downloaded) {
-            button.textContent = report.pass === true
-              ? 'Yolen · identidade interna PASS · relatório baixado'
-              : 'Yolen · identidade interna não provada · relatório baixado'
-          }
-        })
+        if (downloaded) {
+          button.textContent = report.pass === true
+            ? 'Yolen · identidade interna PASS · relatório baixado'
+            : 'Yolen · identidade interna não provada · relatório baixado'
+        }
       },
-      true,
+      false,
     )
 
     root.__YOLEN_MANYCHAT_MAINWORLD_REPORT_EXPORT_INSTALLED__ = true
