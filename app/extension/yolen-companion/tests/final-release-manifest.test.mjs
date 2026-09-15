@@ -57,6 +57,7 @@ test(
       [
         'src/capture-transport.js',
         'src/manychat-audio-background-transport.js',
+        'src/manychat-safe-identity-background.js',
         'src/background.js',
       ],
     )
@@ -81,6 +82,11 @@ test(
         "'manychat-audio-background-transport.js'",
       )
 
+    const safeIdentityIndex =
+      serviceWorker.indexOf(
+        "'manychat-safe-identity-background.js'",
+      )
+
     const backgroundIndex =
       serviceWorker.indexOf(
         "'background.js'",
@@ -96,8 +102,13 @@ test(
     )
 
     assert.ok(
-      backgroundIndex >
+      safeIdentityIndex >
         manyChatAudioIndex,
+    )
+
+    assert.ok(
+      backgroundIndex >
+        safeIdentityIndex,
     )
   },
 )
@@ -113,6 +124,14 @@ test(
         'https://manybot-files.manychat.io/*',
         'https://cockpit-comercial-vocn.vercel.app/*',
         'http://localhost/*',
+      ],
+    )
+
+    assert.deepEqual(
+      manifest.permissions,
+      [
+        'storage',
+        'scripting',
       ],
     )
 
@@ -146,6 +165,8 @@ test(
     assert.ok(mainWorldBlock)
     assert.deepEqual(mainWorldBlock.js, [
       'src/manychat-mainworld-identity-probe.js',
+      'src/manychat-identity-namespace.js',
+      'src/manychat-safe-identity-main.js',
       'src/manychat-mainworld-probe-bootstrap.js',
       'src/manychat-mainworld-report-export.js',
     ])
@@ -162,6 +183,7 @@ test(
       'src/manychat-message-content.js',
       'src/manychat-audio-source.js',
       'src/manychat-audio-dispatch-runtime.js',
+      'src/manychat-safe-identity-bridge.js',
     ])
     assert.equal(isolatedBlock.run_at, 'document_idle')
     assert.equal(isolatedBlock.css, undefined)
