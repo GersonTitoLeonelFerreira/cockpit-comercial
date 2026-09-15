@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createContext, runInContext } from 'node:vm'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
 
 import {
   PRODUCTION_HOSTS,
@@ -11,7 +10,6 @@ import {
   toProductionManifest,
 } from '../scripts/build-package.mjs'
 
-const EXTENSION_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const BACKGROUND_SOURCE = readFileSync(
   new URL('../src/background.js', import.meta.url),
   'utf8',
