@@ -83,6 +83,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/lead-resolution-runtime-cache.js',
   'src/lead-summary-expand-state.js',
   'src/lead-summary-runtime-cache.js',
+  'src/manychat-audio-background-transport.js',
   'src/message-mutations.js',
   'src/panel-stability-runtime.js',
   'src/seller-message-runtime.js',
@@ -126,6 +127,7 @@ export const TARGETS = {
 // de produção", não apenas "blocklist de localhost").
 export const PRODUCTION_HOSTS = [
   'https://web.whatsapp.com/*',
+  'https://manybot-files.manychat.io/*',
   'https://cockpit-comercial-vocn.vercel.app/*',
 ]
 
