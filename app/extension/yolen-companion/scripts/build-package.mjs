@@ -84,6 +84,11 @@ export const SHARED_RUNTIME_FILES = [
   'src/lead-summary-expand-state.js',
   'src/lead-summary-runtime-cache.js',
   'src/manychat-audio-background-transport.js',
+  'src/manychat-audio-dispatch-runtime.js',
+  'src/manychat-audio-source.js',
+  'src/manychat-message-content.js',
+  'src/manychat-message-identity.js',
+  'src/manychat-message-semantics.js',
   'src/message-mutations.js',
   'src/panel-stability-runtime.js',
   'src/seller-message-runtime.js',
@@ -97,8 +102,8 @@ export const SHARED_RUNTIME_FILES = [
 ]
 
 // Só é necessário no pacote Chrome: é o arquivo referenciado por
-// background.service_worker (que por sua vez faz importScripts dos dois
-// arquivos de background já listados acima).
+// background.service_worker (que por sua vez faz importScripts dos arquivos
+// de background já listados acima).
 export const CHROME_ONLY_FILES = ['src/background-service-worker.js']
 
 export const TARGETS = {
@@ -122,11 +127,10 @@ export const TARGETS = {
 
 // Hosts que a extensão de fato precisa em produção. Qualquer host que não
 // esteja nesta lista é, por definição, algo que não deveria sobreviver à
-// transformação DEV → PROD (hoje, isso é só o host de desenvolvimento
-// local, mas a lista existe para que a checagem seja "allowlist de hosts
-// de produção", não apenas "blocklist de localhost").
+// transformação DEV → PROD.
 export const PRODUCTION_HOSTS = [
   'https://web.whatsapp.com/*',
+  'https://app.manychat.com/*',
   'https://manybot-files.manychat.io/*',
   'https://cockpit-comercial-vocn.vercel.app/*',
 ]
@@ -409,7 +413,7 @@ function main() {
     version: sourceManifest.version,
     generatedAt: new Date().toISOString(),
     note:
-      'Pacotes "dev" ainda são internos/dev (incluem localhost:3000, sem icons vinculados no manifest). ' +
+      'Pacotes "dev" ainda são internos/dev (incluem localhost, sem icons vinculados no manifest). ' +
       'Pacotes "prod" (D3) removem todo host de desenvolvimento e vinculam os ícones gerados, mas isso NÃO ' +
       'significa aprovação de loja — ver dist/yolen-companion/release-candidate-report.json.',
     packages: results.map(({ target, environment, zipPath, sha256: hash, entries }) => ({

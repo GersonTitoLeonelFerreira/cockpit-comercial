@@ -44,7 +44,7 @@ test(
 
     assert.equal(
       manifest.description,
-      'Assistente comercial da Yolen para WhatsApp Web.',
+      'Assistente comercial da Yolen para canais de conversa.',
     )
   },
 )
@@ -109,6 +109,7 @@ test(
       manifest.host_permissions,
       [
         'https://web.whatsapp.com/*',
+        'https://app.manychat.com/*',
         'https://manybot-files.manychat.io/*',
         'https://cockpit-comercial-vocn.vercel.app/*',
         'http://localhost/*',
@@ -127,5 +128,26 @@ test(
       serialized,
       /diagnostic-preview/,
     )
+  },
+)
+
+test(
+  'ManyChat carrega somente o probe manual validado, sem runtime WhatsApp ou composer',
+  () => {
+    const manyChatBlocks = manifest.content_scripts.filter((block) =>
+      block.matches?.includes('https://app.manychat.com/*'),
+    )
+
+    assert.equal(manyChatBlocks.length, 1)
+    assert.deepEqual(manyChatBlocks[0].js, [
+      'src/manychat-message-semantics.js',
+      'src/manychat-message-identity.js',
+      'src/manychat-message-content.js',
+      'src/manychat-audio-source.js',
+      'src/manychat-audio-dispatch-runtime.js',
+    ])
+    assert.equal(manyChatBlocks[0].run_at, 'document_idle')
+    assert.equal(manyChatBlocks[0].css, undefined)
+    assert.equal(manyChatBlocks[0].world, undefined)
   },
 )

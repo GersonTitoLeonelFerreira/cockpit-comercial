@@ -2,12 +2,13 @@
   "manifest_version": 3,
   "name": "Yolen Companion",
   "version": "1.0.0",
-  "description": "Assistente comercial da Yolen para WhatsApp Web.",
+  "description": "Assistente comercial da Yolen para canais de conversa.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
+    "https://app.manychat.com/*",
     "https://manybot-files.manychat.io/*",
     "https://cockpit-comercial-vocn.vercel.app/*",
     "http://localhost/*"
@@ -61,6 +62,19 @@
       "css": [
         "src/styles.css",
         "src/lead-automation.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://app.manychat.com/*"
+      ],
+      "js": [
+        "src/manychat-message-semantics.js",
+        "src/manychat-message-identity.js",
+        "src/manychat-message-content.js",
+        "src/manychat-audio-source.js",
+        "src/manychat-audio-dispatch-runtime.js"
       ],
       "run_at": "document_idle"
     },
