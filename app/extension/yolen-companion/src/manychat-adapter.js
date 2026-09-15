@@ -99,17 +99,25 @@
       return typeof stop === 'function' ? stop : () => {}
     }
 
+    // channel e assignment são metadados informativos do contrato universal
+    // (nunca consumidos pela ingestão de captura nem por qualquer decisão
+    // de autorização — o backend Yolen, via resolve-lead, é a ÚNICA
+    // autoridade sobre ownership/permissão; a atribuição do ManyChat nunca
+    // substitui owner_user_id da Yolen). Evidência real de DOM para
+    // channel/assignment foi buscada e NÃO encontrada (nenhum atributo
+    // estrutural confiável no DOM visível), e o estado interno do React
+    // acessível hoje também não prova nenhum dos dois de forma estável.
+    // Por isso NUNCA bloqueiam a captura de mensagens: exigi-los aqui só
+    // impediria a Yolen de funcionar por falta de um dado que ela nem usa.
+    // A única evidência que de fato precisa estar pronta é a de mensagens
+    // (reader configurado) — sem isso não há o que capturar.
     function getEvidenceState(value) {
       const item = current(value)
       if (!item.supported) {
         return Object.freeze({ ready: false, reason: item.reason, missing: Object.freeze(['conversation']) })
       }
 
-      const channel = getChannel(value)
-      const assignment = getAssignment(value)
       const missing = []
-      if (channel === UNKNOWN) missing.push('channel')
-      if (!assignment || assignment.known !== true) missing.push('assignment')
       if (!reader || typeof reader.collectVisibleMessages !== 'function') missing.push('messages')
 
       return Object.freeze({
@@ -135,9 +143,13 @@
         conversation_key: item.conversation_key,
         contact: getContact(value),
         assignment: {
-          assigned: assignment.assigned,
-          agent_id: assignment.agent_id,
-          agent_name: assignment.agent_name,
+          // assignment.assigned só é true quando o reader PROVOU a
+          // atribuição (known === true). Ausência de evidência nunca vira
+          // "atribuído": vira o mesmo `false` conservador que o WhatsApp
+          // sempre teve (lá esse conceito nem existe).
+          assigned: assignment.known === true ? assignment.assigned : false,
+          agent_id: assignment.known === true ? assignment.agent_id : null,
+          agent_name: assignment.known === true ? assignment.agent_name : null,
         },
         observed_at: now(),
         messages: collectVisibleMessages(value),

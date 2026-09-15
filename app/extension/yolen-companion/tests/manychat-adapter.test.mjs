@@ -69,7 +69,11 @@ test('sem reader comprovado o adapter não inventa canal, assignment ou mensagen
   assert.equal(snapshot.assignment.known, false)
   assert.deepEqual(snapshot.messages, [])
   assert.equal(snapshot.evidence_ready, false)
-  assert.deepEqual(snapshot.missing_evidence, ['channel', 'assignment', 'messages'])
+  // channel/assignment são metadados informativos (nunca consumidos pela
+  // captura nem por autorização — o backend Yolen via resolve-lead é a
+  // única autoridade sobre ownership), então NUNCA aparecem como evidência
+  // faltante: a única evidência que de fato bloqueia é a de mensagens.
+  assert.deepEqual(snapshot.missing_evidence, ['messages'])
   assert.equal(snapshot.capture_enabled, false)
   assert.equal(snapshot.persistence_enabled, false)
   assert.equal(snapshot.reasoning_enabled, false)
@@ -110,7 +114,7 @@ test('com evidência suficiente o adapter produz UniversalConversation válido',
   )
 })
 
-test('assignment desconhecido não é tratado como conversa não atribuída', () => {
+test('assignment desconhecido nunca bloqueia a captura e nunca vira atribuído por acidente', () => {
   const reader = buildReader()
   reader.getAssignment = () => ({ known: false, assigned: false })
 
@@ -120,8 +124,24 @@ test('assignment desconhecido não é tratado como conversa não atribuída', ()
 
   assert.equal(assignment.known, false)
   assert.equal(assignment.assigned, null)
-  assert.equal(result.ready, false)
-  assert.ok(result.missing.includes('assignment'))
+  // assignment é metadado informativo, nunca usado para autorização (o
+  // backend Yolen via resolve-lead é a única autoridade sobre ownership) —
+  // não conhecê-lo não pode impedir a captura das mensagens.
+  assert.equal(result.ready, true)
+  assert.equal(result.conversation.assignment.assigned, false)
+  assert.equal(result.conversation.assignment.agent_id, null)
+})
+
+test('canal desconhecido (sem evidência de DOM ou de estado interno) nunca bloqueia a captura', () => {
+  const reader = buildReader()
+  reader.getChannel = () => null
+
+  const adapter = manychat.createManyChatAdapter({ reader, now: () => NOW })
+  const result = adapter.buildUniversalConversation(URL)
+
+  assert.equal(result.ready, true)
+  assert.equal(result.conversation.channel, 'unknown')
+  assert.equal(result.conversation.messages.length, 1)
 })
 
 test('rota fora de conversa falha fechada antes de qualquer leitura', () => {

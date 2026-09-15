@@ -162,7 +162,7 @@ test('reader + adapter produzem UniversalConversation válida sem tocar em persi
   assert.equal(snapshot.composer_enabled, false)
 })
 
-test('ausência de evidência de assignment permanece desconhecida', () => {
+test('ausência de evidência de assignment permanece desconhecida e não bloqueia a captura', () => {
   const dom = createFixture()
   dom.window.document
     .querySelector('[data-fixture-assignment]')
@@ -181,10 +181,13 @@ test('ausência de evidência de assignment permanece desconhecida', () => {
     agent_name: null,
   })
 
+  // assignment é metadado informativo (nunca usado por autorização — o
+  // backend Yolen via resolve-lead é a única autoridade sobre ownership),
+  // então não conhecê-lo não pode impedir a captura das mensagens.
   const adapter = adapterApi.createManyChatAdapter({ reader })
   const evidence = adapter.getEvidenceState(currentUrlRef.value)
-  assert.equal(evidence.ready, false)
-  assert.ok(evidence.missing.includes('assignment'))
+  assert.equal(evidence.ready, true)
+  assert.ok(!evidence.missing.includes('assignment'))
 })
 
 test('mensagem removida do DOM não vira exclusão factual automaticamente', () => {
