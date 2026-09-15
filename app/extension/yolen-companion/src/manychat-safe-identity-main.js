@@ -3,7 +3,7 @@
 
   const SCHEMA_VERSION = 'yolen-manychat-safe-identity-main-v1'
   const PLATFORM = 'manychat'
-  const WORKSPACE_ROUTE = /^\/(fb[^/]+)\/chat\/[^/?#]+\/?$/i
+  const ACCOUNT_ROUTE = /^\/(fb[^/]+)\/chat\/[^/?#]+\/?$/i
 
   const FAMILY_MATCHERS = Object.freeze({
     subscriber_id: (locator) => /(?:^|\.)subscriberId$/i.test(locator),
@@ -21,11 +21,11 @@
     return typeof value === 'string' && value.trim() ? value.trim() : null
   }
 
-  function workspaceKeyFromLocation(locationRef) {
+  function accountKeyFromLocation(locationRef) {
     const pathname = requiredText(locationRef?.pathname)
     if (!pathname) return null
 
-    const match = pathname.match(WORKSPACE_ROUTE)
+    const match = pathname.match(ACCOUNT_ROUTE)
     return requiredText(match?.[1])
   }
 
@@ -73,11 +73,11 @@
       })
     }
 
-    const workspaceKey = workspaceKeyFromLocation(locationRef)
-    if (!workspaceKey) {
+    const accountKey = accountKeyFromLocation(locationRef)
+    if (!accountKey) {
       return Object.freeze({
         ready: false,
-        reason: 'workspace_key_unavailable',
+        reason: 'account_key_unavailable',
         secret: null,
       })
     }
@@ -134,7 +134,7 @@
       ready: true,
       reason: null,
       secret: Object.freeze({
-        workspace_key: workspaceKey,
+        account_key: accountKey,
         subscriber_id: subscriber.value,
         whatsapp_user_id: whatsapp.ready ? whatsapp.value : null,
         corroborated_by: Object.freeze(corroboratedBy),
@@ -171,7 +171,7 @@
     }
 
     const namespaced = await namespaceApi.buildIdentityNamespace({
-      workspace_key: current.secret.workspace_key,
+      account_key: current.secret.account_key,
       subscriber_id: current.secret.subscriber_id,
       whatsapp_user_id: current.secret.whatsapp_user_id,
     })
@@ -196,7 +196,7 @@
         corroborated_by: current.secret.corroborated_by,
         design: namespaced.safe.design,
         privacy: Object.freeze({
-          raw_workspace_key_exposed: false,
+          raw_account_key_exposed: false,
           raw_subscriber_id_exposed: false,
           raw_whatsapp_user_id_exposed: false,
           raw_message_text_exposed: false,
@@ -228,7 +228,7 @@
     module.exports = Object.freeze({
       ...publicApi,
       FAMILY_MATCHERS,
-      workspaceKeyFromLocation,
+      accountKeyFromLocation,
       singletonFamily,
       resolveCurrentOpaqueIdentity,
     })
