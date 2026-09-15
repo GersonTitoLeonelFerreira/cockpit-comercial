@@ -20,10 +20,10 @@ test('normaliza somente identificadores opacos suportados', () => {
   assert.equal(namespace.normalizeOpaqueIdentifier({ id: 1 }), null)
 })
 
-test('gera chave canônica ManyChat usando workspace + subscriber_id', async () => {
+test('gera chave canônica ManyChat usando account_key + subscriber_id', async () => {
   const result = await namespace.buildIdentityNamespace(
     {
-      workspace_key: 'workspace-a',
+      account_key: 'fb-account-a',
       subscriber_id: 'subscriber-a',
     },
     webcrypto,
@@ -35,7 +35,7 @@ test('gera chave canônica ManyChat usando workspace + subscriber_id', async () 
   const expected = sha256(
     JSON.stringify([
       'yolen-manychat-contact-v1',
-      'workspace-a',
+      'fb-account-a',
       'subscriber-a',
     ]),
   )
@@ -45,14 +45,14 @@ test('gera chave canônica ManyChat usando workspace + subscriber_id', async () 
     `manychat:contact:v1:sha256:${expected}`,
   )
   assert.equal(result.safe.platform_identity.source, 'subscriber_id')
-  assert.equal(result.safe.scope, 'workspace')
+  assert.equal(result.safe.scope, 'manychat_account')
   assert.equal(result.safe.channel_identity, null)
 })
 
-test('mesmo subscriber em workspaces distintos produz namespaces distintos', async () => {
+test('mesmo subscriber em contas distintas produz namespaces distintos', async () => {
   const left = await namespace.buildIdentityNamespace(
     {
-      workspace_key: 'workspace-a',
+      account_key: 'fb-account-a',
       subscriber_id: 'subscriber-a',
     },
     webcrypto,
@@ -60,7 +60,7 @@ test('mesmo subscriber em workspaces distintos produz namespaces distintos', asy
 
   const right = await namespace.buildIdentityNamespace(
     {
-      workspace_key: 'workspace-b',
+      account_key: 'fb-account-b',
       subscriber_id: 'subscriber-a',
     },
     webcrypto,
@@ -77,7 +77,7 @@ test('mesmo subscriber em workspaces distintos produz namespaces distintos', asy
 test('separa identidade da plataforma da identidade WhatsApp', async () => {
   const result = await namespace.buildIdentityNamespace(
     {
-      workspace_key: 'workspace-a',
+      account_key: 'fb-account-a',
       subscriber_id: 'same-raw-value',
       whatsapp_user_id: 'same-raw-value',
     },
@@ -101,14 +101,14 @@ test('separa identidade da plataforma da identidade WhatsApp', async () => {
   )
 })
 
-test('saída segura não contém workspace nem identidades brutas', async () => {
-  const rawWorkspace = 'workspace-secret-123'
+test('saída segura não contém account_key nem identidades brutas', async () => {
+  const rawAccount = 'fb-secret-account-123'
   const rawSubscriber = 'subscriber-secret-456'
   const rawWhatsapp = '5511999999999'
 
   const result = await namespace.buildIdentityNamespace(
     {
-      workspace_key: rawWorkspace,
+      account_key: rawAccount,
       subscriber_id: rawSubscriber,
       whatsapp_user_id: rawWhatsapp,
     },
@@ -118,24 +118,24 @@ test('saída segura não contém workspace nem identidades brutas', async () => 
   const serialized = JSON.stringify(result)
 
   assert.equal(result.ready, true)
-  assert.doesNotMatch(serialized, new RegExp(rawWorkspace))
+  assert.doesNotMatch(serialized, new RegExp(rawAccount))
   assert.doesNotMatch(serialized, new RegExp(rawSubscriber))
   assert.doesNotMatch(serialized, new RegExp(rawWhatsapp))
-  assert.equal(result.safe.privacy.raw_workspace_key_exposed, false)
+  assert.equal(result.safe.privacy.raw_account_key_exposed, false)
   assert.equal(result.safe.privacy.raw_subscriber_id_exposed, false)
   assert.equal(result.safe.privacy.raw_whatsapp_user_id_exposed, false)
 })
 
-test('falha fechado sem workspace, subscriber ou SHA-256', async () => {
-  const missingWorkspace = await namespace.buildIdentityNamespace(
+test('falha fechado sem account_key, subscriber ou SHA-256', async () => {
+  const missingAccount = await namespace.buildIdentityNamespace(
     { subscriber_id: 'subscriber-a' },
     webcrypto,
   )
-  assert.equal(missingWorkspace.ready, false)
-  assert.equal(missingWorkspace.reason, 'workspace_key_missing')
+  assert.equal(missingAccount.ready, false)
+  assert.equal(missingAccount.reason, 'account_key_missing')
 
   const missingSubscriber = await namespace.buildIdentityNamespace(
-    { workspace_key: 'workspace-a' },
+    { account_key: 'fb-account-a' },
     webcrypto,
   )
   assert.equal(missingSubscriber.ready, false)
@@ -143,7 +143,7 @@ test('falha fechado sem workspace, subscriber ou SHA-256', async () => {
 
   const missingCrypto = await namespace.buildIdentityNamespace(
     {
-      workspace_key: 'workspace-a',
+      account_key: 'fb-account-a',
       subscriber_id: 'subscriber-a',
     },
     {},
