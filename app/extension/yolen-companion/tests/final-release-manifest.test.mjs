@@ -151,16 +151,25 @@ test(
 )
 
 test(
-  'ManyChat arma probe MAIN world no document_start e mantém runtime isolado separado',
+  'ManyChat separa MAIN, bootstrap isolated precoce e runtime document_idle',
   () => {
     const manyChatBlocks = manifest.content_scripts.filter((block) =>
       block.matches?.includes('https://app.manychat.com/*'),
     )
 
-    assert.equal(manyChatBlocks.length, 2)
+    assert.equal(manyChatBlocks.length, 3)
 
     const mainWorldBlock = manyChatBlocks.find((block) => block.world === 'MAIN')
-    const isolatedBlock = manyChatBlocks.find((block) => block.world === undefined)
+    const earlyIsolatedBlock = manyChatBlocks.find(
+      (block) =>
+        block.world === undefined &&
+        block.run_at === 'document_start',
+    )
+    const idleIsolatedBlock = manyChatBlocks.find(
+      (block) =>
+        block.world === undefined &&
+        block.run_at === 'document_idle',
+    )
 
     assert.ok(mainWorldBlock)
     assert.deepEqual(mainWorldBlock.js, [
@@ -173,8 +182,14 @@ test(
     assert.equal(mainWorldBlock.run_at, 'document_start')
     assert.equal(mainWorldBlock.css, undefined)
 
-    assert.ok(isolatedBlock)
-    assert.deepEqual(isolatedBlock.js, [
+    assert.ok(earlyIsolatedBlock)
+    assert.deepEqual(earlyIsolatedBlock.js, [
+      'src/manychat-safe-identity-bridge.js',
+    ])
+    assert.equal(earlyIsolatedBlock.css, undefined)
+
+    assert.ok(idleIsolatedBlock)
+    assert.deepEqual(idleIsolatedBlock.js, [
       'src/platform-contract.js',
       'src/manychat-surface.js',
       'src/manychat-context-evidence-probe.js',
@@ -183,9 +198,7 @@ test(
       'src/manychat-message-content.js',
       'src/manychat-audio-source.js',
       'src/manychat-audio-dispatch-runtime.js',
-      'src/manychat-safe-identity-bridge.js',
     ])
-    assert.equal(isolatedBlock.run_at, 'document_idle')
-    assert.equal(isolatedBlock.css, undefined)
+    assert.equal(idleIsolatedBlock.css, undefined)
   },
 )
