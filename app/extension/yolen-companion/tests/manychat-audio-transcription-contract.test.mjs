@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import test from 'node:test'
 
@@ -11,9 +12,13 @@ require('../src/manychat-audio-source.js')
 require('../src/manychat-audio-accessibility.js')
 const contract = require('../src/manychat-audio-transcription-contract.js')
 
-const REAL_SHA256 =
-  'd589dcdc0d18fb4db65da008b6e508e9dcb0a09d71da54e9f3d1cf9df5bb96e6'
-const REAL_SIZE = 59817
+const AUDIO_BYTES = Buffer.concat([
+  Buffer.from('OggS'),
+  Buffer.alloc(124, 1),
+])
+const AUDIO_BASE64 = AUDIO_BYTES.toString('base64')
+const AUDIO_SHA256 = createHash('sha256').update(AUDIO_BYTES).digest('hex')
+const AUDIO_SIZE = AUDIO_BYTES.length
 
 function sourceNode({ src, type = 'audio/mpeg' } = {}) {
   return {
@@ -76,14 +81,14 @@ function messageNode({
   }
 }
 
-function realAccessibilityProbe(overrides = {}) {
+function accessibilityProbe(overrides = {}) {
   return {
     http_code: 206,
     content_type: 'audio/ogg',
     detected_mime: 'audio/ogg',
     source_mime_hint: 'audio/mpeg',
-    bytes_downloaded: REAL_SIZE,
-    sha256: REAL_SHA256,
+    bytes_downloaded: AUDIO_SIZE,
+    sha256: AUDIO_SHA256,
     accept_ranges: 'bytes',
     ...overrides,
   }
@@ -93,16 +98,14 @@ function validPlanInput(overrides = {}) {
   return {
     node: messageNode(),
     cycle_id: 'cycle-123',
-    audio_base64: 'T2dnUwAAAAA=',
-    audio_sha256: REAL_SHA256,
-    audio_size_bytes: REAL_SIZE,
-    accessibility_probe: realAccessibilityProbe(),
+    audio_base64: AUDIO_BASE64,
+    accessibility_probe: accessibilityProbe(),
     ...overrides,
   }
 }
 
-test('plano usa MIME canônico detectado e preserva identidade ManyChat sem liberar dispatch', () => {
-  const plan = contract.buildManyChatAudioTranscriptionPlan(validPlanInput())
+test('plano usa MIME canônico e vincula os bytes reais ao probe antes de liberar payload', async () => {
+  const plan = await contract.buildManyChatAudioTranscriptionPlan(validPlanInput())
 
   assert.equal(plan.ready, true)
   assert.equal(plan.reason, null)
@@ -112,6 +115,7 @@ test('plano usa MIME canônico detectado e preserva identidade ManyChat sem libe
   assert.equal(plan.canonical_mime, 'audio/ogg')
   assert.equal(plan.audio_digest_bound, true)
   assert.equal(plan.audio_size_bound, true)
+  assert.equal(plan.request_payload.audio_base64, AUDIO_BASE64)
   assert.equal(plan.request_payload.mime_type, 'audio/ogg')
   assert.equal(plan.request_payload.file_name, 'manychat-audio.ogg')
   assert.equal(plan.request_payload.audio_target_key, plan.message_key)
@@ -131,7 +135,7 @@ test('resultado de transcrição válido entra no contrato universal sem perder 
         text: 'Quero saber o valor do plano.',
         event_type: 'whatsapp_audio_transcribed',
         occurred_at: '2026-09-14T20:31:00.000Z',
-        audio_size_bytes: REAL_SIZE,
+        audio_size_bytes: AUDIO_SIZE,
       },
     },
   })
@@ -175,8 +179,8 @@ test('autoria humana de saída continua seller action e nunca customer evidence'
   assert.equal(result.normalized_message.direction, 'outgoing')
 })
 
-test('automação permanece bloqueada e não recebe message_key sintético', () => {
-  const plan = contract.buildManyChatAudioTranscriptionPlan(
+test('automação permanece bloqueada e não recebe message_key sintético', async () => {
+  const plan = await contract.buildManyChatAudioTranscriptionPlan(
     validPlanInput({
       node: messageNode({
         classes: ['_wrapper_hash', '_typeOut_hash', '_botMessage_hash'],
@@ -191,10 +195,10 @@ test('automação permanece bloqueada e não recebe message_key sintético', () 
   assert.equal(plan.dispatch_enabled, false)
 })
 
-test('probe de acessibilidade inválido bloqueia preparação do payload', () => {
-  const plan = contract.buildManyChatAudioTranscriptionPlan(
+test('probe de acessibilidade inválido bloqueia preparação do payload', async () => {
+  const plan = await contract.buildManyChatAudioTranscriptionPlan(
     validPlanInput({
-      accessibility_probe: realAccessibilityProbe({
+      accessibility_probe: accessibilityProbe({
         detected_mime: 'text/html',
       }),
     }),
@@ -205,30 +209,46 @@ test('probe de acessibilidade inválido bloqueia preparação do payload', () =>
   assert.equal(plan.request_payload, null)
 })
 
-test('digest diferente do probe bloqueia bytes não comprovados', () => {
-  const plan = contract.buildManyChatAudioTranscriptionPlan(
+test('bytes diferentes do probe falham pelo tamanho antes do digest', async () => {
+  const differentBytes = Buffer.concat([AUDIO_BYTES, Buffer.from([2])])
+  const plan = await contract.buildManyChatAudioTranscriptionPlan(
     validPlanInput({
-      audio_sha256: 'a'.repeat(64),
-    }),
-  )
-
-  assert.equal(plan.ready, false)
-  assert.equal(plan.reason, 'audio_digest_mismatch')
-  assert.equal(plan.audio_digest_bound, false)
-  assert.equal(plan.request_payload, null)
-})
-
-test('tamanho diferente do probe bloqueia payload mesmo com digest informado', () => {
-  const plan = contract.buildManyChatAudioTranscriptionPlan(
-    validPlanInput({
-      audio_size_bytes: REAL_SIZE - 1,
+      audio_base64: differentBytes.toString('base64'),
     }),
   )
 
   assert.equal(plan.ready, false)
   assert.equal(plan.reason, 'audio_size_mismatch')
-  assert.equal(plan.audio_digest_bound, true)
   assert.equal(plan.audio_size_bound, false)
+  assert.equal(plan.request_payload, null)
+})
+
+test('bytes de mesmo tamanho mas conteúdo diferente falham pelo SHA-256', async () => {
+  const differentBytes = Buffer.from(AUDIO_BYTES)
+  differentBytes[differentBytes.length - 1] = 2
+
+  const plan = await contract.buildManyChatAudioTranscriptionPlan(
+    validPlanInput({
+      audio_base64: differentBytes.toString('base64'),
+    }),
+  )
+
+  assert.equal(plan.ready, false)
+  assert.equal(plan.reason, 'audio_digest_mismatch')
+  assert.equal(plan.audio_size_bound, true)
+  assert.equal(plan.audio_digest_bound, false)
+  assert.equal(plan.request_payload, null)
+})
+
+test('base64 inválido nunca gera payload', async () => {
+  const plan = await contract.buildManyChatAudioTranscriptionPlan(
+    validPlanInput({
+      audio_base64: '***não-é-base64***',
+    }),
+  )
+
+  assert.equal(plan.ready, false)
+  assert.equal(plan.reason, 'audio_base64_invalid')
   assert.equal(plan.request_payload, null)
 })
 
@@ -246,12 +266,10 @@ test('resposta vazia ou com erro nunca produz mensagem normalizada', () => {
   assert.equal(failed.normalized_message, null)
 })
 
-test('safe view não expõe base64, digest ou identidade bruta', () => {
-  const rawBase64 = 'T2dnUwAAAAA='
-  const plan = contract.buildManyChatAudioTranscriptionPlan(
+test('safe view não expõe base64, digest ou identidade bruta', async () => {
+  const plan = await contract.buildManyChatAudioTranscriptionPlan(
     validPlanInput({
       node: messageNode({ mid: 'secret-native-id' }),
-      audio_base64: rawBase64,
     }),
   )
   const safe = contract.safeManyChatAudioTranscriptionPlanView(plan)
@@ -266,7 +284,7 @@ test('safe view não expõe base64, digest ou identidade bruta', () => {
   assert.equal(safe.privacy.audio_base64_exposed, false)
   assert.equal(safe.privacy.raw_message_id_exposed, false)
   assert.equal(safe.privacy.raw_sha256_exposed, false)
-  assert.doesNotMatch(serialized, /T2dnUwAAAAA=/)
+  assert.doesNotMatch(serialized, new RegExp(AUDIO_BASE64))
   assert.doesNotMatch(serialized, /secret-native-id/)
-  assert.doesNotMatch(serialized, new RegExp(REAL_SHA256))
+  assert.doesNotMatch(serialized, new RegExp(AUDIO_SHA256))
 })
