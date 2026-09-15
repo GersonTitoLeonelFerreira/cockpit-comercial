@@ -67,7 +67,7 @@ test('MAIN world gera somente identidade pseudônima corroborada', async () => {
     /^manychat:channel:whatsapp:v1:sha256:[a-f0-9]{64}$/,
   )
   assert.deepEqual(
-    result.safe.corroborated_by.sort(),
+    [...result.safe.corroborated_by].sort(),
     ['data_user_id', 'thread_user_id', 'user_object_user_id'].sort(),
   )
 
