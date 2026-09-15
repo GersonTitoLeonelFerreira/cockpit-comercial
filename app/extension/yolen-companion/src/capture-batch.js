@@ -615,13 +615,18 @@
         )
       }
 
-      function buildCaptureIngestionPlan({
+      // Recebe mensagens JÁ NORMALIZADAS no formato canônico (o mesmo que
+      // buildActiveCaptureMessage/buildDeletedCaptureMessage produzem a
+      // partir do DOM do WhatsApp) e monta o envelope de ingestão
+      // (snapshot key para dedupe local, observed_at agregado, lotes
+      // respeitando maxBatchSize). Extraído de buildCaptureIngestionPlan
+      // para ser reutilizável por qualquer plataforma cujo adapter já
+      // entregue mensagens normalizadas (ex.: o contrato universal do
+      // ManyChat) sem duplicar a lógica de batching/snapshot.
+      function buildCaptureIngestionPlanFromMessages({
         cycleId,
         conversationKey,
-        activeMessages = [],
-        deletedMessages = [],
-        transcriptionsByKey = {},
-        baseVersionsByMessageKey = {},
+        messages,
         maxBatchSize =
           DEFAULT_MAX_BATCH_SIZE,
       } = {}) {
@@ -645,13 +650,8 @@
           )
         }
 
-        const messages =
-          buildCaptureMessages({
-            activeMessages,
-            deletedMessages,
-            transcriptionsByKey,
-            baseVersionsByMessageKey,
-          })
+        const safeMessages =
+          Array.isArray(messages) ? messages : []
 
         const normalizedObservedAt =
           messages.reduce(
@@ -679,7 +679,7 @@
           )
 
         if (
-          messages.length > 0 &&
+          safeMessages.length > 0 &&
           !normalizedObservedAt
         ) {
           throw new Error(
@@ -692,12 +692,12 @@
             cycleId: normalizedCycleId,
             conversationKey:
               normalizedConversationKey,
-            messages,
+            messages: safeMessages,
           })
 
         const batches =
           splitCaptureMessages(
-            messages,
+            safeMessages,
             maxBatchSize,
           ).map((batchMessages) => {
             return {
@@ -718,9 +718,35 @@
           snapshotKey,
           observedAt:
             normalizedObservedAt,
-          messages,
+          messages: safeMessages,
           batches,
         }
+      }
+
+      function buildCaptureIngestionPlan({
+        cycleId,
+        conversationKey,
+        activeMessages = [],
+        deletedMessages = [],
+        transcriptionsByKey = {},
+        baseVersionsByMessageKey = {},
+        maxBatchSize =
+          DEFAULT_MAX_BATCH_SIZE,
+      } = {}) {
+        const messages =
+          buildCaptureMessages({
+            activeMessages,
+            deletedMessages,
+            transcriptionsByKey,
+            baseVersionsByMessageKey,
+          })
+
+        return buildCaptureIngestionPlanFromMessages({
+          cycleId,
+          conversationKey,
+          messages,
+          maxBatchSize,
+        })
       }
 
       return {
@@ -732,6 +758,7 @@
         splitCaptureMessages,
         buildCaptureSnapshotKey,
         buildCaptureIngestionPlan,
+        buildCaptureIngestionPlanFromMessages,
       }
     },
   )
