@@ -91,6 +91,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/manychat-message-semantics.js',
   'src/manychat-surface.js',
   'src/manychat-context-evidence-probe.js',
+  'src/manychat-mainworld-identity-probe.js',
   'src/platform-contract.js',
   'src/message-mutations.js',
   'src/panel-stability-runtime.js',
