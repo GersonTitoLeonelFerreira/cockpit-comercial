@@ -428,6 +428,7 @@
           {
             message_key: messageKey,
             direction: identity.direction,
+            author_kind: identity.author_kind ?? 'unknown',
             occurred_at: identity.occurred_at,
             content_type: 'audio',
             text_content: null,

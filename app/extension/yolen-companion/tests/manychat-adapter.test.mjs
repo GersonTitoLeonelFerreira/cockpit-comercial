@@ -35,6 +35,7 @@ function buildReader() {
         {
           message_key: 'mc-1',
           direction: 'incoming',
+          author_kind: 'customer',
           occurred_at: '2026-09-14T17:29:00.000Z',
           content_type: 'text',
           text_content: 'Quero começar esta semana.',

@@ -197,6 +197,7 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
     {
       message_key: 'message-001',
       direction: 'incoming',
+      author_kind: 'customer',
       occurred_at:
         '2026-08-02T18:00:00.000Z',
       observed_at:
@@ -211,6 +212,7 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
     {
       message_key: 'audio-001',
       direction: 'outgoing',
+      author_kind: 'human_agent',
       occurred_at:
         '2026-08-02T18:01:00.000Z',
       observed_at:
@@ -385,6 +387,7 @@ test('mensagem excluída não preserva conteúdo ou transcrição', () => {
     {
       message_key: 'deleted-001',
       direction: 'incoming',
+      author_kind: 'customer',
       occurred_at:
         '2026-08-02T18:00:00.000Z',
       observed_at:
@@ -481,6 +484,7 @@ test('mensagem restaurada ativa prevalece sobre a fotografia excluída', () => {
     {
       message_key: 'restored-001',
       direction: 'incoming',
+      author_kind: 'customer',
       occurred_at:
         '2026-08-02T18:00:00.000Z',
       observed_at:

@@ -85,6 +85,8 @@ function createProfile() {
       return {
         message_key: node.dataset.messageId,
         direction: node.dataset.direction,
+        author_kind:
+          node.dataset.direction === 'outgoing' ? 'human_agent' : 'customer',
         occurred_at: node.dataset.occurredAt,
         content_type: 'text',
         text_content: node.textContent.trim(),
@@ -213,6 +215,8 @@ test('reader rejeita exclusão sem evidência explícita', () => {
   profile.readMessage = (node) => ({
     message_key: node.dataset.messageId,
     direction: node.dataset.direction,
+    author_kind:
+      node.dataset.direction === 'outgoing' ? 'human_agent' : 'customer',
     occurred_at: node.dataset.occurredAt,
     content_type: 'text',
     text_content: null,

@@ -156,6 +156,7 @@ test('resultado de transcrição válido entra no contrato universal sem perder 
   assert.deepEqual(result.normalized_message, {
     message_key: 'manychat:native-manychat-audio-id',
     direction: 'incoming',
+    author_kind: 'customer',
     occurred_at: '2026-09-14T20:30:00.000Z',
     content_type: 'audio',
     text_content: null,

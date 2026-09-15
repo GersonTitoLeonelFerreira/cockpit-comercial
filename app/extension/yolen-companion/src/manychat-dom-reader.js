@@ -3,6 +3,12 @@
 
   const PLATFORM = 'manychat'
   const UNKNOWN = 'unknown'
+  const AUTHOR_KINDS = Object.freeze([
+    'customer',
+    'human_agent',
+    'automation',
+    'unknown',
+  ])
 
   function isObject(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -153,6 +159,13 @@
       )
     }
 
+    if (!AUTHOR_KINDS.includes(value.author_kind)) {
+      fail(
+        'INVALID_AUTHOR_KIND',
+        `messages[${index}].author_kind deve ser customer, human_agent, automation ou unknown.`,
+      )
+    }
+
     if (value.content_type !== 'text' && value.content_type !== 'audio') {
       fail(
         'INVALID_CONTENT_TYPE',
@@ -176,6 +189,7 @@
     return Object.freeze({
       message_key: value.message_key.trim(),
       direction: value.direction,
+      author_kind: value.author_kind,
       occurred_at: new Date(value.occurred_at).toISOString(),
       content_type: value.content_type,
       text_content: isDeleted ? null : value.text_content ?? null,

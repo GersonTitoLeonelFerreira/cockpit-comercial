@@ -96,6 +96,33 @@
           : 'incoming'
       }
 
+      const VALID_AUTHOR_KINDS = [
+        'customer',
+        'human_agent',
+        'automation',
+        'unknown',
+      ]
+
+      function normalizeAuthorKind(
+        value,
+        direction,
+      ) {
+        if (
+          VALID_AUTHOR_KINDS.includes(
+            value,
+          )
+        ) {
+          return value
+        }
+
+        // Sem author_kind explícito (ex.: adapter WhatsApp, onde só
+        // existem duas partes), deriva o mais conservador a partir da
+        // direction já normalizada.
+        return direction === 'outgoing'
+          ? 'human_agent'
+          : 'customer'
+      }
+
       function isCaptureResolutionEligible(
         resolution,
       ) {
@@ -229,11 +256,18 @@
           return null
         }
 
+        const direction =
+          normalizeDirection(
+            message.direction,
+          )
+
         return {
           message_key: messageKey,
-          direction:
-            normalizeDirection(
-              message.direction,
+          direction,
+          author_kind:
+            normalizeAuthorKind(
+              message.author_kind,
+              direction,
             ),
           occurred_at: occurredAt,
           observed_at: observedAt,
@@ -276,11 +310,18 @@
           return null
         }
 
+        const direction =
+          normalizeDirection(
+            message.direction,
+          )
+
         return {
           message_key: messageKey,
-          direction:
-            normalizeDirection(
-              message.direction,
+          direction,
+          author_kind:
+            normalizeAuthorKind(
+              message.author_kind,
+              direction,
             ),
           occurred_at: occurredAt,
           observed_at: observedAt,
@@ -554,6 +595,7 @@
                 return [
                   message.message_key,
                   message.direction,
+                  message.author_kind,
                   message.occurred_at,
                   message.base_version,
                   message.content_type,
