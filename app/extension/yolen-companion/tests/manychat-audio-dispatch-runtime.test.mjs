@@ -199,73 +199,93 @@ test('requisição inválida ou DOM ambíguo não chama o background', async () 
   assert.equal(calls, 0)
 })
 
-test('bridge por window.postMessage responde somente ao comando explícito e com view segura', async () => {
+test('probe visual só aparece no hash explícito e somente clique confiável dispara rede', async () => {
   installEvidenceStubs()
+  let calls = 0
 
   globalThis.browser = {
     runtime: {
       async sendMessage() {
+        calls += 1
         return {
-          ok: true,
-          statusCode: 200,
+          ok: false,
+          statusCode: 404,
           payload: {
-            ok: true,
-            data: {
-              text: 'não deve aparecer no page world',
-              event_type: 'companion_audio_transcribed',
-              platform: 'manychat',
-              channel: 'whatsapp',
-              audio_size_bytes: 59817,
-            },
+            ok: false,
+            error: 'Ciclo não encontrado ou sem permissão.',
           },
-          transport: { ready: true },
+          transport: {
+            ready: true,
+            mime_type: 'audio/ogg',
+            size_bytes: 59817,
+          },
         }
       },
     },
   }
 
-  let handler = null
-  const posted = []
-  const fakeWindow = {
-    location: { origin: 'https://app.manychat.com' },
-    addEventListener(type, fn) {
-      assert.equal(type, 'message')
-      handler = fn
-    },
-    removeEventListener(type, fn) {
-      assert.equal(type, 'message')
-      assert.equal(fn, handler)
-    },
-    postMessage(value, targetOrigin) {
-      posted.push({ value, targetOrigin })
+  let clickHandler = null
+  let appended = null
+  const button = {
+    id: '',
+    type: '',
+    textContent: '',
+    disabled: false,
+    dataset: {},
+    style: {},
+    setAttribute() {},
+    addEventListener(type, handler) {
+      assert.equal(type, 'click')
+      clickHandler = handler
     },
   }
 
-  const uninstall = runtime.install({
-    window: fakeWindow,
-    document: documentWith([{ mid: RAW_MID }]),
-  })
-
-  await handler({
-    source: fakeWindow,
-    data: {
-      source: runtime.REQUEST_SOURCE,
-      type: runtime.REQUEST_TYPE,
-      request_id: 'probe-1',
-      cycle_id: 'cycle-123',
-      channel: 'whatsapp',
+  const fakeDocument = {
+    body: {
+      appendChild(node) {
+        appended = node
+      },
     },
+    getElementById() {
+      return null
+    },
+    createElement(tag) {
+      assert.equal(tag, 'button')
+      return button
+    },
+    querySelectorAll(selector) {
+      assert.equal(selector, runtime.MESSAGE_SELECTOR)
+      return [{ mid: RAW_MID }]
+    },
+  }
+
+  const inactive = runtime.installDiagnosticProbe({
+    window: { location: { hash: '' } },
+    document: fakeDocument,
   })
+  assert.equal(inactive, null)
+  assert.equal(appended, null)
 
-  assert.equal(posted.length, 1)
-  assert.equal(posted[0].targetOrigin, 'https://app.manychat.com')
-  assert.equal(posted[0].value.source, runtime.RESPONSE_SOURCE)
-  assert.equal(posted[0].value.request_id, 'probe-1')
-  assert.equal(posted[0].value.result.ok, true)
-  assert.equal(
-    JSON.stringify(posted[0].value).includes('não deve aparecer no page world'),
-    false,
-  )
+  const installed = runtime.installDiagnosticProbe({
+    window: { location: { hash: runtime.PROBE_HASH } },
+    document: fakeDocument,
+  })
+  assert.equal(installed, button)
+  assert.equal(appended, button)
+  assert.equal(typeof clickHandler, 'function')
 
-  uninstall()
+  await clickHandler({ isTrusted: false })
+  assert.equal(calls, 0)
+
+  await clickHandler({ isTrusted: true })
+  assert.equal(calls, 1)
+  assert.equal(button.dataset.yolenProbePassed, 'true')
+  assert.match(button.textContent, /transporte OK/)
+
+  const safe = JSON.parse(button.dataset.yolenProbeResult)
+  assert.equal(safe.backend.status_code, 404)
+  assert.equal(safe.backend.transport.ready, true)
+  assert.equal(safe.backend.transcription_present, false)
+  assert.equal(JSON.stringify(safe).includes(AUDIO_URL), false)
+  assert.equal(JSON.stringify(safe).includes(RAW_MID), false)
 })
