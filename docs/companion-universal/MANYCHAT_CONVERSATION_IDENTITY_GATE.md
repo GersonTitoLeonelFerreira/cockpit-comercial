@@ -1,6 +1,6 @@
 # ManyChat — Gate de identidade da conversa
 
-Estado: probe seguro preparado para validação real A → B → A no Firefox autenticado. Ainda não existe associação automática ManyChat → lead/ciclo Yolen.
+Estado: **PASS real no Firefox autenticado**. A sequência A → B → A foi validada no ManyChat sem expor nem persistir os tokens nativos. Ainda não existe associação automática ManyChat → lead/ciclo Yolen.
 
 ## Objetivo
 
@@ -22,7 +22,7 @@ Nenhuma chamada de rede é feita.
 
 Nenhum valor bruto é gravado em `dataset`, `sessionStorage`, `localStorage`, backend ou logs.
 
-O fluxo esperado é:
+O fluxo validado foi:
 
 1. abrir uma conversa A e clicar em `Yolen · capturar conversa A`;
 2. abrir uma conversa B no mesmo workspace e clicar novamente;
@@ -36,9 +36,22 @@ O PASS exige:
 - ao voltar para A, o token voltar exatamente ao baseline mantido apenas em memória;
 - nenhuma rede, persistência ou exposição de tokens ocorrer.
 
-Resultado esperado no botão:
+Resultado observado no ambiente real:
 
 `Yolen · identidade da conversa PASS`
+
+## Evidência real — 2026-09-15
+
+Validação executada em Firefox autenticado com a extensão empacotada a partir da branch do gate.
+
+Evidência fornecida:
+
+- probe visual carregado no ManyChat;
+- sequência A → B → A concluída;
+- resultado final do botão: `Yolen · identidade da conversa PASS`;
+- suíte local específica executada: **10 testes, 10 PASS, 0 FAIL**;
+- build completo do Companion concluído para Chrome/Firefox em DEV/PROD;
+- nenhum identificador bruto da rota foi necessário no relatório de validação.
 
 ## Limites
 
