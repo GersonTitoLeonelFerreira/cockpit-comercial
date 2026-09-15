@@ -56,6 +56,7 @@ test(
       manifest.background.scripts,
       [
         'src/capture-transport.js',
+        'src/manychat-audio-background-transport.js',
         'src/background.js',
       ],
     )
@@ -75,6 +76,11 @@ test(
         "'capture-transport.js'",
       )
 
+    const manyChatAudioIndex =
+      serviceWorker.indexOf(
+        "'manychat-audio-background-transport.js'",
+      )
+
     const backgroundIndex =
       serviceWorker.indexOf(
         "'background.js'",
@@ -85,8 +91,13 @@ test(
     )
 
     assert.ok(
-      backgroundIndex >
+      manyChatAudioIndex >
         captureIndex,
+    )
+
+    assert.ok(
+      backgroundIndex >
+        manyChatAudioIndex,
     )
   },
 )
@@ -98,8 +109,9 @@ test(
       manifest.host_permissions,
       [
         'https://web.whatsapp.com/*',
+        'https://manybot-files.manychat.io/*',
         'https://cockpit-comercial-vocn.vercel.app/*',
-        'http://localhost:3000/*',
+        'http://localhost/*',
       ],
     )
 

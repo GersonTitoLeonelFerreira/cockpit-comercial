@@ -32,14 +32,14 @@ import {
 const sourceManifest = readSourceManifest()
 
 // 1) DEV continua contendo localhost -----------------------------------
-test('DEV: manifest.json de origem e os manifests adaptados por navegador continuam contendo localhost:3000', () => {
+test('DEV: manifest.json de origem e os manifests adaptados por navegador continuam contendo localhost', () => {
   assert.ok(manifestHasDevHosts(sourceManifest), 'manifest.json de origem deveria conter localhost')
 
   for (const targetName of Object.keys(TARGETS)) {
     const devManifest = TARGETS[targetName].adaptManifest(sourceManifest)
     assert.ok(manifestHasDevHosts(devManifest), `manifest DEV de ${targetName} deveria conter localhost`)
     assert.ok(
-      devManifest.host_permissions.includes('http://localhost:3000/*'),
+      devManifest.host_permissions.includes('http://localhost/*'),
       `host_permissions DEV de ${targetName} deveria conter localhost`,
     )
   }
@@ -85,7 +85,11 @@ test('Chrome PROD: background contém somente service_worker (sem scripts)', () 
 test('Firefox PROD: background contém somente scripts (sem service_worker)', () => {
   const prodManifest = toProductionManifest(sourceManifest, 'firefox')
   assert.deepEqual(Object.keys(prodManifest.background), ['scripts'])
-  assert.deepEqual(prodManifest.background.scripts, ['src/capture-transport.js', 'src/background.js'])
+  assert.deepEqual(prodManifest.background.scripts, [
+    'src/capture-transport.js',
+    'src/manychat-audio-background-transport.js',
+    'src/background.js',
+  ])
 })
 
 // 6) Ícones estão declarados e existem -----------------------------------
