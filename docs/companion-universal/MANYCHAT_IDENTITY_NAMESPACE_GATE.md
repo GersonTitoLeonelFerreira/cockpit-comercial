@@ -11,7 +11,9 @@ O gate anterior provou em sessão autenticada real que:
 - `whatsapp_user_id` é estável, mas representa uma identidade distinta de canal;
 - a decisão semântica terminou com `ready_for_namespace_design = true`.
 
-Portanto, o namespace produtivo não deve usar nome, telefone visível, texto da conversa, índice DOM ou a rota da conversa como identidade do contato.
+A superfície ManyChat já expõe `account_key` a partir da rota autenticada. Esse valor identifica o escopo da conta/workspace, mas não é tratado como identidade do contato.
+
+Portanto, o namespace produtivo não deve usar nome, telefone visível, texto da conversa, índice DOM ou o token da rota da conversa como identidade do contato.
 
 ## Decisão
 
@@ -22,10 +24,10 @@ A identidade principal ManyChat passa a ter o seguinte desenho lógico:
 O `digest` é SHA-256 do material canônico:
 
 ```text
-["yolen-manychat-contact-v1", <workspace_key>, <subscriber_id>]
+["yolen-manychat-contact-v1", <account_key>, <subscriber_id>]
 ```
 
-A inclusão do `workspace_key` é obrigatória. Não assumimos que `subscriber_id` seja globalmente único entre workspaces ManyChat.
+A inclusão do `account_key` é obrigatória. Não assumimos que `subscriber_id` seja globalmente único entre contas/workspaces ManyChat.
 
 Para o canal WhatsApp, quando `whatsapp_user_id` estiver disponível, a identidade secundária usa namespace separado:
 
@@ -34,7 +36,7 @@ Para o canal WhatsApp, quando `whatsapp_user_id` estiver disponível, a identida
 com material canônico:
 
 ```text
-["yolen-manychat-channel-v1", <workspace_key>, "whatsapp", <whatsapp_user_id>]
+["yolen-manychat-channel-v1", <account_key>, "whatsapp", <whatsapp_user_id>]
 ```
 
 Mesmo que os valores brutos coincidam por acaso, identidade da plataforma e identidade do canal não podem gerar a mesma chave.
@@ -44,10 +46,10 @@ Mesmo que os valores brutos coincidam por acaso, identidade da plataforma e iden
 O módulo `manychat-identity-namespace.js` garante:
 
 - determinismo para a mesma entrada;
-- separação entre workspaces;
+- separação entre contas/workspaces;
 - separação entre identidade ManyChat e identidade WhatsApp;
 - nenhuma inclusão de valor bruto nas chaves finais;
-- fail closed quando `workspace_key`, `subscriber_id` ou SHA-256 não estiverem disponíveis.
+- fail closed quando `account_key`, `subscriber_id` ou SHA-256 não estiverem disponíveis.
 
 SHA-256 aqui é um pseudônimo determinístico e mecanismo de namespace/collision resistance. Não deve ser descrito como anonimização criptográfica contra brute force de identificadores previsíveis.
 
@@ -69,7 +71,7 @@ Continuam desligados:
 
 Criar a bridge segura de identidade ManyChat:
 
-1. ler `workspace_key` e `subscriber_id` somente no MAIN world;
+1. ler `account_key` e `subscriber_id` somente no MAIN world;
 2. gerar a chave namespaced ali, antes de cruzar fronteira de contexto;
 3. publicar para o isolated world somente a chave pseudônima e metadados não sensíveis;
 4. provar A → B → A com chaves diferentes em A/B e retorno exato em A;
