@@ -8,12 +8,14 @@
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
+    "https://manybot-files.manychat.io/*",
     "https://cockpit-comercial-vocn.vercel.app/*",
     "http://localhost/*"
   ],
   "background": {
     "scripts": [
       "src/capture-transport.js",
+      "src/manychat-audio-background-transport.js",
       "src/background.js"
     ],
     "service_worker": "src/background-service-worker.js"
