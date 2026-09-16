@@ -61,6 +61,25 @@
 
   let currentConversationKey = null
 
+  // Assinatura do último status de RESOLUÇÃO já renderizado por conversa
+  // (nunca do conteúdo seller-facing — isso é responsabilidade exclusiva do
+  // sellerPanelRuntime, que só re-renderiza quando tem dado novo de
+  // verdade). Evita reescrever o mesmo texto de status repetidamente só
+  // porque um evento chegou, sem que a resolução em si tenha mudado.
+  const lastRenderedResolutionByConversationKey = new Map()
+
+  function resolutionSignature(resolution) {
+    if (!resolution) return 'unknown'
+    return `${resolution.ready}:${resolution.reason}:${resolution.cycle_id}`
+  }
+
+  // Sincroniza SOMENTE a visibilidade do painel e o texto de status de
+  // resolução — nunca o conteúdo seller-facing (AGORA/ANÁLISE/CLIENTE),
+  // que é responsabilidade exclusiva do sellerPanelRuntime e só é
+  // re-renderizado quando ele mesmo busca dado novo (refreshViewModels).
+  // Chamado apenas em eventos discretos e pouco frequentes (troca de
+  // conversa, resultado de uma captura já debatida/filtrada) — nunca a
+  // cada mutação bruta do DOM.
   function syncPanel(conversationKey) {
     if (!panelMountApi) return
 
@@ -69,13 +88,21 @@
     if (!panelMountApi.isConversationOpen(root.document)) return
 
     currentConversationKey = conversationKey ?? currentConversationKey
-
-    const state = conversationKey ? runtime.getConversationState(conversationKey) : null
-    renderStatus(state?.resolution ?? null)
-
-    if (state?.resolution?.ready === true && sellerPanelRuntime) {
-      sellerPanelRuntime.renderPanel(conversationKey)
+    if (!currentConversationKey) {
+      renderStatus(null)
+      return
     }
+
+    const state = runtime.getConversationState(currentConversationKey)
+    const resolution = state?.resolution ?? null
+    const signature = resolutionSignature(resolution)
+
+    if (lastRenderedResolutionByConversationKey.get(currentConversationKey) === signature) {
+      return
+    }
+    lastRenderedResolutionByConversationKey.set(currentConversationKey, signature)
+
+    renderStatus(resolution)
   }
 
   // Únicos seletores validados ao vivo (A → B → A, com evidência de
@@ -123,8 +150,12 @@
     selectors: SELECTORS,
     sendMessage,
     onEvent(event) {
-      if (event?.type === 'reader_event') {
-        syncPanel(event.event?.conversation_key ?? null)
+      // 'conversation_mutated' NUNCA re-renderiza o painel por si só — é só
+      // o sinal que faz o capture-runtime agendar captureNow() (já com seu
+      // próprio debounce/fingerprint). O painel só reage ao RESULTADO de
+      // uma captura de verdade (capture_result), nunca à mutação bruta.
+      if (event?.type === 'reader_event' && event.event?.type === 'conversation_changed') {
+        syncPanel(event.event.conversation_key ?? null)
       } else if (event?.type === 'capture_result') {
         const conversationKey = event.result?.conversation_key ?? null
         syncPanel(conversationKey)

@@ -87,6 +87,30 @@ test('setPanelContent substitui o HTML interno sem recriar a raiz', () => {
   )
 })
 
+test('setPanelContent nunca escreve innerHTML de novo se o HTML final for idêntico ao já renderizado', () => {
+  const dom = buildDom()
+  panelMount.setPanelContent('<div id="agora">AGORA</div>', { document: dom.window.document })
+
+  const mounted = panelMount.ensurePanelMounted({ document: dom.window.document })
+  const node = mounted.element.querySelector('#agora')
+
+  // Mesmo HTML de novo (ex.: renderPanel rodou de novo mas o view model não
+  // mudou) — nunca deveria tocar no DOM, senão o próprio nó seria
+  // recriado (identidade de referência mudaria) mesmo sem mudança visual.
+  panelMount.setPanelContent('<div id="agora">AGORA</div>', { document: dom.window.document })
+  assert.equal(
+    mounted.element.querySelector('#agora'),
+    node,
+    'o nó não foi recriado — nenhuma escrita de innerHTML aconteceu',
+  )
+
+  // HTML realmente diferente ainda escreve normalmente.
+  panelMount.setPanelContent('<div id="agora">AGORA (atualizado)</div>', {
+    document: dom.window.document,
+  })
+  assert.equal(mounted.element.querySelector('#agora').textContent, 'AGORA (atualizado)')
+})
+
 test('setPanelCollapsed alterna a classe de colapso sem afetar o restante', () => {
   const dom = buildDom()
   panelMount.setPanelCollapsed(true, { document: dom.window.document })

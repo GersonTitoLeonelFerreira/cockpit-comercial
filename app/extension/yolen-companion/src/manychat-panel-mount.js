@@ -29,6 +29,14 @@
   // existir mas tiver caído fora da árvore.
   const lastElementByDocument = new WeakMap()
 
+  // Último HTML que NÓS escrevemos no painel, por documento — nunca lido de
+  // volta do DOM (o navegador pode reserializar atributos/whitespace de
+  // forma diferente do que escrevemos, o que faria uma comparação por
+  // leitura falhar mesmo com conteúdo equivalente). Evita reescrever
+  // innerHTML quando o próximo render produz exatamente o mesmo HTML —
+  // uma escrita de innerHTML idêntica ainda dispara mutações no DOM.
+  const lastContentByDocument = new WeakMap()
+
   // Cria a raiz do painel se ainda não existir (idempotente — nunca cria
   // um segundo elemento) e garante que ela continua anexada a
   // document.body mesmo se algo a tiver removido (a nossa raiz nunca fica
@@ -74,7 +82,13 @@
     const mounted = ensurePanelMounted({ document: documentRef })
     if (!mounted.ready) return mounted
 
-    mounted.element.innerHTML = typeof html === 'string' ? html : ''
+    const normalizedHtml = typeof html === 'string' ? html : ''
+    if (lastContentByDocument.get(documentRef) === normalizedHtml) {
+      return mounted
+    }
+
+    mounted.element.innerHTML = normalizedHtml
+    lastContentByDocument.set(documentRef, normalizedHtml)
     return mounted
   }
 

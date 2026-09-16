@@ -541,3 +541,93 @@ test('múltiplos eventos de mutação em sequência agendam somente UMA captura 
   assert.equal(fakeParts.isStopped(), true)
   assert.equal(scheduler.pendingCount(), 0, 'stop() cancela o agendamento pendente')
 })
+
+// -----------------------------------------------------------------------
+// Prova quantitativa de estado estável ocioso: usa o dom-reader REAL (com
+// seus próprios timers reais internos de lifecycle/mutation-debounce, não
+// injetados) + capture-runtime REAL, e só substitui o debounce PRÓPRIO do
+// capture-runtime por um fake controlável — nunca o do reader, que
+// continua com o comportamento real de produção. Mutações "de fundo" fora
+// do conversationRoot (sidebar) ao longo de uma janela real de tempo nunca
+// devem gerar conversation_mutated nem tráfego de rede repetido.
+// -----------------------------------------------------------------------
+
+test('mutações repetidas FORA do conversationRoot (sidebar) nunca disparam captureNow/sendMessage extra — integração real', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Mensagem parada.' }])
+
+  const sidebar = dom.window.document.createElement('nav')
+  sidebar.setAttribute('data-fixture-sidebar', '')
+  dom.window.document.body.append(sidebar)
+
+  const scheduler = (() => {
+    let nextId = 1
+    const pending = new Map()
+    return {
+      schedule(fn) {
+        const id = nextId++
+        pending.set(id, fn)
+        return id
+      },
+      cancel(id) {
+        pending.delete(id)
+      },
+      flush() {
+        const fns = Array.from(pending.values())
+        pending.clear()
+        fns.forEach((fn) => fn())
+      },
+    }
+  })()
+
+  let sendMessageCount = 0
+  let readerEventCount = 0
+  let conversationMutatedCount = 0
+  let captureResultCount = 0
+
+  const runtime = runtimeApi.createManyChatCaptureRuntime({
+    document: dom.window.document,
+    MutationObserver: dom.window.MutationObserver,
+    selectors: SELECTORS,
+    readChannel,
+    readAssignment,
+    sendMessage: async () => {
+      sendMessageCount += 1
+      return safeIdentityNotReady()
+    },
+    getConversationUrl: () => CONVERSATION_URL_A,
+    now: () => '2026-09-14T20:35:00.000Z',
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+    onEvent(event) {
+      if (event?.type === 'reader_event') {
+        readerEventCount += 1
+        if (event.event?.type === 'conversation_mutated') conversationMutatedCount += 1
+      } else if (event?.type === 'capture_result') {
+        captureResultCount += 1
+      }
+    },
+  })
+
+  runtime.start()
+
+  // Simula ~600ms reais de "conversa parada" com ruído de fundo (sidebar
+  // mutando a cada 50ms) — cobre pelo menos um tick do polling real de
+  // lifecycle (500ms) do reader real, sem nenhum fake nele.
+  for (let i = 0; i < 12; i += 1) {
+    sidebar.textContent = `Atualização ${i}`
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+
+  // Só agora deixa a ÚNICA captura inicial (agendada por start()) rodar —
+  // nunca uma por mutação de sidebar, já que nenhuma delas gerou reader
+  // event nenhum.
+  scheduler.flush()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  runtime.stop()
+
+  assert.equal(conversationMutatedCount, 0, 'nenhuma mutação de sidebar virou conversation_mutated')
+  assert.equal(captureResultCount, 1, 'só a captura inicial do start(), nunca uma por mutação de sidebar')
+  assert.equal(sendMessageCount, 1, 'só a tentativa inicial de identidade, nenhuma repetição por ruído de fundo')
+  assert.ok(readerEventCount <= 1, 'nenhum reader_event espúrio vindo da sidebar')
+})
