@@ -98,13 +98,38 @@ function createProfile() {
   }
 }
 
-function createReader(dom, currentUrlRef) {
+function createReader(dom, currentUrlRef, overrides = {}) {
   return readerApi.createManyChatDomReader({
     document: dom.window.document,
     MutationObserver: dom.window.MutationObserver,
     profile: createProfile(),
     surfaceProvider: () => surface.parseManyChatConversationUrl(currentUrlRef.value),
+    ...overrides,
   })
+}
+
+// Scheduler falso para os testes de debounce/coalescing do observer: nunca
+// depende de setTimeout real, então os testes ficam determinísticos e
+// rápidos (flush() dispara manualmente o callback pendente).
+function createFakeScheduler() {
+  let nextId = 1
+  const pending = new Map()
+  return {
+    schedule(fn) {
+      const id = nextId++
+      pending.set(id, fn)
+      return id
+    },
+    cancel(id) {
+      pending.delete(id)
+    },
+    pendingCount: () => pending.size,
+    flush() {
+      const fns = Array.from(pending.values())
+      pending.clear()
+      fns.forEach((fn) => fn())
+    },
+  }
 }
 
 test('reader DOM usa somente profile explícito e não inventa seletores ManyChat', () => {
@@ -263,12 +288,16 @@ test('troca A→B é emitida como mudança de conversa e nunca como mutação de
   assert.match(events[0].conversation_key, /2002/)
 })
 
-test('mutação na mesma conversa preserva a conversation_key atual', async () => {
+test('mutação na mesma conversa preserva a conversation_key atual (após o debounce)', async () => {
   const dom = createFixture()
   const currentUrlRef = {
     value: 'https://app.manychat.com/fb871594/chat/1001',
   }
-  const reader = createReader(dom, currentUrlRef)
+  const scheduler = createFakeScheduler()
+  const reader = createReader(dom, currentUrlRef, {
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+  })
   const events = []
   const stop = reader.observeChanges((event) => events.push(event))
 
@@ -276,11 +305,106 @@ test('mutação na mesma conversa preserva a conversation_key atual', async () =
   node.textContent = 'Nova versão visível da mesma mensagem.'
 
   await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(events.length, 0, 'a notificação fica pendente até o debounce disparar')
+
+  scheduler.flush()
   stop()
 
   assert.equal(events.length, 1)
   assert.equal(events[0].type, 'conversation_mutated')
   assert.match(events[0].conversation_key, /1001/)
+})
+
+test('rajada de mutações reais na mesma conversa é coalescida em UM único evento (debounce)', async () => {
+  const dom = createFixture()
+  const currentUrlRef = {
+    value: 'https://app.manychat.com/fb871594/chat/1001',
+  }
+  const scheduler = createFakeScheduler()
+  const reader = createReader(dom, currentUrlRef, {
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+  })
+  const events = []
+  const stop = reader.observeChanges((event) => events.push(event))
+
+  const node = dom.window.document.querySelector('[data-message-id="m-2"]')
+  node.textContent = 'Primeira atualização.'
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  node.textContent = 'Segunda atualização.'
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  node.textContent = 'Terceira atualização.'
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(scheduler.pendingCount(), 1, 'cada mutação nova cancela o agendamento anterior')
+
+  scheduler.flush()
+  stop()
+
+  assert.equal(events.length, 1, 'a rajada inteira vira um único evento, não um por mutação')
+  assert.equal(events[0].type, 'conversation_mutated')
+})
+
+test('mutação restrita ao próprio painel Yolen nunca reaciona o observer (evita loop autoinduzido)', async () => {
+  const dom = createFixture()
+  const currentUrlRef = {
+    value: 'https://app.manychat.com/fb871594/chat/1001',
+  }
+  const scheduler = createFakeScheduler()
+  const reader = createReader(dom, currentUrlRef, {
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+  })
+
+  const panel = dom.window.document.createElement('aside')
+  panel.setAttribute('data-yolen-platform', 'manychat')
+  dom.window.document.body.append(panel)
+
+  const events = []
+  const stop = reader.observeChanges((event) => events.push(event))
+
+  // Simula exatamente o que o painel faz a cada render: reescrever o
+  // próprio innerHTML. Isso é uma mutação real (childList) — mas dentro da
+  // NOSSA UI, então nunca deve contar como "a conversa mudou".
+  panel.innerHTML = '<section>AGORA</section><section>ANÁLISE</section>'
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(scheduler.pendingCount(), 0, 'nenhuma notificação é sequer agendada')
+  assert.equal(events.length, 0)
+
+  // Confirma que o observer continua vivo e funcional para mutações reais
+  // do ManyChat (a exclusão é só para a própria UI, não desliga o reader).
+  const node = dom.window.document.querySelector('[data-message-id="m-2"]')
+  node.textContent = 'Mutação real do ManyChat.'
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  scheduler.flush()
+  stop()
+
+  assert.equal(events.length, 1)
+  assert.equal(events[0].type, 'conversation_mutated')
+})
+
+test('mudança de atributo isolada não é mais observada (redução deliberada de ruído/tempestade de mutações)', async () => {
+  const dom = createFixture()
+  const currentUrlRef = {
+    value: 'https://app.manychat.com/fb871594/chat/1001',
+  }
+  const scheduler = createFakeScheduler()
+  const reader = createReader(dom, currentUrlRef, {
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+  })
+  const events = []
+  const stop = reader.observeChanges((event) => events.push(event))
+
+  const node = dom.window.document.querySelector('[data-message-id="m-2"]')
+  node.setAttribute('aria-live', 'polite')
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  stop()
+
+  assert.equal(scheduler.pendingCount(), 0)
+  assert.equal(events.length, 0)
 })
 
 test('profile sem readMessage falha fechado', () => {

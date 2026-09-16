@@ -10,6 +10,21 @@
     'unknown',
   ])
 
+  // Marcador da NOSSA própria UI (painel Yolen, montado à parte em
+  // document.body — ver manychat-panel-mount.js). Nunca uma classe/atributo
+  // do ManyChat: é um contrato que nós mesmos controlamos. Mutações restritas
+  // a esse marcador nunca contam como evidência de mudança na conversa —
+  // caso contrário, o próprio re-render do painel (innerHTML) reacionaria o
+  // observer indefinidamente (o painel escreve → o observer dispara → o
+  // painel escreve de novo, em loop autoinduzido e sem fim natural).
+  const OWN_UI_MARKER_SELECTOR = '[data-yolen-platform]'
+
+  // Debounce padrão para coalescer rajadas de mutações reais do ManyChat
+  // (ex.: a renderização inicial de uma conversa insere dezenas de nós de
+  // uma vez) em um único evento — evita recalcular a surface e notificar o
+  // painel/captura a cada mutação individual.
+  const DEFAULT_MUTATION_DEBOUNCE_MS = 250
+
   function isObject(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
   }
@@ -96,6 +111,19 @@
     } catch {
       return []
     }
+  }
+
+  function isWithinOwnUi(node) {
+    if (!node) return false
+    // Nós de texto não têm .closest — sobe até o elemento pai mais próximo
+    // antes de checar o marcador.
+    const element = typeof node.closest === 'function' ? node : node.parentElement ?? null
+    return Boolean(element?.closest?.(OWN_UI_MARKER_SELECTOR))
+  }
+
+  function hasMutationOutsideOwnUi(mutations) {
+    if (!Array.isArray(mutations)) return true
+    return mutations.some((mutation) => !isWithinOwnUi(mutation?.target))
   }
 
   function normalizeChannel(value) {
@@ -208,6 +236,17 @@
       typeof options.surfaceProvider === 'function'
         ? options.surfaceProvider
         : () => root.YolenManyChatSurface?.getCurrentConversationSurface?.() ?? null
+    const schedule =
+      typeof options.schedule === 'function'
+        ? options.schedule
+        : (fn, ms) => root.setTimeout(fn, ms)
+    const cancelSchedule =
+      typeof options.cancelSchedule === 'function'
+        ? options.cancelSchedule
+        : (handle) => root.clearTimeout(handle)
+    const mutationDebounceMs = Number.isFinite(options.mutationDebounceMs)
+      ? options.mutationDebounceMs
+      : DEFAULT_MUTATION_DEBOUNCE_MS
 
     function getSurface() {
       const value = surfaceProvider()
@@ -321,9 +360,23 @@
       let lastConversationKey =
         lastSurface?.supported === true ? lastSurface.conversation_key : null
       let stopped = false
+      let mutationTimerHandle = null
+
+      function cancelPendingMutationNotification() {
+        if (mutationTimerHandle !== null) {
+          cancelSchedule(mutationTimerHandle)
+          mutationTimerHandle = null
+        }
+      }
 
       const observer = new MutationObserverClass((mutations) => {
         if (stopped) return
+
+        // Mutações inteiramente restritas à NOSSA própria UI nunca contam
+        // como evidência de mudança na conversa (ver OWN_UI_MARKER_SELECTOR
+        // acima) — impede o loop autoinduzido de o painel reagir ao próprio
+        // re-render.
+        if (!hasMutationOutsideOwnUi(mutations)) return
 
         const currentSurface = getSurface()
         const currentConversationKey =
@@ -332,6 +385,11 @@
             : null
 
         if (currentConversationKey !== lastConversationKey) {
+          // Troca de conversa é um evento discreto e importante: nunca é
+          // coalescido/atrasado, e cancela qualquer notificação de mutação
+          // pendente da conversa anterior (nunca vaza para a nova).
+          cancelPendingMutationNotification()
+
           const previousConversationKey = lastConversationKey
           lastSurface = currentSurface
           lastConversationKey = currentConversationKey
@@ -351,26 +409,37 @@
         if (!currentConversationKey) return
 
         lastSurface = currentSurface
-        callback(
-          Object.freeze({
-            type: 'conversation_mutated',
-            platform: PLATFORM,
-            conversation_key: currentConversationKey,
-            mutation_count: Array.isArray(mutations) ? mutations.length : 0,
-            surface: lastSurface,
-          }),
-        )
+
+        // Coalesce rajadas de mutações reais (ex.: a renderização inicial de
+        // uma conversa insere dezenas de nós de uma vez, ou o ManyChat
+        // atualiza vários indicadores em sequência) em um único evento —
+        // nunca notifica o painel/captura uma vez por mutação individual.
+        cancelPendingMutationNotification()
+        mutationTimerHandle = schedule(() => {
+          mutationTimerHandle = null
+          if (stopped) return
+
+          callback(
+            Object.freeze({
+              type: 'conversation_mutated',
+              platform: PLATFORM,
+              conversation_key: currentConversationKey,
+              mutation_count: Array.isArray(mutations) ? mutations.length : 0,
+              surface: lastSurface,
+            }),
+          )
+        }, mutationDebounceMs)
       })
 
       observer.observe(documentRef.documentElement, {
         subtree: true,
         childList: true,
         characterData: true,
-        attributes: true,
       })
 
       return () => {
         stopped = true
+        cancelPendingMutationNotification()
         observer.disconnect()
       }
     }
@@ -389,6 +458,7 @@
   const api = Object.freeze({
     PLATFORM,
     UNKNOWN,
+    DEFAULT_MUTATION_DEBOUNCE_MS,
     createManyChatDomReader,
   })
 
