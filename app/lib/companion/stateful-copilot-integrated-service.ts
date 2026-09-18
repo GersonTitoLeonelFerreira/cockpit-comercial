@@ -534,9 +534,12 @@ function normalizeCandidateState({
   normalizeState:
     StatefulCommercialStateNormalizer
 }): StatefulCopilotEngineResult {
+  // R1.2: qualquer modo que não seja 'model' (bloqueado ou guard
+  // esgotado) já vem com candidate_state: null do engine — nunca passa
+  // por normalização de candidato.
   if (
-    engineResult.mode ===
-    'blocked'
+    engineResult.mode !==
+    'model'
   ) {
     return engineResult
   }

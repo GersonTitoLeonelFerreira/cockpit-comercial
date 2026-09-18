@@ -1048,6 +1048,174 @@ test(
 )
 
 test(
+  'R1.2 (seller-facing): guard esgotado (segunda violação do Commercial Truth Guard) preserva previous_state e nunca cria candidato novo',
+  async () => {
+    // Estado anterior real, com fato ativo — exatamente o tipo de
+    // contexto (oportunidade/objeção/memória) que a R1.2 exige nunca
+    // apagar quando o modelo falha o guard duas vezes.
+    const firstResult =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          buildDiagnosticInput(),
+
+        previous_state:
+          null,
+
+        known_message_ids: [
+          'm1',
+        ],
+
+        provider:
+          createProvider(
+            [
+              buildOutput({
+                addFact:
+                  true,
+              }),
+              buildCommunicationOutput(),
+            ],
+            [],
+          ),
+
+        create_memory_id:
+          createMemoryId,
+      })
+
+    const previousState =
+      firstResult.candidate_state
+
+    const originalPreviousState =
+      clone(
+        previousState,
+      )
+
+    const result =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          buildDiagnosticInput({
+            messageId:
+              'm2',
+
+            messageText:
+              'ok',
+
+            referenceTime:
+              '2026-08-06T16:00:00-03:00',
+          }),
+
+        previous_state:
+          previousState,
+
+        known_message_ids: [
+          'm1',
+          'm2',
+        ],
+
+        provider:
+          async () => {
+            throw new Error(
+              'O provedor não deveria ser chamado — execute_plan foi substituído.',
+            )
+          },
+
+        create_memory_id:
+          () => {
+            throw new Error(
+              'create_memory_id não deveria ser chamado quando o guard esgota.',
+            )
+          },
+
+        dependencies: {
+          execute_plan:
+            async () => ({
+              mode:
+                'guard_exhausted',
+
+              output:
+                null,
+
+              limitations: [
+                'commercial_truth_guard_exhausted:ACTIVE_COMMERCIAL_CONTINUITY_REQUIRED',
+              ],
+
+              execution: {
+                mode:
+                  'model',
+
+                provider:
+                  'test-provider',
+
+                model:
+                  'test-model',
+
+                request_id:
+                  'request-2',
+
+                usage:
+                  null,
+
+                attempts:
+                  2,
+
+                recovered_after_retry:
+                  false,
+              },
+            }),
+        },
+      })
+
+    assert.equal(
+      result.mode,
+      'guard_exhausted',
+    )
+
+    assert.equal(
+      result.output,
+      null,
+    )
+
+    assert.equal(
+      result.candidate_state,
+      null,
+    )
+
+    assert.equal(
+      result.communication_output,
+      null,
+    )
+
+    // O contexto vendedor-facing anterior (facts/objections/etc. do
+    // ciclo) precisa continuar exatamente igual — nada foi apagado só
+    // porque o modelo falhou o guard duas vezes.
+    assert.deepEqual(
+      result.previous_state,
+      originalPreviousState,
+    )
+
+    assert.ok(
+      result.limitations.some(
+        (limitation) =>
+          limitation.includes(
+            'ACTIVE_COMMERCIAL_CONTINUITY_REQUIRED',
+          ),
+      ),
+    )
+
+    assert.equal(
+      result.execution.attempts,
+      2,
+    )
+
+    assert.equal(
+      result
+        .execution
+        .recovered_after_retry,
+      false,
+    )
+  },
+)
+
+test(
   'falha do provedor não altera a entrada recebida',
   async () => {
     const diagnosticInput =

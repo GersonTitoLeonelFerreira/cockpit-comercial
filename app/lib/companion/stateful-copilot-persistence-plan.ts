@@ -588,11 +588,16 @@ export function buildStatefulCopilotPersistencePlan(
       .state_context
       .previous_state_version
 
+  // R1.2: 'guard_exhausted' (segunda violação do Commercial Truth Guard,
+  // já depois do reparo) nunca é persistido — mesmo tratamento de
+  // should_persist:false que o bloqueio determinístico já recebia,
+  // preservando o previous_state em vez de gravar a saída rejeitada.
   if (
-    result.mode ===
-    'blocked'
+    result.mode !==
+    'model'
   ) {
     if (
+      result.mode === 'blocked' &&
       result.plan.mode !==
       'blocked'
     ) {
@@ -600,6 +605,18 @@ export function buildStatefulCopilotPersistencePlan(
         'ENGINE_PLAN_RESULT_MISMATCH',
         'engine_result.plan.mode',
         'O resultado bloqueado precisa possuir um plano bloqueado.',
+      )
+    }
+
+    if (
+      result.mode === 'guard_exhausted' &&
+      result.plan.mode !==
+      'model'
+    ) {
+      fail(
+        'ENGINE_PLAN_RESULT_MISMATCH',
+        'engine_result.plan.mode',
+        'O resultado de guard esgotado precisa ter partido de um plano de modelo.',
       )
     }
 
