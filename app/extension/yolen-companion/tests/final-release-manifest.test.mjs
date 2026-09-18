@@ -57,6 +57,7 @@ test(
       [
         'src/capture-transport.js',
         'src/manychat-audio-background-transport.js',
+        'src/manychat-safe-identity-background.js',
         'src/background.js',
       ],
     )
@@ -81,6 +82,11 @@ test(
         "'manychat-audio-background-transport.js'",
       )
 
+    const safeIdentityIndex =
+      serviceWorker.indexOf(
+        "'manychat-safe-identity-background.js'",
+      )
+
     const backgroundIndex =
       serviceWorker.indexOf(
         "'background.js'",
@@ -96,8 +102,13 @@ test(
     )
 
     assert.ok(
-      backgroundIndex >
+      safeIdentityIndex >
         manyChatAudioIndex,
+    )
+
+    assert.ok(
+      backgroundIndex >
+        safeIdentityIndex,
     )
   },
 )
@@ -113,6 +124,14 @@ test(
         'https://manybot-files.manychat.io/*',
         'https://cockpit-comercial-vocn.vercel.app/*',
         'http://localhost/*',
+      ],
+    )
+
+    assert.deepEqual(
+      manifest.permissions,
+      [
+        'storage',
+        'scripting',
       ],
     )
 
@@ -132,38 +151,70 @@ test(
 )
 
 test(
-  'ManyChat arma probe MAIN world no document_start e mantém runtime isolado separado',
+  'ManyChat separa MAIN, bootstrap isolated precoce e runtime document_idle',
   () => {
     const manyChatBlocks = manifest.content_scripts.filter((block) =>
       block.matches?.includes('https://app.manychat.com/*'),
     )
 
-    assert.equal(manyChatBlocks.length, 2)
+    assert.equal(manyChatBlocks.length, 3)
 
     const mainWorldBlock = manyChatBlocks.find((block) => block.world === 'MAIN')
-    const isolatedBlock = manyChatBlocks.find((block) => block.world === undefined)
+    const earlyIsolatedBlock = manyChatBlocks.find(
+      (block) =>
+        block.world === undefined &&
+        block.run_at === 'document_start',
+    )
+    const idleIsolatedBlock = manyChatBlocks.find(
+      (block) =>
+        block.world === undefined &&
+        block.run_at === 'document_idle',
+    )
 
     assert.ok(mainWorldBlock)
     assert.deepEqual(mainWorldBlock.js, [
       'src/manychat-mainworld-identity-probe.js',
+      'src/manychat-identity-namespace.js',
+      'src/manychat-safe-identity-main.js',
       'src/manychat-mainworld-probe-bootstrap.js',
       'src/manychat-mainworld-report-export.js',
     ])
     assert.equal(mainWorldBlock.run_at, 'document_start')
     assert.equal(mainWorldBlock.css, undefined)
 
-    assert.ok(isolatedBlock)
-    assert.deepEqual(isolatedBlock.js, [
+    assert.ok(earlyIsolatedBlock)
+    assert.deepEqual(earlyIsolatedBlock.js, [
+      'src/manychat-safe-identity-bridge.js',
+    ])
+    assert.equal(earlyIsolatedBlock.css, undefined)
+
+    assert.ok(idleIsolatedBlock)
+    assert.deepEqual(idleIsolatedBlock.js, [
       'src/platform-contract.js',
       'src/manychat-surface.js',
       'src/manychat-context-evidence-probe.js',
       'src/manychat-message-semantics.js',
       'src/manychat-message-identity.js',
       'src/manychat-message-content.js',
+      'src/manychat-message-profile.js',
+      'src/manychat-dom-reader.js',
+      'src/manychat-adapter.js',
+      'src/capture-batch.js',
+      'src/companion-client-context-view.js',
+      'src/companion-seller-information-view.js',
+      'src/manychat-feature-flags.js',
+      'src/manychat-capture-runtime.js',
+      'src/manychat-composer.js',
+      'src/manychat-panel-mount.js',
+      'src/manychat-seller-panel-runtime.js',
+      'src/manychat-capture-bootstrap.js',
       'src/manychat-audio-source.js',
       'src/manychat-audio-dispatch-runtime.js',
     ])
-    assert.equal(isolatedBlock.run_at, 'document_idle')
-    assert.equal(isolatedBlock.css, undefined)
+    // styles.css é o MESMO CSS já usado pelo painel do WhatsApp
+    // (#yolen-companion-panel é position:fixed relativo à viewport, então
+    // funciona de forma idêntica em qualquer página) — reaproveitado aqui
+    // em vez de duplicado.
+    assert.deepEqual(idleIsolatedBlock.css, ['src/styles.css'])
   },
 )

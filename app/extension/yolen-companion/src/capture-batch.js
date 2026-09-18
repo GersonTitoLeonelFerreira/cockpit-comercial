@@ -96,6 +96,33 @@
           : 'incoming'
       }
 
+      const VALID_AUTHOR_KINDS = [
+        'customer',
+        'human_agent',
+        'automation',
+        'unknown',
+      ]
+
+      function normalizeAuthorKind(
+        value,
+        direction,
+      ) {
+        if (
+          VALID_AUTHOR_KINDS.includes(
+            value,
+          )
+        ) {
+          return value
+        }
+
+        // Sem author_kind explícito (ex.: adapter WhatsApp, onde só
+        // existem duas partes), deriva o mais conservador a partir da
+        // direction já normalizada.
+        return direction === 'outgoing'
+          ? 'human_agent'
+          : 'customer'
+      }
+
       function isCaptureResolutionEligible(
         resolution,
       ) {
@@ -229,11 +256,18 @@
           return null
         }
 
+        const direction =
+          normalizeDirection(
+            message.direction,
+          )
+
         return {
           message_key: messageKey,
-          direction:
-            normalizeDirection(
-              message.direction,
+          direction,
+          author_kind:
+            normalizeAuthorKind(
+              message.author_kind,
+              direction,
             ),
           occurred_at: occurredAt,
           observed_at: observedAt,
@@ -276,11 +310,18 @@
           return null
         }
 
+        const direction =
+          normalizeDirection(
+            message.direction,
+          )
+
         return {
           message_key: messageKey,
-          direction:
-            normalizeDirection(
-              message.direction,
+          direction,
+          author_kind:
+            normalizeAuthorKind(
+              message.author_kind,
+              direction,
             ),
           occurred_at: occurredAt,
           observed_at: observedAt,
@@ -554,6 +595,7 @@
                 return [
                   message.message_key,
                   message.direction,
+                  message.author_kind,
                   message.occurred_at,
                   message.base_version,
                   message.content_type,
@@ -573,13 +615,18 @@
         )
       }
 
-      function buildCaptureIngestionPlan({
+      // Recebe mensagens JÁ NORMALIZADAS no formato canônico (o mesmo que
+      // buildActiveCaptureMessage/buildDeletedCaptureMessage produzem a
+      // partir do DOM do WhatsApp) e monta o envelope de ingestão
+      // (snapshot key para dedupe local, observed_at agregado, lotes
+      // respeitando maxBatchSize). Extraído de buildCaptureIngestionPlan
+      // para ser reutilizável por qualquer plataforma cujo adapter já
+      // entregue mensagens normalizadas (ex.: o contrato universal do
+      // ManyChat) sem duplicar a lógica de batching/snapshot.
+      function buildCaptureIngestionPlanFromMessages({
         cycleId,
         conversationKey,
-        activeMessages = [],
-        deletedMessages = [],
-        transcriptionsByKey = {},
-        baseVersionsByMessageKey = {},
+        messages,
         maxBatchSize =
           DEFAULT_MAX_BATCH_SIZE,
       } = {}) {
@@ -603,13 +650,8 @@
           )
         }
 
-        const messages =
-          buildCaptureMessages({
-            activeMessages,
-            deletedMessages,
-            transcriptionsByKey,
-            baseVersionsByMessageKey,
-          })
+        const safeMessages =
+          Array.isArray(messages) ? messages : []
 
         const normalizedObservedAt =
           messages.reduce(
@@ -637,7 +679,7 @@
           )
 
         if (
-          messages.length > 0 &&
+          safeMessages.length > 0 &&
           !normalizedObservedAt
         ) {
           throw new Error(
@@ -650,12 +692,12 @@
             cycleId: normalizedCycleId,
             conversationKey:
               normalizedConversationKey,
-            messages,
+            messages: safeMessages,
           })
 
         const batches =
           splitCaptureMessages(
-            messages,
+            safeMessages,
             maxBatchSize,
           ).map((batchMessages) => {
             return {
@@ -676,9 +718,35 @@
           snapshotKey,
           observedAt:
             normalizedObservedAt,
-          messages,
+          messages: safeMessages,
           batches,
         }
+      }
+
+      function buildCaptureIngestionPlan({
+        cycleId,
+        conversationKey,
+        activeMessages = [],
+        deletedMessages = [],
+        transcriptionsByKey = {},
+        baseVersionsByMessageKey = {},
+        maxBatchSize =
+          DEFAULT_MAX_BATCH_SIZE,
+      } = {}) {
+        const messages =
+          buildCaptureMessages({
+            activeMessages,
+            deletedMessages,
+            transcriptionsByKey,
+            baseVersionsByMessageKey,
+          })
+
+        return buildCaptureIngestionPlanFromMessages({
+          cycleId,
+          conversationKey,
+          messages,
+          maxBatchSize,
+        })
       }
 
       return {
@@ -690,6 +758,7 @@
         splitCaptureMessages,
         buildCaptureSnapshotKey,
         buildCaptureIngestionPlan,
+        buildCaptureIngestionPlanFromMessages,
       }
     },
   )

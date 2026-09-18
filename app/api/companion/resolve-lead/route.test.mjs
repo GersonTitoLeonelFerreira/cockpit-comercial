@@ -374,3 +374,142 @@ test('resolve-lead: erro ao buscar leads por telefone é reportado como LEAD_SEA
   assert.equal(response.status, 400)
   assert.equal(payload.status, 'LEAD_SEARCH_ERROR')
 })
+
+// ---------------------------------------------------------------------
+// Identidade externa universal (ManyChat e futuras plataformas):
+// company_id + platform + platform_contact_key -> lead_id, sem telefone.
+// ---------------------------------------------------------------------
+
+const PLATFORM_CONTACT_KEY = `manychat:contact:v1:sha256:${'a'.repeat(64)}`
+
+test('resolve-lead: platform_contact_key sem telefone não responde NO_PHONE_DETECTED e checa membership', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('lead_external_identities', null),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: { platform: 'manychat', platform_contact_key: PLATFORM_CONTACT_KEY },
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.notEqual(payload.status, 'NO_PHONE_DETECTED')
+  assert.equal(fake.calls[0].table, 'company_memberships')
+})
+
+test('resolve-lead: contato ainda não vinculado responde CONTACT_NOT_LINKED sem consultar leads', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('lead_external_identities', null),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: { platform: 'manychat', platform_contact_key: PLATFORM_CONTACT_KEY },
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'CONTACT_NOT_LINKED')
+  assert.equal(payload.actions.can_link_lead, true)
+  assert.equal(
+    fake.calls.some((call) => call.table === 'leads'),
+    false,
+  )
+})
+
+test('resolve-lead: contato vinculado a lead na carteira do vendedor responde OWNED_BY_ME e atualiza last_seen', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('lead_external_identities', { lead_id: IDS.lead }),
+    selectStep('leads', LEAD_ROW),
+    selectStep('lead_profiles', LEAD_PROFILE_ROW),
+    selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.userA })]),
+    selectStep('profiles', { id: IDS.userA, full_name: 'Vendedor Um', email: 'vendedor@example.com' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: { platform: 'manychat', platform_contact_key: PLATFORM_CONTACT_KEY },
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'OWNED_BY_ME')
+  assert.equal(payload.lead.id, IDS.lead)
+  assert.equal(fake.rpcCalls.length, 1)
+  assert.equal(fake.rpcCalls[0].name, 'rpc_touch_companion_external_identity_last_seen')
+  assert.equal(fake.rpcCalls[0].params.p_company_id, IDS.companyA)
+  assert.equal(fake.rpcCalls[0].params.p_platform, 'manychat')
+  assert.equal(fake.rpcCalls[0].params.p_external_identity_key, PLATFORM_CONTACT_KEY)
+})
+
+test('resolve-lead: vínculo aponta para lead que não existe mais responde CONTACT_NOT_LINKED', async () => {
+  useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('lead_external_identities', { lead_id: IDS.otherLead }),
+    selectStep('leads', null),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: { platform: 'manychat', platform_contact_key: PLATFORM_CONTACT_KEY },
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'CONTACT_NOT_LINKED')
+})
+
+test('resolve-lead: vínculo para lead arquivado/excluído responde SOFT_DELETED', async () => {
+  useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('lead_external_identities', { lead_id: IDS.lead }),
+    selectStep('leads', { ...LEAD_ROW, deleted_at: '2026-01-01T00:00:00.000Z' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: { platform: 'manychat', platform_contact_key: PLATFORM_CONTACT_KEY },
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'SOFT_DELETED')
+})
+
+test('resolve-lead: erro ao buscar identidade externa é reportado como EXTERNAL_IDENTITY_SEARCH_ERROR', async () => {
+  useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('lead_external_identities', null, { message: 'timeout no banco' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: { platform: 'manychat', platform_contact_key: PLATFORM_CONTACT_KEY },
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'EXTERNAL_IDENTITY_SEARCH_ERROR')
+})

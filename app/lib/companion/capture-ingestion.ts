@@ -8,6 +8,11 @@ export const MAX_AUDIO_TRANSCRIPTION_LENGTH = 200_000
 
 export type CaptureDirection = 'incoming' | 'outgoing'
 export type CaptureContentType = 'text' | 'audio'
+export type CaptureAuthorKind =
+  | 'customer'
+  | 'human_agent'
+  | 'automation'
+  | 'unknown'
 
 // Blocker 2 (Fase 12A, Frente 2B, re-auditoria do Controle Mestre):
 // 'explicit_deletion' significa que o WhatsApp mostrou um marcador
@@ -27,6 +32,7 @@ export type CaptureDeletionReason =
 export type NormalizedCaptureMessage = {
   message_key: string
   direction: CaptureDirection
+  author_kind: CaptureAuthorKind
   occurred_at: string
   observed_at: string
   base_version: string | null
@@ -278,6 +284,31 @@ function normalizeDirection(
   return value
 }
 
+const VALID_AUTHOR_KINDS: CaptureAuthorKind[] = [
+  'customer',
+  'human_agent',
+  'automation',
+  'unknown',
+]
+
+function normalizeAuthorKind(
+  value: unknown,
+  direction: CaptureDirection,
+): CaptureAuthorKind {
+  if (
+    typeof value === 'string' &&
+    (VALID_AUTHOR_KINDS as string[]).includes(value)
+  ) {
+    return value as CaptureAuthorKind
+  }
+
+  // Fail-safe, não fail-closed: uma versão da extensão que ainda não
+  // envia author_kind (ou envia um valor inesperado) nunca derruba o
+  // lote — cai no fallback mais conservador derivado de direction, que
+  // é exatamente o que sempre foi verdade no adapter WhatsApp.
+  return direction === 'outgoing' ? 'human_agent' : 'customer'
+}
+
 function normalizeContentType(
   value: unknown,
   path: string,
@@ -456,6 +487,11 @@ function normalizeCaptureMessage(
     `${path}.direction`,
   )
 
+  const authorKind = normalizeAuthorKind(
+    value.author_kind,
+    direction,
+  )
+
   const occurredAt = normalizeOccurredAt(
     value.occurred_at,
     `${path}.occurred_at`,
@@ -514,6 +550,7 @@ function normalizeCaptureMessage(
     return {
       message_key: messageKey,
       direction,
+      author_kind: authorKind,
       occurred_at: occurredAt,
       observed_at: observedAt,
       base_version: baseVersion,
@@ -544,6 +581,7 @@ function normalizeCaptureMessage(
   return {
     message_key: messageKey,
     direction,
+    author_kind: authorKind,
     occurred_at: occurredAt,
     observed_at: observedAt,
     base_version: baseVersion,
@@ -653,6 +691,7 @@ export function buildCaptureMessageStateKey(
   return JSON.stringify([
     message.message_key,
     message.direction,
+    message.author_kind,
     message.occurred_at,
     message.content_type,
     message.text_content,

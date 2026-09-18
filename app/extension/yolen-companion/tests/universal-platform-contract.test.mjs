@@ -27,6 +27,7 @@ function validConversation(overrides = {}) {
       {
         message_key: 'mc-message-1',
         direction: 'incoming',
+        author_kind: 'customer',
         occurred_at: '2026-09-14T11:59:00-03:00',
         content_type: 'text',
         text_content: 'Quero começar esta semana.',
@@ -37,6 +38,7 @@ function validConversation(overrides = {}) {
       {
         message_key: 'mc-message-2',
         direction: 'outgoing',
+        author_kind: 'human_agent',
         occurred_at: '2026-09-14T11:59:30-03:00',
         content_type: 'text',
         text_content: 'Certo. Vou te orientar.',

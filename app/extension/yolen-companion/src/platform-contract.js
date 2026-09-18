@@ -10,6 +10,13 @@
   const MAX_TEXT_CONTENT_LENGTH = 100000
   const MAX_AUDIO_TRANSCRIPTION_LENGTH = 200000
 
+  const AUTHOR_KINDS = Object.freeze([
+    'customer',
+    'human_agent',
+    'automation',
+    'unknown',
+  ])
+
   const PLATFORM_ADAPTER_METHODS = Object.freeze([
     'getPlatform',
     'getCurrentConversation',
@@ -191,6 +198,15 @@
       )
     }
 
+    const authorKind = value.author_kind
+    if (!AUTHOR_KINDS.includes(authorKind)) {
+      fail(
+        'INVALID_AUTHOR_KIND',
+        `${path}.author_kind`,
+        `${path}.author_kind deve ser customer, human_agent, automation ou unknown.`,
+      )
+    }
+
     const contentType = value.content_type
     if (contentType !== 'text' && contentType !== 'audio') {
       fail(
@@ -250,6 +266,7 @@
     return {
       message_key: messageKey,
       direction,
+      author_kind: authorKind,
       occurred_at: normalizeDateTime(value.occurred_at, `${path}.occurred_at`),
       content_type: contentType,
       text_content: isDeleted ? null : textContent,
@@ -351,6 +368,7 @@
 
   const api = Object.freeze({
     CONTRACT_VERSION,
+    AUTHOR_KINDS,
     PLATFORM_ADAPTER_METHODS,
     buildNamespacedConversationKey,
     normalizeUniversalConversation,
