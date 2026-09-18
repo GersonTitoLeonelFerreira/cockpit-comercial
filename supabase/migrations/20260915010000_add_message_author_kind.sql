@@ -42,7 +42,14 @@ where author_kind is null;
 alter table public.conversation_messages
   alter column author_kind set not null;
 
-do $
+-- R2 (gate de transição de schema): o bloco abaixo abria e fechava com
+-- um único `$`, não `$$` — sintaxe de dollar-quoting inválida em
+-- qualquer Postgres real (confirmado ao tentar aplicar esta migration
+-- pela primeira vez, em phase-full-r2-schema-transition.test.mjs, contra
+-- Postgres efêmero). Nunca teria sido pego antes porque esta migration
+-- nunca foi aplicada a lugar nenhum (nem local, nem no projeto Supabase
+-- real). Sem drift a reconciliar: corrige aqui com segurança.
+do $$
 begin
   if not exists (
     select 1
@@ -62,7 +69,7 @@ begin
       );
   end if;
 end
-$;
+$$;
 
 comment on column public.conversation_messages.author_kind is
   'Autoria canônica da mensagem: customer, human_agent, automation ou unknown. Nunca derive claims comerciais fortes (acerto do vendedor, decisao/objecao do cliente) de author_kind=automation ou unknown.';

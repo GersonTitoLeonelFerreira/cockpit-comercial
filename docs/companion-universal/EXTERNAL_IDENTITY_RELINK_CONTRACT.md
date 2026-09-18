@@ -20,14 +20,28 @@ Fechar explicitamente o contrato de `rpc_link_companion_external_identity` antes
 4. **A RPC é `service_role` only.**
    Evidência (provada em `phase-lead-external-identity-relink-contract.test.mjs`, teste 1): `revoke all ... from public, anon, authenticated` + `grant execute ... to service_role` na definição da função; a tabela `lead_external_identities` tem `force row level security` e uma única policy restritiva `using (false) with check (false)` para `anon, authenticated`. Uma chamada real como `anon` ou `authenticated` é rejeitada.
 
-5. **Reassociação só ocorre por ação explícita e autorizada.**
-   Provado no teste 2: identidade vinculada ao lead 1 permanece no lead 1 através de leituras de resolve repetidas, de `rpc_touch_companion_external_identity_last_seen` e de retries do touch. Só uma segunda chamada explícita a `rpc_link_companion_external_identity` com `p_lead_id` diferente move o vínculo — e mesmo essa chamada exige `p_actor_user_id` e falha se o lead não pertencer à empresa informada (teste 3).
+5. **Reassociação só ocorre por chamada explícita, dentro dos limites que a RPC pode verificar sozinha.**
+   Provado no teste 2: identidade vinculada ao lead 1 permanece no lead 1 através de leituras de resolve repetidas, de `rpc_touch_companion_external_identity_last_seen` e de retries do touch. Só uma segunda chamada explícita a `rpc_link_companion_external_identity` com `p_lead_id` diferente move o vínculo — e mesmo essa chamada falha se o lead não pertencer à empresa informada (teste 3).
+
+   Importante: `p_actor_user_id` é dado de ator/auditoria (fica gravado em `linked_by`), **não** é prova de autorização. Ele não verifica membership ativa, ownership, permissão de portfolio ou que o usuário realmente tem acesso àquele lead — a RPC não tem como verificar isso sozinha, porque essas regras vivem na camada de aplicação (o mesmo padrão que `resolve-lead` já segue: a RPC/tabela garante isolamento de empresa; a decisão de "este vendedor pode agir sobre este lead" é responsabilidade de quem chama, antes de chamar). Ver a seção "Fronteiras de autorização" abaixo.
 
 6. **Sem caller produtivo hoje → classificada como `UNUSED_EXPLICIT_RELINK_PRIMITIVE`.**
    Nenhum endpoint HTTP, UI ou runtime da extensão chama esta RPC atualmente. Ela existe como primitiva de infraestrutura pronta para um futuro fluxo de "confirmar e vincular"/"corrigir vínculo", mas não está exposta a nenhuma ação de usuário nesta fase. Não é um fluxo ativo — é capacidade não exposta.
 
 7. **Identidade já ligada a outro lead nunca é reassociada silenciosamente por captura, resolve, retry ou touch de `last_seen`.**
    Coberto pelos mesmos testes 2 e 3: nenhuma dessas quatro operações jamais executa um `INSERT ... ON CONFLICT DO UPDATE` sobre `lead_external_identities` — apenas `rpc_link_companion_external_identity`, chamada explicitamente com um `lead_id` alvo, o faz.
+
+## Fronteiras de autorização
+
+Duas fronteiras distintas, que não devem ser confundidas:
+
+**RPC DATABASE BOUNDARY (o que `rpc_link_companion_external_identity` garante sozinha):**
+`service_role` only + o lead precisa pertencer à `company_id` informada (nunca cross-company) + `p_actor_user_id` obrigatório como dado de ator/auditoria. Isso é tudo que a RPC pode e deve verificar no nível do banco.
+
+**USER AUTHORIZATION BOUNDARY (o que ainda não existe):**
+Nenhum caller produtivo chama esta RPC hoje — não há endpoint HTTP nem UI. Se um fluxo de "confirmar e vincular"/"corrigir vínculo" for construído no futuro, o CALLER (não a RPC) é responsável por validar, antes de invocar a RPC: membership ativa do usuário na empresa, ownership/permissão de portfolio sobre o lead alvo, e que a reassociação corresponde a uma ação explícita e consciente desse usuário — exatamente a mesma responsabilidade que hoje já recai sobre o código que chama `resolve-lead` por telefone.
+
+Nenhum endpoint de relink é implementado nesta R2. A RPC permanece `UNUSED_EXPLICIT_RELINK_PRIMITIVE`: pronta, correta na fronteira que lhe cabe, mas sem caller e sem fronteira de autorização de usuário implementada.
 
 ## Achado de segurança fechado nesta rodada
 
@@ -45,10 +59,10 @@ capture can relink = NO
 resolve can relink = NO
 explicit RPC exists = YES
 productive caller exists = NO (UNUSED_EXPLICIT_RELINK_PRIMITIVE)
-authorization boundary = service_role only, chamada exige p_actor_user_id
-  e o lead precisa pertencer à mesma company_id informada (RLS force +
-  policy deny-all para anon/authenticated; sem endpoint HTTP/UI exposto
-  nesta fase)
+database authorization boundary = service_role + same-company target
+user authorization boundary = no caller exists; future caller must enforce
+  membership, ownership/portfolio permission and explicit user action
+  before calling the RPC
 ```
 
 ## Teste de contrato
