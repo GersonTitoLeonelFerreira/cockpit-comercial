@@ -62,9 +62,10 @@ Para o teste deste gate (`phase-full-r2-schema-transition.test.mjs`), o pré-req
 
 ## RELEASE ORDER
 
-A ordem proposta pelo controle foi conferida contra as dependências reais provadas neste gate e nos gates anteriores da R2. **Confirmada, sem correções**:
+A ordem proposta pelo controle foi conferida contra as dependências reais provadas neste gate e nos gates anteriores da R2. **Confirmada, com um passo 0 inserido antes de qualquer aplicação de migration**, por causa do achado de drift de migration history registrado acima:
 
 ```
+0. MIGRATION HISTORY RECONCILIATION (bloqueante — ver RISCO RESIDUAL abaixo);
 1. aplicar migrations de schema (author_kind, depois lead_external_identities);
 2. verificar schema/RPCs (este gate: FULL SCHEMA TRANSITION);
 3. deploy backend compatível;
@@ -76,9 +77,32 @@ A ordem proposta pelo controle foi conferida contra as dependências reais prova
 
 Justificativa por passo, com base no que foi efetivamente provado:
 
+- **Passo 0 antes de tudo**: aplicar as migrations R2 (passo 1) sem antes reconciliar o histórico local/remoto arrisca um deploy automático de migrations agir sobre uma base de versões incompleta ou incorreta (ex.: uma ferramenta de CI que compara `supabase/migrations/` local contra o remoto e tenta "corrigir" a divergência sozinha). Ver RISCO RESIDUAL / DEPLOY BLOCKER abaixo para o escopo exato deste passo.
 - **Passo 1 antes do 3**: a ROLLOUT MATRIX acima prova que backend novo + schema antigo é `UNSAFE` (falha dura), enquanto backend antigo + schema novo é `SAFE`. Schema sempre primeiro é a única ordem sem janela insegura.
 - **Passo 2 antes do 3**: este gate É o passo 2 — sem ele, não há prova de que o schema aplicado é o que o backend espera.
 - **Passo 4 antes do 5**: o WhatsApp legado é o único canal produtivo hoje; nenhuma mudança de extensão deve chegar aos vendedores sem essa confirmação.
 - **Passo 5 antes do 6**: a extensão universal (com os arquivos ManyChat portados nesta R2) já pode ser distribuída com segurança, porque `MANYCHAT_CAPTURE_ENABLED=false` mantém todo o runtime ManyChat inerte (confirmado no gate WhatsApp non-regression / ManyChat contract-integration).
 - **Passo 6 antes do 7**: nenhuma validação E2E ManyChat foi feita contra tráfego real nesta R2 (só contrato/fixture) — habilitar em produção sem isso seria pular a única verificação que falta.
 - Não há necessidade de intervalo produtivo com ManyChat ligado entre os passos 1-6: `MANYCHAT_CAPTURE_ENABLED` continua `false` durante toda a sequência até o passo 7.
+
+## RISCO RESIDUAL / DEPLOY BLOCKER — MIGRATION HISTORY DRIFT
+
+Não bloqueia a validação lógica desta R2 (o schema resultante está correto e provado pelo gate FULL SCHEMA TRANSITION), mas **bloqueia um futuro deploy automático de migrations** até reconciliação explícita.
+
+**Estado comprovado:**
+
+- **Local (`supabase/migrations/`)**: `20260829010000_add_message_deletion_reason.sql` existe e contém SQL historicamente quebrado (`do $ ... $;`, dollar-quoting inválido).
+- **Produção (Supabase real, confirmado via `mcp__Supabase__list_migrations`, read-only)**: a migration realmente registrada/aplicada é `20260829042244_add_message_deletion_reason_safe` — esse arquivo/version não existe no repositório atual.
+- A produção possui o end-state correto de `deletion_reason` (coluna + `CHECK` constraint íntegros, confirmado via `pg_get_constraintdef`) — a divergência é só entre o **nome do arquivo/histórico versionado** e o que está registrado como aplicado no projeto real.
+
+**STEP 0 — MIGRATION HISTORY RECONCILIATION** (antes de aplicar qualquer migration R2 num pipeline automático):
+
+- comparar a tabela de migrations remota (`mcp__Supabase__list_migrations` ou `supabase migration list`) com `supabase/migrations/` local, arquivo a arquivo;
+- determinar a origem de `20260829042244_add_message_deletion_reason_safe` (quem a criou, quando, e por que não foi versionada com esse nome neste repositório);
+- recuperar/versionar a migration realmente aplicada, se possível, para que o histórico local passe a refletir o que está de fato em produção;
+- decidir o tratamento de `20260829010000_add_message_deletion_reason.sql` sem reexecutar uma alteração que já existe em produção sob outro nome (nunca aplicar esse arquivo como está — duplicaria/conflitaria com o que já rodou);
+- validar com `supabase migration list` (ou mecanismo equivalente) que o histórico está consistente antes de prosseguir;
+- **nunca** usar `supabase migration repair` (ou equivalente) nem alterar o histórico remoto sem revisão explícita de alguém com acesso e contexto completo do projeto real;
+- só depois desse passo liberar a aplicação das migrations R2 (`20260915010000`, `20260915020000`) num pipeline de deploy automático.
+
+Isso não foi investigado além da constatação acima nesta R2 — decidir a reconciliação em si é responsabilidade de quem tem acesso de escrita ao histórico de migrations do projeto real, fora do escopo (e das permissões) deste trabalho.
