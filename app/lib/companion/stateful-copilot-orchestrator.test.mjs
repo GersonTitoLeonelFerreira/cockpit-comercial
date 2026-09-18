@@ -743,3 +743,226 @@ test(
     )
   },
 )
+
+// R1.2 (recuperação de regressão introduzida por 2aee87a7) — a partir
+// daqui os testes exercitam o Commercial Truth Guard de CONTINUIDADE
+// (commercial-truth-continuity.ts), não o guard de relevância bruta já
+// coberto acima: um user_prompt em JSON real, com uma resposta curta de
+// continuidade ("ok") depois de uma oportunidade ainda ativa no
+// previous_state.
+
+function buildContinuityModelPlan() {
+  const plan =
+    buildModelPlan()
+
+  return {
+    ...plan,
+
+    request: {
+      ...plan.request,
+
+      user_prompt:
+        JSON.stringify({
+          input: {
+            diagnostic_input: {
+              conversation: {
+                messages: [
+                  {
+                    direction:
+                      'incoming',
+
+                    text_content:
+                      'ok',
+                  },
+                ],
+              },
+            },
+
+            state_context: {
+              previous_state: {
+                objections: [
+                  {
+                    memory_status:
+                      'active',
+                  },
+                ],
+              },
+            },
+          },
+        }),
+    },
+  }
+}
+
+function buildNonCommercialAttemptResult(
+  overrides = {},
+) {
+  const result =
+    buildAttemptResult(
+      overrides,
+    )
+
+  return {
+    ...result,
+
+    output: {
+      ...result.output,
+
+      commercial_relevance:
+        'non_commercial',
+    },
+  }
+}
+
+test(
+  'R1.2 (Caso B): guard de continuidade erra na primeira e acerta no reparo — usa a segunda tentativa válida',
+  async () => {
+    let attemptCalls = 0
+
+    const result =
+      await executeStatefulCopilotPlan({
+        plan:
+          buildContinuityModelPlan(),
+
+        provider:
+          async () => {
+            throw new Error(
+              'Provedor real não utilizado.',
+            )
+          },
+
+        dependencies: {
+          execute_attempt:
+            async () => {
+              attemptCalls += 1
+
+              if (attemptCalls === 1) {
+                return buildNonCommercialAttemptResult()
+              }
+
+              return buildAttemptResult({
+                requestId:
+                  'request-2',
+              })
+            },
+        },
+      })
+
+    assert.equal(attemptCalls, 2)
+    assert.equal(result.mode, 'model')
+    assert.equal(result.output.commercial_relevance, 'commercial')
+    assert.equal(result.execution.attempts, 2)
+    assert.equal(result.execution.recovered_after_retry, true)
+    assert.equal(result.execution.request_id, 'request-2')
+  },
+)
+
+test(
+  'R1.2 (Caso C): guard de continuidade viola nas duas tentativas, com previous_state comercial válido — não aceita a saída, não perde o contexto, não derruba a rodada',
+  async () => {
+    let attemptCalls = 0
+
+    const result =
+      await executeStatefulCopilotPlan({
+        plan:
+          buildContinuityModelPlan(),
+
+        provider:
+          async () => {
+            throw new Error(
+              'Provedor real não utilizado.',
+            )
+          },
+
+        dependencies: {
+          execute_attempt:
+            async () => {
+              attemptCalls += 1
+
+              return buildNonCommercialAttemptResult({
+                requestId:
+                  `request-${attemptCalls}`,
+              })
+            },
+        },
+      })
+
+    // Exatamente duas tentativas — nunca uma terceira, nunca um loop.
+    assert.equal(attemptCalls, 2)
+
+    // A saída rejeitada pelo guard NUNCA vira verdade.
+    assert.equal(result.mode, 'guard_exhausted')
+    assert.equal(result.output, null)
+
+    // O motivo da falha semântica fica visível para diagnóstico —
+    // nunca um erro técnico genérico nem um "sucesso" silencioso.
+    assert.ok(result.limitations.length > 0)
+    assert.ok(
+      result.limitations.some(
+        (limitation) =>
+          limitation.includes(
+            'ACTIVE_COMMERCIAL_CONTINUITY_REQUIRED',
+          ),
+      ),
+    )
+
+    assert.equal(result.execution.attempts, 2)
+    assert.equal(result.execution.recovered_after_retry, false)
+  },
+)
+
+test(
+  'R1.2 (Caso E): erro real do provider na segunda tentativa continua sendo erro — nunca é confundido com o guard esgotado',
+  async () => {
+    let attemptCalls = 0
+
+    await assert.rejects(
+      () =>
+        executeStatefulCopilotPlan({
+          plan:
+            buildContinuityModelPlan(),
+
+          provider:
+            async () => {
+              throw new Error(
+                'Provedor real não utilizado.',
+              )
+            },
+
+          dependencies: {
+            execute_attempt:
+              async () => {
+                attemptCalls += 1
+
+                if (attemptCalls === 1) {
+                  return buildNonCommercialAttemptResult()
+                }
+
+                throw executionError({
+                  code:
+                    'PROVIDER_REQUEST_FAILED',
+
+                  retryable:
+                    true,
+                })
+              },
+          },
+        }),
+      (error) => {
+        assert.ok(
+          error instanceof
+            StatefulCopilotExecutionError,
+        )
+
+        assert.equal(
+          error.code,
+          'PROVIDER_REQUEST_FAILED',
+        )
+
+        return true
+      },
+    )
+
+    assert.equal(attemptCalls, 2)
+  },
+)

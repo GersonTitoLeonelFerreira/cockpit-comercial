@@ -80,9 +80,37 @@ export type StatefulCopilotModelResult = {
     }
 }
 
+// R1.2 (recuperação de regressão introduzida por 2aee87a7): quando o
+// Commercial Truth Guard é violado de novo na SEGUNDA tentativa (já
+// depois do reparo), a saída rejeitada nunca pode virar verdade — mas
+// também não pode derrubar a rodada inteira quando já existe estado
+// comercial anterior confiável. Reaproveita a mesma forma de
+// StatefulCopilotBlockedResult (output null, limitations) em vez de
+// criar um segundo motor: o engine e o plano de persistência já sabem
+// tratar "sem output de modelo" como "preservar previous_state, não
+// persistir nada novo". Nunca é usado para nenhum outro tipo de erro
+// (falha de provider, JSON inválido etc. continuam propagando).
+export type StatefulCopilotGuardExhaustedResult = {
+  mode: 'guard_exhausted'
+
+  output: null
+
+  limitations: string[]
+
+  execution:
+    StatefulCopilotExecutionAttemptResult[
+      'execution'
+    ] & {
+      attempts: 2
+
+      recovered_after_retry: false
+    }
+}
+
 export type StatefulCopilotOrchestrationResult =
   | StatefulCopilotBlockedResult
   | StatefulCopilotModelResult
+  | StatefulCopilotGuardExhaustedResult
 
 function isRecord(
   value: unknown,
@@ -384,6 +412,46 @@ function buildRepairPlan({
   }
 }
 
+// R1.2: constrói o resultado de "guard esgotado" a partir da SEGUNDA
+// tentativa, que já passou pelo reparo e ainda assim violou o
+// Commercial Truth Guard. Nunca usa result.output (a saída rejeitada
+// nunca vira verdade) — apenas os metadados de execução (provider,
+// modelo, uso), para diagnóstico.
+function buildGuardExhaustedResult({
+  result,
+  error,
+}: {
+  result:
+    StatefulCopilotExecutionAttemptResult
+
+  error:
+    CommercialTruthGuardError
+}): StatefulCopilotGuardExhaustedResult {
+  return {
+    mode:
+      'guard_exhausted',
+
+    output:
+      null,
+
+    limitations: [
+      `commercial_truth_guard_exhausted:${error.code}`,
+      error.message,
+      ...error.reasons,
+    ],
+
+    execution: {
+      ...result.execution,
+
+      attempts:
+        2,
+
+      recovered_after_retry:
+        false,
+    },
+  }
+}
+
 function buildModelResult({
   result,
   attempts,
@@ -519,16 +587,38 @@ export async function executeStatefulCopilotPlan({
       provider,
     })
 
-  return buildModelResult({
-    result:
-      reconcileAttemptResult({
-        result:
-          secondResult,
-        plan:
-          repairPlan,
-      }),
+  // R1.2: só a reconciliação (que pode violar o Commercial Truth Guard
+  // de novo) é protegida aqui — uma falha de executeAttempt (provider,
+  // rede, JSON inválido) nunca é interceptada por este catch e continua
+  // propagando como erro real.
+  try {
+    return buildModelResult({
+      result:
+        reconcileAttemptResult({
+          result:
+            secondResult,
+          plan:
+            repairPlan,
+        }),
 
-    attempts:
-      2,
-  })
+      attempts:
+        2,
+    })
+  } catch (secondError) {
+    if (
+      !(
+        secondError instanceof
+        CommercialTruthGuardError
+      )
+    ) {
+      throw secondError
+    }
+
+    return buildGuardExhaustedResult({
+      result:
+        secondResult,
+      error:
+        secondError,
+    })
+  }
 }

@@ -507,6 +507,49 @@ export function resolveStatefulCopilotBackgroundFailureOutcome({
     }
   }
 
+  // R1.2 (revisão): segunda violação do Commercial Truth Guard, já
+  // depois do reparo (`engine_mode: 'guard_exhausted'` — ver
+  // stateful-copilot-orchestrator.ts). O motor já garante, antes deste
+  // ponto, que nada foi persistido e que previous_state permanece
+  // exatamente o último estado válido — este código só precisa tornar
+  // essa causa diagnosticável em vez de cair no genérico
+  // STATEFUL_BACKGROUND_FAILED (que um operador não conseguiria
+  // distinguir de um crash técnico real).
+  //
+  // retryable: false, deliberadamente — e não por omissão, como o
+  // genérico. Diferente de um conflito de CAS (transitório, a mesma
+  // conversa relida e regravada resolve) ou de um erro de provider
+  // (pode ser um blip de rede), aqui o motor já tentou uma vez, recebeu
+  // uma instrução de reparo explícita e violou o guard de novo com a
+  // MESMA conversa. Reenfileirar repetiria a mesma pergunta ao modelo
+  // sem nenhuma informação nova — na melhor hipótese não muda nada, na
+  // pior queima chamadas de modelo reais tentando "convencer" um guard
+  // que já teve sua chance de reparo. O gatilho correto para uma nova
+  // tentativa é uma mensagem nova de verdade, que já cria um
+  // message_watermark e um analysis_job_id novos por conta própria —
+  // não este job.
+  if (
+    execution?.engine_mode ===
+    'guard_exhausted'
+  ) {
+    return {
+      failure_code:
+        'COMMERCIAL_TRUTH_GUARD_EXHAUSTED',
+
+      failure_path:
+        null,
+
+      failure_invariant:
+        null,
+
+      communication_attempts:
+        null,
+
+      retryable:
+        false,
+    }
+  }
+
   return {
     failure_code:
       'STATEFUL_BACKGROUND_FAILED',

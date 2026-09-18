@@ -2188,17 +2188,34 @@ async function loadCommercialConfig({
 // ledger ou a configuração comercial publicada, é um enriquecimento
 // sobre um recorte que já nasce vazio.
 //
-// Contrato de segurança (Fase 16.3A): um ciclo só pode ser fonte de
-// memória durável se (1) pertence à mesma company, (2) pertence ao
-// mesmo lead, (3) não é o próprio ciclo atual, (4) é cronologicamente
-// anterior ao ciclo atual (created_at estrito — nunca <=, um empate
-// exato não tem critério causal seguro e falha fechado) e (5) possui
-// estado herdável válido. Isso vale tanto para origin_cycle_id
-// explícito quanto para a heurística de fallback: origin_cycle_id
-// nunca é confiado só por existir — é revalidado contra sales_cycles
-// antes de ser usado, e se a validação falhar (outro lead, outra
-// company, o próprio ciclo, ou um ciclo futuro/empatado), o fallback
-// cronológico assume, exatamente como se origin_cycle_id fosse nulo.
+// Contrato de segurança (Fase 16.3A, endurecido na R1.1): um ciclo só
+// pode ser fonte de memória durável se (1) pertence à mesma company,
+// (2) pertence ao mesmo lead, (3) não é o próprio ciclo atual, (4) não é
+// cronologicamente posterior ao ciclo atual, e (5) possui estado
+// herdável válido.
+//
+// O critério (4) tem DUAS variantes deliberadamente diferentes:
+//
+//   - Caminho EXPLÍCITO (origin_cycle_id persistido, apontando para um
+//     ciclo nomeado): usa created_at <= (nunca >). origin_cycle_id é uma
+//     relação causal já registrada no banco — mais forte que ordenar por
+//     timestamp — então um empate exato de instante (ex.: dois ciclos
+//     inseridos na mesma transação) não é ambíguo aqui: só existe UM
+//     candidato sendo validado, nunca uma escolha entre vários. Só um
+//     ciclo genuinamente posterior (created_at >) é rejeitado como
+//     futuro/incoerente.
+//   - Caminho HEURÍSTICO de fallback (sem origin_cycle_id válido): usa
+//     created_at < estrito, sempre. Aqui não há nenhuma relação causal
+//     explícita — apenas uma ordenação por timestamp entre candidatos
+//     — então um empate nunca pode ser desfeito de forma segura: um
+//     empate no fallback fica de fora, exatamente como se não houvesse
+//     predecessor (fail closed, nunca escolha arbitrária).
+//
+// origin_cycle_id nunca é confiado só por existir — é revalidado contra
+// sales_cycles antes de ser usado (company_id, lead_id e o critério (4)
+// acima), e se a validação falhar (outro lead, outra company, o próprio
+// ciclo, ou um ciclo futuro), o fallback cronológico assume, exatamente
+// como se origin_cycle_id fosse nulo.
 //
 // Exportada (Message Intelligence Shadow Validation) para reutilização
 // device-free por app/lib/server/message-intelligence-source-loader.ts.
@@ -2259,8 +2276,18 @@ export async function loadDurableMemorySeedForMissingState({
             // currentCycleCreatedAt (normalizado via
             // Date.prototype.toISOString() em normalizeDate()), fazendo
             // uma string comparison aceitar incorretamente um ciclo
-            // empatado ou até futuro.
-            .lt(
+            // futuro.
+            //
+            // R1.1: <= (não <) só é seguro aqui porque origin_cycle_id
+            // já é uma relação causal explícita e persistida, revalidada
+            // linha acima (company_id) e abaixo (lead_id) — não é uma
+            // ordenação heurística entre candidatos. Um empate exato de
+            // created_at (mesma transação) deixa de ser tratado como
+            // ambíguo; só um valor estritamente MAIOR (ciclo realmente
+            // posterior) continua rejeitado. A heurística de fallback
+            // logo abaixo, que decide por ordenação entre candidatos sem
+            // nenhuma relação explícita, permanece com < estrito.
+            .lte(
               'created_at',
               currentCycleCreatedAt,
             )

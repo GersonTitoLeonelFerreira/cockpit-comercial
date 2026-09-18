@@ -382,6 +382,65 @@ test(
   },
 )
 
+// R1.2 REVISÃO — Caso A/C: guard esgotado (segunda violação do
+// Commercial Truth Guard, já depois do reparo) precisa terminar com o
+// MESMO tratamento do bloqueio determinístico (failed, não-retryable,
+// código diagnosticável específico) — nunca o STATEFUL_BACKGROUND_FAILED
+// genérico, e nunca uma redelivery que repetiria a mesma pergunta ao
+// modelo sem informação nova.
+test(
+  'guard esgotado (segunda violação do Commercial Truth Guard) fica failed com código específico, não genérico, e nunca é reenfileirado',
+  async () => {
+    const message = buildMessage()
+    const rows = [seedQueuedRow(message)]
+    const admin = createFakeAdmin(rows)
+
+    const runRuntime = async () => ({
+      mode: 'active_fallback_v1',
+      response_source: 'v1',
+      stateful_executed: true,
+      response: undefined,
+      stateful_execution: {
+        engine_mode: 'guard_exhausted',
+        persistence_mode: 'skipped',
+        persisted: false,
+        candidate_state_version: null,
+        output_contract_version: null,
+        communication_contract_version: null,
+        communication_intervention_needed: null,
+        communication_message_present: null,
+        communication_attempts: null,
+        communication_recovered_after_retry: null,
+        known_message_count: 0,
+        active_message_count: 0,
+        commercial_config_status: 'not_configured',
+        previous_state_found: true,
+      },
+      stateful_failure: null,
+      fallback_reason: 'stateful_output_unavailable',
+      automatic_crm_write: false,
+      automatic_agenda_write: false,
+    })
+
+    await processStatefulCopilotBackgroundMessage(
+      message,
+      { delivery_count: 1 },
+      {
+        create_admin_client: () => admin,
+        run_runtime: runRuntime,
+      },
+    )
+
+    // Terminal já na primeira entrega — nunca volta para 'queued'.
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].status, 'failed')
+    assert.equal(rows[0].failure_code, 'COMMERCIAL_TRUTH_GUARD_EXHAUSTED')
+    assert.notEqual(rows[0].failure_code, 'STATEFUL_BACKGROUND_FAILED')
+
+    // Nenhum estado novo (inexistente) foi persistido nesta rodada.
+    assert.equal(rows[0].candidate_state_version, null)
+  },
+)
 
 test(
   'runtime padrão do worker do Companion é V2-only por construção, sem depender das ENVs de rollout',

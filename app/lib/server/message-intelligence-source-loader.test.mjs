@@ -587,7 +587,7 @@ test(
 )
 
 test(
-  'Fase 16.3A (achado do Codex, PR #275): MIE também recusa empate de instante com formato ISO diferente',
+  'R1.1 (Caso B, achado do Codex PR #275 revisitado): MIE também reconhece empate de instante com formato ISO diferente e herda via origin_cycle_id',
   async () => {
     const scope = baseScopeRows()
 
@@ -595,8 +595,12 @@ test(
     // serializado como o Postgres/PostgREST real faria para timestamptz
     // sem frações de segundo: "+00:00" em vez de ".000Z". Prova que o
     // fake compartilhado do MIE também compara como instante
-    // (Date.parse), não lexicalmente — senão este cenário passaria
-    // incorretamente aqui mesmo com a query de produção corrigida.
+    // (Date.parse), não lexicalmente — e que, sob a R1.1, esse instante
+    // empatado com origin_cycle_id explícito e revalidado (mesma
+    // company, mesmo lead) herda a memória, espelhando exatamente
+    // stateful-copilot-real-context-loader.test.mjs (mesma função,
+    // loadDurableMemorySeedForMissingState, consumida aqui via
+    // createMessageIntelligenceSourceLoaderV1).
     const tiedInstantDifferentFormat =
       '2026-08-29T20:00:00+00:00'
 
@@ -632,7 +636,7 @@ test(
             {
               kind: 'client.objective',
               summary:
-                'Ciclo empatado com formato ISO diferente — nunca deveria ser herdado.',
+                'Ciclo empatado com formato ISO diferente — herdado via origin_cycle_id explícito.',
               value: null,
               confidence: 'high',
               memory_status: 'active',
@@ -663,10 +667,13 @@ test(
       sources.real_context.state_read.mode,
       'missing',
     )
-    assert.equal(
+    assert.ok(
       sources.real_context.durable_memory_seed,
-      null,
-      'um instante empatado com o ciclo atual não pode ser aceito só porque o banco serializou o timestamp num formato ISO diferente',
+      'um instante empatado com o ciclo atual, comprovado por origin_cycle_id explícito, deveria herdar mesmo quando o banco serializou o timestamp num formato ISO diferente',
+    )
+    assert.equal(
+      sources.real_context.durable_memory_seed.source_cycle_id,
+      IDS.previousCycle,
     )
   },
 )

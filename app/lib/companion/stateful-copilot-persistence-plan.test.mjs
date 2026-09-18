@@ -601,6 +601,103 @@ function buildBlockedResult() {
   }
 }
 
+// R1.2 (recuperação de regressão introduzida por 2aee87a7): segunda
+// violação do Commercial Truth Guard, já depois do reparo — parte de um
+// plano de MODELO (diferente de buildBlockedResult, que parte de um
+// plano bloqueado determinístico).
+function buildGuardExhaustedResult() {
+  const input =
+    buildInput()
+
+  return {
+    mode:
+      'guard_exhausted',
+
+    input,
+
+    previous_state:
+      null,
+
+    plan: {
+      mode:
+        'model',
+
+      request: {
+        prompt_version:
+          'test-prompt-v1',
+
+        output_contract_version:
+          STATEFUL_COPILOT_CONTRACT_VERSION,
+
+        system_prompt:
+          'SYSTEM PROMPT',
+
+        user_prompt:
+          'USER PROMPT',
+
+        normalization_context: {
+          available_message_ids: [],
+          available_memory_ids: [],
+          active_memory_ids: [],
+
+          expected_previous_state_version:
+            null,
+
+          current_crm_status:
+            'respondeu',
+
+          prohibited_statuses: [
+            'ganho',
+            'perdido',
+          ],
+
+          reference_time:
+            '2026-08-06T18:00:00-03:00',
+        },
+      },
+    },
+
+    output:
+      null,
+
+    communication_output:
+      null,
+
+    communication_execution:
+      null,
+
+    candidate_state:
+      null,
+
+    limitations: [
+      'commercial_truth_guard_exhausted:ACTIVE_COMMERCIAL_CONTINUITY_REQUIRED',
+    ],
+
+    execution: {
+      mode:
+        'model',
+
+      provider:
+        'test-provider',
+
+      model:
+        'test-model',
+
+      request_id:
+        'request-2',
+
+      usage:
+        null,
+
+      attempts:
+        2,
+
+      recovered_after_retry:
+        false,
+    },
+  }
+}
+
 function clone(value) {
   return JSON.parse(
     JSON.stringify(value),
@@ -872,6 +969,62 @@ test(
     assert.equal(
       result.audit_event,
       null,
+    )
+  },
+)
+
+test(
+  'R1.2: guard esgotado (segunda violação do Commercial Truth Guard) também não prepara gravação',
+  () => {
+    const result =
+      buildStatefulCopilotPersistencePlan({
+        engine_result:
+          buildGuardExhaustedResult(),
+
+        company_id:
+          'company-1',
+
+        conversation_key:
+          'conversation-1',
+
+        generated_at:
+          '2026-08-06T18:00:01-03:00',
+      })
+
+    // Mesmo tratamento de "não persistir" do bloqueio determinístico —
+    // a saída rejeitada pelo guard nunca vira estado gravado.
+    assert.equal(
+      result.mode,
+      'blocked',
+    )
+
+    assert.equal(
+      result.should_persist,
+      false,
+    )
+
+    assert.equal(
+      result.write_guard,
+      null,
+    )
+
+    assert.equal(
+      result.state_snapshot,
+      null,
+    )
+
+    assert.equal(
+      result.audit_event,
+      null,
+    )
+
+    assert.ok(
+      result.limitations.some(
+        (limitation) =>
+          limitation.includes(
+            'ACTIVE_COMMERCIAL_CONTINUITY_REQUIRED',
+          ),
+      ),
     )
   },
 )

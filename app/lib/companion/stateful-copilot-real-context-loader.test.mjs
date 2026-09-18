@@ -3105,7 +3105,7 @@ test(
 )
 
 test(
-  'Fase 16.3A (empate de created_at): um ciclo com o mesmo timestamp do ciclo atual nunca é um predecessor seguro',
+  'R1.1 (Caso G, fallback): sem origin_cycle_id, empate de created_at nunca é resolvido arbitrariamente pela heurística',
   async () => {
     const fixtures =
       buildFixtures({
@@ -3115,12 +3115,11 @@ test(
     const tiedCreatedAt =
       fixtures.sales_cycles[0].created_at
 
-    // Empatado exatamente com o ciclo atual — sem critério causal
-    // seguro para decidir quem veio "antes". origin_cycle_id explícito
-    // E a heurística de fallback precisam recusar os dois.
-    fixtures.sales_cycles[0].origin_cycle_id =
-      priorCycleId
-
+    // Empatado exatamente com o ciclo atual e SEM origin_cycle_id — não
+    // existe nenhuma relação causal explícita entre os dois, só uma
+    // ordenação por timestamp entre candidatos. Sem critério causal
+    // seguro para decidir quem veio "antes", o fallback precisa recusar
+    // (fail closed), nunca escolher arbitrariamente.
     fixtures.sales_cycles.push({
       id: priorCycleId,
       company_id: companyId,
@@ -3161,13 +3160,82 @@ test(
     assert.equal(
       result.durable_memory_seed,
       null,
-      'created_at empatado não é um predecessor cronológico seguro — nem via origin_cycle_id, nem via fallback',
+      'created_at empatado sem origin_cycle_id não é um predecessor cronológico seguro — a heurística de fallback nunca desempata arbitrariamente',
     )
   },
 )
 
 test(
-  'Fase 16.3A (achado do Codex, PR #275): empate de instante com formato ISO diferente também é recusado',
+  'R1.1 (Caso B): origin_cycle_id explícito com created_at empatado herda memória quando a causalidade é comprovada',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    const tiedCreatedAt =
+      fixtures.sales_cycles[0].created_at
+
+    // Mesmo empate de created_at do caso acima, mas agora com
+    // origin_cycle_id explícito apontando para o predecessor (mesma
+    // company, mesmo lead, já revalidado). A relação causal persistida
+    // é mais forte que a heurística de timestamp: um empate exato (ex.:
+    // dois ciclos inseridos na mesma transação ao reabrir/encerrar um
+    // ciclo) deixa de ser ambíguo, porque não há escolha entre múltiplos
+    // candidatos — só um candidato nomeado está sendo validado.
+    fixtures.sales_cycles[0].origin_cycle_id =
+      priorCycleId
+
+    fixtures.sales_cycles.push({
+      id: priorCycleId,
+      company_id: companyId,
+      lead_id: leadId,
+      owner_user_id: ownerId,
+      status: 'perdido',
+      next_action: null,
+      next_action_date: null,
+      updated_at: tiedCreatedAt,
+      created_at: tiedCreatedAt,
+    })
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: companyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: tiedCreatedAt,
+        persisted_at: tiedCreatedAt,
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.ok(
+      result.durable_memory_seed,
+      'origin_cycle_id explícito e revalidado deveria herdar memória mesmo com created_at empatado',
+    )
+    assert.equal(
+      result.durable_memory_seed.source_cycle_id,
+      priorCycleId,
+    )
+  },
+)
+
+test(
+  'R1.1 (Caso B, achado do Codex PR #275 revisitado): empate de instante com formato ISO diferente ainda é reconhecido como empate real e herda via origin_cycle_id',
   async () => {
     const fixtures =
       buildFixtures({
@@ -3177,10 +3245,15 @@ test(
     // Mesmo instante do ciclo atual (2026-08-06T09:00:00.000Z), mas
     // serializado como o Postgres/PostgREST real faria para
     // timestamptz sem frações de segundo: "+00:00" em vez de ".000Z".
-    // Uma comparação lexical de string ("...+00:00" < "...000Z", já
-    // que "+" < "." em ASCII) aceitaria isto incorretamente como
-    // anterior — a correção precisa comparar como instante (delegado
-    // ao Postgres via `.lt()` na query), não como texto.
+    // O PR #275 corrigiu a comparação para nunca depender de string (uma
+    // comparação lexical aceitaria isto incorretamente como diferente de
+    // ".000Z", já que "+" e "." comparam diferente em ASCII) — delega
+    // sempre ao Postgres via `.lte()` na query, que compara o instante
+    // real. Sob a R1.1, esse instante empatado, com origin_cycle_id
+    // explícito e revalidado, PRECISA ser aceito como o mesmo caso do
+    // "Caso B" — a correção do PR #275 (comparar por instante, não por
+    // string) continua valendo, só que agora numa direção de aceitação,
+    // não de recusa.
     const tiedInstantDifferentFormat =
       '2026-08-06T09:00:00+00:00'
 
@@ -3224,10 +3297,13 @@ test(
       )
 
     assert.equal(result.state_read.mode, 'missing')
-    assert.equal(
+    assert.ok(
       result.durable_memory_seed,
-      null,
-      'um instante empatado com o ciclo atual não pode ser aceito só porque o banco serializou o timestamp num formato ISO diferente',
+      'um instante empatado com o ciclo atual, comprovado por origin_cycle_id explícito, deveria herdar mesmo quando o banco serializou o timestamp num formato ISO diferente',
+    )
+    assert.equal(
+      result.durable_memory_seed.source_cycle_id,
+      priorCycleId,
     )
   },
 )

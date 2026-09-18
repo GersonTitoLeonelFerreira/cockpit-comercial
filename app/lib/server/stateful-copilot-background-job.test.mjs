@@ -359,6 +359,110 @@ test(
   },
 )
 
+// R1.2 REVISÃO — Caso A/B: guard esgotado (segunda violação do
+// Commercial Truth Guard, já depois do reparo — ver
+// stateful-copilot-orchestrator.ts) precisa de um código diagnosticável
+// PRÓPRIO — nunca o STATEFUL_BACKGROUND_FAILED genérico (indistinguível
+// de um erro técnico real sem causa conhecida). Este mesmo resultado
+// vale tanto com quanto sem previous_state (essa função só decide o
+// failure_code a partir de engine_mode/persistence_mode; a garantia de
+// que previous_state é preservado quando existe, e de que nenhum estado
+// é fabricado quando não existe, já é do engine — ver
+// stateful-copilot-engine.test.mjs).
+//
+// Não-retryable é deliberado, não omissão: diferente de um conflito de
+// CAS (transitório) ou de um erro de provider (pode ser um blip), aqui
+// o motor já tentou reparar uma vez e violou o guard de novo com a
+// MESMA conversa — reenfileirar repetiria a mesma pergunta ao modelo
+// sem informação nova. O gatilho certo para nova tentativa é uma
+// mensagem nova de verdade, que já cria seu próprio job.
+test(
+  'guard esgotado é terminal com código diagnosticável próprio, nunca o genérico',
+  () => {
+    const outcome =
+      resolveStatefulCopilotBackgroundFailureOutcome({
+        failure:
+          null,
+
+        execution: {
+          engine_mode:
+            'guard_exhausted',
+
+          persistence_mode:
+            'skipped',
+
+          communication_attempts:
+            null,
+        },
+      })
+
+    assert.equal(
+      outcome.failure_code,
+      'COMMERCIAL_TRUTH_GUARD_EXHAUSTED',
+    )
+
+    assert.notEqual(
+      outcome.failure_code,
+      'STATEFUL_BACKGROUND_FAILED',
+    )
+
+    assert.equal(
+      outcome.retryable,
+      false,
+    )
+  },
+)
+
+// R1.2 REVISÃO — Caso E: um erro real do provider/orquestrador (com seu
+// próprio code/retryable vindo em `failure`) nunca é confundido com
+// guard_exhausted, mesmo que `execution.engine_mode` também esteja
+// presente — `failure` sempre tem prioridade.
+test(
+  'erro real do orquestrador nunca é confundido com guard esgotado, mesmo com execution presente',
+  () => {
+    const outcome =
+      resolveStatefulCopilotBackgroundFailureOutcome({
+        failure: {
+          code:
+            'PROVIDER_REQUEST_FAILED',
+
+          retryable:
+            true,
+
+          diagnostic_failure_path:
+            null,
+
+          diagnostic_failure_invariant:
+            null,
+
+          communication_attempts:
+            null,
+        },
+
+        execution: {
+          engine_mode:
+            'guard_exhausted',
+
+          persistence_mode:
+            'skipped',
+
+          communication_attempts:
+            null,
+        },
+      })
+
+    assert.equal(
+      outcome.failure_code,
+      'PROVIDER_REQUEST_FAILED',
+    )
+
+    assert.equal(
+      outcome.retryable,
+      true,
+    )
+  },
+)
+
 test(
   'sem failure e sem execution reconhecível permanece um fallback terminal seguro (nunca retry cego)',
   () => {

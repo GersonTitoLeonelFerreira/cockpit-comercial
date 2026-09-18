@@ -23,6 +23,7 @@ import type {
 import {
   executeStatefulCopilotPlan,
   type StatefulCopilotBlockedResult,
+  type StatefulCopilotGuardExhaustedResult,
   type StatefulCopilotModelResult,
 } from './stateful-copilot-orchestrator'
 
@@ -191,9 +192,41 @@ export type StatefulCopilotEngineModelResult =
       StatefulCopilotModelResult['execution']
   }
 
+// R1.2 (recuperação de regressão introduzida por 2aee87a7): espelha
+// StatefulCopilotEngineBlockedResult, mas parte de um plano de MODELO
+// (o Commercial Truth Guard foi violado de novo na segunda tentativa,
+// já depois do reparo) — nunca de um plano bloqueado. output/
+// communication_output/candidate_state permanecem null pelo mesmo
+// motivo do bloqueio determinístico: nenhuma saída rejeitada pelo guard
+// pode virar estado novo, e previous_state (herdado de
+// StatefulCopilotEngineBaseResult) continua sendo o único estado
+// comercial válido desta rodada.
+export type StatefulCopilotEngineGuardExhaustedResult =
+  StatefulCopilotEngineBaseResult & {
+    mode: 'guard_exhausted'
+
+    plan:
+      StatefulCopilotModelPlan
+
+    output: null
+
+    communication_output: null
+
+    communication_execution: null
+
+    candidate_state: null
+
+    limitations:
+      string[]
+
+    execution:
+      StatefulCopilotGuardExhaustedResult['execution']
+  }
+
 export type StatefulCopilotEngineResult =
   | StatefulCopilotEngineBlockedResult
   | StatefulCopilotEngineModelResult
+  | StatefulCopilotEngineGuardExhaustedResult
 
 export class StatefulCopilotEngineError
   extends Error {
@@ -400,6 +433,58 @@ export async function runStatefulCopilotEngine({
     return {
       mode:
         'blocked',
+
+      input,
+
+      plan,
+
+      output:
+        null,
+
+      communication_output:
+        null,
+
+      communication_execution:
+        null,
+
+      previous_state:
+        input
+          .state_context
+          .previous_state,
+
+      candidate_state:
+        null,
+
+      limitations: [
+        ...orchestration.limitations,
+      ],
+
+      execution:
+        orchestration.execution,
+    }
+  }
+
+  // R1.2: guard esgotado só pode acontecer depois de um plano de
+  // MODELO (a segunda tentativa, já reparada, violou o Commercial Truth
+  // Guard de novo) — nunca depois de um plano bloqueado, que nem chega
+  // a chamar o modelo.
+  if (
+    orchestration.mode ===
+    'guard_exhausted'
+  ) {
+    if (
+      plan.mode !==
+      'model'
+    ) {
+      fail(
+        'ENGINE_PLAN_RESULT_MISMATCH',
+        'O motor recebeu um resultado de guard esgotado para um plano bloqueado.',
+      )
+    }
+
+    return {
+      mode:
+        'guard_exhausted',
 
       input,
 
