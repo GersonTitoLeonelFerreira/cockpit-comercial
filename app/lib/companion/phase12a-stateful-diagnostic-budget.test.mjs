@@ -188,6 +188,9 @@ test(
               direction:
                 'incoming',
 
+              author_kind:
+                'customer',
+
               occurred_at:
                 '2026-08-22T14:59:00-03:00',
 
@@ -466,6 +469,9 @@ test(
               direction:
                 'outgoing',
 
+              author_kind:
+                'human_agent',
+
               occurred_at:
                 '2026-08-22T14:58:00-03:00',
 
@@ -496,6 +502,9 @@ test(
 
               direction:
                 'incoming',
+
+              author_kind:
+                'customer',
 
               occurred_at:
                 '2026-08-22T14:59:00-03:00',

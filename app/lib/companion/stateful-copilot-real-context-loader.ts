@@ -112,6 +112,7 @@ const MESSAGE_FIELDS = `
   message_key,
   version,
   direction,
+  author_kind,
   occurred_at,
   observed_at,
   content_type,
@@ -1053,6 +1054,17 @@ function requireScopeRecord(
   )
 }
 
+// R2.4 (author_kind): customer/human_agent são autoria confirmada;
+// automation/unknown NUNCA podem ser tratadas como ação humana do
+// vendedor nem como decisão/objeção do cliente por quem lê este campo
+// a jusante (ver reconciliação em normalizeLedgerMessage abaixo e nos
+// consumidores de seller_message_ids).
+export type NormalizedLedgerAuthorKind =
+  | 'customer'
+  | 'human_agent'
+  | 'automation'
+  | 'unknown'
+
 export type NormalizedLedgerMessage = {
   id: string
   company_id: string
@@ -1061,6 +1073,7 @@ export type NormalizedLedgerMessage = {
   message_key: string
   version: number
   direction: string
+  author_kind: NormalizedLedgerAuthorKind
   occurred_at: string
   observed_at: string
   content_type: string
@@ -1068,6 +1081,33 @@ export type NormalizedLedgerMessage = {
   audio_transcription: string | null
   is_deleted: boolean
   deletion_reason: 'explicit_deletion' | 'dom_disappearance' | null
+}
+
+const VALID_LEDGER_AUTHOR_KINDS: NormalizedLedgerAuthorKind[] = [
+  'customer',
+  'human_agent',
+  'automation',
+  'unknown',
+]
+
+// R2.4: mesmo fallback fail-safe (nunca fail-closed) de
+// capture-ingestion.ts normalizeAuthorKind() — uma linha do ledger
+// gravada antes da migration (ou por uma extensão desatualizada) nunca
+// derruba a leitura do contexto real. Nunca promove um valor
+// desconhecido a customer/human_agent: cai sempre no mesmo derivado de
+// direction que já era implicitamente verdade no WhatsApp.
+function normalizeLedgerAuthorKind(
+  value: unknown,
+  direction: unknown,
+): NormalizedLedgerAuthorKind {
+  if (
+    typeof value === 'string' &&
+    (VALID_LEDGER_AUTHOR_KINDS as string[]).includes(value)
+  ) {
+    return value as NormalizedLedgerAuthorKind
+  }
+
+  return direction === 'outgoing' ? 'human_agent' : 'customer'
 }
 
 function normalizeLedgerMessage(
@@ -1192,6 +1232,12 @@ function normalizeLedgerMessage(
         record.direction,
         `${path}.direction`,
         50,
+      ),
+
+    author_kind:
+      normalizeLedgerAuthorKind(
+        record.author_kind,
+        record.direction,
       ),
 
     occurred_at:

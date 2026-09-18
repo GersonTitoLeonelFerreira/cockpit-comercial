@@ -17,19 +17,21 @@ function prompt(messages) {
   })
 }
 
-function incoming(id, text) {
+function incoming(id, text, author_kind) {
   return {
     id,
     direction: 'incoming',
+    ...(author_kind ? { author_kind } : {}),
     text_content: text,
     audio_transcription: null,
   }
 }
 
-function outgoing(id, text) {
+function outgoing(id, text, author_kind) {
   return {
     id,
     direction: 'outgoing',
+    ...(author_kind ? { author_kind } : {}),
     text_content: text,
     audio_transcription: null,
   }
@@ -128,6 +130,160 @@ test(
     assert.equal(
       result.seller_action_already_performed,
       false,
+    )
+  },
+)
+
+// R2.4 — author_kind é a autoridade de autoria. Fixture obrigatória:
+// M1 incoming/customer, M2 outgoing/automation, M3 outgoing/human_agent,
+// M4 outgoing/unknown. Uma automação (bot/flow do ManyChat) enviada como
+// outgoing NUNCA pode contar como "o vendedor já agiu" nem entrar em
+// evidence_message_ids; 'unknown' falha fechado pelo mesmo motivo.
+test(
+  'M2 (outgoing/automation) nunca conta como ação do vendedor nem entra em evidence_message_ids',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          incoming(
+            'm1',
+            'Tenho interesse no plano anual.',
+            'customer',
+          ),
+          outgoing(
+            'm2',
+            'Você prefere começar hoje ou amanhã?',
+            'automation',
+          ),
+        ]),
+      )
+
+    assert.equal(
+      result.seller_action_already_performed,
+      false,
+    )
+    assert.ok(
+      !result.evidence_message_ids.includes(
+        'm2',
+      ),
+    )
+  },
+)
+
+test(
+  'M3 (outgoing/human_agent) pode entrar em evidence_message_ids e conta como ação do vendedor',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          incoming(
+            'm1',
+            'Tenho interesse no plano anual.',
+            'customer',
+          ),
+          outgoing(
+            'm2',
+            'Você prefere começar hoje ou amanhã?',
+            'human_agent',
+          ),
+        ]),
+      )
+
+    assert.equal(
+      result.seller_action_already_performed,
+      true,
+    )
+    assert.ok(
+      result.evidence_message_ids.includes(
+        'm2',
+      ),
+    )
+  },
+)
+
+test(
+  'M4 (outgoing/unknown) falha fechado — nunca conta como ação do vendedor nem entra em evidence_message_ids',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          incoming(
+            'm1',
+            'Tenho interesse no plano anual.',
+            'customer',
+          ),
+          outgoing(
+            'm2',
+            'Você prefere começar hoje ou amanhã?',
+            'unknown',
+          ),
+        ]),
+      )
+
+    assert.equal(
+      result.seller_action_already_performed,
+      false,
+    )
+    assert.ok(
+      !result.evidence_message_ids.includes(
+        'm2',
+      ),
+    )
+  },
+)
+
+test(
+  'M1 (incoming/customer) é evidência válida de compromisso futuro do cliente',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          outgoing(
+            'm1',
+            'Consegue confirmar o pagamento?',
+            'human_agent',
+          ),
+          incoming(
+            'm2',
+            'Vou verificar o limite do cartão e te aviso.',
+            'customer',
+          ),
+        ]),
+      )
+
+    assert.equal(
+      result.pending_fact,
+      'customer_commitment',
+    )
+    assert.equal(
+      result.waiting_on,
+      'customer',
+    )
+  },
+)
+
+test(
+  'compromisso futuro atribuído a mensagem incoming com author_kind unknown falha fechado (não vira customer_commitment)',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          outgoing(
+            'm1',
+            'Consegue confirmar o pagamento?',
+            'human_agent',
+          ),
+          incoming(
+            'm2',
+            'Vou verificar o limite do cartão e te aviso.',
+            'unknown',
+          ),
+        ]),
+      )
+
+    assert.notEqual(
+      result.pending_fact,
+      'customer_commitment',
     )
   },
 )

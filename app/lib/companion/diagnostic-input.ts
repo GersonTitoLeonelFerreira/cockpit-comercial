@@ -55,6 +55,21 @@ const MESSAGE_DIRECTIONS = [
   'outgoing',
 ] as const
 
+// R2.4 (author_kind): customer/human_agent são autoria confirmada.
+// automation/unknown NUNCA podem ser tratadas como ação humana do
+// vendedor nem como decisão/objeção do cliente por quem consome este
+// campo a jusante (ver deriveCommercialResponsibilityFromUserPrompt,
+// seller_message_ids em canonical-seller-commercial-context-loader.ts,
+// message-intelligence-source-loader.ts,
+// message-intelligence-v2-authoritative-decision-adapter.ts e
+// stateful-communication-execution-plan.ts).
+const MESSAGE_AUTHOR_KINDS = [
+  'customer',
+  'human_agent',
+  'automation',
+  'unknown',
+] as const
+
 const MESSAGE_CONTENT_TYPES = [
   'text',
   'audio',
@@ -71,6 +86,7 @@ export type DiagnosticInputMessage = {
   version: number
   sequence: number
   direction: 'incoming' | 'outgoing'
+  author_kind: 'customer' | 'human_agent' | 'automation' | 'unknown'
   occurred_at: string
   observed_at: string
   content_type: 'text' | 'audio'
@@ -259,6 +275,7 @@ type NormalizedCanonicalMessage = {
   message_key: string
   version: number
   direction: 'incoming' | 'outgoing'
+  author_kind: 'customer' | 'human_agent' | 'automation' | 'unknown'
   occurred_at: string
   occurred_at_timestamp: number
   observed_at: string
@@ -578,6 +595,27 @@ function normalizeCurrentCrmStatus(
   )
 }
 
+// R2.4: fail-safe (nunca fail-closed), espelhando
+// capture-ingestion.ts normalizeAuthorKind() e
+// stateful-copilot-real-context-loader.ts normalizeLedgerAuthorKind().
+// Um author_kind ausente ou inválido nesta fronteira de validação nunca
+// derruba a mensagem inteira nem o lote — cai no mesmo fallback
+// conservador derivado de direction, nunca promovendo um valor
+// desconhecido a customer/human_agent.
+function normalizeCanonicalAuthorKind(
+  value: unknown,
+  direction: unknown,
+): 'customer' | 'human_agent' | 'automation' | 'unknown' {
+  if (
+    typeof value === 'string' &&
+    (MESSAGE_AUTHOR_KINDS as readonly string[]).includes(value)
+  ) {
+    return value as 'customer' | 'human_agent' | 'automation' | 'unknown'
+  }
+
+  return direction === 'outgoing' ? 'human_agent' : 'customer'
+}
+
 function normalizeCanonicalMessage(
   value: unknown,
   index: number,
@@ -693,6 +731,12 @@ function normalizeCanonicalMessage(
         record.direction,
         MESSAGE_DIRECTIONS,
         `${path}.direction`,
+      ),
+
+    author_kind:
+      normalizeCanonicalAuthorKind(
+        record.author_kind,
+        record.direction,
       ),
 
     occurred_at:
@@ -2290,6 +2334,8 @@ export function buildCompanionDiagnosticInput({
           index + 1,
         direction:
           message.direction,
+        author_kind:
+          message.author_kind,
         occurred_at:
           message.occurred_at,
         observed_at:

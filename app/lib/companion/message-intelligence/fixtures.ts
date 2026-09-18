@@ -611,6 +611,8 @@ export function buildMessageIntelligenceSourcesFixture():
             1,
           direction:
             'outgoing',
+          author_kind:
+            'human_agent',
           occurred_at:
             '2026-08-29T21:50:00.000Z',
           observed_at:
@@ -633,6 +635,8 @@ export function buildMessageIntelligenceSourcesFixture():
             2,
           direction:
             'incoming',
+          author_kind:
+            'customer',
           occurred_at:
             '2026-08-29T21:55:00.000Z',
           observed_at:
