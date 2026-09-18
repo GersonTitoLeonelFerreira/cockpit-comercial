@@ -141,6 +141,16 @@ comment on table public.lead_external_identities is
 -- lead que ele mesmo teria acesso a resolver por telefone); aqui a RPC
 -- garante apenas que o lead pertence a empresa informada e nao esta
 -- soft-deleted.
+--
+-- R2 (gate final): `#variable_conflict use_column` é obrigatório aqui.
+-- Toda coluna de `returns table (...)` (company_id, lead_id, platform,
+-- external_identity_key, identity_source, channel, last_seen_at,
+-- updated_at) vira uma variável PL/pgSQL implícita com o mesmo nome —
+-- sem essa pragma, `on conflict (company_id, platform,
+-- external_identity_key)` levanta "column reference is ambiguous" em
+-- QUALQUER Postgres real, nunca só neste teste. Descoberto por
+-- phase-lead-external-identity-relink-contract.test.mjs; nunca havia
+-- sido pego porque esta migration nunca foi aplicada.
 -- ---------------------------------------------------------------------------
 create or replace function
   public.rpc_link_companion_external_identity(
@@ -169,6 +179,7 @@ security definer
 set search_path = ''
 set row_security = off
 as $$
+#variable_conflict use_column
 declare
   v_platform text;
   v_external_identity_key text;
