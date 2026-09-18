@@ -287,3 +287,222 @@ test(
     )
   },
 )
+
+// R2.4 (correção final) — waiting_on/pending_fact também são claims de
+// autoria, não apenas de transporte. Casos A-F obrigatórios: só
+// outgoing+human_agent e incoming+customer podem transferir
+// responsabilidade comercial; automation/unknown nunca podem fazê-lo
+// apenas por direction — devem falhar fechado (waiting_on='unknown',
+// pending_fact=null), usando os tipos já existentes.
+
+test(
+  'A. outgoing + human_agent transfere responsabilidade ao cliente',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          incoming(
+            'm1',
+            'Tenho interesse no plano anual.',
+            'customer',
+          ),
+          outgoing(
+            'm2',
+            'Combinado, qualquer coisa me chama.',
+            'human_agent',
+          ),
+        ]),
+      )
+
+    assert.equal(
+      result.waiting_on,
+      'customer',
+    )
+    assert.equal(
+      result.pending_fact,
+      'customer_response',
+    )
+  },
+)
+
+test(
+  'B. incoming + customer transfere responsabilidade ao vendedor',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          outgoing(
+            'm1',
+            'Posso te ajudar em algo?',
+            'human_agent',
+          ),
+          incoming(
+            'm2',
+            'Esse plano permite pagamento no Pix?',
+            'customer',
+          ),
+        ]),
+      )
+
+    assert.equal(
+      result.waiting_on,
+      'seller',
+    )
+    assert.equal(
+      result.pending_fact,
+      'seller_response',
+    )
+  },
+)
+
+test(
+  'C. outgoing + automation não transfere responsabilidade ao cliente apenas por direction',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          incoming(
+            'm1',
+            'Tenho interesse no plano anual.',
+            'customer',
+          ),
+          outgoing(
+            'm2',
+            'Combinado, qualquer coisa me chama.',
+            'automation',
+          ),
+        ]),
+      )
+
+    assert.notEqual(
+      result.waiting_on,
+      'customer',
+    )
+    assert.notEqual(
+      result.pending_fact,
+      'customer_response',
+    )
+    assert.equal(
+      result.waiting_on,
+      'unknown',
+    )
+    assert.equal(
+      result.pending_fact,
+      null,
+    )
+  },
+)
+
+test(
+  'D. outgoing + unknown não transfere responsabilidade ao cliente apenas por direction',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          incoming(
+            'm1',
+            'Tenho interesse no plano anual.',
+            'customer',
+          ),
+          outgoing(
+            'm2',
+            'Combinado, qualquer coisa me chama.',
+            'unknown',
+          ),
+        ]),
+      )
+
+    assert.notEqual(
+      result.waiting_on,
+      'customer',
+    )
+    assert.notEqual(
+      result.pending_fact,
+      'customer_response',
+    )
+    assert.equal(
+      result.waiting_on,
+      'unknown',
+    )
+    assert.equal(
+      result.pending_fact,
+      null,
+    )
+  },
+)
+
+test(
+  'E. incoming + unknown não transfere responsabilidade ao vendedor apenas por direction',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          outgoing(
+            'm1',
+            'Posso te ajudar em algo?',
+            'human_agent',
+          ),
+          incoming(
+            'm2',
+            'Esse plano permite pagamento no Pix?',
+            'unknown',
+          ),
+        ]),
+      )
+
+    assert.notEqual(
+      result.waiting_on,
+      'seller',
+    )
+    assert.notEqual(
+      result.pending_fact,
+      'seller_response',
+    )
+    assert.equal(
+      result.waiting_on,
+      'unknown',
+    )
+    assert.equal(
+      result.pending_fact,
+      null,
+    )
+  },
+)
+
+test(
+  'F. incoming + automation não transfere responsabilidade ao vendedor apenas por direction',
+  () => {
+    const result =
+      deriveCommercialResponsibilityFromUserPrompt(
+        prompt([
+          outgoing(
+            'm1',
+            'Posso te ajudar em algo?',
+            'human_agent',
+          ),
+          incoming(
+            'm2',
+            'Esse plano permite pagamento no Pix?',
+            'automation',
+          ),
+        ]),
+      )
+
+    assert.notEqual(
+      result.waiting_on,
+      'seller',
+    )
+    assert.notEqual(
+      result.pending_fact,
+      'seller_response',
+    )
+    assert.equal(
+      result.waiting_on,
+      'unknown',
+    )
+    assert.equal(
+      result.pending_fact,
+      null,
+    )
+  },
+)

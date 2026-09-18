@@ -291,9 +291,26 @@ const VALID_AUTHOR_KINDS: CaptureAuthorKind[] = [
   'unknown',
 ]
 
+// R2.4 (correção final) — o WhatsApp legado (este arquivo/rota) NUNCA
+// namespaceia conversation_key com um prefixo fixo: o formato real é
+// `${tituloDoContato}::${identidadeEstavel}` (ver
+// content-script.js getConversationKey()), então checar um prefixo
+// "whatsapp:" quebraria justamente o payload legado que este fallback
+// existe para proteger. O único canal com namespace canônico
+// obrigatório é o ManyChat (`manychat:...`, imposto em
+// platform-contract.js buildNamespacedConversationKey/CONVERSATION_KEY_
+// NAMESPACE_MISMATCH) — usamos essa informação já existente, sem
+// heurística paralela, como a única exceção ao fallback legado.
+function isManyChatConversationKey(
+  conversationKey: string,
+): boolean {
+  return conversationKey.startsWith('manychat:')
+}
+
 function normalizeAuthorKind(
   value: unknown,
   direction: CaptureDirection,
+  conversationKey: string,
 ): CaptureAuthorKind {
   if (
     typeof value === 'string' &&
@@ -302,11 +319,24 @@ function normalizeAuthorKind(
     return value as CaptureAuthorKind
   }
 
-  // Fail-safe, não fail-closed: uma versão da extensão que ainda não
-  // envia author_kind (ou envia um valor inesperado) nunca derruba o
-  // lote — cai no fallback mais conservador derivado de direction, que
-  // é exatamente o que sempre foi verdade no adapter WhatsApp.
-  return direction === 'outgoing' ? 'human_agent' : 'customer'
+  // LEGACY ABSENT: um payload sem author_kind (extensão WhatsApp antiga,
+  // campo nunca existiu) herda o fallback conservador derivado de
+  // direction — exatamente o que sempre foi verdade no adapter
+  // WhatsApp — em qualquer canal que não seja explicitamente ManyChat.
+  if (
+    (value === undefined || value === null) &&
+    !isManyChatConversationKey(
+      conversationKey,
+    )
+  ) {
+    return direction === 'outgoing' ? 'human_agent' : 'customer'
+  }
+
+  // INVALID / UNPROVEN: valor explicitamente presente mas fora do
+  // enum, OU qualquer canal não-WhatsApp (ManyChat incluso) sem
+  // autoria comprovada. Nunca promove a human_agent/customer só por
+  // direction — falha fechado.
+  return 'unknown'
 }
 
 function normalizeContentType(
@@ -465,6 +495,7 @@ function normalizeObservedAt(
 function normalizeCaptureMessage(
   value: unknown,
   index: number,
+  conversationKey: string,
 ): NormalizedCaptureMessage | null {
   const path = `messages[${index}]`
 
@@ -490,6 +521,7 @@ function normalizeCaptureMessage(
   const authorKind = normalizeAuthorKind(
     value.author_kind,
     direction,
+    conversationKey,
   )
 
   const occurredAt = normalizeOccurredAt(
@@ -654,7 +686,11 @@ export function normalizeCaptureIngestionEnvelope(
 
   const messages = value.messages
     .map((message, index) => {
-      return normalizeCaptureMessage(message, index)
+      return normalizeCaptureMessage(
+        message,
+        index,
+        conversationKey,
+      )
     })
     .filter(
       (message): message is NormalizedCaptureMessage =>

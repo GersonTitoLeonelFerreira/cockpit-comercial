@@ -214,16 +214,24 @@ export function deriveCommercialResponsibilityFromUserPrompt(
   let pendingFact:
     CommercialPendingFact = null
 
+  // R2.4: transferir a responsabilidade comercial (quem precisa agir
+  // agora) também é uma claim de autoria — não apenas de transporte.
+  // outgoing/automation ou incoming/unknown nunca podem, só por
+  // direction, fazer o sistema acreditar que o vendedor agiu ou que o
+  // cliente falou; nesses casos falha fechado com os mesmos tipos já
+  // existentes (waiting_on='unknown', pending_fact=null).
   if (customerFutureAction) {
     waitingOn = 'customer'
     pendingFact = 'customer_commitment'
   } else if (
-    latest.direction === 'outgoing'
+    latest.direction === 'outgoing' &&
+    latest.author_kind === 'human_agent'
   ) {
     waitingOn = 'customer'
     pendingFact = 'customer_response'
   } else if (
-    latest.direction === 'incoming'
+    latest.direction === 'incoming' &&
+    latest.author_kind === 'customer'
   ) {
     waitingOn = 'seller'
     pendingFact = 'seller_response'

@@ -1090,15 +1090,28 @@ const VALID_LEDGER_AUTHOR_KINDS: NormalizedLedgerAuthorKind[] = [
   'unknown',
 ]
 
-// R2.4: mesmo fallback fail-safe (nunca fail-closed) de
-// capture-ingestion.ts normalizeAuthorKind() — uma linha do ledger
-// gravada antes da migration (ou por uma extensão desatualizada) nunca
-// derruba a leitura do contexto real. Nunca promove um valor
-// desconhecido a customer/human_agent: cai sempre no mesmo derivado de
-// direction que já era implicitamente verdade no WhatsApp.
+// R2.4 (correção final): mesmo namespace canônico usado em
+// capture-ingestion.ts isManyChatConversationKey() — sem heurística
+// paralela. O WhatsApp legado NUNCA namespaceia conversation_key com um
+// prefixo fixo (formato real: `${título}::${identidadeEstável}`, ver
+// content-script.js getConversationKey()); checar um prefixo "whatsapp:"
+// quebraria justamente o payload legado que este fallback protege. Só o
+// ManyChat tem namespace canônico obrigatório (`manychat:...`, imposto em
+// platform-contract.js) — essa é a única exceção ao fallback legado. Uma
+// linha do ledger gravada antes da migration (ou por uma extensão
+// WhatsApp desatualizada) nunca derruba a leitura do contexto real; mas
+// um valor explicitamente inválido, ou uma ausência em ManyChat, nunca é
+// promovido a customer/human_agent — falha fechado em 'unknown'.
+function isManyChatLedgerConversationKey(
+  conversationKey: string,
+): boolean {
+  return conversationKey.startsWith('manychat:')
+}
+
 function normalizeLedgerAuthorKind(
   value: unknown,
   direction: unknown,
+  conversationKey: string,
 ): NormalizedLedgerAuthorKind {
   if (
     typeof value === 'string' &&
@@ -1107,7 +1120,16 @@ function normalizeLedgerAuthorKind(
     return value as NormalizedLedgerAuthorKind
   }
 
-  return direction === 'outgoing' ? 'human_agent' : 'customer'
+  if (
+    (value === undefined || value === null) &&
+    !isManyChatLedgerConversationKey(
+      conversationKey,
+    )
+  ) {
+    return direction === 'outgoing' ? 'human_agent' : 'customer'
+  }
+
+  return 'unknown'
 }
 
 function normalizeLedgerMessage(
@@ -1238,6 +1260,7 @@ function normalizeLedgerMessage(
       normalizeLedgerAuthorKind(
         record.author_kind,
         record.direction,
+        rowConversationKey,
       ),
 
     occurred_at:

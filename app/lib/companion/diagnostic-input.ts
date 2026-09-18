@@ -595,16 +595,31 @@ function normalizeCurrentCrmStatus(
   )
 }
 
-// R2.4: fail-safe (nunca fail-closed), espelhando
-// capture-ingestion.ts normalizeAuthorKind() e
-// stateful-copilot-real-context-loader.ts normalizeLedgerAuthorKind().
-// Um author_kind ausente ou inválido nesta fronteira de validação nunca
-// derruba a mensagem inteira nem o lote — cai no mesmo fallback
-// conservador derivado de direction, nunca promovendo um valor
-// desconhecido a customer/human_agent.
+// R2.4 (correção final): mesmo namespace canônico usado em
+// capture-ingestion.ts isManyChatConversationKey() e
+// stateful-copilot-real-context-loader.ts
+// isManyChatLedgerConversationKey() — sem heurística paralela. O
+// WhatsApp legado NUNCA namespaceia conversation_key com um prefixo
+// fixo (formato real: `${título}::${identidadeEstável}`, ver
+// content-script.js getConversationKey()); checar um prefixo
+// "whatsapp:" quebraria justamente o payload legado que este fallback
+// protege. Só o ManyChat tem namespace canônico obrigatório
+// (`manychat:...`, imposto em platform-contract.js) — essa é a única
+// exceção ao fallback legado. Um author_kind ausente nunca derruba a
+// mensagem inteira nem o lote, mas só é promovido ao derivado de
+// direction fora do canal ManyChat; um valor explicitamente inválido em
+// qualquer canal, ou uma ausência em ManyChat, falha fechado em
+// 'unknown'.
+function isManyChatCanonicalConversationKey(
+  conversationKey: string,
+): boolean {
+  return conversationKey.startsWith('manychat:')
+}
+
 function normalizeCanonicalAuthorKind(
   value: unknown,
   direction: unknown,
+  conversationKey: string,
 ): 'customer' | 'human_agent' | 'automation' | 'unknown' {
   if (
     typeof value === 'string' &&
@@ -613,12 +628,22 @@ function normalizeCanonicalAuthorKind(
     return value as 'customer' | 'human_agent' | 'automation' | 'unknown'
   }
 
-  return direction === 'outgoing' ? 'human_agent' : 'customer'
+  if (
+    (value === undefined || value === null) &&
+    !isManyChatCanonicalConversationKey(
+      conversationKey,
+    )
+  ) {
+    return direction === 'outgoing' ? 'human_agent' : 'customer'
+  }
+
+  return 'unknown'
 }
 
 function normalizeCanonicalMessage(
   value: unknown,
   index: number,
+  conversationKey: string,
 ): NormalizedCanonicalMessage {
   const path =
     `messages[${index}]`
@@ -737,6 +762,7 @@ function normalizeCanonicalMessage(
       normalizeCanonicalAuthorKind(
         record.author_kind,
         record.direction,
+        conversationKey,
       ),
 
     occurred_at:
@@ -767,6 +793,7 @@ function normalizeCanonicalMessage(
 
 function normalizeCanonicalMessages(
   value: unknown,
+  conversationKey: string,
 ): NormalizedCanonicalMessage[] {
   if (!Array.isArray(value)) {
     fail(
@@ -786,7 +813,12 @@ function normalizeCanonicalMessages(
 
   const messages =
     value.map(
-      normalizeCanonicalMessage,
+      (message, index) =>
+        normalizeCanonicalMessage(
+          message,
+          index,
+          conversationKey,
+        ),
     )
 
   const ids = new Set<string>()
@@ -2244,6 +2276,7 @@ export function buildCompanionDiagnosticInput({
   const canonicalMessages =
     normalizeCanonicalMessages(
       messages,
+      conversationKey,
     )
 
   const limitations: string[] = []
