@@ -225,8 +225,62 @@
     // (STEP 2A.3, seção 18/19). baseVersionsByMessageKey,
     // lastContentFingerprint e transcribedMessageKeys permanecem
     // intocados.
-    async function refreshLeadResolution(conversationKey) {
-      return resolveAndStoreResolution(conversationKey)
+    //
+    // Hardening (STEP 2A.3, correção final): entre o first-link terminar
+    // no servidor e este refresh rodar, o vendedor pode ter trocado de
+    // conversa/contato — expectedPlatform/expectedIdentityKey são a
+    // identidade que foi REALMENTE vinculada, e conversationKey é a
+    // conversa daquele vínculo. Revalida os dois ANTES e DEPOIS de cada
+    // await: só grava state[conversationKey].resolution se a conversa
+    // atual ainda for exatamente essa E a safe identity atual ainda for
+    // exatamente essa. Se qualquer uma mudou, nunca persiste o resultado
+    // (que poderia pertencer a outro contato/conversa — ex.: B) e limpa o
+    // cache antigo (nunca deixa uma conversa presa eternamente num
+    // CONTACT_NOT_LINKED que já foi resolvido no servidor).
+    function isCurrentConversation(conversationKey) {
+      return adapter.getCurrentConversation(getConversationUrl())?.conversation_key === conversationKey
+    }
+
+    async function refreshLeadResolution({ conversationKey, expectedPlatform, expectedIdentityKey }) {
+      const state = getConversationState(conversationKey)
+
+      function abortStale() {
+        // Nunca deixa a conversa presa num cache antigo: o próximo ciclo
+        // normal (captureNow/ensureCycleResolved) fará RESOLVE_LEAD de
+        // novo quando o vendedor realmente voltar para ela.
+        state.resolution = null
+        return Object.freeze({ ready: false, reason: 'CONTACT_CHANGED', cycle_id: null })
+      }
+
+      if (!isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
+      const safeIdentity = await getSafeIdentity()
+
+      const identityMatches =
+        safeIdentity?.platform === expectedPlatform &&
+        safeIdentity?.platform_identity?.key === expectedIdentityKey
+
+      if (!identityMatches || !isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
+      const resolution = await resolveLeadForIdentity(safeIdentity)
+
+      if (!isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
+      const eligible = captureBatchApi.isCaptureResolutionEligible(resolution)
+
+      state.resolution = Object.freeze({
+        ready: eligible,
+        reason: eligible ? null : (resolution?.status ?? 'resolution_unavailable'),
+        cycle_id: eligible ? resolution.cycle.id : null,
+      })
+
+      return state.resolution
     }
 
     function queryMessageNodes() {
@@ -527,6 +581,12 @@
       getConversationState,
       getSafeIdentity,
       refreshLeadResolution,
+      // Fonte autoritativa única de "qual conversa está aberta agora",
+      // sempre derivada ao vivo do adapter/URL — nunca uma variável que um
+      // callback assíncrono desatualizado poderia sobrescrever (STEP
+      // 2A.3, hardening final, item 7/8).
+      getCurrentConversationKey: () =>
+        adapter.getCurrentConversation(getConversationUrl())?.conversation_key ?? null,
     })
   }
 

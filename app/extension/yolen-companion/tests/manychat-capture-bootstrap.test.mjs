@@ -148,6 +148,7 @@ test('sendMessage usa browser.runtime.sendMessage (promise nativa) quando dispon
 test('com YolenManyChatPanelMount disponível, sincroniza visibilidade e status já no start()', () => {
   const panelCalls = []
   let receivedOptions = null
+  let currentKey = null
 
   runBootstrap({
     YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
@@ -159,6 +160,9 @@ test('com YolenManyChatPanelMount disponível, sincroniza visibilidade e status 
           getConversationState() {
             return { resolution: { ready: false, reason: 'CONTACT_NOT_LINKED' } }
           },
+          // Fonte autoritativa ao vivo (equivalente ao adapter/URL real):
+          // no start(), a conversa ainda não é conhecida.
+          getCurrentConversationKey: () => currentKey,
         }
       },
     },
@@ -183,8 +187,11 @@ test('com YolenManyChatPanelMount disponível, sincroniza visibilidade e status 
   assert.ok(panelCalls.some((call) => typeof call === 'string' && call.includes('carregando')))
 
   // O onEvent repassado ao runtime atualiza o painel a cada evento de
-  // captura/observer, já refletindo a resolução real daquela conversa.
+  // captura/observer, já refletindo a resolução real daquela conversa —
+  // simula a navegação real (a fonte autoritativa já reflete k1) antes do
+  // evento assíncrono de captura chegar.
   panelCalls.length = 0
+  currentKey = 'k1'
   receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'k1' } })
   assert.ok(panelCalls.includes('syncPanelVisibility'))
   assert.ok(panelCalls.some((call) => typeof call === 'string' && call.includes('não vinculado')))
@@ -237,6 +244,7 @@ test('reader_event do tipo conversation_mutated NUNCA re-renderiza o painel (só
 test('capture_result repetido com a MESMA resolução não reescreve o status (dedup por assinatura)', () => {
   const panelCalls = []
   let receivedOptions = null
+  const currentKeyRef = { value: null }
 
   runBootstrap({
     YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
@@ -248,6 +256,7 @@ test('capture_result repetido com a MESMA resolução não reescreve o status (d
           getConversationState() {
             return { resolution: { ready: false, reason: 'CONTACT_NOT_LINKED' } }
           },
+          getCurrentConversationKey: () => currentKeyRef.value,
         }
       },
     },
@@ -270,6 +279,9 @@ test('capture_result repetido com a MESMA resolução não reescreve o status (d
     return calls.filter((call) => call !== 'syncPanelVisibility')
   }
 
+  // Navegação real: a fonte autoritativa já reflete k1 quando o primeiro
+  // capture_result chega.
+  currentKeyRef.value = 'k1'
   receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'k1' } })
   const contentWritesAfterFirst = contentWrites(panelCalls).length
 
@@ -293,6 +305,7 @@ test('capture_result repetido com a MESMA resolução não reescreve o status (d
 test('bootstrap nunca chama sellerPanelRuntime.renderPanel diretamente — só handleCaptureResult, que decide sozinho quando renderizar', () => {
   const sellerCalls = []
   let receivedOptions = null
+  const currentKeyRef = { value: null }
 
   runBootstrap({
     YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
@@ -304,6 +317,7 @@ test('bootstrap nunca chama sellerPanelRuntime.renderPanel diretamente — só h
           getConversationState() {
             return { resolution: { ready: true, reason: null, cycle_id: 'cycle-1' } }
           },
+          getCurrentConversationKey: () => currentKeyRef.value,
         }
       },
     },
@@ -330,6 +344,9 @@ test('bootstrap nunca chama sellerPanelRuntime.renderPanel diretamente — só h
     chrome: { runtime: { sendMessage() {} } },
   })
 
+  // Navegação real: a fonte autoritativa já reflete k1 quando o reader
+  // detecta e dispara conversation_changed.
+  currentKeyRef.value = 'k1'
   receivedOptions.onEvent({
     type: 'reader_event',
     event: { type: 'conversation_changed', conversation_key: 'k1' },
@@ -378,6 +395,7 @@ test('CONTACT_NOT_LINKED delega inteiramente a renderização ao contactLinkRunt
   const contactLinkCalls = []
   const directPanelWrites = []
   let receivedOptions = null
+  const currentKeyRef = { value: null }
 
   runBootstrap({
     YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
@@ -391,6 +409,7 @@ test('CONTACT_NOT_LINKED delega inteiramente a renderização ao contactLinkRunt
           },
           getSafeIdentity: async () => null,
           refreshLeadResolution: async () => ({ ready: false, reason: 'CONTACT_NOT_LINKED', cycle_id: null }),
+          getCurrentConversationKey: () => currentKeyRef.value,
         }
       },
     },
@@ -419,6 +438,7 @@ test('CONTACT_NOT_LINKED delega inteiramente a renderização ao contactLinkRunt
   })
 
   directPanelWrites.length = 0
+  currentKeyRef.value = 'k1'
 
   receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'k1' } })
 
@@ -430,6 +450,7 @@ test('delegação de clique: cada data-attribute do fluxo de vínculo chama a fu
   const calls = []
   let receivedOptions = null
   const fakeDocument = createFakeDocument()
+  const currentKeyRef = { value: null }
 
   runBootstrap({
     YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
@@ -441,6 +462,7 @@ test('delegação de clique: cada data-attribute do fluxo de vínculo chama a fu
           getConversationState() {
             return { resolution: { ready: false, reason: 'CONTACT_NOT_LINKED', cycle_id: null } }
           },
+          getCurrentConversationKey: () => currentKeyRef.value,
         }
       },
     },
@@ -488,6 +510,7 @@ test('delegação de clique: cada data-attribute do fluxo de vínculo chama a fu
   })
 
   // Estabelece a conversation_key atual antes de qualquer clique.
+  currentKeyRef.value = 'conv-1'
   receivedOptions.onEvent({
     type: 'reader_event',
     event: { type: 'conversation_changed', conversation_key: 'conv-1' },
@@ -516,13 +539,18 @@ test('clique em elemento sem nenhum data-attribute reconhecido não chama nenhum
   const calls = []
   let receivedOptions = null
   const fakeDocument = createFakeDocument()
+  const currentKeyRef = { value: null }
 
   runBootstrap({
     YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
     YolenManyChatCaptureRuntime: {
       createManyChatCaptureRuntime(options) {
         receivedOptions = options
-        return { start() {}, getConversationState: () => ({ resolution: null }) }
+        return {
+          start() {},
+          getConversationState: () => ({ resolution: null }),
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
       },
     },
     YolenManyChatPanelMount: {
@@ -546,6 +574,7 @@ test('clique em elemento sem nenhum data-attribute reconhecido não chama nenhum
     chrome: { runtime: { sendMessage() {} } },
   })
 
+  currentKeyRef.value = 'conv-1'
   receivedOptions.onEvent({
     type: 'reader_event',
     event: { type: 'conversation_changed', conversation_key: 'conv-1' },
@@ -591,6 +620,7 @@ test('onLinked (repassado ao contactLinkRuntime): refresca a resolução, roda U
   const runtimeCalls = []
   const sellerCalls = []
   let capturedOnLinked = null
+  const currentKeyRef = { value: 'k1' }
 
   runBootstrap({
     YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
@@ -600,8 +630,9 @@ test('onLinked (repassado ao contactLinkRuntime): refresca a resolução, roda U
           start() {},
           getConversationState: () => ({ resolution: null }),
           getSafeIdentity: async () => null,
-          async refreshLeadResolution(conversationKey) {
-            runtimeCalls.push(['refreshLeadResolution', conversationKey])
+          getCurrentConversationKey: () => currentKeyRef.value,
+          async refreshLeadResolution(context) {
+            runtimeCalls.push(['refreshLeadResolution', context])
             return { ready: true, reason: null, cycle_id: 'cycle-1' }
           },
           async captureNow() {
@@ -635,12 +666,22 @@ test('onLinked (repassado ao contactLinkRuntime): refresca a resolução, roda U
     chrome: { runtime: { sendMessage() {} } },
   })
 
-  await capturedOnLinked('k1')
+  await capturedOnLinked({
+    conversationKey: 'k1',
+    expectedPlatform: 'manychat',
+    expectedIdentityKey: `manychat:contact:v1:sha256:${'a'.repeat(64)}`,
+  })
 
-  assert.deepEqual(runtimeCalls, [
-    ['refreshLeadResolution', 'k1'],
-    ['captureNow'],
-  ])
+  // Comparação campo a campo: o objeto de contexto é criado dentro de
+  // outro realm (vm.createContext), então deepEqual entre realms falha por
+  // identidade de protótipo mesmo com estrutura idêntica (mesmo padrão já
+  // usado acima neste arquivo para receivedOptions.selectors).
+  assert.equal(runtimeCalls.length, 2)
+  assert.equal(runtimeCalls[0][0], 'refreshLeadResolution')
+  assert.equal(runtimeCalls[0][1].conversationKey, 'k1')
+  assert.equal(runtimeCalls[0][1].expectedPlatform, 'manychat')
+  assert.equal(runtimeCalls[0][1].expectedIdentityKey, `manychat:contact:v1:sha256:${'a'.repeat(64)}`)
+  assert.equal(runtimeCalls[1][0], 'captureNow')
   assert.equal(sellerCalls.length, 1)
   assert.equal(sellerCalls[0][0], 'handleCaptureResult')
   assert.equal(sellerCalls[0][1].conversation_key, 'k1')
@@ -656,6 +697,7 @@ test('onLinked (repassado ao contactLinkRuntime): refresca a resolução, roda U
 test('onLinked: se a resolução refrescada NÃO ficar capture-eligible, nunca chama captureNow', async () => {
   const runtimeCalls = []
   let capturedOnLinked = null
+  const currentKeyRef = { value: 'k1' }
 
   runBootstrap({
     YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
@@ -665,8 +707,9 @@ test('onLinked: se a resolução refrescada NÃO ficar capture-eligible, nunca c
           start() {},
           getConversationState: () => ({ resolution: null }),
           getSafeIdentity: async () => null,
-          async refreshLeadResolution(conversationKey) {
-            runtimeCalls.push(['refreshLeadResolution', conversationKey])
+          getCurrentConversationKey: () => currentKeyRef.value,
+          async refreshLeadResolution(context) {
+            runtimeCalls.push(['refreshLeadResolution', context])
             return { ready: false, reason: 'OWNED_BY_OTHER', cycle_id: null }
           },
           async captureNow() {
@@ -691,7 +734,191 @@ test('onLinked: se a resolução refrescada NÃO ficar capture-eligible, nunca c
     chrome: { runtime: { sendMessage() {} } },
   })
 
-  await capturedOnLinked('k1')
+  const context = {
+    conversationKey: 'k1',
+    expectedPlatform: 'manychat',
+    expectedIdentityKey: `manychat:contact:v1:sha256:${'a'.repeat(64)}`,
+  }
+  await capturedOnLinked(context)
 
-  assert.deepEqual(runtimeCalls, [['refreshLeadResolution', 'k1']])
+  assert.equal(runtimeCalls.length, 1)
+  assert.equal(runtimeCalls[0][0], 'refreshLeadResolution')
+  assert.equal(runtimeCalls[0][1].conversationKey, context.conversationKey)
+  assert.equal(runtimeCalls[0][1].expectedPlatform, context.expectedPlatform)
+  assert.equal(runtimeCalls[0][1].expectedIdentityKey, context.expectedIdentityKey)
+})
+
+test('onLinked: se a conversa já mudou quando o refresh termina, nunca chama captureNow mesmo com resolução pronta', async () => {
+  const runtimeCalls = []
+  let capturedOnLinked = null
+  const currentKeyRef = { value: 'k2' }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime() {
+        return {
+          start() {},
+          getConversationState: () => ({ resolution: null }),
+          getSafeIdentity: async () => null,
+          // A fonte autoritativa já é k2 — o vendedor trocou de conversa
+          // enquanto o refresh de A (k1) estava em andamento.
+          getCurrentConversationKey: () => currentKeyRef.value,
+          async refreshLeadResolution(context) {
+            runtimeCalls.push(['refreshLeadResolution', context])
+            return { ready: true, reason: null, cycle_id: 'cycle-1' }
+          },
+          async captureNow() {
+            runtimeCalls.push(['captureNow'])
+            return { ok: true }
+          },
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatContactLinkRuntime: {
+      createManyChatContactLinkRuntime(options) {
+        capturedOnLinked = options.onLinked
+        return { renderContactLinkPanel() {} }
+      },
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  await capturedOnLinked({
+    conversationKey: 'k1',
+    expectedPlatform: 'manychat',
+    expectedIdentityKey: `manychat:contact:v1:sha256:${'a'.repeat(64)}`,
+  })
+
+  assert.equal(
+    runtimeCalls.some(([method]) => method === 'captureNow'),
+    false,
+    'nunca dispara captura para uma conversa (k1) que não é mais a atual (k2)',
+  )
+})
+
+// -----------------------------------------------------------------------
+// STEP 2A.3 — hardening final (auditoria de race condition A→B), itens 7-10:
+// a conversa "atual" nunca é uma variável que um evento desatualizado pode
+// sobrescrever — é sempre relida ao vivo. Um capture_result desatualizado
+// nunca repinta a conversa errada.
+// -----------------------------------------------------------------------
+
+test('G: um capture_result desatualizado de A nunca muda qual conversa a delegação de clique considera "atual" (B continua sendo B)', () => {
+  const calls = []
+  let receivedOptions = null
+  const fakeDocument = createFakeDocument()
+  const currentKeyRef = { value: null }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState: () => ({ resolution: { ready: false, reason: 'CONTACT_NOT_LINKED', cycle_id: null } }),
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatContactLinkRuntime: {
+      createManyChatContactLinkRuntime() {
+        return {
+          renderContactLinkPanel() {},
+          startLinkFlow(conversationKey) {
+            calls.push(['startLinkFlow', conversationKey])
+          },
+        }
+      },
+    },
+    document: fakeDocument,
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  // Navegação real: a autoritativa passa a ser B.
+  currentKeyRef.value = 'conv-b'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b' },
+  })
+
+  // Um capture_result desatualizado de A chega DEPOIS — nunca deveria
+  // conseguir mudar o que a UI considera "a conversa atual".
+  receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'conv-a' } })
+
+  fakeDocument.click(createFakeElement({ '[data-yolen-link-lead-start]': true }))
+
+  assert.deepEqual(calls, [['startLinkFlow', 'conv-b']])
+})
+
+test('H: capture_result(A) chegando depois da troca real para B nunca dispara render seller-facing de A sobre B', () => {
+  const sellerCalls = []
+  let receivedOptions = null
+  const currentKeyRef = { value: null }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState(conversationKey) {
+            // B (conv-b) está pronto/capture-eligible; A (conv-a) também
+            // tinha ficado pronto antes de o vendedor trocar de conversa.
+            return { resolution: { ready: true, reason: null, cycle_id: `cycle-${conversationKey}` } }
+          },
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatSellerPanelRuntime: {
+      createManyChatSellerPanelRuntime() {
+        return {
+          handleCaptureResult(result) {
+            sellerCalls.push(result)
+          },
+        }
+      },
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  // Navegação real para B.
+  currentKeyRef.value = 'conv-b'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b' },
+  })
+
+  // capture_result de A (uma captura que estava em andamento antes da
+  // troca) chega só agora — nunca deveria repintar o painel seller-facing
+  // com o conteúdo de A enquanto B está aberto.
+  receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'conv-a', ok: true } })
+
+  assert.equal(sellerCalls.length, 0, 'capture_result de A nunca chega a sellerPanelRuntime enquanto B é a conversa atual')
+
+  // capture_result de B, a conversa realmente atual, continua funcionando
+  // normalmente.
+  receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'conv-b', ok: true } })
+  assert.equal(sellerCalls.length, 1)
+  assert.equal(sellerCalls[0].conversation_key, 'conv-b')
 })

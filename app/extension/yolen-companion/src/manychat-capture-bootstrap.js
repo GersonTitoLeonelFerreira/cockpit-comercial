@@ -79,7 +79,23 @@
     panelMountApi.setPanelContent(`<div class="yolen-status">${label}</div>`)
   }
 
-  let currentConversationKey = null
+  // Fonte AUTORITATIVA única de "qual conversa está aberta agora": sempre
+  // derivada ao vivo de runtime.getCurrentConversationKey() (adapter/URL
+  // atual), nunca uma variável cacheada que uma resposta assíncrona
+  // desatualizada (capture_result, onLinked, search, first-link) poderia
+  // reescrever (STEP 2A.3, hardening final, item 7/8). `runtime` só é
+  // atribuído mais abaixo, mas esta função só é CHAMADA depois disso.
+  function getCurrentConversationKey() {
+    return typeof runtime.getCurrentConversationKey === 'function' ? runtime.getCurrentConversationKey() : null
+  }
+
+  // Bookkeeping SEPARADO: guarda qual era a conversa aberta na última vez
+  // que um evento AUTORITATIVO de navegação real (conversation_changed do
+  // reader) foi observado — usado exclusivamente para saber QUAL fluxo de
+  // vínculo invalidar quando a conversa muda de verdade. Nunca lido como
+  // "a conversa atual" para autorizar nada; isso é sempre
+  // getCurrentConversationKey().
+  let lastKnownConversationKey = null
 
   // Assinatura do último status de RESOLUÇÃO já renderizado por conversa
   // (nunca do conteúdo seller-facing — isso é responsabilidade exclusiva do
@@ -99,30 +115,46 @@
   // re-renderizado quando ele mesmo busca dado novo (refreshViewModels).
   // Chamado apenas em eventos discretos e pouco frequentes (troca de
   // conversa, resultado de uma captura já debatida/filtrada) — nunca a
-  // cada mutação bruta do DOM.
-  function syncPanel(conversationKey) {
+  // cada mutação bruta do DOM. NUNCA recebe conversation_key por
+  // parâmetro: sempre relê a conversa realmente aberta agora, então uma
+  // chamada originada por um evento desatualizado nunca redesenha a
+  // conversa errada.
+  function syncPanel() {
     if (!panelMountApi) return
 
     panelMountApi.syncPanelVisibility()
 
     if (!panelMountApi.isConversationOpen(root.document)) return
 
-    currentConversationKey = conversationKey ?? currentConversationKey
-    if (!currentConversationKey) {
+    const authoritativeKey = getCurrentConversationKey()
+    if (!authoritativeKey) {
       renderStatus(null, null)
       return
     }
 
-    const state = runtime.getConversationState(currentConversationKey)
+    const state = runtime.getConversationState(authoritativeKey)
     const resolution = state?.resolution ?? null
     const signature = resolutionSignature(resolution)
 
-    if (lastRenderedResolutionByConversationKey.get(currentConversationKey) === signature) {
+    if (lastRenderedResolutionByConversationKey.get(authoritativeKey) === signature) {
       return
     }
-    lastRenderedResolutionByConversationKey.set(currentConversationKey, signature)
+    lastRenderedResolutionByConversationKey.set(authoritativeKey, signature)
 
-    renderStatus(resolution, currentConversationKey)
+    renderStatus(resolution, authoritativeKey)
+  }
+
+  // Único ponto que pode mudar o que consideramos "a última conversa
+  // conhecida": o evento conversation_changed do reader é autoritativo (é
+  // ele quem detecta navegação real). Invalida o fluxo de vínculo da
+  // conversa que está sendo deixada para trás ANTES de deixar a nova
+  // assumir o painel (STEP 2A.3, hardening final, item 1/2).
+  function handleAuthoritativeConversationChange(newConversationKey) {
+    if (contactLinkRuntime && lastKnownConversationKey && lastKnownConversationKey !== newConversationKey) {
+      contactLinkRuntime.invalidateConversation(lastKnownConversationKey)
+    }
+    lastKnownConversationKey = newConversationKey
+    syncPanel()
   }
 
   // Únicos seletores validados ao vivo (A → B → A, com evidência de
@@ -175,11 +207,19 @@
       // próprio debounce/fingerprint). O painel só reage ao RESULTADO de
       // uma captura de verdade (capture_result), nunca à mutação bruta.
       if (event?.type === 'reader_event' && event.event?.type === 'conversation_changed') {
-        syncPanel(event.event.conversation_key ?? null)
+        handleAuthoritativeConversationChange(event.event.conversation_key ?? null)
       } else if (event?.type === 'capture_result') {
-        const conversationKey = event.result?.conversation_key ?? null
-        syncPanel(conversationKey)
-        if (sellerPanelRuntime) {
+        // Um capture_result pode chegar depois que o vendedor já trocou de
+        // conversa (captureNow é assíncrono). syncPanel() nunca recebe a
+        // conversation_key do resultado — sempre relê a autoritativa. O
+        // render seller-facing (AGORA/ANÁLISE/CLIENTE) só é disparado se
+        // este resultado ainda pertencer à conversa realmente aberta agora
+        // (STEP 2A.3, hardening final, item 9/10) — nunca repinta A sobre
+        // B; o estado interno de A já foi atualizado isoladamente pelo
+        // próprio capture-runtime, independente disso.
+        syncPanel()
+        const resultConversationKey = event.result?.conversation_key ?? null
+        if (sellerPanelRuntime && resultConversationKey && resultConversationKey === getCurrentConversationKey()) {
           sellerPanelRuntime.handleCaptureResult(event.result)
         }
       }
@@ -211,16 +251,30 @@
   // existente (nunca uma segunda rotina de ingestão) e deixa o evento
   // capture_result normal decidir sobre análise — nunca chama
   // ANALYZE_CONVERSATION diretamente daqui (STEP 2A.3, seções 19-21).
-  async function handleLinked(conversationKey) {
-    const resolution = await runtime.refreshLeadResolution(conversationKey)
-    syncPanel(conversationKey)
+  //
+  // expectedPlatform/expectedIdentityKey são a identidade que foi
+  // REALMENTE vinculada — runtime.refreshLeadResolution() revalida os dois
+  // (e a conversa) antes de persistir qualquer resolução, então mesmo que
+  // o vendedor já tenha trocado para outra conversa/contato quando esta
+  // função roda, o resultado de B nunca é gravado em state[conversationKey]
+  // (STEP 2A.3, hardening final, item 3-6).
+  async function handleLinked({ conversationKey, expectedPlatform, expectedIdentityKey }) {
+    const resolution = await runtime.refreshLeadResolution({
+      conversationKey,
+      expectedPlatform,
+      expectedIdentityKey,
+    })
+    syncPanel()
 
     if (!resolution.ready) return
+    // A conversa pode ter mudado enquanto o refresh estava em andamento —
+    // nunca dispara uma captura para uma conversa que não é mais a atual.
+    if (getCurrentConversationKey() !== conversationKey) return
 
     try {
       const result = await runtime.captureNow()
-      syncPanel(result?.conversation_key ?? conversationKey)
-      if (sellerPanelRuntime) {
+      syncPanel()
+      if (sellerPanelRuntime && result?.conversation_key && result.conversation_key === getCurrentConversationKey()) {
         sellerPanelRuntime.handleCaptureResult(result)
       }
     } catch {
@@ -235,7 +289,7 @@
         sendMessage,
         panelMountApi,
         getSafeIdentity: runtime.getSafeIdentity,
-        getCurrentConversationKey: () => currentConversationKey,
+        getCurrentConversationKey,
         onLinked: handleLinked,
       })
     : null
@@ -248,46 +302,52 @@
   if ((sellerPanelRuntime || contactLinkRuntime) && typeof root.document?.addEventListener === 'function') {
     root.document.addEventListener('click', (domEvent) => {
       const target = domEvent.target
-      if (typeof target?.closest !== 'function' || !currentConversationKey) return
+      if (typeof target?.closest !== 'function') return
+
+      // Sempre a conversa realmente aberta NO MOMENTO DO CLIQUE — nunca uma
+      // variável que um callback assíncrono anterior poderia ter deixado
+      // desatualizada.
+      const conversationKey = getCurrentConversationKey()
+      if (!conversationKey) return
 
       if (sellerPanelRuntime && target.closest('[data-yolen-apply-suggestion]')) {
-        sellerPanelRuntime.applySuggestedMessage(currentConversationKey)
+        sellerPanelRuntime.applySuggestedMessage(conversationKey)
         return
       }
 
       if (!contactLinkRuntime) return
 
       if (target.closest('[data-yolen-link-lead-start]') || target.closest('[data-yolen-link-lead-retry]')) {
-        contactLinkRuntime.startLinkFlow(currentConversationKey)
+        contactLinkRuntime.startLinkFlow(conversationKey)
         return
       }
 
       if (target.closest('[data-yolen-link-lead-search]')) {
         const panelElement = panelMountApi?.ensurePanelMounted?.({ document: root.document })?.element
         const input = panelElement?.querySelector?.('[data-yolen-link-lead-query]')
-        contactLinkRuntime.runSearch(currentConversationKey, input?.value ?? '')
+        contactLinkRuntime.runSearch(conversationKey, input?.value ?? '')
         return
       }
 
       const selectTrigger = target.closest('[data-yolen-link-lead-select]')
       if (selectTrigger) {
-        contactLinkRuntime.selectLead(currentConversationKey, selectTrigger.dataset.yolenLinkLeadSelect ?? null)
+        contactLinkRuntime.selectLead(conversationKey, selectTrigger.dataset.yolenLinkLeadSelect ?? null)
         return
       }
 
       if (target.closest('[data-yolen-link-lead-confirm]')) {
-        contactLinkRuntime.confirmLink(currentConversationKey)
+        contactLinkRuntime.confirmLink(conversationKey)
         return
       }
 
       if (target.closest('[data-yolen-link-lead-cancel]')) {
-        contactLinkRuntime.cancelSelection(currentConversationKey)
+        contactLinkRuntime.cancelSelection(conversationKey)
       }
     })
   }
 
   runtime.start()
-  syncPanel(null)
+  syncPanel()
 
   root.__YOLEN_MANYCHAT_CAPTURE_RUNTIME__ = runtime
 })(typeof globalThis !== 'undefined' ? globalThis : this)

@@ -50,6 +50,19 @@
     return digits.length >= 4
   }
 
+  // Mesma ideia de sanitização de wildcard do backend
+  // (companion-lead-access.ts: sanitizeSearchTerm) — usada aqui SÓ para
+  // decidir se vale a pena disparar a busca, nunca como regra de
+  // autorização (o servidor continua sendo a autoridade final). "__",
+  // "_%" e "%_" nunca deveriam virar uma chamada de rede.
+  function sanitizeForLocalLengthCheck(value) {
+    return String(value ?? '')
+      .trim()
+      .replace(/[%_\\(),']/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
   // Cria o runtime de vínculo. Nenhum efeito colateral aqui — só devolve
   // as funções de ação; quem instala listeners de DOM é o bootstrap
   // (mesmo padrão já usado para data-yolen-apply-suggestion).
@@ -107,6 +120,33 @@
       const fresh = defaultState()
       fresh.generation = previousGeneration
       stateByConversationKey.set(conversationKey, fresh)
+    }
+
+    // Hardening (STEP 2A.3, auditoria de race A→B): chamado pelo bootstrap
+    // QUANDO a conversa muda de verdade (conversation_changed autoritativo
+    // do reader), ANTES de deixar a nova conversa assumir o painel. Nunca
+    // chamado por causa de uma resposta assíncrona de rede — só por uma
+    // troca de conversa real.
+    //
+    // Incrementa generation (invalida qualquer startLinkFlow/runSearch/
+    // confirmLink ainda em voo para esta conversationKey — a checagem
+    // `state.generation !== generation` feita depois de cada await passa a
+    // falhar e a resposta é descartada) e volta o estado para 'prompt'
+    // limpo: nunca reabre automaticamente uma busca/seleção/confirmação
+    // antiga quando o vendedor eventualmente voltar a esta conversa.
+    function invalidateConversation(conversationKey) {
+      if (!stateByConversationKey.has(conversationKey)) return
+
+      const state = getState(conversationKey)
+      state.generation += 1
+      state.phase = 'prompt'
+      state.query = ''
+      state.searching = false
+      state.results = []
+      state.selectedLead = null
+      state.error = null
+      state.lockedIdentity = null
+      state.lockedConversationKey = null
     }
 
     function renderResultItem(lead) {
@@ -206,8 +246,15 @@
       `
     }
 
+    // Hardening (STEP 2A.3, auditoria de race A→B): uma resposta
+    // assíncrona antiga de A (identidade, busca, first-link) nunca pode
+    // repintar o painel se, no momento em que ela finalmente chega, a
+    // conversa realmente aberta já não é mais A. `getCurrentConversationKey`
+    // é sempre derivado ao vivo do adapter/URL (nunca uma variável que este
+    // callback desatualizado poderia ter sobrescrito) — ver bootstrap.
     function render(conversationKey) {
       if (!panelMountApi) return
+      if (getCurrentConversationKey() !== conversationKey) return
       const state = getState(conversationKey)
       panelMountApi.setPanelContent(renderHtml(state))
     }
@@ -259,7 +306,8 @@
 
       const trimmed = String(rawQuery ?? '').trim()
       const digits = trimmed.replace(/\D/g, '')
-      const hasEnoughToSearch = isPhoneLikeQuery(digits) || trimmed.length >= 2
+      const sanitizedForLength = sanitizeForLocalLengthCheck(rawQuery)
+      const hasEnoughToSearch = isPhoneLikeQuery(digits) || sanitizedForLength.length >= 2
 
       state.query = trimmed
 
@@ -395,6 +443,17 @@
 
       const status = response?.payload?.status
 
+      // Capturado ANTES de qualquer resetState (que zera lockedIdentity):
+      // é a identidade que foi REALMENTE vinculada nesta chamada — quem
+      // recebe onLinked precisa saber exatamente qual conversa/identidade
+      // validar antes de persistir qualquer resolução nova (STEP 2A.3,
+      // hardening final, item 4/5).
+      const linkedContext = {
+        conversationKey,
+        expectedPlatform: freshIdentity.platform,
+        expectedIdentityKey: freshIdentity.platform_identity.key,
+      }
+
       if (response?.ok === true && (status === 'LINKED' || status === 'IDEMPOTENT_ALREADY_LINKED_TO_TARGET')) {
         resetState(conversationKey)
         // Repinta imediatamente com o estado limpo (placeholder honesto
@@ -403,7 +462,7 @@
         // (onLinked) não produzir uma re-renderização própria.
         render(conversationKey)
         if (onLinked) {
-          await onLinked(conversationKey)
+          await onLinked(linkedContext)
         }
         return
       }
@@ -415,7 +474,7 @@
         state.error = { code: 'ALREADY_LINKED_CONFLICT', message: resolveErrorMessage('ALREADY_LINKED_CONFLICT') }
         render(conversationKey)
         if (onLinked) {
-          await onLinked(conversationKey)
+          await onLinked(linkedContext)
         }
         return
       }
@@ -437,6 +496,7 @@
       selectLead,
       cancelSelection,
       confirmLink,
+      invalidateConversation,
       getConversationLinkState,
     })
   }

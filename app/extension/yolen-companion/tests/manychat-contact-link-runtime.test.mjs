@@ -87,6 +87,28 @@ function createRuntime({
   return { runtime, panelMount }
 }
 
+// Simula a fonte autoritativa da conversa atual (o que
+// runtime.getCurrentConversationKey() representa no capture-runtime real):
+// só muda quando o teste explicitamente simula uma navegação real — nunca
+// por causa de uma resposta assíncrona antiga.
+function createConversationController(initial) {
+  let current = initial
+  return {
+    get: () => current,
+    navigateTo: (key) => {
+      current = key
+    },
+  }
+}
+
+// Simula exatamente o que o bootstrap faz quando conversation_changed
+// dispara de verdade: navega a fonte autoritativa E invalida o fluxo de
+// vínculo da conversa anterior — nunca uma das duas coisas isoladamente.
+function simulateRealConversationChange(controller, runtime, fromConversationKey, toConversationKey) {
+  runtime.invalidateConversation(fromConversationKey)
+  controller.navigateTo(toConversationKey)
+}
+
 // --- A: estado inicial mostra o botão "Vincular lead" ---
 
 test('A: renderContactLinkPanel no estado inicial mostra o botão Vincular lead', () => {
@@ -286,14 +308,14 @@ test('M: channel é null quando a safe identity não tem channel_identity', asyn
 // --- N/O: LINKED e IDEMPOTENT disparam refresh (onLinked) ---
 
 for (const status of ['LINKED', 'IDEMPOTENT_ALREADY_LINKED_TO_TARGET']) {
-  test(`N/O: ${status} reseta o fluxo e chama onLinked (refresh de resolução)`, async () => {
+  test(`N/O: ${status} reseta o fluxo e chama onLinked com {conversationKey, expectedPlatform, expectedIdentityKey} (refresh de resolução)`, async () => {
     const fake = createQueuedSender([searchOk([leadRow()]), linkOk(status)])
     let onLinkedCalledWith = null
 
     const { runtime } = createRuntime({
       sendMessage: fake.sendMessage,
-      onLinked: async (conversationKey) => {
-        onLinkedCalledWith = conversationKey
+      onLinked: async (context) => {
+        onLinkedCalledWith = context
       },
     })
 
@@ -302,7 +324,11 @@ for (const status of ['LINKED', 'IDEMPOTENT_ALREADY_LINKED_TO_TARGET']) {
     runtime.selectLead('conv-1', 'lead-1')
     await runtime.confirmLink('conv-1')
 
-    assert.equal(onLinkedCalledWith, 'conv-1')
+    assert.deepEqual(onLinkedCalledWith, {
+      conversationKey: 'conv-1',
+      expectedPlatform: 'manychat',
+      expectedIdentityKey: CONTACT_KEY_A,
+    })
     assert.equal(runtime.getConversationLinkState('conv-1').phase, 'prompt')
   })
 }
@@ -401,9 +427,10 @@ test('R: conversation_key atual mudou antes da confirmação -> CONTACT_CHANGED,
 
 // --- S: A -> B -> A nunca herda estado de A em B ---
 
-test('S: estado é isolado por conversation_key — B nunca herda query/seleção/confirmação de A', async () => {
+test('S: B nunca herda query/seleção/confirmação de A enquanto A ainda é a conversa atual', async () => {
   const fake = createQueuedSender([searchOk([leadRow({ name: 'Lead da conversa A' })])])
-  const { runtime } = createRuntime({ sendMessage: fake.sendMessage })
+  const controller = createConversationController('conv-a')
+  const { runtime } = createRuntime({ sendMessage: fake.sendMessage, getCurrentConversationKey: controller.get })
 
   await runtime.startLinkFlow('conv-a')
   await runtime.runSearch('conv-a', 'Cliente')
@@ -417,11 +444,39 @@ test('S: estado é isolado por conversation_key — B nunca herda query/seleçã
   assert.equal(stateB.query, '')
   assert.deepEqual(stateB.results, [])
   assert.equal(stateB.selectedLead, null)
+})
 
-  // Voltar para A preserva o estado de A intacto (nunca foi tocado por B).
-  const stateAAgain = runtime.getConversationLinkState('conv-a')
-  assert.equal(stateAAgain.phase, 'confirm')
-  assert.equal(stateAAgain.selectedLead.name, 'Lead da conversa A')
+// --- Correção 2 (STEP 2A.3, hardening final): A → B → A NUNCA retoma uma
+// confirmação/busca antiga — uma troca de conversa REAL sempre invalida o
+// fluxo da conversa anterior. Substitui a expectativa antiga do teste S,
+// que preservava a confirmação de A indefinidamente (contrato inseguro
+// para uma ação sensível de escrita). ---
+
+test('A→B→A: uma troca de conversa real invalida o fluxo antigo — A volta para prompt, nunca retoma a confirmação', async () => {
+  const fake = createQueuedSender([searchOk([leadRow({ name: 'Lead da conversa A' })])])
+  const controller = createConversationController('conv-a')
+  const { runtime } = createRuntime({ sendMessage: fake.sendMessage, getCurrentConversationKey: controller.get })
+
+  await runtime.startLinkFlow('conv-a')
+  await runtime.runSearch('conv-a', 'Cliente')
+  runtime.selectLead('conv-a', 'lead-1')
+
+  assert.equal(runtime.getConversationLinkState('conv-a').phase, 'confirm')
+
+  // Troca de conversa REAL (equivalente ao bootstrap recebendo
+  // conversation_changed): invalida A antes de B assumir o painel.
+  simulateRealConversationChange(controller, runtime, 'conv-a', 'conv-b')
+
+  // Vendedor volta para a conversa A.
+  controller.navigateTo('conv-a')
+
+  const stateA = runtime.getConversationLinkState('conv-a')
+  assert.equal(stateA.phase, 'prompt')
+  assert.equal(stateA.selectedLead, null)
+  assert.equal(stateA.query, '')
+  assert.deepEqual(stateA.results, [])
+  assert.equal(stateA.lockedIdentity, null)
+  assert.equal(stateA.lockedConversationKey, null)
 })
 
 // --- T: duplo clique em Confirmar dispara só UMA requisição ---
@@ -508,3 +563,116 @@ test('mapeamento de erro do backend nunca exibe mensagem interna crua para statu
   assert.equal(last.includes('duplicate key value'), false)
   assert.equal(last.includes('constraint'), false)
 })
+
+// -----------------------------------------------------------------------
+// STEP 2A.3 — hardening final (auditoria de race condition A→B):
+// respostas assíncronas antigas de A nunca podem repintar o painel depois
+// que a conversa realmente aberta já é B, e uma troca de conversa real
+// sempre invalida o fluxo em andamento de quem foi deixado para trás.
+// -----------------------------------------------------------------------
+
+test('Hardening A: startLinkFlow(A) com identidade em voo — troca real para B chega antes da resposta — painel de B nunca é sobrescrito por A, e A fica invalidado', async () => {
+  let resolveIdentity
+  const identityPromise = new Promise((resolve) => {
+    resolveIdentity = resolve
+  })
+
+  const controller = createConversationController('conv-a')
+  const { runtime, panelMount } = createRuntime({
+    getCurrentConversationKey: controller.get,
+    getSafeIdentity: () => identityPromise,
+  })
+
+  // B já está com seu próprio conteúdo pintado (o painel "pertence" a B a
+  // partir daqui).
+  runtime.renderContactLinkPanel('conv-b')
+  const panelWritesBeforeStale = panelMount.contents.length
+
+  const startFlowPromise = runtime.startLinkFlow('conv-a')
+
+  // Troca de conversa REAL acontece ENQUANTO a identidade de A ainda está
+  // em voo — exatamente como o bootstrap faria ao receber
+  // conversation_changed.
+  simulateRealConversationChange(controller, runtime, 'conv-a', 'conv-b')
+  runtime.renderContactLinkPanel('conv-b')
+  const panelWritesAfterNavigatingAwayFromA = panelMount.contents.length
+
+  // Só agora a resposta antiga de A chega.
+  resolveIdentity(safeIdentity({ key: CONTACT_KEY_A }))
+  await startFlowPromise
+
+  // Nenhuma escrita nova no painel depois que B assumiu — a resposta
+  // desatualizada de A nunca se materializou em DOM.
+  assert.equal(panelMount.contents.length, panelWritesAfterNavigatingAwayFromA)
+  assert.ok(panelWritesAfterNavigatingAwayFromA > panelWritesBeforeStale, 'sanity: B realmente pintou o painel')
+
+  const stateA = runtime.getConversationLinkState('conv-a')
+  assert.equal(stateA.phase, 'prompt')
+  assert.equal(stateA.lockedIdentity, null)
+})
+
+test('Hardening B: runSearch(A) em voo — troca real para B — resposta de busca de A chega — nenhum resultado de A aparece sobre B', async () => {
+  let resolveSearch
+  const searchPromise = new Promise((resolve) => {
+    resolveSearch = resolve
+  })
+
+  const controller = createConversationController('conv-a')
+  const { runtime, panelMount } = createRuntime({
+    getCurrentConversationKey: controller.get,
+    sendMessage: async (message) => {
+      if (message.action === 'SEARCH_LINKABLE_LEADS') return searchPromise
+      throw new Error(`ação inesperada: ${message.action}`)
+    },
+  })
+
+  await runtime.startLinkFlow('conv-a')
+  const searchPromiseHandle = runtime.runSearch('conv-a', 'Cliente')
+
+  simulateRealConversationChange(controller, runtime, 'conv-a', 'conv-b')
+  runtime.renderContactLinkPanel('conv-b')
+  const panelWritesAfterNavigatingAway = panelMount.contents.length
+
+  resolveSearch(searchOk([leadRow({ name: 'Resultado de A — nunca deveria aparecer em B' })]))
+  await searchPromiseHandle
+
+  const allPaintedHtml = panelMount.contents.join('\n')
+  assert.equal(allPaintedHtml.includes('Resultado de A'), false)
+  assert.equal(panelMount.contents.length, panelWritesAfterNavigatingAway)
+
+  const stateA = runtime.getConversationLinkState('conv-a')
+  assert.equal(stateA.phase, 'prompt', 'A foi invalidado pela troca real de conversa')
+})
+
+test('Hardening C: A em confirm — troca real para B — volta para A — a confirmação antiga não existe mais', async () => {
+  const fake = createQueuedSender([searchOk([leadRow()])])
+  const controller = createConversationController('conv-a')
+  const { runtime } = createRuntime({ sendMessage: fake.sendMessage, getCurrentConversationKey: controller.get })
+
+  await runtime.startLinkFlow('conv-a')
+  await runtime.runSearch('conv-a', 'Cliente')
+  runtime.selectLead('conv-a', 'lead-1')
+  assert.equal(runtime.getConversationLinkState('conv-a').phase, 'confirm')
+
+  simulateRealConversationChange(controller, runtime, 'conv-a', 'conv-b')
+  controller.navigateTo('conv-a')
+
+  const state = runtime.getConversationLinkState('conv-a')
+  assert.equal(state.phase, 'prompt')
+  assert.equal(state.selectedLead, null)
+})
+
+// --- Correção 11 (STEP 2A.3, hardening final): "__", "_%", "%_" locais
+// nunca disparam SEARCH_LINKABLE_LEADS, mesmo tendo >= 2 caracteres brutos ---
+
+for (const wildcardQuery of ['__', '_%', '%_']) {
+  test(`Hardening I: query "${wildcardQuery}" nunca dispara SEARCH_LINKABLE_LEADS`, async () => {
+    const fake = createQueuedSender([])
+    const { runtime } = createRuntime({ sendMessage: fake.sendMessage })
+
+    await runtime.startLinkFlow('conv-1')
+    await runtime.runSearch('conv-1', wildcardQuery)
+
+    assert.equal(fake.calls.length, 0)
+  })
+}
