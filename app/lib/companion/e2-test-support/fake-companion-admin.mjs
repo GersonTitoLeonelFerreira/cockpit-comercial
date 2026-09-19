@@ -57,6 +57,14 @@ function createBuilder(table, { calls, nextStep }) {
       state.filters.push({ op: 'in', column, values })
       return builder
     },
+    is(column, value) {
+      state.filters.push({ op: 'is', column, value })
+      return builder
+    },
+    ilike(column, pattern) {
+      state.filters.push({ op: 'ilike', column, pattern })
+      return builder
+    },
     order() {
       return builder
     },
