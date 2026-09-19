@@ -28,7 +28,7 @@ const baselinePath =
 const migrationPath =
   fileURLToPath(
     new URL(
-      '../migrations/20260817023000_create_companion_active_pilot_telemetry.sql',
+      '../migrations/20260817025123_create_companion_active_pilot_telemetry.sql',
       import.meta.url,
     ),
   )

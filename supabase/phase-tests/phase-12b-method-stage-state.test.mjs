@@ -1,7 +1,7 @@
 // Fase 12A, Frente 2B — Blocker 3.
 //
 // Valida a tabela companion_method_stage_state (migration
-// 20260829020000_create_companion_method_stage_state.sql) diretamente
+// 20260911003620_create_companion_method_stage_state.sql) diretamente
 // contra Postgres real via PGlite: FK obrigatória, CHECK constraints,
 // unicidade por escopo e comportamento de upsert.
 
@@ -22,8 +22,8 @@ function migrationPath(fileName) {
 
 const migrationPaths = [
   migrationPath("20260629040658_restore_simulator_metrics_rpc_shell.sql"),
-  migrationPath("20260731000105_create_company_commercial_config.sql"),
-  migrationPath("20260829020000_create_companion_method_stage_state.sql"),
+  migrationPath("20260731005138_create_company_commercial_config.sql"),
+  migrationPath("20260911003620_create_companion_method_stage_state.sql"),
 ];
 
 const ids = {

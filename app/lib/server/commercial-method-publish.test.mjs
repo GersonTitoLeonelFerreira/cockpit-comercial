@@ -17,7 +17,7 @@ import { getCommercialConfigWorkspace } from './commercial-config.ts'
 // desatualizado (p_expected_method_updated_at) e bloqueia a primeira
 // publicação sem nenhuma versão publicada anterior. O fake abaixo
 // espelha fielmente a SQL real de
-// 20260827020000_fix_isolated_method_publish_review_ready_source.sql.
+// 20260826231039_fix_isolated_method_publish_review_ready_source.sql.
 // ============================================================================
 
 const COMPANY_A = '10000000-0000-4000-8000-000000000001'
@@ -268,7 +268,7 @@ function jsonEqual(a, b) {
 }
 
 // Espelha rpc_publish_builder_commercial_method
-// (20260827020000_fix_isolated_method_publish_review_ready_source.sql):
+// (20260826231039_fix_isolated_method_publish_review_ready_source.sql):
 // lê o builder ela mesma, decide idempotência dentro do "lock", nunca
 // recebe a definição do método como parâmetro do cliente.
 function publishBuilderMethodRpc(db, args) {

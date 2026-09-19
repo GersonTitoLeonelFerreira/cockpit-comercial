@@ -8,14 +8,14 @@ import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 
 const commercialConfigMigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260731000105_create_company_commercial_config.sql",
+    "../migrations/20260731005138_create_company_commercial_config.sql",
     import.meta.url,
   ),
 );
 
 const commercialPoliciesMigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260731005400_split_company_commercial_write_policies.sql",
+    "../migrations/20260731010816_split_company_commercial_write_policies.sql",
     import.meta.url,
   ),
 );

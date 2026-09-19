@@ -16,14 +16,14 @@ const baselinePath = fileURLToPath(
 
 const migrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260806193000_create_stateful_copilot_storage.sql",
+    "../migrations/20260806225008_create_stateful_copilot_storage.sql",
     import.meta.url,
   ),
 );
 
 const correctiveMigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260806214500_align_stateful_contract_versions.sql",
+    "../migrations/20260807005939_align_stateful_contract_versions.sql",
     import.meta.url,
   ),
 );
@@ -37,14 +37,14 @@ const sellerAttributionMigrationPath = fileURLToPath(
 
 const outputV3MigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260823054000_align_stateful_output_v3_persistence.sql",
+    "../migrations/20260823054226_align_stateful_output_v3_persistence.sql",
     import.meta.url,
   ),
 );
 
 const outputV4MigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260827030000_align_stateful_output_v4_persistence.sql",
+    "../migrations/20260827022900_align_stateful_output_v4_persistence.sql",
     import.meta.url,
   ),
 );

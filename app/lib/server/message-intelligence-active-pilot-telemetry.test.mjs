@@ -197,7 +197,7 @@ test(
 )
 
 // Reprodução literal, em JS puro, das constraints da migration
-// supabase/migrations/20260904014500_create_message_intelligence_active_pilot_events.sql
+// supabase/migrations/20260904014729_create_message_intelligence_active_pilot_events.sql
 // — sem depender de um Postgres real. Qualquer telemetria (V1 ou V2) que
 // não satisfaça isso aqui seria rejeitada pelo INSERT real no banco.
 const LEGACY_FINAL_STATUS_VALUES = new Set([

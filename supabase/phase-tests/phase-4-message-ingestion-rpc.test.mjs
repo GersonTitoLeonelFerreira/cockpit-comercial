@@ -30,7 +30,7 @@ const captureStateMigrationPath = fileURLToPath(
 
 const ingestionMigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260731235900_create_companion_message_ingestion_rpc.sql",
+    "../migrations/20260803030154_create_companion_message_ingestion_rpc.sql",
     import.meta.url,
   ),
 );

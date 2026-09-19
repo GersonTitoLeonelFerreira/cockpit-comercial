@@ -8,7 +8,7 @@ import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
 
 const migrationPath = fileURLToPath(
   new URL(
-    '../migrations/20260818043000_add_commercial_product_v2_persistence.sql',
+    '../migrations/20260818044335_add_commercial_product_v2_persistence.sql',
     import.meta.url,
   ),
 )

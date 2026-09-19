@@ -271,7 +271,7 @@ específica. O procedimento obrigatório será:
 
 1. confirmar que o histórico remoto termina em `20260730170515`;
 2. confirmar que as cinco tabelas ainda não existem;
-3. aplicar `20260731000105` como uma única transação;
+3. aplicar `20260731005138` como uma única transação;
 4. executar os advisors de segurança e desempenho;
 5. validar tabelas, constraints, índices, triggers, grants e políticas;
 6. testar isolamento e imutabilidade com dados sintéticos dentro de transação;

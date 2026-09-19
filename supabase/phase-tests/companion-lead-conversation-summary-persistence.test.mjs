@@ -16,7 +16,7 @@ const baselinePath = fileURLToPath(
 
 const summaryMigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260825120000_create_companion_lead_conversation_summaries.sql",
+    "../migrations/20260825040838_create_companion_lead_conversation_summaries.sql",
     import.meta.url,
   ),
 );

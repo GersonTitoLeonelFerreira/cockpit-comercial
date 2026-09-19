@@ -27,7 +27,7 @@ const migrationPaths = [
     "20260730170515_create_conversation_capture_state.sql",
   ),
   migrationPath(
-    "20260731235900_create_companion_message_ingestion_rpc.sql",
+    "20260803030154_create_companion_message_ingestion_rpc.sql",
   ),
   migrationPath(
     "20260803064000_harden_companion_message_ingestion_rpc.sql",

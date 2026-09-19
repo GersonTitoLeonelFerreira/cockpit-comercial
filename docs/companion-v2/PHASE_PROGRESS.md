@@ -462,7 +462,7 @@ Esse pacote reduz risco de banco, mas não cria os dados comerciais da Fase 2.
 - grants explícitos para a Data API;
 - chaves compostas contra vínculos entre empresas;
 - teste sintético e descartável aprovado;
-- migration `20260731000105` aplicada ao Supabase;
+- migration `20260731005138` aplicada ao Supabase;
 - schema remoto validado;
 - contrato e estrutura integrados na `main` pelo PR #146.
 
