@@ -108,6 +108,21 @@ export function canUserLinkLead({
   return isLeadOwnedByUser({ cyclesForLead, userId })
 }
 
+export type CompanionMembershipRow = {
+  company_id: string
+  user_id: string
+  role: string | null
+  is_active: boolean
+}
+
+// O token Companion dura até 6 horas e carrega a role vigente NO MOMENTO
+// EM QUE FOI EMITIDO. Se a role de alguém mudar no meio desse período
+// (promoção ou rebaixamento), o token antigo continua dizendo a role
+// antiga até expirar. Para busca/vínculo de lead — uma ação de escrita
+// sensível a portfolio — a autoridade de role tem que ser a membership
+// ATUAL do banco, nunca tokenPayload.role. (resolve-lead/route.ts ainda
+// usa tokenPayload.role — comportamento legado pré-existente, registrado
+// aqui mas fora do escopo desta correção: não ampliar sem autorização.)
 export async function verifyActiveCompanionMembership({
   admin,
   companyId,
@@ -119,17 +134,23 @@ export async function verifyActiveCompanionMembership({
 }) {
   const { data, error } = await admin
     .from('company_memberships')
-    .select('company_id, user_id, is_active')
+    .select('company_id, user_id, role, is_active')
     .eq('company_id', companyId)
     .eq('user_id', userId)
     .eq('is_active', true)
     .maybeSingle()
 
   if (error) {
-    return { active: false, error: error.message as string }
+    return { active: false, role: null as string | null, error: error.message as string }
   }
 
-  return { active: Boolean(data?.company_id), error: null as string | null }
+  const membership = (data as CompanionMembershipRow | null) ?? null
+
+  return {
+    active: Boolean(membership?.company_id),
+    role: membership?.role ?? null,
+    error: null as string | null,
+  }
 }
 
 export async function loadSalesCyclesForLead({
@@ -161,15 +182,92 @@ export async function loadSalesCyclesForLead({
   }
 }
 
+// Todos os ciclos (qualquer status) cujo owner_user_id é o próprio
+// usuário, na empresa do token — SEM limite de linhas, porque é usado
+// para decidir a carteira de um member ANTES do filtro de texto da busca:
+// truncar aqui poderia descartar um lead que o próprio usuário tem
+// permissão de ver/vincular (STEP 2A.2, item 4 da correção). O universo
+// de "ciclos que eu já possuí" de um único vendedor é naturalmente
+// pequeno (nunca company-wide), então não há o mesmo risco de scan
+// custoso que uma busca sem filtro de dono teria.
+export async function loadOpenCyclesOwnedByUser({
+  admin,
+  companyId,
+  userId,
+}: {
+  admin: AnySupabaseAdminClient
+  companyId: string
+  userId: string
+}) {
+  const { data, error } = await admin
+    .from('sales_cycles')
+    .select('id, lead_id, company_id, status, owner_user_id, updated_at, created_at')
+    .eq('company_id', companyId)
+    .eq('owner_user_id', userId)
+    .order('updated_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false, nullsFirst: false })
+
+  if (error) {
+    return { cycles: [] as CompanionSalesCycleRow[], error: error.message as string }
+  }
+
+  return {
+    cycles: ((data ?? []) as CompanionSalesCycleRow[]).filter(
+      (cycle) => cycle.company_id === companyId && cycle.owner_user_id === userId,
+    ),
+    error: null as string | null,
+  }
+}
+
+// Dado o conjunto de ciclos possuídos por um único usuário (função acima),
+// devolve, por lead_id, se o ciclo aplicável (mais recente, resolvido do
+// mesmo jeito que resolve-lead resolve) é realmente um ciclo aberto desse
+// usuário — nunca um lead onde o ciclo aplicável real (calculado a partir
+// de TODOS os ciclos do lead) pertenceria a outra pessoa. Como este projeto
+// nunca mantém dois ciclos abertos simultâneos para o mesmo lead (um novo
+// ciclo só é aberto depois que o anterior fecha), a existência de QUALQUER
+// ciclo não fechado deste usuário para um lead já basta para saber que é
+// ele o dono do ciclo aplicável — não precisa carregar os ciclos de todos
+// os outros donos para confirmar.
+export function indexOwnedLeadsByApplicableOpenCycle(cyclesOwnedByUser: CompanionSalesCycleRow[]) {
+  const byLead = new Map<string, CompanionSalesCycleRow[]>()
+
+  for (const cycle of cyclesOwnedByUser) {
+    const existing = byLead.get(cycle.lead_id) ?? []
+    existing.push(cycle)
+    byLead.set(cycle.lead_id, existing)
+  }
+
+  const ownedLeadCycle = new Map<string, CompanionSalesCycleRow>()
+
+  for (const [leadId, cyclesForLead] of byLead) {
+    const { openCycle } = pickApplicableCycle(cyclesForLead)
+
+    if (openCycle) {
+      ownedLeadCycle.set(leadId, openCycle)
+    }
+  }
+
+  return ownedLeadCycle
+}
+
 export function onlyDigits(value: unknown) {
   return String(value ?? '').replace(/\D/g, '')
 }
 
+// Remove tudo que poderia ter efeito especial dentro de um padrão
+// ILIKE/LIKE construído manualmente como `%${termo}%`: "%" e "_" são
+// wildcards (qualquer sequência / qualquer caractere), "\" é o caractere
+// de escape padrão do Postgres para eles. Removidos em vez de escapados
+// para manter o mesmo comportamento simples de app/api/search/route.ts —
+// nenhum deles pode funcionar como wildcard controlado pelo cliente
+// (nunca reabre "%": "__", "_%", "%_" nunca viram busca ampla/enumeração).
 export function sanitizeSearchTerm(value: unknown) {
   return String(value ?? '')
     .trim()
-    .replace(/[%(),']/g, ' ')
+    .replace(/[%_\\(),']/g, ' ')
     .replace(/\s+/g, ' ')
+    .trim()
 }
 
 // Nunca retorna o telefone completo — só o suficiente para o vendedor

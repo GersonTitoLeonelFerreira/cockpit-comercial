@@ -3,9 +3,10 @@ import { createClient } from '@supabase/supabase-js'
 
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
 import {
-  canUserLinkLead,
   getCompanionCorsHeaders,
+  indexOwnedLeadsByApplicableOpenCycle,
   isAdminOrManagerRole,
+  loadOpenCyclesOwnedByUser,
   maskPhoneHint,
   onlyDigits,
   pickApplicableCycle,
@@ -23,6 +24,20 @@ import {
 // Companion/member (auditoria STEP 2A). Este endpoint usa o MESMO
 // mecanismo de autenticação e a MESMA regra de autorização de
 // resolve-lead/route.ts, via app/lib/companion/companion-lead-access.ts.
+//
+// A role usada para autorizar é a da membership ATUAL no banco, nunca
+// tokenPayload.role: o token dura até 6h e pode ficar desatualizado se a
+// role da pessoa mudar nesse meio-tempo (STEP 2A.2, correção 1).
+//
+// Estratégia de busca por papel (correção 4 do STEP 2A.2): para member,
+// nunca faz "buscar candidatos company-wide com limite e filtrar depois"
+// — isso poderia descartar, por causa do limite, um lead que o próprio
+// usuário tem permissão de vincular antes mesmo de ele ser considerado.
+// Em vez disso, parte da carteira REAL do member (ciclos abertos que ele
+// possui, sem limite — nunca é um conjunto company-wide) e só then aplica
+// o termo de busca dentro desse conjunto já autorizado. Para admin/manager
+// não existe esse risco (toda a empresa já é autorizada), então a busca
+// continua direto na tabela leads com um teto de candidatos.
 
 type SearchBody = {
   query?: unknown
@@ -39,20 +54,20 @@ type LeadCandidateRow = {
 type ProfileRow = {
   id: string
   full_name: string | null
-  email: string | null
 }
 
 // Limite público de resultados retornados ao cliente.
 const MAX_RESULTS = 10
 
-// Teto interno de candidatos buscados no banco ANTES do recorte de
-// carteira (necessário porque, para member, o filtro de posse só pode ser
-// aplicado depois de carregar os ciclos de cada candidato) — nunca
-// exposto/ajustável pelo cliente, nunca paginação ilimitada.
-const CANDIDATE_FETCH_LIMIT = 50
+// Teto de candidatos buscados diretamente em `leads` no caminho
+// admin/manager (company-wide, sempre autorizado — um teto aqui só limita
+// quantos resultados aparecem de uma vez, nunca esconde algo que o próprio
+// usuário tinha direito de ver). Nunca usado no caminho member.
+const ADMIN_CANDIDATE_FETCH_LIMIT = 50
 
+// Nunca retorna e-mail como nome de exibição (STEP 2A.2, correção 3).
 function getOwnerName(owner: ProfileRow | null | undefined) {
-  return owner?.full_name || owner?.email || null
+  return owner?.full_name || null
 }
 
 export async function OPTIONS(request: Request) {
@@ -118,12 +133,15 @@ export async function POST(request: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     })
 
-    const { active: hasActiveMembership, error: membershipError } =
-      await verifyActiveCompanionMembership({
-        admin,
-        companyId: tokenPayload.company_id,
-        userId: tokenPayload.sub,
-      })
+    const {
+      active: hasActiveMembership,
+      role: liveRole,
+      error: membershipError,
+    } = await verifyActiveCompanionMembership({
+      admin,
+      companyId: tokenPayload.company_id,
+      userId: tokenPayload.sub,
+    })
 
     if (membershipError) {
       return NextResponse.json(
@@ -143,120 +161,180 @@ export async function POST(request: Request) {
       )
     }
 
-    let candidateQuery = admin
-      .from('leads')
-      .select('id, company_id, name, phone, deleted_at')
-      .eq('company_id', tokenPayload.company_id)
-      .is('deleted_at', null)
-      .limit(CANDIDATE_FETCH_LIMIT)
+    const isAdminOrManager = isAdminOrManagerRole(liveRole)
 
-    candidateQuery = isPhoneQuery
-      ? candidateQuery.ilike('phone_digits', `%${digits}%`)
-      : candidateQuery.ilike('name', `%${safeText}%`)
+    let leads: Array<{
+      id: string
+      name: string | null
+      phone_hint: string | null
+      owner_name: string | null
+      cycle_status: string | null
+    }>
 
-    const { data: candidateData, error: candidateError } = await candidateQuery
+    if (isAdminOrManager) {
+      let candidateQuery = admin
+        .from('leads')
+        .select('id, company_id, name, phone, deleted_at')
+        .eq('company_id', tokenPayload.company_id)
+        .is('deleted_at', null)
+        .limit(ADMIN_CANDIDATE_FETCH_LIMIT)
 
-    if (candidateError) {
-      return NextResponse.json(
-        { ok: false, status: 'LEAD_SEARCH_ERROR', error: candidateError.message },
-        { status: 400, headers: corsHeaders },
-      )
-    }
+      candidateQuery = isPhoneQuery
+        ? candidateQuery.ilike('phone_digits', `%${digits}%`)
+        : candidateQuery.ilike('name', `%${safeText}%`)
 
-    const candidates = ((candidateData ?? []) as LeadCandidateRow[]).filter(
-      (lead) => lead.company_id === tokenPayload.company_id && !lead.deleted_at,
-    )
+      const { data: candidateData, error: candidateError } = await candidateQuery
 
-    if (candidates.length === 0) {
-      return NextResponse.json({ ok: true, leads: [] }, { status: 200, headers: corsHeaders })
-    }
-
-    const candidateIds = candidates.map((lead) => lead.id)
-
-    const { data: cycleData, error: cycleError } = await admin
-      .from('sales_cycles')
-      .select('id, lead_id, company_id, status, owner_user_id, updated_at, created_at')
-      .eq('company_id', tokenPayload.company_id)
-      .in('lead_id', candidateIds)
-      .order('updated_at', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false, nullsFirst: false })
-
-    if (cycleError) {
-      return NextResponse.json(
-        { ok: false, status: 'CYCLE_SEARCH_ERROR', error: cycleError.message },
-        { status: 400, headers: corsHeaders },
-      )
-    }
-
-    const cyclesByLead = new Map<string, CompanionSalesCycleRow[]>()
-
-    for (const cycle of (cycleData ?? []) as CompanionSalesCycleRow[]) {
-      if (cycle.company_id !== tokenPayload.company_id) {
-        continue
-      }
-
-      const existing = cyclesByLead.get(cycle.lead_id) ?? []
-      existing.push(cycle)
-      cyclesByLead.set(cycle.lead_id, existing)
-    }
-
-    const authorizedLeads = candidates.filter((lead) =>
-      canUserLinkLead({
-        role: tokenPayload.role,
-        userId: tokenPayload.sub,
-        cyclesForLead: cyclesByLead.get(lead.id) ?? [],
-      }),
-    )
-
-    const limitedLeads = authorizedLeads.slice(0, MAX_RESULTS)
-    const isAdminOrManager = isAdminOrManagerRole(tokenPayload.role)
-
-    // owner_name só é exibido para admin/manager (para member, o único
-    // owner possível nos resultados é o próprio usuário — redundante e
-    // desnecessário expor). Evita uma consulta a profiles sem uso.
-    const ownerIds = isAdminOrManager
-      ? Array.from(
-          new Set(
-            limitedLeads
-              .map((lead) => pickApplicableCycle(cyclesByLead.get(lead.id) ?? []).latestCycle?.owner_user_id)
-              .filter((ownerId): ownerId is string => Boolean(ownerId)),
-          ),
-        )
-      : []
-
-    let ownersById = new Map<string, ProfileRow>()
-
-    if (ownerIds.length > 0) {
-      const { data: ownerRows, error: ownerError } = await admin
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('id', ownerIds)
-
-      if (ownerError) {
+      if (candidateError) {
         return NextResponse.json(
-          { ok: false, status: 'OWNER_SEARCH_ERROR', error: ownerError.message },
+          { ok: false, status: 'LEAD_SEARCH_ERROR', error: candidateError.message },
           { status: 400, headers: corsHeaders },
         )
       }
 
-      ownersById = new Map(((ownerRows ?? []) as ProfileRow[]).map((row) => [row.id, row]))
+      const candidates = ((candidateData ?? []) as LeadCandidateRow[])
+        .filter((lead) => lead.company_id === tokenPayload.company_id && !lead.deleted_at)
+        .slice(0, MAX_RESULTS)
+
+      if (candidates.length === 0) {
+        return NextResponse.json({ ok: true, leads: [] }, { status: 200, headers: corsHeaders })
+      }
+
+      const candidateIds = candidates.map((lead) => lead.id)
+
+      const { data: cycleData, error: cycleError } = await admin
+        .from('sales_cycles')
+        .select('id, lead_id, company_id, status, owner_user_id, updated_at, created_at')
+        .eq('company_id', tokenPayload.company_id)
+        .in('lead_id', candidateIds)
+        .order('updated_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false, nullsFirst: false })
+
+      if (cycleError) {
+        return NextResponse.json(
+          { ok: false, status: 'CYCLE_SEARCH_ERROR', error: cycleError.message },
+          { status: 400, headers: corsHeaders },
+        )
+      }
+
+      const cyclesByLead = new Map<string, CompanionSalesCycleRow[]>()
+
+      for (const cycle of (cycleData ?? []) as CompanionSalesCycleRow[]) {
+        if (cycle.company_id !== tokenPayload.company_id) {
+          continue
+        }
+
+        const existing = cyclesByLead.get(cycle.lead_id) ?? []
+        existing.push(cycle)
+        cyclesByLead.set(cycle.lead_id, existing)
+      }
+
+      const ownerIds = Array.from(
+        new Set(
+          candidates
+            .map((lead) => pickApplicableCycle(cyclesByLead.get(lead.id) ?? []).latestCycle?.owner_user_id)
+            .filter((ownerId): ownerId is string => Boolean(ownerId)),
+        ),
+      )
+
+      let ownersById = new Map<string, ProfileRow>()
+
+      if (ownerIds.length > 0) {
+        const { data: ownerRows, error: ownerError } = await admin
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', ownerIds)
+
+        if (ownerError) {
+          return NextResponse.json(
+            { ok: false, status: 'OWNER_SEARCH_ERROR', error: ownerError.message },
+            { status: 400, headers: corsHeaders },
+          )
+        }
+
+        ownersById = new Map(((ownerRows ?? []) as ProfileRow[]).map((row) => [row.id, row]))
+      }
+
+      leads = candidates.map((lead) => {
+        const { latestCycle } = pickApplicableCycle(cyclesByLead.get(lead.id) ?? [])
+        const owner = latestCycle?.owner_user_id ? ownersById.get(latestCycle.owner_user_id) : null
+
+        return {
+          id: lead.id,
+          name: lead.name,
+          phone_hint: maskPhoneHint(lead.phone),
+          owner_name: getOwnerName(owner),
+          cycle_status: latestCycle?.status ?? null,
+        }
+      })
+    } else {
+      // Member: parte da carteira real (nunca de um recorte company-wide
+      // com limite) — o termo de busca só filtra DENTRO do que o usuário
+      // já tem permissão de ver.
+      const { cycles: ownedCycles, error: ownedCyclesError } = await loadOpenCyclesOwnedByUser({
+        admin,
+        companyId: tokenPayload.company_id,
+        userId: tokenPayload.sub,
+      })
+
+      if (ownedCyclesError) {
+        return NextResponse.json(
+          { ok: false, status: 'CYCLE_SEARCH_ERROR', error: ownedCyclesError },
+          { status: 400, headers: corsHeaders },
+        )
+      }
+
+      const ownedLeadCycle = indexOwnedLeadsByApplicableOpenCycle(ownedCycles)
+
+      if (ownedLeadCycle.size === 0) {
+        return NextResponse.json({ ok: true, leads: [] }, { status: 200, headers: corsHeaders })
+      }
+
+      const ownedLeadIds = Array.from(ownedLeadCycle.keys())
+
+      let matchQuery = admin
+        .from('leads')
+        .select('id, company_id, name, phone, deleted_at')
+        .eq('company_id', tokenPayload.company_id)
+        .in('id', ownedLeadIds)
+        .is('deleted_at', null)
+        .limit(MAX_RESULTS)
+
+      matchQuery = isPhoneQuery
+        ? matchQuery.ilike('phone_digits', `%${digits}%`)
+        : matchQuery.ilike('name', `%${safeText}%`)
+
+      const { data: matchData, error: matchError } = await matchQuery
+
+      if (matchError) {
+        return NextResponse.json(
+          { ok: false, status: 'LEAD_SEARCH_ERROR', error: matchError.message },
+          { status: 400, headers: corsHeaders },
+        )
+      }
+
+      const matches = ((matchData ?? []) as LeadCandidateRow[])
+        .filter(
+          (lead) =>
+            lead.company_id === tokenPayload.company_id &&
+            !lead.deleted_at &&
+            ownedLeadCycle.has(lead.id),
+        )
+        .slice(0, MAX_RESULTS)
+
+      // owner_name nunca é exibido para member (o único owner possível
+      // nos resultados é o próprio usuário — redundante e desnecessário).
+      leads = matches.map((lead) => ({
+        id: lead.id,
+        name: lead.name,
+        phone_hint: maskPhoneHint(lead.phone),
+        owner_name: null,
+        cycle_status: ownedLeadCycle.get(lead.id)?.status ?? null,
+      }))
     }
 
     // Só o suficiente para o vendedor distinguir leads — nunca
     // cpf/cnpj/email completo/endereço/notas (STEP 2A.2, seção 9).
-    const leads = limitedLeads.map((lead) => {
-      const { latestCycle } = pickApplicableCycle(cyclesByLead.get(lead.id) ?? [])
-      const owner = latestCycle?.owner_user_id ? ownersById.get(latestCycle.owner_user_id) : null
-
-      return {
-        id: lead.id,
-        name: lead.name,
-        phone_hint: maskPhoneHint(lead.phone),
-        owner_name: isAdminOrManager ? getOwnerName(owner) : null,
-        cycle_status: latestCycle?.status ?? null,
-      }
-    })
-
     return NextResponse.json({ ok: true, leads }, { status: 200, headers: corsHeaders })
   } catch (error) {
     return NextResponse.json(

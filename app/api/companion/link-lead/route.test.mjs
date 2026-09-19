@@ -435,3 +435,84 @@ test('link-lead: nenhuma ação além de membership/leads/sales_cycles/rpc acont
   const tablesTouched = fake.calls.map((call) => call.table)
   assert.deepEqual(tablesTouched, ['company_memberships', 'leads', 'sales_cycles'])
 })
+
+// --- Correção 1 (STEP 2A.2): role da membership ATUAL decide, nunca a do
+// token — o token dura até 6h e pode ficar desatualizado. ---
+
+test('link-lead: token diz admin, membership atual diz member -> comportamento de MEMBER (bloqueado fora da carteira)', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('leads', leadRow(IDS.leadOwnedByOther)),
+    selectStep('sales_cycles', [
+      cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
+    ]),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(
+    postRequest({ token, body: validBody({ lead_id: IDS.leadOwnedByOther }) }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 403)
+  assert.equal(payload.status, 'LEAD_ACCESS_DENIED')
+  assert.equal(fake.rpcCalls.length, 0)
+})
+
+test('link-lead: token diz manager, membership atual diz member -> comportamento de MEMBER (bloqueado no pool)', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('leads', leadRow(IDS.leadPool)),
+    selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadPool, ownerUserId: null })]),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'manager' })
+
+  const response = await POST(postRequest({ token, body: validBody({ lead_id: IDS.leadPool }) }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 403)
+  assert.equal(payload.status, 'LEAD_ACCESS_DENIED')
+  assert.equal(fake.rpcCalls.length, 0)
+})
+
+test('link-lead: token diz member, membership atual diz admin -> comportamento de ADMIN (chega à RPC)', async () => {
+  const fake = useAdmin(
+    [
+      selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
+      selectStep('leads', leadRow(IDS.leadOwnedByOther)),
+      selectStep('sales_cycles', [
+        cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
+      ]),
+    ],
+    { rpcResponder: () => ({ data: [linkedRpcRow({ lead_id: IDS.leadOwnedByOther })] }) },
+  )
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(
+    postRequest({ token, body: validBody({ lead_id: IDS.leadOwnedByOther }) }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'LINKED')
+  assert.equal(fake.rpcCalls.length, 1)
+})
+
+test('link-lead: token diz member, membership atual diz manager -> comportamento de MANAGER (chega à RPC no pool)', async () => {
+  const fake = useAdmin(
+    [
+      selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
+      selectStep('leads', leadRow(IDS.leadPool)),
+      selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadPool, ownerUserId: null })]),
+    ],
+    { rpcResponder: () => ({ data: [linkedRpcRow({ lead_id: IDS.leadPool })] }) },
+  )
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: validBody({ lead_id: IDS.leadPool }) }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'LINKED')
+  assert.equal(fake.rpcCalls.length, 1)
+})

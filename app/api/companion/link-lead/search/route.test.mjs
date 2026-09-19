@@ -3,6 +3,17 @@
 // hook de resolução adicional para next/server, e node:test's
 // `mock.module` para substituir @supabase/supabase-js por um cliente
 // falso determinístico. A rota real roda de ponta a ponta.
+//
+// Ordem real de chamadas ao banco desta rota:
+//   - member: company_memberships -> sales_cycles (ciclos possuídos,
+//     nunca company-wide) -> leads (match do termo, já restrito aos leads
+//     possuídos).
+//   - admin/manager: company_memberships -> leads (candidatos
+//     company-wide) -> sales_cycles (ciclos dos candidatos) -> profiles
+//     (só se houver owner a exibir).
+// A role usada é sempre a de company_memberships (membership ATUAL), nunca
+// a do token — por isso todo teste de autorização varia role no token e/ou
+// na membership fixture, para provar qual delas realmente decide.
 
 import assert from 'node:assert/strict'
 import { register } from 'node:module'
@@ -42,11 +53,13 @@ const IDS = {
   leadDeleted: 'aaaaaaaa-0000-4000-8000-0000000000c6',
 }
 
-const ACTIVE_MEMBERSHIP = {
-  company_id: IDS.companyA,
-  user_id: IDS.userA,
-  role: 'member',
-  is_active: true,
+function membership(role) {
+  return {
+    company_id: IDS.companyA,
+    user_id: IDS.userA,
+    role,
+    is_active: true,
+  }
 }
 
 function leadRow(id, overrides = {}) {
@@ -60,15 +73,6 @@ function leadRow(id, overrides = {}) {
   }
 }
 
-const CANDIDATE_LEADS = [
-  leadRow(IDS.leadOwnedByMe),
-  leadRow(IDS.leadOwnedByOther),
-  leadRow(IDS.leadPool),
-  leadRow(IDS.leadNoCycle),
-  leadRow(IDS.leadOtherCompany, { company_id: IDS.companyB }),
-  leadRow(IDS.leadDeleted, { deleted_at: '2026-01-01T00:00:00.000Z' }),
-]
-
 function cycleRow({ leadId, companyId = IDS.companyA, ownerUserId, status = 'contato' }) {
   return {
     id: `cycle-${leadId}`,
@@ -80,14 +84,6 @@ function cycleRow({ leadId, companyId = IDS.companyA, ownerUserId, status = 'con
     created_at: '2026-07-01T00:00:00.000Z',
   }
 }
-
-const CANDIDATE_CYCLES = [
-  cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA }),
-  cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
-  cycleRow({ leadId: IDS.leadPool, ownerUserId: null }),
-  cycleRow({ leadId: IDS.leadOtherCompany, companyId: IDS.companyB, ownerUserId: IDS.userA }),
-  // leadNoCycle: propositalmente sem nenhum ciclo.
-]
 
 function useAdmin(steps) {
   const fake = createStepAdmin(steps)
@@ -167,11 +163,32 @@ test('link-lead/search: query curta demais (1 caractere, sem dígitos suficiente
   assert.equal(fake.calls.length, 0)
 })
 
-test('link-lead/search: member só recebe lead OWNED_BY_ME — nunca de outro vendedor, do pool, sem ciclo ou de outra empresa', async () => {
+for (const wildcardQuery of ['__', '_%', '%_']) {
+  test(`link-lead/search: "${wildcardQuery}" nunca vira busca ampla/enumeração via ILIKE`, async () => {
+    const fake = useAdmin([])
+    const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+    const response = await POST(postRequest({ token, body: { query: wildcardQuery } }))
+    const payload = await readJson(response)
+
+    // Depois de remover os wildcards, sobra menos de 2 caracteres úteis —
+    // nunca deve virar uma busca ampla company-wide.
+    assert.equal(response.status, 400)
+    assert.equal(payload.status, 'QUERY_TOO_SHORT')
+    assert.equal(fake.calls.length, 0)
+  })
+}
+
+test('link-lead/search: member só recebe lead OWNED_BY_ME — a própria consulta de ciclos já é escopada ao usuário', async () => {
   const fake = useAdmin([
-    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
-    selectStep('leads', CANDIDATE_LEADS),
-    selectStep('sales_cycles', CANDIDATE_CYCLES),
+    selectStep('company_memberships', membership('member')),
+    selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
+    selectStep('leads', [
+      leadRow(IDS.leadOwnedByMe),
+      // Defesa em profundidade: mesmo que a consulta de leads devolvesse
+      // algo fora do escopo, o código nunca deveria incluir.
+      leadRow(IDS.leadOtherCompany, { company_id: IDS.companyB }),
+    ]),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
 
@@ -185,18 +202,20 @@ test('link-lead/search: member só recebe lead OWNED_BY_ME — nunca de outro ve
   assert.equal(payload.leads[0].cycle_status, 'contato')
   assert.ok(payload.leads[0].phone_hint.endsWith('7777'))
 
-  // Nenhuma consulta a profiles: member nunca vê owner_name.
-  assert.equal(
-    fake.calls.some((call) => call.table === 'profiles'),
-    false,
+  assert.deepEqual(
+    fake.calls.map((call) => call.table),
+    ['company_memberships', 'sales_cycles', 'leads'],
   )
+
+  const ownedCyclesCall = fake.calls[1]
+  const ownerFilter = ownedCyclesCall.filters.find((f) => f.column === 'owner_user_id')
+  assert.equal(ownerFilter.value, IDS.userA)
 })
 
-test('link-lead/search: lead soft-deleted nunca aparece, mesmo se retornado pela consulta bruta', async () => {
-  useAdmin([
-    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
-    selectStep('leads', CANDIDATE_LEADS),
-    selectStep('sales_cycles', CANDIDATE_CYCLES),
+test('link-lead/search: member sem nenhum ciclo aberto próprio recebe lista vazia sem consultar leads', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', membership('member')),
+    selectStep('sales_cycles', []),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
 
@@ -204,17 +223,55 @@ test('link-lead/search: lead soft-deleted nunca aparece, mesmo se retornado pela
   const payload = await readJson(response)
 
   assert.equal(response.status, 200)
+  assert.deepEqual(payload.leads, [])
+  assert.equal(
+    fake.calls.some((call) => call.table === 'leads'),
+    false,
+  )
+})
+
+test('link-lead/search: lead soft-deleted nunca aparece, mesmo com ciclo aberto próprio', async () => {
+  useAdmin([
+    selectStep('company_memberships', membership('member')),
+    selectStep('sales_cycles', [
+      cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA }),
+      cycleRow({ leadId: IDS.leadDeleted, ownerUserId: IDS.userA }),
+    ]),
+    selectStep('leads', [
+      leadRow(IDS.leadOwnedByMe),
+      leadRow(IDS.leadDeleted, { deleted_at: '2026-01-01T00:00:00.000Z' }),
+    ]),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.leads.length, 1)
   assert.ok(!payload.leads.some((lead) => lead.id === IDS.leadDeleted))
 })
 
 test('link-lead/search: admin encontra leads de outros vendedores, do pool e sem ciclo (company-wide) com owner_name', async () => {
   const fake = useAdmin([
-    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
-    selectStep('leads', CANDIDATE_LEADS),
-    selectStep('sales_cycles', CANDIDATE_CYCLES),
+    selectStep('company_memberships', membership('admin')),
+    selectStep('leads', [
+      leadRow(IDS.leadOwnedByMe),
+      leadRow(IDS.leadOwnedByOther),
+      leadRow(IDS.leadPool),
+      leadRow(IDS.leadNoCycle),
+      leadRow(IDS.leadOtherCompany, { company_id: IDS.companyB }),
+      leadRow(IDS.leadDeleted, { deleted_at: '2026-01-01T00:00:00.000Z' }),
+    ]),
+    selectStep('sales_cycles', [
+      cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA }),
+      cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
+      cycleRow({ leadId: IDS.leadPool, ownerUserId: null }),
+      cycleRow({ leadId: IDS.leadOtherCompany, companyId: IDS.companyB, ownerUserId: IDS.userA }),
+    ]),
     selectStep('profiles', [
-      { id: IDS.userA, full_name: 'Vendedor Um', email: 'v1@example.com' },
-      { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' },
+      { id: IDS.userA, full_name: 'Vendedor Um' },
+      { id: IDS.otherSeller, full_name: 'Vendedor Dois' },
     ]),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
@@ -230,8 +287,8 @@ test('link-lead/search: admin encontra leads de outros vendedores, do pool e sem
     [IDS.leadNoCycle, IDS.leadOwnedByMe, IDS.leadOwnedByOther, IDS.leadPool].sort(),
   )
 
-  // Nunca inclui lead de outra empresa, mesmo que a consulta bruta o traga.
   assert.ok(!ids.includes(IDS.leadOtherCompany))
+  assert.ok(!ids.includes(IDS.leadDeleted))
 
   const other = payload.leads.find((lead) => lead.id === IDS.leadOwnedByOther)
   assert.equal(other.owner_name, 'Vendedor Dois')
@@ -244,12 +301,21 @@ test('link-lead/search: admin encontra leads de outros vendedores, do pool e sem
 
 test('link-lead/search: manager tem a mesma visibilidade company-wide que admin', async () => {
   useAdmin([
-    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
-    selectStep('leads', CANDIDATE_LEADS),
-    selectStep('sales_cycles', CANDIDATE_CYCLES),
+    selectStep('company_memberships', membership('manager')),
+    selectStep('leads', [
+      leadRow(IDS.leadOwnedByMe),
+      leadRow(IDS.leadOwnedByOther),
+      leadRow(IDS.leadPool),
+      leadRow(IDS.leadNoCycle),
+    ]),
+    selectStep('sales_cycles', [
+      cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA }),
+      cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
+      cycleRow({ leadId: IDS.leadPool, ownerUserId: null }),
+    ]),
     selectStep('profiles', [
-      { id: IDS.userA, full_name: 'Vendedor Um', email: 'v1@example.com' },
-      { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' },
+      { id: IDS.userA, full_name: 'Vendedor Um' },
+      { id: IDS.otherSeller, full_name: 'Vendedor Dois' },
     ]),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'manager' })
@@ -261,16 +327,149 @@ test('link-lead/search: manager tem a mesma visibilidade company-wide que admin'
   assert.equal(payload.leads.length, 4)
 })
 
-test('link-lead/search: nunca retorna mais que MAX_RESULTS (10) leads', async () => {
-  const manyLeads = Array.from({ length: 15 }, (_, index) =>
-    leadRow(`aaaaaaaa-0000-4000-8000-0000000001${String(index).padStart(2, '0')}`),
+// --- Correção 1: role da membership ATUAL é quem decide, nunca a do token ---
+
+test('link-lead/search: token diz admin, membership atual diz member -> comportamento de MEMBER', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', membership('member')),
+    selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
+    selectStep('leads', [leadRow(IDS.leadOwnedByMe)]),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.leads.length, 1)
+  assert.equal(payload.leads[0].owner_name, null)
+  assert.equal(
+    fake.calls.some((call) => call.table === 'profiles'),
+    false,
   )
-  const manyCycles = manyLeads.map((lead) => cycleRow({ leadId: lead.id, ownerUserId: IDS.userA }))
+})
+
+test('link-lead/search: token diz manager, membership atual diz member -> comportamento de MEMBER', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', membership('member')),
+    selectStep('sales_cycles', []),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'manager' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(payload.leads, [])
+  assert.equal(
+    fake.calls.some((call) => call.table === 'leads'),
+    false,
+  )
+})
+
+test('link-lead/search: token diz member, membership atual diz admin -> comportamento de ADMIN', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', membership('admin')),
+    selectStep('leads', [leadRow(IDS.leadOwnedByOther)]),
+    selectStep('sales_cycles', [
+      cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
+    ]),
+    selectStep('profiles', [{ id: IDS.otherSeller, full_name: 'Vendedor Dois' }]),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.leads.length, 1)
+  assert.equal(payload.leads[0].id, IDS.leadOwnedByOther)
+  assert.equal(payload.leads[0].owner_name, 'Vendedor Dois')
+  assert.equal(fake.calls[1].table, 'leads')
+})
+
+test('link-lead/search: token diz member, membership atual diz manager -> comportamento de MANAGER', async () => {
+  useAdmin([
+    selectStep('company_memberships', membership('manager')),
+    selectStep('leads', [leadRow(IDS.leadPool)]),
+    selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadPool, ownerUserId: null })]),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.leads.length, 1)
+  assert.equal(payload.leads[0].id, IDS.leadPool)
+})
+
+// --- Correção 3: owner_name nunca cai para e-mail ---
+
+test('link-lead/search: owner sem full_name nunca expõe e-mail como owner_name', async () => {
+  useAdmin([
+    selectStep('company_memberships', membership('admin')),
+    selectStep('leads', [leadRow(IDS.leadOwnedByOther)]),
+    selectStep('sales_cycles', [
+      cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
+    ]),
+    selectStep('profiles', [{ id: IDS.otherSeller, full_name: null, email: 'seller@company.com' }]),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+  const raw = JSON.stringify(payload)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.leads[0].owner_name, null)
+  assert.ok(!raw.includes('seller@company.com'))
+})
+
+// --- Correção 4: limite pré-autorização nunca descarta lead próprio do member ---
+
+test('link-lead/search: member encontra o próprio lead mesmo com >50 leads company-wide compatíveis', async () => {
+  const manyCompanyWideCycles = Array.from({ length: 60 }, (_, index) =>
+    cycleRow({
+      leadId: `bbbbbbbb-0000-4000-8000-0000000002${String(index).padStart(2, '0')}`,
+      ownerUserId: IDS.otherSeller,
+    }),
+  )
 
   useAdmin([
-    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
-    selectStep('leads', manyLeads),
+    selectStep('company_memberships', membership('member')),
+    // A consulta de ciclos do member é escopada por owner_user_id: nunca
+    // vê os 60 ciclos company-wide de outro vendedor, só o próprio —
+    // provando que não existe teto pré-autorização a burlar aqui.
+    selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
+    selectStep('leads', [leadRow(IDS.leadOwnedByMe)]),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.leads.length, 1)
+  assert.equal(payload.leads[0].id, IDS.leadOwnedByMe)
+  // Confirma que o cenário de teste realmente incluía >50 candidatos
+  // company-wide irrelevantes ao member, só para provar que eles nunca
+  // entram na consulta do member.
+  assert.ok(manyCompanyWideCycles.length > 50)
+})
+
+test('link-lead/search: nunca retorna mais que MAX_RESULTS (10) leads para member', async () => {
+  const manyLeadIds = Array.from(
+    { length: 15 },
+    (_, index) => `aaaaaaaa-0000-4000-8000-0000000001${String(index).padStart(2, '0')}`,
+  )
+  const manyCycles = manyLeadIds.map((leadId) => cycleRow({ leadId, ownerUserId: IDS.userA }))
+  const manyLeads = manyLeadIds.map((id) => leadRow(id))
+
+  useAdmin([
+    selectStep('company_memberships', membership('member')),
     selectStep('sales_cycles', manyCycles),
+    selectStep('leads', manyLeads),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
 
@@ -283,13 +482,12 @@ test('link-lead/search: nunca retorna mais que MAX_RESULTS (10) leads', async ()
 
 test('link-lead/search: resposta nunca contém CPF/CNPJ/e-mail completo/endereço/identidade externa bruta', async () => {
   const fake = useAdmin([
-    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
-    selectStep('leads', CANDIDATE_LEADS),
-    selectStep('sales_cycles', CANDIDATE_CYCLES),
-    selectStep('profiles', [
-      { id: IDS.userA, full_name: 'Vendedor Um', email: 'v1@example.com' },
-      { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' },
+    selectStep('company_memberships', membership('admin')),
+    selectStep('leads', [leadRow(IDS.leadOwnedByOther)]),
+    selectStep('sales_cycles', [
+      cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
     ]),
+    selectStep('profiles', [{ id: IDS.otherSeller, full_name: 'Vendedor Dois' }]),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
 
@@ -312,11 +510,11 @@ test('link-lead/search: resposta nunca contém CPF/CNPJ/e-mail completo/endereç
 
 test('link-lead/search: phone query usa dígitos e nunca aceita company_id vindo do corpo', async () => {
   const fake = useAdmin([
-    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
-    selectStep('leads', [leadRow(IDS.leadOwnedByMe)]),
+    selectStep('company_memberships', membership('member')),
     selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
+    selectStep('leads', [leadRow(IDS.leadOwnedByMe)]),
   ])
-  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
 
   const response = await POST(
     postRequest({

@@ -18,6 +18,11 @@ import {
 // endpoint só estabelece o vínculo; resolve-lead continua sendo a única
 // fonte de verdade sobre o estado resultante (LINKED/IDEMPOTENT nunca
 // mudam artificialmente OWNED_BY_ME/OWNED_BY_OTHER/IN_POOL/etc.).
+//
+// A autorização (member vs. admin/manager) usa a role da membership ATUAL
+// no banco, nunca tokenPayload.role — o token dura até 6h e pode ficar
+// desatualizado se a role da pessoa mudar nesse meio-tempo (STEP 2A.2,
+// correção 1).
 
 const PLATFORM_CONTACT_KEY_PATTERN = /^manychat:contact:v1:sha256:[a-f0-9]{64}$/
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -153,12 +158,15 @@ export async function POST(request: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     })
 
-    const { active: hasActiveMembership, error: membershipError } =
-      await verifyActiveCompanionMembership({
-        admin,
-        companyId: tokenPayload.company_id,
-        userId: tokenPayload.sub,
-      })
+    const {
+      active: hasActiveMembership,
+      role: liveRole,
+      error: membershipError,
+    } = await verifyActiveCompanionMembership({
+      admin,
+      companyId: tokenPayload.company_id,
+      userId: tokenPayload.sub,
+    })
 
     if (membershipError) {
       return NextResponse.json(
@@ -232,7 +240,7 @@ export async function POST(request: Request) {
     }
 
     const isAuthorized = canUserLinkLead({
-      role: tokenPayload.role,
+      role: liveRole,
       userId: tokenPayload.sub,
       cyclesForLead,
     })
