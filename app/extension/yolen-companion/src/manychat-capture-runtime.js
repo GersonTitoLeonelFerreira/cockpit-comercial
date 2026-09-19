@@ -178,11 +178,14 @@
       return response?.payload ?? null
     }
 
-    async function ensureCycleResolved(conversationKey) {
+    // Resolve de verdade (sempre chama a identidade + RESOLVE_LEAD, nunca
+    // olha o cache) e GRAVA o resultado em state.resolution — usado tanto
+    // pela primeira resolução (ensureCycleResolved) quanto pelo refresh
+    // explícito depois de um first-link (refreshLeadResolution). Nunca
+    // mexe em nenhum outro campo do estado da conversa (base_version por
+    // mensagem, fingerprint, transcrições) — só resolution.
+    async function resolveAndStoreResolution(conversationKey) {
       const state = getConversationState(conversationKey)
-      if (state.resolution) {
-        return state.resolution
-      }
 
       const safeIdentity = await getSafeIdentity()
       if (!safeIdentity) {
@@ -204,6 +207,26 @@
       })
 
       return state.resolution
+    }
+
+    async function ensureCycleResolved(conversationKey) {
+      const state = getConversationState(conversationKey)
+      if (state.resolution) {
+        return state.resolution
+      }
+
+      return resolveAndStoreResolution(conversationKey)
+    }
+
+    // Chamado depois de um first-link bem-sucedido (LINKED/IDEMPOTENT/
+    // ALREADY_LINKED_CONFLICT — sempre, para refletir o estado real):
+    // invalida SÓ a resolução desta conversa e busca de novo via
+    // RESOLVE_LEAD, nunca inventa cycle a partir do lead selecionado na UI
+    // (STEP 2A.3, seção 18/19). baseVersionsByMessageKey,
+    // lastContentFingerprint e transcribedMessageKeys permanecem
+    // intocados.
+    async function refreshLeadResolution(conversationKey) {
+      return resolveAndStoreResolution(conversationKey)
     }
 
     function queryMessageNodes() {
@@ -502,6 +525,8 @@
       stop,
       captureNow,
       getConversationState,
+      getSafeIdentity,
+      refreshLeadResolution,
     })
   }
 

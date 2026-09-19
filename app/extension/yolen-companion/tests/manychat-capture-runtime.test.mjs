@@ -631,3 +631,99 @@ test('mutações repetidas FORA do conversationRoot (sidebar) nunca disparam cap
   assert.equal(sendMessageCount, 1, 'só a tentativa inicial de identidade, nenhuma repetição por ruído de fundo')
   assert.ok(readerEventCount <= 1, 'nenhum reader_event espúrio vindo da sidebar')
 })
+
+// -----------------------------------------------------------------------
+// STEP 2A.3 — refreshLeadResolution / getSafeIdentity (usados pelo fluxo de
+// vínculo depois de um first-link bem-sucedido, para nunca inventar cycle
+// a partir do lead selecionado na UI — só RESOLVE_LEAD decide).
+// -----------------------------------------------------------------------
+
+test('getSafeIdentity é exposto publicamente e devolve o mesmo formato usado internamente', async () => {
+  const dom = buildDom([])
+  const fake = createQueuedSender([safeIdentityOk()])
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+
+  const identity = await runtime.getSafeIdentity()
+
+  assert.equal(identity.platform, 'manychat')
+  assert.equal(identity.platform_identity.key, `manychat:contact:v1:sha256:${'a'.repeat(64)}`)
+  assert.equal(fake.calls[0].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+})
+
+test('refreshLeadResolution sempre busca de novo (nunca usa cache), sobrescreve só state.resolution e preserva os demais campos da conversa', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  // createQueuedSender lê da MESMA referência de array a cada chamada —
+  // podemos empurrar mais respostas nela depois da primeira captura, sem
+  // precisar recriar o runtime (o estado por conversa é interno e não dá
+  // pra transportar entre duas instâncias).
+  const responses = [
+    safeIdentityOk(),
+    resolveLeadOwnedByMe('cycle-1'),
+    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+  ]
+  const fake = createQueuedSender(responses)
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+
+  const first = await runtime.captureNow()
+  assert.equal(first.ok, true)
+  const conversationKey = fake.calls[2].payload.conversation_key
+
+  const stateBefore = runtime.getConversationState(conversationKey)
+  assert.equal(stateBefore.resolution.cycle_id, 'cycle-1')
+  assert.equal(stateBefore.baseVersionsByMessageKey['manychat:native-1'], '1')
+
+  // Uma segunda captureNow, sem refresh, reaproveita o cache (nenhuma
+  // chamada nova) — prova que o próximo passo está de fato testando o
+  // refresh, não um efeito colateral de outra captura.
+  const second = await runtime.captureNow()
+  assert.equal(second.skipped, true)
+  assert.equal(fake.calls.length, 3)
+
+  responses.push(safeIdentityOk(), resolveLeadOwnedByMe('cycle-after-link'))
+
+  const refreshed = await runtime.refreshLeadResolution(conversationKey)
+
+  assert.equal(refreshed.ready, true)
+  assert.equal(refreshed.cycle_id, 'cycle-after-link')
+  assert.equal(
+    fake.calls.length,
+    5,
+    'refreshLeadResolution sempre chama identidade + resolve-lead de novo, nunca usa cache',
+  )
+  assert.equal(fake.calls[3].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[4].action, 'RESOLVE_LEAD')
+
+  const stateAfter = runtime.getConversationState(conversationKey)
+  assert.equal(stateAfter.resolution.ready, true)
+  assert.equal(stateAfter.resolution.cycle_id, 'cycle-after-link')
+  // Nunca limpa os outros campos do estado da conversa — só resolution.
+  assert.equal(stateAfter.baseVersionsByMessageKey['manychat:native-1'], '1')
+})
+
+test('refreshLeadResolution reflete um contato que deixou de ser capture-eligible (ex.: transferido para outro vendedor)', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const responses = [
+    safeIdentityOk(),
+    resolveLeadOwnedByMe('cycle-1'),
+    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+  ]
+  const fake = createQueuedSender(responses)
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+
+  await runtime.captureNow()
+  const conversationKey = fake.calls[2].payload.conversation_key
+
+  responses.push(safeIdentityOk(), {
+    ok: true,
+    payload: { status: 'OWNED_BY_OTHER', cycle: null, actions: {}, flags: {} },
+  })
+
+  const refreshed = await runtime.refreshLeadResolution(conversationKey)
+
+  assert.equal(refreshed.ready, false)
+  assert.equal(refreshed.reason, 'OWNED_BY_OTHER')
+  assert.equal(refreshed.cycle_id, null)
+})

@@ -542,6 +542,20 @@ async function handleCompanionMessage(message, sender) {
     return requestYolenWithToken(message, '/api/companion/resolve-lead', message.payload)
   }
 
+  // STEP 2A.3 — busca e first-link de identidade externa (ManyChat). Só
+  // chama rpc_link_companion_external_identity_first (via
+  // /api/companion/link-lead); nunca a RPC de relink. company_id,
+  // actor_user_id e identity_source nunca vêm do content script — o
+  // servidor deriva tudo do token Companion, exatamente como as demais
+  // actions acima.
+  if (message.action === 'SEARCH_LINKABLE_LEADS') {
+    return requestYolenWithToken(message, '/api/companion/link-lead/search', message.payload)
+  }
+
+  if (message.action === 'FIRST_LINK_EXTERNAL_IDENTITY') {
+    return requestYolenWithToken(message, '/api/companion/link-lead', message.payload)
+  }
+
   if (message.action === 'CREATE_LEAD') {
     return requestYolenWithToken(
       message,

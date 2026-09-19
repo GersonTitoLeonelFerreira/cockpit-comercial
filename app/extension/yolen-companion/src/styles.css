@@ -2289,3 +2289,128 @@ html.yolen-companion-collapsed #app {
 .yolen-card {
   box-shadow: none;
 }
+
+/* STEP 2A.3 — UI de vínculo CONTACT_NOT_LINKED -> buscar -> selecionar ->
+ * confirmar -> first-link (ManyChat). Só classes prefixadas Yolen, nunca
+ * dependendo de classes internas do ManyChat. Puramente aditivo — não
+ * altera nenhuma regra existente (zero regressão no WhatsApp). */
+.yolen-contact-link {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(126, 153, 194, 0.14);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.76);
+}
+
+.yolen-contact-link-label {
+  color: #9fb0c6;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.yolen-contact-link-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 153, 194, 0.24);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.48);
+  color: #f2f7ff;
+  font-size: 13px;
+}
+
+.yolen-contact-link-input:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+}
+
+.yolen-link-lead-button {
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #3b82f6;
+  color: #f8fbff;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.yolen-link-lead-button:hover {
+  background: #2f6bff;
+}
+
+.yolen-link-lead-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.yolen-link-lead-button-secondary {
+  background: transparent;
+  border: 1px solid rgba(126, 153, 194, 0.24);
+  color: #cfe0ff;
+}
+
+.yolen-link-lead-button-secondary:hover {
+  background: rgba(30, 41, 59, 0.65);
+}
+
+.yolen-contact-link-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.yolen-contact-link-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.yolen-contact-link-result-item {
+  margin: 0;
+}
+
+.yolen-contact-link-result {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 153, 194, 0.18);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.4);
+  color: #e5edf8;
+  text-align: left;
+  cursor: pointer;
+}
+
+.yolen-contact-link-result:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.yolen-contact-link-result-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.yolen-contact-link-result-phone,
+.yolen-contact-link-result-owner,
+.yolen-contact-link-result-status {
+  font-size: 11px;
+  color: #9fb0c6;
+}
+
+.yolen-error {
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  background: rgba(127, 29, 29, 0.16);
+  color: #fca5a5;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.4;
+}

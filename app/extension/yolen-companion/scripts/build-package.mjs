@@ -94,6 +94,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/manychat-capture-bootstrap.js',
   'src/manychat-capture-runtime.js',
   'src/manychat-composer.js',
+  'src/manychat-contact-link-runtime.js',
   'src/manychat-context-evidence-probe.js',
   'src/manychat-dom-reader.js',
   'src/manychat-feature-flags.js',

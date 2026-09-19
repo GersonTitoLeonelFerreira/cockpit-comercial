@@ -19,6 +19,16 @@
   const panelMountApi = root.YolenManyChatPanelMount
   const sellerPanelRuntimeApi = root.YolenManyChatSellerPanelRuntime
   const composerApi = root.YolenManyChatComposer
+  const contactLinkRuntimeApi = root.YolenManyChatContactLinkRuntime
+
+  // Atribuído mais abaixo, depois de `runtime`/`sellerPanelRuntime`
+  // existirem (o runtime de vínculo precisa de runtime.getSafeIdentity e
+  // de um callback que usa runtime.refreshLeadResolution/captureNow e
+  // sellerPanelRuntime.handleCaptureResult). `renderStatus` só é
+  // efetivamente CHAMADO depois que tudo isso já foi montado (ver
+  // runtime.start()/syncPanel(null) no fim do arquivo), então a
+  // referência abaixo sempre encontra o valor certo por closure.
+  let contactLinkRuntime = null
 
   // Textos honestos: nunca reivindicam mais do que o Companion sabe de
   // verdade nesta versão. O painel completo (AGORA/ANÁLISE/CLIENTE) ainda
@@ -36,7 +46,7 @@
     MULTIPLE_MATCHES: 'Yolen · mais de um lead encontrado',
   })
 
-  function renderStatus(resolution) {
+  function renderStatus(resolution, conversationKey) {
     if (!panelMountApi) return
 
     if (!resolution) {
@@ -52,6 +62,16 @@
       if (!sellerPanelRuntimeApi) {
         panelMountApi.setPanelContent('<div class="yolen-status">Yolen · lead identificado</div>')
       }
+      return
+    }
+
+    // CONTACT_NOT_LINKED tem um fluxo próprio (buscar -> selecionar ->
+    // confirmar -> vincular): a partir daqui quem é dono do conteúdo do
+    // painel é o contactLinkRuntime, nunca o texto de status genérico.
+    // Nunca mostra AGORA/ANÁLISE/sugestão enquanto não houver lead/ciclo
+    // real (STEP 2A.3, seção 6).
+    if (resolution.reason === 'CONTACT_NOT_LINKED' && contactLinkRuntime && conversationKey) {
+      contactLinkRuntime.renderContactLinkPanel(conversationKey)
       return
     }
 
@@ -89,7 +109,7 @@
 
     currentConversationKey = conversationKey ?? currentConversationKey
     if (!currentConversationKey) {
-      renderStatus(null)
+      renderStatus(null, null)
       return
     }
 
@@ -102,7 +122,7 @@
     }
     lastRenderedResolutionByConversationKey.set(currentConversationKey, signature)
 
-    renderStatus(resolution)
+    renderStatus(resolution, currentConversationKey)
   }
 
   // Únicos seletores validados ao vivo (A → B → A, com evidência de
@@ -183,17 +203,86 @@
       })
     : null
 
+  // Chamado pelo contactLinkRuntime depois de um first-link que respondeu
+  // LINKED/IDEMPOTENT/ALREADY_LINKED_CONFLICT: nunca inventa cycle a
+  // partir do lead selecionado na UI — só RESOLVE_LEAD (via
+  // runtime.refreshLeadResolution) pode dizer o estado real. Se a
+  // resolução ficou capture-eligible, roda UMA captura pelo pipeline já
+  // existente (nunca uma segunda rotina de ingestão) e deixa o evento
+  // capture_result normal decidir sobre análise — nunca chama
+  // ANALYZE_CONVERSATION diretamente daqui (STEP 2A.3, seções 19-21).
+  async function handleLinked(conversationKey) {
+    const resolution = await runtime.refreshLeadResolution(conversationKey)
+    syncPanel(conversationKey)
+
+    if (!resolution.ready) return
+
+    try {
+      const result = await runtime.captureNow()
+      syncPanel(result?.conversation_key ?? conversationKey)
+      if (sellerPanelRuntime) {
+        sellerPanelRuntime.handleCaptureResult(result)
+      }
+    } catch {
+      // Melhor esforço: uma falha na captura pós-vínculo nunca deve travar
+      // a UI — o próximo ciclo normal de captura (debounce do observer)
+      // tenta de novo sozinho.
+    }
+  }
+
+  contactLinkRuntime = contactLinkRuntimeApi
+    ? contactLinkRuntimeApi.createManyChatContactLinkRuntime({
+        sendMessage,
+        panelMountApi,
+        getSafeIdentity: runtime.getSafeIdentity,
+        getCurrentConversationKey: () => currentConversationKey,
+        onLinked: handleLinked,
+      })
+    : null
+
   // Delegação de clique única no documento: aplicar a sugestão no composer
-  // é sempre uma ação explícita do vendedor (nunca automática, nunca em
-  // resposta a um evento de captura ou de análise).
-  if (sellerPanelRuntime && typeof root.document?.addEventListener === 'function') {
+  // e cada passo do fluxo de vínculo (buscar/selecionar/confirmar/
+  // cancelar/tentar de novo) são sempre ações explícitas do vendedor
+  // (nunca automáticas, nunca em resposta a um evento de captura ou de
+  // análise).
+  if ((sellerPanelRuntime || contactLinkRuntime) && typeof root.document?.addEventListener === 'function') {
     root.document.addEventListener('click', (domEvent) => {
       const target = domEvent.target
-      const trigger =
-        typeof target?.closest === 'function' ? target.closest('[data-yolen-apply-suggestion]') : null
-      if (!trigger || !currentConversationKey) return
+      if (typeof target?.closest !== 'function' || !currentConversationKey) return
 
-      sellerPanelRuntime.applySuggestedMessage(currentConversationKey)
+      if (sellerPanelRuntime && target.closest('[data-yolen-apply-suggestion]')) {
+        sellerPanelRuntime.applySuggestedMessage(currentConversationKey)
+        return
+      }
+
+      if (!contactLinkRuntime) return
+
+      if (target.closest('[data-yolen-link-lead-start]') || target.closest('[data-yolen-link-lead-retry]')) {
+        contactLinkRuntime.startLinkFlow(currentConversationKey)
+        return
+      }
+
+      if (target.closest('[data-yolen-link-lead-search]')) {
+        const panelElement = panelMountApi?.ensurePanelMounted?.({ document: root.document })?.element
+        const input = panelElement?.querySelector?.('[data-yolen-link-lead-query]')
+        contactLinkRuntime.runSearch(currentConversationKey, input?.value ?? '')
+        return
+      }
+
+      const selectTrigger = target.closest('[data-yolen-link-lead-select]')
+      if (selectTrigger) {
+        contactLinkRuntime.selectLead(currentConversationKey, selectTrigger.dataset.yolenLinkLeadSelect ?? null)
+        return
+      }
+
+      if (target.closest('[data-yolen-link-lead-confirm]')) {
+        contactLinkRuntime.confirmLink(currentConversationKey)
+        return
+      }
+
+      if (target.closest('[data-yolen-link-lead-cancel]')) {
+        contactLinkRuntime.cancelSelection(currentConversationKey)
+      }
     })
   }
 
