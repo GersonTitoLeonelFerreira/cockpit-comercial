@@ -23,23 +23,21 @@ import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp";
 // garantia (A-J) é verificada nessa mesma sessão — nunca em bancos
 // separados por migration.
 //
-// NÃO usa a árvore completa e literal de migrations. Ao tentar isso, este
-// gate descobriu que supabase/migrations/
-// 20260829010000_add_message_deletion_reason.sql tem um `do $ ... $;` com
-// dollar-quoting inválido (deveria ser `do $$ ... $$;`) — sintaxe que
-// falha em qualquer Postgres real. Introspecção read-only do projeto
-// Supabase real (mcp__Supabase__list_migrations) confirma que esse NÃO é
-// o arquivo que rodou de fato: a migration real aplicada é
-// 20260829042244_add_message_deletion_reason_safe — nome e timestamp
-// diferentes, arquivo ausente deste repositório. É drift entre este
-// repositório e o projeto real, anterior e não relacionado à R2; não foi
-// corrigido nem reconciliado aqui (fora de escopo deste gate — registrado
-// no relatório final para decisão futura). Este teste reproduz o
-// END-STATE real e verificado de conversation_messages.deletion_reason
-// (coluna + constraint, confirmados ao vivo, read-only) em vez de
-// reexecutar o arquivo local quebrado. A curadoria de migrations abaixo
-// segue a mesma metodologia que todo outro phase-test deste repositório
-// já usa (nenhum deles reproduz a árvore inteira).
+// NÃO usa a árvore completa e literal de migrations. O antigo
+// supabase/migrations/20260829010000_add_message_deletion_reason.sql
+// tinha um `do $ ... $;` com dollar-quoting inválido (deveria ser
+// `do $$ ... $$;`) — sintaxe que falha em qualquer Postgres real, e
+// nunca foi o arquivo que rodou de fato em produção: a migration
+// realmente aplicada é 20260829042244_add_message_deletion_reason_safe.
+// A reconciliação de histórico de migrations já corrigiu esse drift:
+// o arquivo antigo quebrado foi arquivado (supabase/migrations_archive/)
+// e 20260829042244_add_message_deletion_reason_safe.sql — com o SQL
+// exato recuperado do projeto Supabase real — passou a existir em
+// supabase/migrations/. Este teste continua reproduzindo o END-STATE
+// verificado de conversation_messages.deletion_reason (coluna +
+// constraint) em vez de reexecutar a árvore completa, seguindo a mesma
+// metodologia que todo outro phase-test deste repositório já usa
+// (nenhum deles reproduz a árvore inteira).
 
 function migrationPath(fileName) {
   return fileURLToPath(new URL(`../migrations/${fileName}`, import.meta.url));
@@ -50,9 +48,6 @@ const preR2MigrationPaths = [
   migrationPath("20260730155903_create_conversation_messages_ledger.sql"),
   migrationPath("20260730170515_create_conversation_capture_state.sql"),
   migrationPath("20260803030154_create_companion_message_ingestion_rpc.sql"),
-  migrationPath(
-    "20260803064000_harden_companion_message_ingestion_rpc.sql",
-  ),
   migrationPath("20260803223345_prevent_stale_companion_captures.sql"),
   migrationPath(
     "20260804120000_add_causal_companion_message_versions.sql",
@@ -369,10 +364,12 @@ test(
 
       // conversation_messages.deletion_reason: reproduz o end-state REAL
       // do projeto Supabase (coluna + constraint, confirmados ao vivo,
-      // read-only) — a migration local
-      // 20260829010000_add_message_deletion_reason.sql tem dollar-quoting
-      // inválido e nunca foi o que rodou de fato (drift documentado no
-      // cabeçalho deste arquivo; fora de escopo desta correção).
+      // read-only). O antigo arquivo local com dollar-quoting inválido
+      // (20260829010000_add_message_deletion_reason.sql) nunca foi o que
+      // rodou de fato e já foi arquivado pela reconciliação de histórico
+      // de migrations (ver cabeçalho deste arquivo); este teste continua
+      // reproduzindo o end-state diretamente em vez de reexecutar a
+      // migration real (20260829042244_add_message_deletion_reason_safe.sql).
       await db.exec(`
         alter table public.conversation_messages
           add column if not exists deletion_reason text;

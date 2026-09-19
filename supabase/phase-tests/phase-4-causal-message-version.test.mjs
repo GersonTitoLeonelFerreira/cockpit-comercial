@@ -30,9 +30,6 @@ const migrationPaths = [
     "20260803030154_create_companion_message_ingestion_rpc.sql",
   ),
   migrationPath(
-    "20260803064000_harden_companion_message_ingestion_rpc.sql",
-  ),
-  migrationPath(
     "20260803223345_prevent_stale_companion_captures.sql",
   ),
   migrationPath(

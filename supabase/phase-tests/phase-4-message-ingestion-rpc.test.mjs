@@ -35,14 +35,6 @@ const ingestionMigrationPath = fileURLToPath(
   ),
 );
 
-const ingestionHardeningMigrationPath =
-  fileURLToPath(
-    new URL(
-      "../migrations/20260803064000_harden_companion_message_ingestion_rpc.sql",
-      import.meta.url,
-    ),
-  );
-
 const reconciliationMigrationPath =
   fileURLToPath(
     new URL(
@@ -190,12 +182,6 @@ test(
       await db.exec(await readFile(ledgerMigrationPath, "utf8"));
       await db.exec(await readFile(captureStateMigrationPath, "utf8"));
       await db.exec(await readFile(ingestionMigrationPath, "utf8"));
-      await db.exec(
-        await readFile(
-          ingestionHardeningMigrationPath,
-          "utf8",
-        ),
-      );
       await db.exec(
         await readFile(
           reconciliationMigrationPath,
