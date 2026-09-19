@@ -428,19 +428,9 @@ test('link-lead/search: owner sem full_name nunca expõe e-mail como owner_name'
 
 // --- Correção 4: limite pré-autorização nunca descarta lead próprio do member ---
 
-test('link-lead/search: member encontra o próprio lead mesmo com >50 leads company-wide compatíveis', async () => {
-  const manyCompanyWideCycles = Array.from({ length: 60 }, (_, index) =>
-    cycleRow({
-      leadId: `bbbbbbbb-0000-4000-8000-0000000002${String(index).padStart(2, '0')}`,
-      ownerUserId: IDS.otherSeller,
-    }),
-  )
-
-  useAdmin([
+test('link-lead/search: caminho member começa pela carteira própria (sales_cycles escopado por owner_user_id), nunca por uma busca company-wide em leads', async () => {
+  const fake = useAdmin([
     selectStep('company_memberships', membership('member')),
-    // A consulta de ciclos do member é escopada por owner_user_id: nunca
-    // vê os 60 ciclos company-wide de outro vendedor, só o próprio —
-    // provando que não existe teto pré-autorização a burlar aqui.
     selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     selectStep('leads', [leadRow(IDS.leadOwnedByMe)]),
   ])
@@ -452,10 +442,30 @@ test('link-lead/search: member encontra o próprio lead mesmo com >50 leads comp
   assert.equal(response.status, 200)
   assert.equal(payload.leads.length, 1)
   assert.equal(payload.leads[0].id, IDS.leadOwnedByMe)
-  // Confirma que o cenário de teste realmente incluía >50 candidatos
-  // company-wide irrelevantes ao member, só para provar que eles nunca
-  // entram na consulta do member.
-  assert.ok(manyCompanyWideCycles.length > 50)
+
+  // Prova direta de "portfolio-first": a segunda chamada ao banco (logo
+  // após a membership) é sales_cycles, nunca leads — e ela já chega
+  // filtrada por company_id do token E owner_user_id do usuário, nunca
+  // uma varredura company-wide sem dono. `leads` só é consultada DEPOIS,
+  // e já restrita (`in`) ao conjunto de ids que essa consulta devolveu.
+  assert.deepEqual(
+    fake.calls.map((call) => call.table),
+    ['company_memberships', 'sales_cycles', 'leads'],
+  )
+
+  const ownedCyclesCall = fake.calls[1]
+  assert.deepEqual(
+    ownedCyclesCall.filters.map((filter) => [filter.column, filter.value]),
+    [
+      ['company_id', IDS.companyA],
+      ['owner_user_id', IDS.userA],
+    ],
+  )
+
+  const leadsMatchCall = fake.calls[2]
+  const leadsInFilter = leadsMatchCall.filters.find((filter) => filter.op === 'in')
+  assert.equal(leadsInFilter.column, 'id')
+  assert.deepEqual(leadsInFilter.values, [IDS.leadOwnedByMe])
 })
 
 test('link-lead/search: nunca retorna mais que MAX_RESULTS (10) leads para member', async () => {

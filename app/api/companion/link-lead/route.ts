@@ -26,7 +26,15 @@ import {
 
 const PLATFORM_CONTACT_KEY_PATTERN = /^manychat:contact:v1:sha256:[a-f0-9]{64}$/
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const IDENTITY_SOURCE = 'manychat_safe_identity_bridge'
+
+// Mesmo contrato de app/extension/yolen-companion/src/manychat-safe-identity-bridge.js:
+// safe.platform_identity.source é sempre exatamente "subscriber_id" — a
+// ORIGEM da identidade (de onde ela veio no ManyChat), nunca o nome do
+// componente que fez a ponte. Definido pelo servidor, nunca pelo cliente:
+// o corpo da requisição pode enviar qualquer coisa em identity_source,
+// isso é sempre ignorado. Nunca persiste o subscriber_id bruto — apenas a
+// chave pseudônima manychat:contact:v1:sha256:<64 hex> já validada acima.
+const IDENTITY_SOURCE = 'subscriber_id'
 
 type LinkLeadBody = {
   platform?: unknown

@@ -76,7 +76,7 @@ function linkedRpcRow(overrides = {}) {
     lead_id: IDS.leadOwnedByMe,
     platform: 'manychat',
     external_identity_key: VALID_KEY,
-    identity_source: 'manychat_safe_identity_bridge',
+    identity_source: 'subscriber_id',
     channel: null,
     created_at: '2026-09-19T00:00:00.000Z',
     updated_at: '2026-09-19T00:00:00.000Z',
@@ -259,7 +259,7 @@ test('link-lead: member OWNED_BY_ME chega à RPC e recebe LINKED (200)', async (
   assert.equal(fake.rpcCalls[0].params.p_actor_user_id, IDS.userA)
   assert.equal(fake.rpcCalls[0].params.p_platform, 'manychat')
   assert.equal(fake.rpcCalls[0].params.p_external_identity_key, VALID_KEY)
-  assert.equal(fake.rpcCalls[0].params.p_identity_source, 'manychat_safe_identity_bridge')
+  assert.equal(fake.rpcCalls[0].params.p_identity_source, 'subscriber_id')
   assert.equal(fake.rpcCalls[0].params.p_channel, null)
 })
 
@@ -515,4 +515,34 @@ test('link-lead: token diz member, membership atual diz manager -> comportamento
   assert.equal(response.status, 200)
   assert.equal(payload.status, 'LINKED')
   assert.equal(fake.rpcCalls.length, 1)
+})
+
+// --- Correção de provenance (STEP 2A.2, rodada final): identity_source
+// nunca vem do cliente — é sempre "subscriber_id" (a origem real da
+// identidade no contrato de manychat-safe-identity-bridge.js), nunca o
+// nome de um componente interno, e o cliente nunca pode sobrescrever. ---
+
+test('link-lead: cliente tentando sobrescrever identity_source é ignorado — RPC sempre recebe "subscriber_id"', async () => {
+  const fake = useAdmin(
+    [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('leads', leadRow(IDS.leadOwnedByMe)),
+      selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
+    ],
+    { rpcResponder: () => ({ data: [linkedRpcRow()] }) },
+  )
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: validBody({ identity_source: 'qualquer-coisa-enviada-pelo-cliente' }),
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'LINKED')
+  assert.equal(fake.rpcCalls.length, 1)
+  assert.equal(fake.rpcCalls[0].params.p_identity_source, 'subscriber_id')
 })
