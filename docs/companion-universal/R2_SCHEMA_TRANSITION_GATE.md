@@ -62,28 +62,67 @@ Para o teste deste gate (`phase-full-r2-schema-transition.test.mjs`), o pré-req
 
 ## RELEASE ORDER
 
-A ordem proposta pelo controle foi conferida contra as dependências reais provadas neste gate e nos gates anteriores da R2. **Confirmada, com um passo 0 inserido antes de qualquer aplicação de migration**, por causa do achado de drift de migration history registrado acima:
+A ordem proposta pelo controle foi conferida contra as dependências reais provadas neste gate e nos gates anteriores da R2, e revisada para incorporar a preservação do login aprovado (PR #152 — ver `PROTECTED_LOGIN_DEPLOY.md`). **Confirmada nesta forma final:**
 
 ```
-0. MIGRATION HISTORY RECONCILIATION (bloqueante — ver RISCO RESIDUAL abaixo);
-1. aplicar migrations de schema (author_kind, depois lead_external_identities);
-2. verificar schema/RPCs (este gate: FULL SCHEMA TRANSITION);
-3. deploy backend compatível;
-4. smoke WhatsApp;
-5. disponibilizar extensão universal ainda com ManyChat=false;
-6. validar E2E ManyChat em ambiente controlado;
-7. somente em fase posterior considerar habilitar ManyChat.
+0. MIGRATION HISTORY RECONCILIATION
+   → reconciliar o drift 20260829010000 vs 20260829042244
+   → nenhum repair automático sem revisão
+
+1. SCHEMA R2
+   → aplicar author_kind
+   → aplicar lead_external_identities
+   → validar schema/RPCs
+   → smoke de compatibilidade com backend atual
+
+2. RELEASE CANDIDATE DA APLICAÇÃO
+   → integrar backend R2
+   → preservar/reintegrar o login aprovado do PR #152
+   → NÃO fazer merge cego do PR #152
+   → reconciliar apenas o conteúdo aprovado e suas dependências necessárias
+   → manter intacto o fluxo de autenticação
+
+3. BUILD + GATES DA RELEASE CANDIDATE
+   → build completo
+   → TypeScript/ESLint
+   → Companion/R1/R2
+   → WhatsApp
+   → /login
+   → autenticação
+   → seleção de empresa/redirecionamentos
+   → páginas públicas afetadas pela integração
+
+4. DEPLOY DA APLICAÇÃO
+   → backend R2 + login aprovado juntos
+   → ManyChat continua false
+
+5. SMOKE PRODUÇÃO
+   → /login visual
+   → login real
+   → WhatsApp
+   → resolve-lead
+   → capture
+   → AGORA/ANÁLISE
+
+6. EXTENSÃO UNIVERSAL
+   → distribuir ainda com ManyChat=false
+
+7. E2E MANYCHAT CONTROLADO
+
+8. SOMENTE EM FASE POSTERIOR
+   → considerar ManyChat=true
 ```
 
 Justificativa por passo, com base no que foi efetivamente provado:
 
 - **Passo 0 antes de tudo**: aplicar as migrations R2 (passo 1) sem antes reconciliar o histórico local/remoto arrisca um deploy automático de migrations agir sobre uma base de versões incompleta ou incorreta (ex.: uma ferramenta de CI que compara `supabase/migrations/` local contra o remoto e tenta "corrigir" a divergência sozinha). Ver RISCO RESIDUAL / DEPLOY BLOCKER abaixo para o escopo exato deste passo.
-- **Passo 1 antes do 3**: a ROLLOUT MATRIX acima prova que backend novo + schema antigo é `UNSAFE` (falha dura), enquanto backend antigo + schema novo é `SAFE`. Schema sempre primeiro é a única ordem sem janela insegura.
-- **Passo 2 antes do 3**: este gate É o passo 2 — sem ele, não há prova de que o schema aplicado é o que o backend espera.
-- **Passo 4 antes do 5**: o WhatsApp legado é o único canal produtivo hoje; nenhuma mudança de extensão deve chegar aos vendedores sem essa confirmação.
-- **Passo 5 antes do 6**: a extensão universal (com os arquivos ManyChat portados nesta R2) já pode ser distribuída com segurança, porque `MANYCHAT_CAPTURE_ENABLED=false` mantém todo o runtime ManyChat inerte (confirmado no gate WhatsApp non-regression / ManyChat contract-integration).
-- **Passo 6 antes do 7**: nenhuma validação E2E ManyChat foi feita contra tráfego real nesta R2 (só contrato/fixture) — habilitar em produção sem isso seria pular a única verificação que falta.
-- Não há necessidade de intervalo produtivo com ManyChat ligado entre os passos 1-6: `MANYCHAT_CAPTURE_ENABLED` continua `false` durante toda a sequência até o passo 7.
+- **Passo 1 antes do 4**: a ROLLOUT MATRIX acima prova que backend novo + schema antigo é `UNSAFE` (falha dura), enquanto backend antigo + schema novo é `SAFE`. Schema sempre primeiro é a única ordem sem janela insegura — e este gate (FULL SCHEMA TRANSITION) é exatamente a verificação exigida dentro do passo 1.
+- **Passo 2 antes do 4**: deploy de produção do backend R2 sem antes reconciliar o login aprovado significa publicar uma nova main que ainda serve o login antigo, deixando o trabalho aprovado do PR #152 sem caminho de volta. A reconciliação exigida é dirigida (só o conteúdo aprovado + `MarketingChrome`/`ProductStoryVisuals`, nunca um merge cego do PR inteiro), preservando o fluxo de autenticação Supabase e os redirecionamentos pós-login, que já são idênticos entre o PR e a main/R2 (ver `PROTECTED_LOGIN_DEPLOY.md`).
+- **Passo 3 antes do 4**: nenhuma release candidate vai a deploy sem repetir os mesmos gates desta R2 (tsc/eslint, Companion/R1/R2, WhatsApp) mais os gates específicos da reconciliação de login (`/login` visual, autenticação, seleção de empresa/redirecionamentos, páginas públicas afetadas) — a integração do login introduz páginas/componentes novos que também precisam de smoke próprio.
+- **Passo 4 antes do 6**: o WhatsApp legado é o único canal produtivo hoje; nenhuma mudança de extensão deve chegar aos vendedores sem a confirmação de smoke de produção do passo 5, que inclui explicitamente WhatsApp, resolve-lead, capture e AGORA/ANÁLISE — não só o login.
+- **Passo 6 antes do 7**: a extensão universal (com os arquivos ManyChat portados nesta R2) já pode ser distribuída com segurança, porque `MANYCHAT_CAPTURE_ENABLED=false` mantém todo o runtime ManyChat inerte (confirmado no gate WhatsApp non-regression / ManyChat contract-integration).
+- **Passo 7 antes do 8**: nenhuma validação E2E ManyChat foi feita contra tráfego real nesta R2 (só contrato/fixture) — habilitar em produção sem isso seria pular a única verificação que falta.
+- Não há necessidade de intervalo produtivo com ManyChat ligado entre os passos 0-6: `MANYCHAT_CAPTURE_ENABLED` continua `false` durante toda a sequência até o passo 8.
 
 ## RISCO RESIDUAL / DEPLOY BLOCKER — MIGRATION HISTORY DRIFT
 
@@ -106,3 +145,7 @@ Não bloqueia a validação lógica desta R2 (o schema resultante está correto 
 - só depois desse passo liberar a aplicação das migrations R2 (`20260915010000`, `20260915020000`) num pipeline de deploy automático.
 
 Isso não foi investigado além da constatação acima nesta R2 — decidir a reconciliação em si é responsabilidade de quem tem acesso de escrita ao histórico de migrations do projeto real, fora do escopo (e das permissões) deste trabalho.
+
+## RISCO RESIDUAL — LOGIN APROVADO NÃO RECONCILIADO (PR #152)
+
+Auditado, não corrigido nesta R2 — ver `PROTECTED_LOGIN_DEPLOY.md` para o achado completo. Resumo: existe um redesenho de login aprovado, provado como uma Vercel preview deployment do PR #152 (`agent/yolen-public-marketing-clean`, HEAD `9f773e04edec54599cfecf14f8555342f368a96a`, OPEN/DRAFT, não mergeado), que **nunca foi promovido a produção**. A produção real hoje serve o login antigo (`main` @ `5e7181653c8d0dab71211b4961a5f77ab6880b35`, mesma base da R2). A R2 em si não toca `app/login/` (diff vazio contra main) — não há risco de sobrescrita imediata. O risco é de **perda por omissão**: um futuro deploy de produção da R2 (ou de qualquer outra branch) que não reconcilie o PR #152 primeiro perpetua o login antigo indefinidamente, sem caminho de volta para a decisão visual já aprovada. Coberto explicitamente no passo 2 do RELEASE_ORDER acima — nunca um merge cego do PR #152, só o conteúdo aprovado e suas dependências (`MarketingChrome`, `ProductStoryVisuals`) reconciliados sobre a nova main pós-schema/backend R2.
