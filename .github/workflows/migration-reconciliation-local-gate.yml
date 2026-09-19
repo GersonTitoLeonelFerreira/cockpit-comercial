@@ -1,0 +1,135 @@
+name: Migration Reconciliation Local Gate (temporary)
+
+on:
+  push:
+    branches:
+      - 'claude/recovery-step0-migration-reconciliation'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  SUPABASE_CLI_VERSION: '2.117.0'
+
+jobs:
+  local-reset-gate:
+    name: Full local db reset + schema + phase-test gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Record checked-out commit and working tree state
+        run: |
+          echo "=== git rev-parse HEAD ==="
+          git rev-parse HEAD
+          echo "=== git status --short (should be empty) ==="
+          git status --short
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tool versions
+        run: |
+          npx --yes supabase@${SUPABASE_CLI_VERSION} --version
+          docker version
+          docker info
+
+      - name: git status before supabase init
+        run: git status --short
+
+      - name: Create local Supabase config (not committed)
+        run: npx --yes supabase@${SUPABASE_CLI_VERSION} init --workdir .
+
+      - name: git status after supabase init (migrations must be untouched)
+        run: |
+          git status --short
+          echo "=== confirming supabase/migrations and supabase/migrations_archive are unchanged ==="
+          if [ -n "$(git status --short supabase/migrations supabase/migrations_archive)" ]; then
+            echo "FAIL: supabase init modified migrations content" >&2
+            exit 1
+          fi
+          echo "OK: migrations untouched"
+
+      - name: Start local Supabase stack
+        run: npx --yes supabase@${SUPABASE_CLI_VERSION} start
+
+      - name: Full local db reset (entire supabase/migrations/, no subset)
+        run: npx --yes supabase@${SUPABASE_CLI_VERSION} db reset --local
+
+      - name: Local migration list (local only, never linked to production)
+        run: npx --yes supabase@${SUPABASE_CLI_VERSION} migration list --local
+
+      - name: Locate local Postgres container
+        run: docker ps --filter "name=supabase_db" --format '{{.Names}}\t{{.Image}}\t{{.Ports}}'
+
+      - name: Schema audit — core Companion tables and columns
+        env:
+          PGCONNECT: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          psql "$PGCONNECT" -v ON_ERROR_STOP=1 -c "\dt public.conversation_messages"
+          psql "$PGCONNECT" -v ON_ERROR_STOP=1 -c "\dt public.conversation_capture_state"
+          psql "$PGCONNECT" -v ON_ERROR_STOP=1 -c "\dt public.companion_action_events"
+          echo "=== deletion_reason column ==="
+          psql "$PGCONNECT" -v ON_ERROR_STOP=1 -t -c "select column_name, data_type, is_nullable from information_schema.columns where table_schema='public' and table_name='conversation_messages' and column_name='deletion_reason';"
+          echo "=== deletion_reason constraint ==="
+          psql "$PGCONNECT" -v ON_ERROR_STOP=1 -t -c "select conname, pg_get_constraintdef(oid) from pg_constraint where conname = 'conversation_messages_deletion_reason_check';"
+
+      - name: Class E gate — action events final RPC signatures
+        env:
+          PGCONNECT: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          echo "=== rpc_list_companion_action_events overloads (expect exactly 1, with p_lead_id) ==="
+          psql "$PGCONNECT" -v ON_ERROR_STOP=1 -t -c "
+            select count(*)
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname = 'rpc_list_companion_action_events';
+          "
+          psql "$PGCONNECT" -v ON_ERROR_STOP=1 -t -c "
+            select p.oid::regprocedure
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname = 'rpc_list_companion_action_events';
+          "
+          echo "=== must contain p_lead_id in argument names ==="
+          psql "$PGCONNECT" -v ON_ERROR_STOP=1 -t -c "
+            select pg_get_function_arguments(p.oid)
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname = 'rpc_list_companion_action_events';
+          " | tee /tmp/rpc_list_args.txt
+          if ! grep -q "p_lead_id" /tmp/rpc_list_args.txt; then
+            echo "FAIL: p_lead_id not present in rpc_list_companion_action_events — old overload without it may be final" >&2
+            exit 1
+          fi
+          echo "=== rpc_record_companion_action_event final signature ==="
+          psql "$PGCONNECT" -v ON_ERROR_STOP=1 -t -c "
+            select p.oid::regprocedure
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname = 'rpc_record_companion_action_event';
+          "
+
+      - name: Phase tests — R2 schema transition
+        run: npm run test:companion-full-r2-schema-transition
+
+      - name: Phase tests — lead external identity relink contract
+        run: npm run test:companion-external-identity-relink
+
+      - name: Phase tests — ManyChat identity/lead cycle capture ledger contract
+        run: npm run test:companion-manychat-identity-lead-cycle-capture-ledger
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: npm run lint
