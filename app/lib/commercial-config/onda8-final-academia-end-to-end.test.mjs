@@ -181,7 +181,7 @@ function buildMethodAto() {
 // ----------------------------------------------------------------------------
 // Fake Supabase (mesma semântica das RPCs reais — ver
 // commercial-method-publish.test.mjs / migrations de
-// 20260827010000+20260827020000 para a prova contra PGlite real).
+// 20260826231013+20260826231039 para a prova contra PGlite real).
 // ----------------------------------------------------------------------------
 
 class FakeQuery {

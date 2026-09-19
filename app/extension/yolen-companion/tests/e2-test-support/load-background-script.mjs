@@ -47,6 +47,11 @@ export function createFakeBrowserRuntime(initialStorage = {}) {
         },
       },
     },
+    scripting: {
+      async executeScript() {
+        return [{ result: { ready: false, reason: 'scripting_not_stubbed', safe: null } }]
+      },
+    },
   }
 
   return {
@@ -103,19 +108,23 @@ export function loadBackgroundScript({ fetchFn, initialStorage } = {}) {
   vm.createContext(sandbox)
 
   vm.runInContext(readSource('capture-transport.js'), sandbox, { filename: 'capture-transport.js' })
+  vm.runInContext(readSource('manychat-audio-background-transport.js'), sandbox, { filename: 'manychat-audio-background-transport.js' })
+  vm.runInContext(readSource('manychat-safe-identity-background.js'), sandbox, { filename: 'manychat-safe-identity-background.js' })
   vm.runInContext(readSource('background.js'), sandbox, { filename: 'background.js' })
 
   return {
     sandbox,
     storage: runtime.storage,
-    sendMessage: (message) => {
+    sendMessage: (message, sender = { tab: { id: 1 }, frameId: 0, url: BASE_SENDER_URL }) => {
       const capturedListener = runtime.getListener()
 
       if (!capturedListener) {
         throw new Error('background.js não registrou nenhum listener de mensagens.')
       }
 
-      return Promise.resolve(capturedListener(message))
+      return Promise.resolve(capturedListener(message, sender))
     },
   }
 }
+
+const BASE_SENDER_URL = 'https://cockpit-comercial-vocn.vercel.app/'

@@ -701,6 +701,8 @@ export function buildStatefulCommunicationExecutionPlan({
             false,
           ),
 
+        // R2.4: automation/unknown nunca contam como ação humana do
+        // vendedor, mesmo sendo outgoing (ex.: flow/bot do ManyChat).
         seller_message_ids:
           input
             .diagnostic_input
@@ -709,7 +711,9 @@ export function buildStatefulCommunicationExecutionPlan({
             .filter(
               message =>
                 message.direction ===
-                'outgoing',
+                'outgoing' &&
+                message.author_kind ===
+                'human_agent',
             )
             .map(
               message =>

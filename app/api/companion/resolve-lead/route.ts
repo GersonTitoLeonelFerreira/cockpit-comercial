@@ -9,6 +9,10 @@ import {
 type ResolveLeadBody = {
   phone?: unknown
   display_name?: unknown
+  platform?: unknown
+  platform_contact_key?: unknown
+  identity_source?: unknown
+  channel?: unknown
 }
 
 type LeadRow = {
@@ -247,6 +251,64 @@ type CompanionQueryError = {
     }
   }
 
+type ExternalIdentityRow = {
+  lead_id: string
+}
+
+async function findLeadIdByExternalIdentity({
+  admin,
+  companyId,
+  platform,
+  externalIdentityKey,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any
+  companyId: string
+  platform: string
+  externalIdentityKey: string
+}) {
+  const { data, error } = await admin
+    .from('lead_external_identities')
+    .select('lead_id')
+    .eq('company_id', companyId)
+    .eq('platform', platform)
+    .eq('external_identity_key', externalIdentityKey)
+    .maybeSingle()
+
+  if (error) {
+    return { leadId: null as string | null, error: error.message }
+  }
+
+  return {
+    leadId: (data as ExternalIdentityRow | null)?.lead_id ?? null,
+    error: null as string | null,
+  }
+}
+
+async function findLeadById({
+  admin,
+  companyId,
+  leadId,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any
+  companyId: string
+  leadId: string
+}) {
+  const { data, error } = await admin
+    .from('leads')
+    .select('id, company_id, name, phone, email, cpf_cnpj, deleted_at')
+    .eq('company_id', companyId)
+    .eq('id', leadId)
+    .maybeSingle()
+
+  if (error) {
+    return { lead: null as LeadRow | null, error: error.message }
+  }
+
+  return { lead: (data as LeadRow | null) ?? null, error: null as string | null }
+}
+
 function isClosedStatus(status: string | null) {
   return ['ganho', 'perdido', 'cancelado'].includes(String(status ?? '').toLowerCase())
 }
@@ -293,6 +355,7 @@ function buildResolutionPayload({
     | 'SOFT_DELETED'
     | 'MULTIPLE_MATCHES'
     | 'LEAD_WITHOUT_CYCLE'
+    | 'CONTACT_NOT_LINKED'
   userMessage: string
   lead?: LeadRow | null
   leadProfile?: LeadProfileRow | null
@@ -376,6 +439,7 @@ function buildResolutionPayload({
       can_create_lead_inside_extension: false,
       can_assign_pool_inside_extension: false,
       can_transfer_owner_inside_extension: false,
+      can_link_lead: status === 'CONTACT_NOT_LINKED',
       open_yolen_url: lead && cycle ? `/sales-cycles/${cycle.id}` : '/leads',
       create_lead_url: buildCreateLeadUrl(phone, displayName),
       pool_url: '/pool',
@@ -445,7 +509,11 @@ export async function POST(request: Request) {
     const displayName = cleanText(body.display_name)
     const phoneVariants = rawPhone ? buildPhoneVariants(rawPhone) : []
 
-    if (phoneVariants.length === 0) {
+    const platform = cleanText(body.platform)?.toLowerCase() ?? null
+    const platformContactKey = cleanText(body.platform_contact_key)
+    const isExternalIdentityMode = Boolean(platform && platformContactKey)
+
+    if (!isExternalIdentityMode && phoneVariants.length === 0) {
       return NextResponse.json(
         buildResolutionPayload({
           status: 'NO_PHONE_DETECTED',
@@ -499,85 +567,206 @@ export async function POST(request: Request) {
       )
     }
 
-    const leadSearchAdmin = admin as unknown as SupabaseAdminClient
+    let lead: LeadRow
 
-    const { leads: matchedLeads, error: leadsError } = await findLeadsByPhone({
-      admin: leadSearchAdmin,
-      companyId: tokenPayload.company_id,
-      phoneVariants,
-    })
+    if (isExternalIdentityMode) {
+      const platformKey = platform as string
+      const externalIdentityKey = platformContactKey as string
 
-    if (leadsError) {
-      return NextResponse.json(
-        {
-          ok: false,
-          status: 'LEAD_SEARCH_ERROR',
-          error: leadsError,
-        },
-        {
-          status: 400,
-          headers: corsHeaders,
-        },
-      )
+      const { leadId, error: identityError } = await findLeadIdByExternalIdentity({
+        admin,
+        companyId: tokenPayload.company_id,
+        platform: platformKey,
+        externalIdentityKey,
+      })
+
+      if (identityError) {
+        return NextResponse.json(
+          {
+            ok: false,
+            status: 'EXTERNAL_IDENTITY_SEARCH_ERROR',
+            error: identityError,
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      if (!leadId) {
+        return NextResponse.json(
+          buildResolutionPayload({
+            status: 'CONTACT_NOT_LINKED',
+            userMessage:
+              'Este contato ainda não está vinculado a nenhum lead da Yolen. Selecione o lead correto para vincular.',
+            phone: rawPhone,
+            phoneVariants,
+            displayName,
+            tokenPayload,
+          }),
+          {
+            status: 200,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      const { lead: linkedLead, error: leadLookupError } = await findLeadById({
+        admin,
+        companyId: tokenPayload.company_id,
+        leadId,
+      })
+
+      if (leadLookupError) {
+        return NextResponse.json(
+          {
+            ok: false,
+            status: 'LEAD_SEARCH_ERROR',
+            error: leadLookupError,
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      if (!linkedLead) {
+        // O vínculo salvo aponta para um lead que não existe mais nesta
+        // empresa (ex.: apagado por outro caminho fora do Companion).
+        // Nunca inventa um lead: trata como não vinculado, para o
+        // vendedor escolher/confirmar de novo.
+        return NextResponse.json(
+          buildResolutionPayload({
+            status: 'CONTACT_NOT_LINKED',
+            userMessage:
+              'O vínculo salvo deste contato aponta para um lead que não existe mais nesta empresa. Selecione o lead correto para vincular novamente.',
+            phone: rawPhone,
+            phoneVariants,
+            displayName,
+            tokenPayload,
+          }),
+          {
+            status: 200,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      if (linkedLead.deleted_at) {
+        return NextResponse.json(
+          buildResolutionPayload({
+            status: 'SOFT_DELETED',
+            userMessage:
+              'Este contato está vinculado a um lead arquivado ou excluído. A reativação deve ser feita dentro da Yolen.',
+            lead: linkedLead,
+            phone: rawPhone,
+            phoneVariants,
+            displayName,
+            tokenPayload,
+          }),
+          {
+            status: 200,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      lead = linkedLead
+
+      // Melhor esforço: nunca bloqueia a resolução se o registro de
+      // "última vez visto" falhar.
+      try {
+        await admin.rpc('rpc_touch_companion_external_identity_last_seen', {
+          p_company_id: tokenPayload.company_id,
+          p_platform: platformKey,
+          p_external_identity_key: externalIdentityKey,
+        })
+      } catch {
+        // intencionalmente ignorado — ver comentário acima.
+      }
+    } else {
+      const leadSearchAdmin = admin as unknown as SupabaseAdminClient
+
+      const { leads: matchedLeads, error: leadsError } = await findLeadsByPhone({
+        admin: leadSearchAdmin,
+        companyId: tokenPayload.company_id,
+        phoneVariants,
+      })
+
+      if (leadsError) {
+        return NextResponse.json(
+          {
+            ok: false,
+            status: 'LEAD_SEARCH_ERROR',
+            error: leadsError,
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      if (matchedLeads.length === 0) {
+        return NextResponse.json(
+          buildResolutionPayload({
+            status: 'NOT_FOUND',
+            userMessage: 'Telefone não vinculado a nenhum lead nesta empresa.',
+            phone: rawPhone,
+            phoneVariants,
+            displayName,
+            tokenPayload,
+          }),
+          {
+            status: 200,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      const activeLeads = matchedLeads.filter((candidate) => !candidate.deleted_at)
+
+      if (activeLeads.length === 0) {
+        return NextResponse.json(
+          buildResolutionPayload({
+            status: 'SOFT_DELETED',
+            userMessage:
+              'Este telefone está vinculado a um lead arquivado ou excluído. A reativação deve ser feita dentro da Yolen.',
+            lead: matchedLeads[0],
+            phone: rawPhone,
+            phoneVariants,
+            displayName,
+            tokenPayload,
+          }),
+          {
+            status: 200,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      if (activeLeads.length > 1) {
+        return NextResponse.json(
+          buildResolutionPayload({
+            status: 'MULTIPLE_MATCHES',
+            userMessage:
+              'Mais de um lead foi encontrado com este telefone. Abra a Yolen para resolver o vínculo correto.',
+            phone: rawPhone,
+            phoneVariants,
+            displayName,
+            tokenPayload,
+          }),
+          {
+            status: 200,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      lead = activeLeads[0]
     }
-
-    if (matchedLeads.length === 0) {
-      return NextResponse.json(
-        buildResolutionPayload({
-          status: 'NOT_FOUND',
-          userMessage: 'Telefone não vinculado a nenhum lead nesta empresa.',
-          phone: rawPhone,
-          phoneVariants,
-          displayName,
-          tokenPayload,
-        }),
-        {
-          status: 200,
-          headers: corsHeaders,
-        },
-      )
-    }
-
-    const activeLeads = matchedLeads.filter((lead) => !lead.deleted_at)
-
-    if (activeLeads.length === 0) {
-      return NextResponse.json(
-        buildResolutionPayload({
-          status: 'SOFT_DELETED',
-          userMessage:
-            'Este telefone está vinculado a um lead arquivado ou excluído. A reativação deve ser feita dentro da Yolen.',
-          lead: matchedLeads[0],
-          phone: rawPhone,
-          phoneVariants,
-          displayName,
-          tokenPayload,
-        }),
-        {
-          status: 200,
-          headers: corsHeaders,
-        },
-      )
-    }
-
-    if (activeLeads.length > 1) {
-      return NextResponse.json(
-        buildResolutionPayload({
-          status: 'MULTIPLE_MATCHES',
-          userMessage:
-            'Mais de um lead foi encontrado com este telefone. Abra a Yolen para resolver o vínculo correto.',
-          phone: rawPhone,
-          phoneVariants,
-          displayName,
-          tokenPayload,
-        }),
-        {
-          status: 200,
-          headers: corsHeaders,
-        },
-      )
-    }
-
-    const lead = activeLeads[0]
 
     const {
       data: leadProfileData,

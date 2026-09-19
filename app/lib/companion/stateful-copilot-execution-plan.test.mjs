@@ -60,6 +60,9 @@ function buildDiagnosticInput({
             direction:
               'outgoing',
 
+            author_kind:
+              'human_agent',
+
             occurred_at:
               '2026-08-05T22:10:00-03:00',
 
@@ -90,6 +93,9 @@ function buildDiagnosticInput({
 
             direction:
               'incoming',
+
+            author_kind:
+              'customer',
 
             occurred_at:
               '2026-08-05T22:15:00-03:00',

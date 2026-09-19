@@ -30,18 +30,10 @@ const captureStateMigrationPath = fileURLToPath(
 
 const ingestionMigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260731235900_create_companion_message_ingestion_rpc.sql",
+    "../migrations/20260803030154_create_companion_message_ingestion_rpc.sql",
     import.meta.url,
   ),
 );
-
-const ingestionHardeningMigrationPath =
-  fileURLToPath(
-    new URL(
-      "../migrations/20260803064000_harden_companion_message_ingestion_rpc.sql",
-      import.meta.url,
-    ),
-  );
 
 const reconciliationMigrationPath =
   fileURLToPath(
@@ -190,12 +182,6 @@ test(
       await db.exec(await readFile(ledgerMigrationPath, "utf8"));
       await db.exec(await readFile(captureStateMigrationPath, "utf8"));
       await db.exec(await readFile(ingestionMigrationPath, "utf8"));
-      await db.exec(
-        await readFile(
-          ingestionHardeningMigrationPath,
-          "utf8",
-        ),
-      );
       await db.exec(
         await readFile(
           reconciliationMigrationPath,

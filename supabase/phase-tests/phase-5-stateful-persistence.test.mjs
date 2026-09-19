@@ -16,35 +16,28 @@ const baselinePath = fileURLToPath(
 
 const migrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260806193000_create_stateful_copilot_storage.sql",
+    "../migrations/20260806225008_create_stateful_copilot_storage.sql",
     import.meta.url,
   ),
 );
 
 const correctiveMigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260806214500_align_stateful_contract_versions.sql",
-    import.meta.url,
-  ),
-);
-
-const sellerAttributionMigrationPath = fileURLToPath(
-  new URL(
-    "../migrations/20260820200000_add_stateful_seller_attribution.sql",
+    "../migrations/20260807005939_align_stateful_contract_versions.sql",
     import.meta.url,
   ),
 );
 
 const outputV3MigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260823054000_align_stateful_output_v3_persistence.sql",
+    "../migrations/20260823054226_align_stateful_output_v3_persistence.sql",
     import.meta.url,
   ),
 );
 
 const outputV4MigrationPath = fileURLToPath(
   new URL(
-    "../migrations/20260827030000_align_stateful_output_v4_persistence.sql",
+    "../migrations/20260827022900_align_stateful_output_v4_persistence.sql",
     import.meta.url,
   ),
 );
@@ -305,13 +298,6 @@ test(
       await db.exec(
         await readFile(
           correctiveMigrationPath,
-          "utf8",
-        ),
-      );
-
-      await db.exec(
-        await readFile(
-          sellerAttributionMigrationPath,
           "utf8",
         ),
       );
@@ -636,13 +622,6 @@ test(
         ],
       );
 
-      await db.exec(`
-        update public.sales_cycles
-        set owner_user_id = null
-        where id = '${cycleId}'
-          and company_id = '${companyId}';
-      `);
-
       const state2 =
         buildState({
           version:
@@ -820,7 +799,6 @@ test(
             operation_key,
             previous_state_version,
             candidate_state_version,
-            seller_user_id,
             automatic_crm_write,
             automatic_agenda_write
           from public.companion_commercial_state_events
@@ -838,9 +816,6 @@ test(
 
             candidate_state_version:
               row.candidate_state_version,
-
-            seller_user_id:
-              row.seller_user_id,
 
             automatic_crm_write:
               row.automatic_crm_write,
@@ -860,9 +835,6 @@ test(
             candidate_state_version:
               1,
 
-            seller_user_id:
-              userId,
-
             automatic_crm_write:
               false,
 
@@ -878,9 +850,6 @@ test(
 
             candidate_state_version:
               2,
-
-            seller_user_id:
-              null,
 
             automatic_crm_write:
               false,

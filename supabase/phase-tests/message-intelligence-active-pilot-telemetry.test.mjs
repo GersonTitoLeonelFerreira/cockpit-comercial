@@ -7,7 +7,7 @@ import test from 'node:test'
 const migration =
   readFileSync(
     new URL(
-      '../migrations/20260904014500_create_message_intelligence_active_pilot_events.sql',
+      '../migrations/20260904014729_create_message_intelligence_active_pilot_events.sql',
       import.meta.url,
     ),
     'utf8',

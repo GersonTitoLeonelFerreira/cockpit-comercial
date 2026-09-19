@@ -7,7 +7,7 @@ import { PGlite } from '@electric-sql/pglite'
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
 
 const migrations = [
-  '../migrations/20260731000105_create_company_commercial_config.sql',
+  '../migrations/20260731005138_create_company_commercial_config.sql',
   '../migrations/20260826032000_create_commercial_method_builder_draft.sql',
   '../migrations/20260826043000_add_assisted_method_construction.sql',
 ].map((path) => fileURLToPath(new URL(path, import.meta.url)))

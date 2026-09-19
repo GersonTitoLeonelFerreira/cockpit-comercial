@@ -112,6 +112,9 @@ function buildDiagnosticInput({
           direction:
             'incoming',
 
+          author_kind:
+            'customer',
+
           occurred_at:
             referenceTime,
 

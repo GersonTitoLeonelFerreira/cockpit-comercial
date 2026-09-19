@@ -679,12 +679,17 @@ function hasCurrentNegotiationEvidence(
     .conversation
     .messages
     .some((message) => {
+      // R2.4: sinal de negociação é uma claim de intenção do cliente —
+      // author_kind é a autoridade de autoria; automation/unknown nunca
+      // sustentam essa claim, mesmo em uma mensagem incoming.
       if (
         !currentMessageIds.has(
           message.id,
         ) ||
         message.direction !==
-          'incoming'
+          'incoming' ||
+        message.author_kind !==
+          'customer'
       ) {
         return false
       }
@@ -776,6 +781,10 @@ function buildNormalizationContext(
     available_message_ids:
       availableMessageIds,
 
+    // R2.4: current_customer_message_ids é a base mínima de evidência
+    // exigida do cliente para criar item em state_patch — author_kind é
+    // a autoridade de autoria; automation/unknown nunca contam como
+    // evidência de cliente, mesmo em uma mensagem incoming.
     customer_message_ids:
       input
         .diagnostic_input
@@ -787,7 +796,9 @@ function buildNormalizationContext(
               message.id,
             ) &&
             message.direction ===
-              'incoming',
+              'incoming' &&
+            message.author_kind ===
+              'customer',
         )
         .map(
           message =>

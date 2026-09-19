@@ -22,6 +22,7 @@ type JsonRecord =
 type PromptMessage = {
   id: string | null
   direction: string
+  author_kind: string
   text_content: string | null
   audio_transcription: string | null
 }
@@ -111,6 +112,19 @@ function getMessages(
         typeof message.direction === 'string'
           ? message.direction
           : '',
+      // R2.4: fail-safe — um user_prompt sem author_kind (contrato
+      // antigo) nunca derruba a leitura; cai no mesmo derivado de
+      // direction já usado em toda a cadeia (nunca promove ausência a
+      // 'human_agent'/'customer' por si só quando direction também
+      // está ausente).
+      author_kind:
+        typeof message.author_kind === 'string'
+          ? message.author_kind
+          : message.direction === 'outgoing'
+            ? 'human_agent'
+            : message.direction === 'incoming'
+              ? 'customer'
+              : 'unknown',
       text_content:
         typeof message.text_content === 'string'
           ? message.text_content
@@ -164,10 +178,14 @@ export function deriveCommercialResponsibilityFromUserPrompt(
   const latestText =
     messageText(latest)
 
+  // R2.4: author_kind é a autoridade de autoria — uma automação/flow do
+  // ManyChat enviada como outgoing NUNCA pode ser contabilizada como
+  // "o vendedor já agiu" (evidência de ação humana real).
   const outgoingMessages =
     messages.filter(
       message =>
-        message.direction === 'outgoing',
+        message.direction === 'outgoing' &&
+        message.author_kind === 'human_agent',
     )
 
   const sellerActionAlreadyPerformed =
@@ -179,8 +197,12 @@ export function deriveCommercialResponsibilityFromUserPrompt(
         ),
     )
 
+  // R2.4: um compromisso do cliente só pode ser atribuído a uma
+  // mensagem com autoria de cliente comprovada — 'unknown' falha
+  // fechado para essa claim comercial forte.
   const customerFutureAction =
     latest.direction === 'incoming' &&
+    latest.author_kind === 'customer' &&
     matchesAny(
       latestText,
       CUSTOMER_FUTURE_ACTION_PATTERNS,
@@ -192,24 +214,53 @@ export function deriveCommercialResponsibilityFromUserPrompt(
   let pendingFact:
     CommercialPendingFact = null
 
+  // R2.4: transferir a responsabilidade comercial (quem precisa agir
+  // agora) também é uma claim de autoria — não apenas de transporte.
+  // outgoing/automation ou incoming/unknown nunca podem, só por
+  // direction, fazer o sistema acreditar que o vendedor agiu ou que o
+  // cliente falou; nesses casos falha fechado com os mesmos tipos já
+  // existentes (waiting_on='unknown', pending_fact=null).
   if (customerFutureAction) {
     waitingOn = 'customer'
     pendingFact = 'customer_commitment'
   } else if (
-    latest.direction === 'outgoing'
+    latest.direction === 'outgoing' &&
+    latest.author_kind === 'human_agent'
   ) {
     waitingOn = 'customer'
     pendingFact = 'customer_response'
   } else if (
-    latest.direction === 'incoming'
+    latest.direction === 'incoming' &&
+    latest.author_kind === 'customer'
   ) {
     waitingOn = 'seller'
     pendingFact = 'seller_response'
   }
 
+  // R2.4: a instrução de guard cita evidence_message_ids como "prova do
+  // que o vendedor/cliente já fez" — uma claim de autoria. A última
+  // mensagem só entra como evidência quando seu author_kind confirma o
+  // papel implícito em sua direction (outgoing→human_agent,
+  // incoming→customer); automation/unknown nunca viram prova de ação do
+  // vendedor nem de decisão do cliente, mesmo sendo a mensagem mais
+  // recente.
+  const latestAuthorshipConfirmed =
+    (
+      latest.direction === 'outgoing' &&
+      latest.author_kind === 'human_agent'
+    ) ||
+    (
+      latest.direction === 'incoming' &&
+      latest.author_kind === 'customer'
+    )
+
   const evidenceIds =
     [
-      latest.id,
+      ...(
+        latestAuthorshipConfirmed
+          ? [latest.id]
+          : []
+      ),
       ...outgoingMessages
         .filter(
           message =>

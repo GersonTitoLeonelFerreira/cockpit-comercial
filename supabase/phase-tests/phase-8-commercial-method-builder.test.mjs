@@ -8,7 +8,7 @@ import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
 
 const baseCommercialConfigMigrationPath = fileURLToPath(
   new URL(
-    '../migrations/20260731000105_create_company_commercial_config.sql',
+    '../migrations/20260731005138_create_company_commercial_config.sql',
     import.meta.url,
   ),
 )

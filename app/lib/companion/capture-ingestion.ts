@@ -8,6 +8,11 @@ export const MAX_AUDIO_TRANSCRIPTION_LENGTH = 200_000
 
 export type CaptureDirection = 'incoming' | 'outgoing'
 export type CaptureContentType = 'text' | 'audio'
+export type CaptureAuthorKind =
+  | 'customer'
+  | 'human_agent'
+  | 'automation'
+  | 'unknown'
 
 // Blocker 2 (Fase 12A, Frente 2B, re-auditoria do Controle Mestre):
 // 'explicit_deletion' significa que o WhatsApp mostrou um marcador
@@ -27,6 +32,7 @@ export type CaptureDeletionReason =
 export type NormalizedCaptureMessage = {
   message_key: string
   direction: CaptureDirection
+  author_kind: CaptureAuthorKind
   occurred_at: string
   observed_at: string
   base_version: string | null
@@ -278,6 +284,61 @@ function normalizeDirection(
   return value
 }
 
+const VALID_AUTHOR_KINDS: CaptureAuthorKind[] = [
+  'customer',
+  'human_agent',
+  'automation',
+  'unknown',
+]
+
+// R2.4 (correção final) — o WhatsApp legado (este arquivo/rota) NUNCA
+// namespaceia conversation_key com um prefixo fixo: o formato real é
+// `${tituloDoContato}::${identidadeEstavel}` (ver
+// content-script.js getConversationKey()), então checar um prefixo
+// "whatsapp:" quebraria justamente o payload legado que este fallback
+// existe para proteger. O único canal com namespace canônico
+// obrigatório é o ManyChat (`manychat:...`, imposto em
+// platform-contract.js buildNamespacedConversationKey/CONVERSATION_KEY_
+// NAMESPACE_MISMATCH) — usamos essa informação já existente, sem
+// heurística paralela, como a única exceção ao fallback legado.
+function isManyChatConversationKey(
+  conversationKey: string,
+): boolean {
+  return conversationKey.startsWith('manychat:')
+}
+
+function normalizeAuthorKind(
+  value: unknown,
+  direction: CaptureDirection,
+  conversationKey: string,
+): CaptureAuthorKind {
+  if (
+    typeof value === 'string' &&
+    (VALID_AUTHOR_KINDS as string[]).includes(value)
+  ) {
+    return value as CaptureAuthorKind
+  }
+
+  // LEGACY ABSENT: um payload sem author_kind (extensão WhatsApp antiga,
+  // campo nunca existiu) herda o fallback conservador derivado de
+  // direction — exatamente o que sempre foi verdade no adapter
+  // WhatsApp — em qualquer canal que não seja explicitamente ManyChat.
+  if (
+    (value === undefined || value === null) &&
+    !isManyChatConversationKey(
+      conversationKey,
+    )
+  ) {
+    return direction === 'outgoing' ? 'human_agent' : 'customer'
+  }
+
+  // INVALID / UNPROVEN: valor explicitamente presente mas fora do
+  // enum, OU qualquer canal não-WhatsApp (ManyChat incluso) sem
+  // autoria comprovada. Nunca promove a human_agent/customer só por
+  // direction — falha fechado.
+  return 'unknown'
+}
+
 function normalizeContentType(
   value: unknown,
   path: string,
@@ -434,6 +495,7 @@ function normalizeObservedAt(
 function normalizeCaptureMessage(
   value: unknown,
   index: number,
+  conversationKey: string,
 ): NormalizedCaptureMessage | null {
   const path = `messages[${index}]`
 
@@ -454,6 +516,12 @@ function normalizeCaptureMessage(
   const direction = normalizeDirection(
     value.direction,
     `${path}.direction`,
+  )
+
+  const authorKind = normalizeAuthorKind(
+    value.author_kind,
+    direction,
+    conversationKey,
   )
 
   const occurredAt = normalizeOccurredAt(
@@ -514,6 +582,7 @@ function normalizeCaptureMessage(
     return {
       message_key: messageKey,
       direction,
+      author_kind: authorKind,
       occurred_at: occurredAt,
       observed_at: observedAt,
       base_version: baseVersion,
@@ -544,6 +613,7 @@ function normalizeCaptureMessage(
   return {
     message_key: messageKey,
     direction,
+    author_kind: authorKind,
     occurred_at: occurredAt,
     observed_at: observedAt,
     base_version: baseVersion,
@@ -616,7 +686,11 @@ export function normalizeCaptureIngestionEnvelope(
 
   const messages = value.messages
     .map((message, index) => {
-      return normalizeCaptureMessage(message, index)
+      return normalizeCaptureMessage(
+        message,
+        index,
+        conversationKey,
+      )
     })
     .filter(
       (message): message is NormalizedCaptureMessage =>
@@ -653,6 +727,7 @@ export function buildCaptureMessageStateKey(
   return JSON.stringify([
     message.message_key,
     message.direction,
+    message.author_kind,
     message.occurred_at,
     message.content_type,
     message.text_content,

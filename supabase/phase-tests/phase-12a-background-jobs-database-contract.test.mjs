@@ -1,7 +1,7 @@
 // Frente Paralela 3 (FASE 12A) — validação adversarial da arquitetura
 // progressiva do Companion (PR #206), contra a fundação de background real
 // entregue pelo PR #207 (migration
-// 20260823001500_create_companion_background_analysis_jobs.sql).
+// 20260823015639_create_companion_background_analysis_jobs.sql).
 //
 // A cobertura já existente para essa migration
 // (app/lib/companion/phase12a-background-analysis-foundation.test.mjs,
@@ -40,7 +40,7 @@ const baselinePath = fileURLToPath(
 
 const backgroundJobsMigrationPath = fileURLToPath(
   new URL(
-    '../migrations/20260823001500_create_companion_background_analysis_jobs.sql',
+    '../migrations/20260823015639_create_companion_background_analysis_jobs.sql',
     import.meta.url,
   ),
 )

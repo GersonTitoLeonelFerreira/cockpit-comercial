@@ -23,17 +23,17 @@ import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 // ============================================================================
 
 const migrationPaths = [
-  "../migrations/20260731000105_create_company_commercial_config.sql",
-  "../migrations/20260731005400_split_company_commercial_write_policies.sql",
+  "../migrations/20260731005138_create_company_commercial_config.sql",
+  "../migrations/20260731010816_split_company_commercial_write_policies.sql",
   "../migrations/20260731123000_create_company_commercial_admin_operations.sql",
   "../migrations/20260818013000_add_commercial_method_v2_persistence.sql",
-  "../migrations/20260818043000_add_commercial_product_v2_persistence.sql",
-  "../migrations/20260819012000_add_commercial_fact_v2_persistence.sql",
-  "../migrations/20260819052000_add_commercial_objection_v2_persistence.sql",
+  "../migrations/20260818044335_add_commercial_product_v2_persistence.sql",
+  "../migrations/20260819013524_add_commercial_fact_v2_persistence.sql",
+  "../migrations/20260820024112_add_commercial_objection_v2_persistence.sql",
   "../migrations/20260826032000_create_commercial_method_builder_draft.sql",
   "../migrations/20260826043000_add_assisted_method_construction.sql",
-  "../migrations/20260827010000_add_isolated_method_publish.sql",
-  "../migrations/20260827020000_fix_isolated_method_publish_review_ready_source.sql",
+  "../migrations/20260826231013_add_isolated_method_publish.sql",
+  "../migrations/20260826231039_fix_isolated_method_publish_review_ready_source.sql",
 ].map((relative) => fileURLToPath(new URL(relative, import.meta.url)));
 
 const ids = {

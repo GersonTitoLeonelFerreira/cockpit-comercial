@@ -7,7 +7,7 @@ import test from 'node:test'
 const migrationSource =
   readFileSync(
     new URL(
-      '../../../supabase/migrations/20260823001500_create_companion_background_analysis_jobs.sql',
+      '../../../supabase/migrations/20260823015639_create_companion_background_analysis_jobs.sql',
       import.meta.url,
     ),
     'utf8',

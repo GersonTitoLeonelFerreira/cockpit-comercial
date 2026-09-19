@@ -36,11 +36,10 @@ const migrationPaths = [
   migrationPath("20260629040658_restore_simulator_metrics_rpc_shell.sql"),
   migrationPath("20260730155903_create_conversation_messages_ledger.sql"),
   migrationPath("20260730170515_create_conversation_capture_state.sql"),
-  migrationPath("20260731235900_create_companion_message_ingestion_rpc.sql"),
-  migrationPath("20260803064000_harden_companion_message_ingestion_rpc.sql"),
+  migrationPath("20260803030154_create_companion_message_ingestion_rpc.sql"),
   migrationPath("20260803223345_prevent_stale_companion_captures.sql"),
   migrationPath("20260804120000_add_causal_companion_message_versions.sql"),
-  migrationPath("20260829010000_add_message_deletion_reason.sql"),
+  migrationPath("20260829042244_add_message_deletion_reason_safe.sql"),
 ];
 
 const ids = {

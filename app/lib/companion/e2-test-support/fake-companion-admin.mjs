@@ -76,9 +76,10 @@ function createBuilder(table, { calls, nextStep }) {
   return builder
 }
 
-export function createStepAdmin(steps) {
+export function createStepAdmin(steps, { rpcResponder } = {}) {
   const remaining = [...steps]
   const calls = []
+  const rpcCalls = []
 
   function nextStep(table, method) {
     const step = remaining.shift()
@@ -108,9 +109,20 @@ export function createStepAdmin(steps) {
     from(table) {
       return createBuilder(table, { calls, nextStep })
     },
+    // Chamadas de RPC não passam pela fila ordenada de passos: são
+    // registradas separadamente e, por padrão, sempre sucedem (a maioria
+    // dos usos em testes de resolve-lead é "melhor esforço", fora do
+    // caminho crítico). Um teste que precise afirmar sobre o resultado da
+    // RPC passa `rpcResponder` para customizar a resposta.
+    async rpc(name, params) {
+      rpcCalls.push({ name, params })
+      const result =
+        typeof rpcResponder === 'function' ? await rpcResponder(name, params) : {}
+      return { data: result?.data ?? null, error: result?.error ?? null }
+    },
   }
 
-  return { admin, calls, remaining }
+  return { admin, calls, rpcCalls, remaining }
 }
 
 export function selectStep(table, data, error = null) {

@@ -7,6 +7,7 @@ const {
     isCaptureResolutionEligible,
     selectCaptureWindow,
     buildCaptureIngestionPlan,
+    buildCaptureIngestionPlanFromMessages,
     buildCaptureMessages,
   } = captureBatch
 
@@ -197,6 +198,7 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
     {
       message_key: 'message-001',
       direction: 'incoming',
+      author_kind: 'customer',
       occurred_at:
         '2026-08-02T18:00:00.000Z',
       observed_at:
@@ -211,6 +213,7 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
     {
       message_key: 'audio-001',
       direction: 'outgoing',
+      author_kind: 'human_agent',
       occurred_at:
         '2026-08-02T18:01:00.000Z',
       observed_at:
@@ -385,6 +388,7 @@ test('mensagem excluída não preserva conteúdo ou transcrição', () => {
     {
       message_key: 'deleted-001',
       direction: 'incoming',
+      author_kind: 'customer',
       occurred_at:
         '2026-08-02T18:00:00.000Z',
       observed_at:
@@ -481,6 +485,7 @@ test('mensagem restaurada ativa prevalece sobre a fotografia excluída', () => {
     {
       message_key: 'restored-001',
       direction: 'incoming',
+      author_kind: 'customer',
       occurred_at:
         '2026-08-02T18:00:00.000Z',
       observed_at:
@@ -636,5 +641,89 @@ test('fotografia idêntica é estável e muda com edição, exclusão ou transcr
   assert.notEqual(
     transcribed.snapshotKey,
     initial.snapshotKey,
+  )
+})
+
+// ---------------------------------------------------------------------
+// buildCaptureIngestionPlanFromMessages: mesmo batching/dedupe, mas para
+// mensagens JÁ normalizadas (ex.: saída do contrato universal do ManyChat),
+// sem repetir a normalização a partir do DOM do WhatsApp.
+// ---------------------------------------------------------------------
+
+function manyChatMessage(overrides = {}) {
+  return {
+    message_key: 'manychat:customer-1',
+    direction: 'incoming',
+    author_kind: 'customer',
+    occurred_at: '2026-09-14T20:30:00.000Z',
+    observed_at: '2026-09-14T20:31:00.000Z',
+    content_type: 'text',
+    text_content: 'Quero saber o preço.',
+    audio_transcription: null,
+    is_deleted: false,
+    deletion_reason: null,
+    base_version: null,
+    ...overrides,
+  }
+}
+
+test('buildCaptureIngestionPlanFromMessages monta envelope a partir de mensagens já normalizadas', () => {
+  const plan = buildCaptureIngestionPlanFromMessages({
+    cycleId: 'cycle-mc-1',
+    conversationKey: 'manychat:whatsapp:contact-1',
+    messages: [manyChatMessage()],
+  })
+
+  assert.equal(plan.batches.length, 1)
+  assert.equal(plan.batches[0].contract_version, captureBatch.CONTRACT_VERSION)
+  assert.equal(plan.batches[0].cycle_id, 'cycle-mc-1')
+  assert.equal(plan.batches[0].conversation_key, 'manychat:whatsapp:contact-1')
+  assert.equal(plan.batches[0].observed_at, '2026-09-14T20:31:00.000Z')
+  assert.deepEqual(plan.batches[0].messages, [manyChatMessage()])
+})
+
+test('buildCaptureIngestionPlanFromMessages respeita maxBatchSize', () => {
+  const messages = [
+    manyChatMessage({ message_key: 'manychat:a', occurred_at: '2026-09-14T20:30:00.000Z' }),
+    manyChatMessage({ message_key: 'manychat:b', occurred_at: '2026-09-14T20:30:01.000Z' }),
+    manyChatMessage({ message_key: 'manychat:c', occurred_at: '2026-09-14T20:30:02.000Z' }),
+  ]
+
+  const plan = buildCaptureIngestionPlanFromMessages({
+    cycleId: 'cycle-mc-1',
+    conversationKey: 'manychat:whatsapp:contact-1',
+    messages,
+    maxBatchSize: 2,
+  })
+
+  assert.equal(plan.batches.length, 2)
+  assert.equal(plan.batches[0].messages.length, 2)
+  assert.equal(plan.batches[1].messages.length, 1)
+})
+
+test('buildCaptureIngestionPlanFromMessages sem mensagens ainda produz um lote vazio idempotente', () => {
+  const plan = buildCaptureIngestionPlanFromMessages({
+    cycleId: 'cycle-mc-1',
+    conversationKey: 'manychat:whatsapp:contact-1',
+    messages: [],
+  })
+
+  assert.equal(plan.observedAt, null)
+  assert.equal(plan.messages.length, 0)
+})
+
+test('buildCaptureIngestionPlanFromMessages exige cycleId e conversationKey', () => {
+  assert.throws(() =>
+    buildCaptureIngestionPlanFromMessages({
+      conversationKey: 'manychat:whatsapp:contact-1',
+      messages: [manyChatMessage()],
+    }),
+  )
+
+  assert.throws(() =>
+    buildCaptureIngestionPlanFromMessages({
+      cycleId: 'cycle-mc-1',
+      messages: [manyChatMessage()],
+    }),
   )
 })

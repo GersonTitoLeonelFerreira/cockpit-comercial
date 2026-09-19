@@ -400,12 +400,18 @@ export async function loadCanonicalSellerCommercialContext({
               collectStateMemoryIds(
                 stateRead,
               ),
+            // R2.4: author_kind é a autoridade de autoria quando
+            // disponível — automation/unknown nunca contam como ação
+            // humana do vendedor, mesmo sendo outgoing (ex.: flow/bot
+            // do ManyChat).
             seller_message_ids:
               canonicalMessages
                 .filter(
                   (message) =>
                     message.direction ===
-                      'outgoing',
+                      'outgoing' &&
+                    message.author_kind ===
+                      'human_agent',
                 )
                 .map(
                   (message) =>

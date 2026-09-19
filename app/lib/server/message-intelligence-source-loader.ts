@@ -302,6 +302,8 @@ async function loadCommercialReading({
           collectStateMemoryIds(
             context.state_read.state,
           ),
+        // R2.4: automation/unknown nunca contam como ação humana do
+        // vendedor, mesmo sendo outgoing.
         seller_message_ids:
           context
             .diagnostic_input
@@ -310,7 +312,9 @@ async function loadCommercialReading({
             .filter(
               message =>
                 message.direction ===
-                'outgoing',
+                'outgoing' &&
+                message.author_kind ===
+                'human_agent',
             )
             .map(message => message.id),
         current_crm_status:

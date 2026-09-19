@@ -665,3 +665,169 @@ test('classifica erros conhecidos e mantém falhas transitórias como 5xx', () =
     500,
   )
 })
+// R2.4 (correção final) — item 4: rollout legado. O formato real do
+// conversation_key do WhatsApp (getConversationKey() em
+// content-script.js) é `${título}::${identidadeEstável}`, sem prefixo
+// fixo — author_kind continua opcional nesse payload, com fallback
+// derivado de direction. Só ManyChat (conversation_key namespaceada
+// como `manychat:...`, imposta em platform-contract.js) exige autoria
+// comprovada e falha fechado quando ausente.
+
+test(
+  'WhatsApp legado (conversation_key real, sem prefixo) sem author_kind: incoming vira customer',
+  () => {
+    const result =
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          conversation_key:
+            'Cliente Exemplo::data:5511999999999',
+          messages: [
+            buildTextMessage({
+              direction: 'incoming',
+            }),
+          ],
+        }),
+      )
+
+    assert.equal(
+      result.messages[0].author_kind,
+      'customer',
+    )
+  },
+)
+
+test(
+  'WhatsApp legado (conversation_key real, sem prefixo) sem author_kind: outgoing vira human_agent',
+  () => {
+    const result =
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          conversation_key:
+            'Cliente Exemplo::data:5511999999999',
+          messages: [
+            buildTextMessage({
+              direction: 'outgoing',
+            }),
+          ],
+        }),
+      )
+
+    assert.equal(
+      result.messages[0].author_kind,
+      'human_agent',
+    )
+  },
+)
+
+test(
+  'ManyChat (conversation_key manychat:) sem author_kind falha fechado em unknown, mesmo incoming',
+  () => {
+    const result =
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          conversation_key:
+            'manychat:account-1:subscriber-1',
+          messages: [
+            buildTextMessage({
+              direction: 'incoming',
+            }),
+          ],
+        }),
+      )
+
+    assert.equal(
+      result.messages[0].author_kind,
+      'unknown',
+    )
+  },
+)
+
+test(
+  'ManyChat (conversation_key manychat:) sem author_kind falha fechado em unknown, mesmo outgoing',
+  () => {
+    const result =
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          conversation_key:
+            'manychat:account-1:subscriber-1',
+          messages: [
+            buildTextMessage({
+              direction: 'outgoing',
+            }),
+          ],
+        }),
+      )
+
+    assert.equal(
+      result.messages[0].author_kind,
+      'unknown',
+    )
+  },
+)
+
+test(
+  'author_kind explicitamente inválido nunca vira human_agent/customer só por direction, em nenhum canal',
+  () => {
+    const whatsapp =
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          conversation_key:
+            'Cliente Exemplo::data:5511999999999',
+          messages: [
+            buildTextMessage({
+              direction: 'outgoing',
+              author_kind: 'bot-ferramenta-desconhecida',
+            }),
+          ],
+        }),
+      )
+
+    assert.equal(
+      whatsapp.messages[0].author_kind,
+      'unknown',
+    )
+
+    const manychat =
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          conversation_key:
+            'manychat:account-1:subscriber-1',
+          messages: [
+            buildTextMessage({
+              direction: 'incoming',
+              author_kind: 'bot-ferramenta-desconhecida',
+            }),
+          ],
+        }),
+      )
+
+    assert.equal(
+      manychat.messages[0].author_kind,
+      'unknown',
+    )
+  },
+)
+
+test(
+  'author_kind explícito e válido é sempre preservado, em qualquer canal',
+  () => {
+    const result =
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          conversation_key:
+            'manychat:account-1:subscriber-1',
+          messages: [
+            buildTextMessage({
+              direction: 'outgoing',
+              author_kind: 'automation',
+            }),
+          ],
+        }),
+      )
+
+    assert.equal(
+      result.messages[0].author_kind,
+      'automation',
+    )
+  },
+)
