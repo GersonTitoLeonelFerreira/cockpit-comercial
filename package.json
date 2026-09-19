@@ -33,6 +33,7 @@
     "test:companion-lead-summary-persistence": "node --test supabase/phase-tests/companion-lead-conversation-summary-persistence.test.mjs",
     "test:companion-commercial-method-v2-validation": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/commercial-config/validation.test.mjs",
     "test:companion-external-identity-relink": "node --test supabase/phase-tests/phase-lead-external-identity-relink-contract.test.mjs",
+    "test:companion-external-identity-first-link": "node --test supabase/phase-tests/phase-external-identity-first-link-contract.test.mjs",
     "test:companion-full-r2-schema-transition": "node --test supabase/phase-tests/phase-full-r2-schema-transition.test.mjs",
     "test:companion-manychat-identity-lead-cycle-capture-ledger": "node --test supabase/phase-tests/phase-manychat-identity-lead-cycle-capture-ledger-contract.test.mjs"
   },
