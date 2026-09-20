@@ -179,6 +179,14 @@ test('enrich-lead: falha ao consultar profile — profile_lookup_failed, ZERO le
 
   assert.equal(payload.ok, false)
   assert.equal(payload.code, 'profile_lookup_failed')
+  assert.equal(
+    payload.error,
+    'Não foi possível validar o perfil do usuário.',
+  )
+  assert.doesNotMatch(
+    payload.error,
+    /detalhe interno do banco/i,
+  )
 
   assertNoLeadDataTouched(fake)
 })

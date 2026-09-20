@@ -49,7 +49,11 @@ export async function verifyActiveCompanionProfile({
     .maybeSingle()
 
   if (error) {
-    return { active: false, error: error.message as string }
+    return {
+      active: false,
+      error:
+        'Não foi possível validar o perfil do usuário.',
+    }
   }
 
   const profile = (data as CompanionPrincipalProfileRow | null) ?? null
