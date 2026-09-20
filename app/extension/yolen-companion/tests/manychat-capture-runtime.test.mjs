@@ -681,7 +681,7 @@ test('refreshLeadResolution sempre busca de novo (nunca usa cache), sobrescreve 
   assert.equal(second.skipped, true)
   assert.equal(fake.calls.length, 3)
 
-  responses.push(safeIdentityOk(), resolveLeadOwnedByMe('cycle-after-link'))
+  responses.push(safeIdentityOk(), resolveLeadOwnedByMe('cycle-after-link'), safeIdentityOk())
 
   const refreshed = await runtime.refreshLeadResolution({
     conversationKey,
@@ -693,11 +693,12 @@ test('refreshLeadResolution sempre busca de novo (nunca usa cache), sobrescreve 
   assert.equal(refreshed.cycle_id, 'cycle-after-link')
   assert.equal(
     fake.calls.length,
-    5,
-    'refreshLeadResolution sempre chama identidade + resolve-lead de novo, nunca usa cache',
+    6,
+    'refreshLeadResolution sempre chama identidade + resolve-lead + identidade de novo (revalidação pós-resolve), nunca usa cache',
   )
   assert.equal(fake.calls[3].action, 'GET_MANYCHAT_SAFE_IDENTITY')
   assert.equal(fake.calls[4].action, 'RESOLVE_LEAD')
+  assert.equal(fake.calls[5].action, 'GET_MANYCHAT_SAFE_IDENTITY')
 
   const stateAfter = runtime.getConversationState(conversationKey)
   assert.equal(stateAfter.resolution.ready, true)
@@ -720,10 +721,14 @@ test('refreshLeadResolution reflete um contato que deixou de ser capture-eligibl
   await runtime.captureNow()
   const conversationKey = fake.calls[2].payload.conversation_key
 
-  responses.push(safeIdentityOk(), {
-    ok: true,
-    payload: { status: 'OWNED_BY_OTHER', cycle: null, actions: {}, flags: {} },
-  })
+  responses.push(
+    safeIdentityOk(),
+    {
+      ok: true,
+      payload: { status: 'OWNED_BY_OTHER', cycle: null, actions: {}, flags: {} },
+    },
+    safeIdentityOk(),
+  )
 
   const refreshed = await runtime.refreshLeadResolution({
     conversationKey,
@@ -847,6 +852,70 @@ test('D/E: refreshLeadResolution nunca grava a resolução quando a identidade s
     false,
     'nunca chega a chamar RESOLVE_LEAD quando a identidade já não confere',
   )
+})
+
+// -----------------------------------------------------------------------
+// Auditoria terse "POST-RESOLVE IDENTITY REVALIDATION": resolveLeadForIdentity
+// é outro await depois da primeira checagem de identidade — o ManyChat pode
+// trocar de contato DENTRO da mesma conversation_key (thread reaproveitada)
+// exatamente nessa janela, sem que isCurrentConversation() detecte nada
+// (ela só compara conversation_key, nunca identidade). Sem reler a safe
+// identity uma segunda vez depois do RESOLVE_LEAD, a resolução do contato
+// ANTIGO seria persistida como se fosse do contato atual.
+// -----------------------------------------------------------------------
+
+test('POST-RESOLVE: refreshLeadResolution nunca grava a resolução quando a identidade muda ENTRE o resolve-lead e a persistência (mesma conversation_key)', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const responses = [
+    safeIdentityOk(),
+    resolveLeadOwnedByMe('cycle-A'),
+    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+  ]
+  const fake = createQueuedSender(responses)
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+
+  await runtime.captureNow()
+  const conversationKey = fake.calls[2].payload.conversation_key
+
+  const identityB = {
+    ok: true,
+    payload: {
+      ready: true,
+      safe: {
+        platform: 'manychat',
+        platform_identity: { source: 'subscriber_id', key: `manychat:contact:v1:sha256:${'b'.repeat(64)}` },
+      },
+    },
+  }
+
+  // 1ª checagem de identidade (antes do RESOLVE_LEAD): ainda é A, passa.
+  // RESOLVE_LEAD: responde para A (cycle-outro-contato nunca deveria persistir).
+  // 2ª checagem de identidade (depois do RESOLVE_LEAD, ANTES de persistir):
+  // o ManyChat já trocou de contato para B na MESMA thread/conversation_key
+  // — isCurrentConversation() sozinha não pegaria isso.
+  responses.push(safeIdentityOk(), resolveLeadOwnedByMe('cycle-outro-contato-nunca-deveria-persistir'), identityB)
+
+  const refreshed = await runtime.refreshLeadResolution({
+    conversationKey,
+    expectedPlatform: 'manychat',
+    expectedIdentityKey: `manychat:contact:v1:sha256:${'a'.repeat(64)}`,
+  })
+
+  assert.equal(refreshed.ready, false)
+  assert.equal(refreshed.reason, 'CONTACT_CHANGED')
+  assert.equal(refreshed.cycle_id, null)
+
+  const stateAfter = runtime.getConversationState(conversationKey)
+  assert.equal(stateAfter.resolution, null)
+  assert.notEqual(stateAfter.resolution?.cycle_id, 'cycle-outro-contato-nunca-deveria-persistir')
+
+  // Prova que a 2ª checagem de identidade realmente aconteceu (3 chamadas
+  // de refresh: identidade, resolve-lead, identidade de novo).
+  assert.equal(fake.calls.length, 6)
+  assert.equal(fake.calls[3].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[4].action, 'RESOLVE_LEAD')
+  assert.equal(fake.calls[5].action, 'GET_MANYCHAT_SAFE_IDENTITY')
 })
 
 test('F: depois de um refresh abortado por CONTACT_CHANGED, voltar para a conversa original faz RESOLVE_LEAD de novo (nunca serve cache velho)', async () => {

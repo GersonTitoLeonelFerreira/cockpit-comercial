@@ -101,13 +101,25 @@
   // (nunca do conteúdo seller-facing — isso é responsabilidade exclusiva do
   // sellerPanelRuntime, que só re-renderiza quando tem dado novo de
   // verdade). Evita reescrever o mesmo texto de status repetidamente só
-  // porque um evento chegou, sem que a resolução em si tenha mudado.
+  // porque um evento chegou, sem que a resolução em si tenha mudado — mas
+  // NUNCA sozinha decide se pinta: ver lastPaintedConversationKey abaixo.
   const lastRenderedResolutionByConversationKey = new Map()
 
   function resolutionSignature(resolution) {
     if (!resolution) return 'unknown'
     return `${resolution.ready}:${resolution.reason}:${resolution.cycle_id}`
   }
+
+  // Hardening (auditoria STEP 2A.3, "VISIBLE PANEL CROSS-CONVERSATION
+  // ISOLATION"): o DOM do painel é compartilhado entre conversas. Se A
+  // pinta uma assinatura, o vendedor troca para B (que pinta outra coisa
+  // por cima do MESMO elemento) e depois volta para A cuja assinatura
+  // permanece igual à última registrada, o dedup por assinatura sozinho
+  // pulava o render e deixava o conteúdo de B visível sobre A. Sempre que a
+  // conversa autoritativa mudou desde a última pintura, força o repaint
+  // independente da assinatura — o dedup por assinatura só se aplica
+  // DENTRO da mesma conversa que já está pintada agora.
+  let lastPaintedConversationKey = null
 
   // Sincroniza SOMENTE a visibilidade do painel e o texto de status de
   // resolução — nunca o conteúdo seller-facing (AGORA/ANÁLISE/CLIENTE),
@@ -128,6 +140,7 @@
 
     const authoritativeKey = getCurrentConversationKey()
     if (!authoritativeKey) {
+      lastPaintedConversationKey = null
       renderStatus(null, null)
       return
     }
@@ -136,10 +149,13 @@
     const resolution = state?.resolution ?? null
     const signature = resolutionSignature(resolution)
 
-    if (lastRenderedResolutionByConversationKey.get(authoritativeKey) === signature) {
+    const conversationChanged = lastPaintedConversationKey !== authoritativeKey
+
+    if (!conversationChanged && lastRenderedResolutionByConversationKey.get(authoritativeKey) === signature) {
       return
     }
     lastRenderedResolutionByConversationKey.set(authoritativeKey, signature)
+    lastPaintedConversationKey = authoritativeKey
 
     renderStatus(resolution, authoritativeKey)
   }

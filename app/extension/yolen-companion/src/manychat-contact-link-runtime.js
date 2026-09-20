@@ -439,7 +439,19 @@
         return
       }
 
-      if (state.generation !== generation) return
+      // Hardening (auditoria STEP 2A.3, "FIRST-LINK SUCCESS DURING
+      // INVALIDATION"): a partir daqui a resposta do servidor é verdade
+      // imutável sobre ESTA conversationKey/identidade, mesmo que
+      // invalidateConversation tenha incrementado state.generation enquanto
+      // a chamada estava em voo (ex.: o vendedor trocou de conversa e
+      // voltou). Um early-return aqui perderia PARA SEMPRE um vínculo
+      // realmente confirmado pelo servidor: onLinked precisa rodar de
+      // qualquer forma para refletir o estado real (refreshLeadResolution),
+      // já que ele mesmo revalida conversa/identidade antes de persistir
+      // qualquer coisa. Só as mutações de UI (reset/erro/render) ficam
+      // condicionadas a esta chamada ainda ser a mais recente — uma
+      // invalidação já limpou a UI e não deve ser sobrescrita.
+      const isSuperseded = state.generation !== generation
 
       const status = response?.payload?.status
 
@@ -455,12 +467,14 @@
       }
 
       if (response?.ok === true && (status === 'LINKED' || status === 'IDEMPOTENT_ALREADY_LINKED_TO_TARGET')) {
-        resetState(conversationKey)
-        // Repinta imediatamente com o estado limpo (placeholder honesto
-        // enquanto a resolução real chega) — nunca deixa "Vinculando…"
-        // congelado se, por algum motivo, o refresh de resolução
-        // (onLinked) não produzir uma re-renderização própria.
-        render(conversationKey)
+        if (!isSuperseded) {
+          resetState(conversationKey)
+          // Repinta imediatamente com o estado limpo (placeholder honesto
+          // enquanto a resolução real chega) — nunca deixa "Vinculando…"
+          // congelado se, por algum motivo, o refresh de resolução
+          // (onLinked) não produzir uma re-renderização própria.
+          render(conversationKey)
+        }
         if (onLinked) {
           await onLinked(linkedContext)
         }
@@ -470,14 +484,18 @@
       if (status === 'ALREADY_LINKED_CONFLICT') {
         // Nunca oferece "forçar vínculo", nunca chama relink — só informa
         // e reexecuta a resolução real (STEP 2A.3, seção 17).
-        state.phase = 'error'
-        state.error = { code: 'ALREADY_LINKED_CONFLICT', message: resolveErrorMessage('ALREADY_LINKED_CONFLICT') }
-        render(conversationKey)
+        if (!isSuperseded) {
+          state.phase = 'error'
+          state.error = { code: 'ALREADY_LINKED_CONFLICT', message: resolveErrorMessage('ALREADY_LINKED_CONFLICT') }
+          render(conversationKey)
+        }
         if (onLinked) {
           await onLinked(linkedContext)
         }
         return
       }
+
+      if (isSuperseded) return
 
       state.phase = 'error'
       state.error = { code: status ?? 'UNKNOWN_ERROR', message: resolveErrorMessage(status) }

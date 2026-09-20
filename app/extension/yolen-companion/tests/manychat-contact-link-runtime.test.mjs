@@ -676,3 +676,132 @@ for (const wildcardQuery of ['__', '_%', '%_']) {
     assert.equal(fake.calls.length, 0)
   })
 }
+
+// -----------------------------------------------------------------------
+// Auditoria terse "FIRST-LINK SUCCESS DURING INVALIDATION": um first-link
+// que o SERVIDOR já confirmou (LINKED/IDEMPOTENT/ALREADY_LINKED_CONFLICT)
+// nunca pode ser perdido só porque invalidateConversation bateu a
+// generation ENQUANTO a chamada de rede ainda estava em voo — onLinked
+// precisa rodar de qualquer forma para refletir a verdade do servidor
+// (refreshLeadResolution revalida conversa/identidade por conta própria
+// antes de persistir qualquer coisa), mesmo que a UI da conversa já tenha
+// sido limpa por uma troca real de conversa nesse meio-tempo.
+// -----------------------------------------------------------------------
+
+for (const status of ['LINKED', 'IDEMPOTENT_ALREADY_LINKED_TO_TARGET']) {
+  test(`Hardening J (${status}): invalidateConversation durante o first-link em voo NUNCA impede onLinked de rodar`, async () => {
+    let resolveLink
+    const linkPromise = new Promise((resolve) => {
+      resolveLink = resolve
+    })
+
+    const controller = createConversationController('conv-a')
+    const calls = []
+    const sendMessage = async (message) => {
+      calls.push(message)
+      if (message.action === 'SEARCH_LINKABLE_LEADS') return searchOk([leadRow()])
+      if (message.action === 'FIRST_LINK_EXTERNAL_IDENTITY') return linkPromise
+      throw new Error(`ação inesperada: ${message.action}`)
+    }
+
+    let onLinkedCalledWith = null
+    const { runtime, panelMount } = createRuntime({
+      sendMessage,
+      getCurrentConversationKey: controller.get,
+      onLinked: async (context) => {
+        onLinkedCalledWith = context
+      },
+    })
+
+    await runtime.startLinkFlow('conv-a')
+    await runtime.runSearch('conv-a', 'Cliente')
+    runtime.selectLead('conv-a', 'lead-1')
+
+    const confirmPromise = runtime.confirmLink('conv-a')
+
+    // Deixa a revalidação de identidade prévia acontecer e a requisição de
+    // first-link ser REALMENTE disparada ao servidor antes de invalidar —
+    // o cenário da auditoria é perder uma resposta que o servidor já
+    // confirmou, nunca uma chamada que ainda nem saiu.
+    for (let i = 0; i < 10 && !calls.some((call) => call.action === 'FIRST_LINK_EXTERNAL_IDENTITY'); i += 1) {
+      await Promise.resolve()
+    }
+    assert.ok(
+      calls.some((call) => call.action === 'FIRST_LINK_EXTERNAL_IDENTITY'),
+      'sanity: a requisição de first-link já foi disparada antes da invalidação',
+    )
+
+    const panelWritesBeforeInvalidation = panelMount.contents.length
+
+    // Vendedor troca de conversa DE VERDADE enquanto o first-link ainda
+    // está em voo no servidor (bate state.generation via
+    // invalidateConversation, exatamente como o bootstrap faz).
+    simulateRealConversationChange(controller, runtime, 'conv-a', 'conv-b')
+
+    // Só agora o servidor confirma que o vínculo de A realmente aconteceu.
+    resolveLink(linkOk(status))
+    await confirmPromise
+
+    // onLinked SEMPRE roda — é a única forma de refletir um vínculo real
+    // confirmado pelo servidor, mesmo que a UI já não pertença mais a A.
+    assert.deepEqual(onLinkedCalledWith, {
+      conversationKey: 'conv-a',
+      expectedPlatform: 'manychat',
+      expectedIdentityKey: CONTACT_KEY_A,
+    })
+
+    // A UI de A não é repintada por uma resposta já superada por uma
+    // invalidação real — nenhuma escrita nova no painel depois da troca.
+    assert.equal(panelMount.contents.length, panelWritesBeforeInvalidation)
+
+    // O estado de A permanece o que a invalidação real deixou (prompt
+    // limpo), nunca reaberto por essa resposta desatualizada.
+    assert.equal(runtime.getConversationLinkState('conv-a').phase, 'prompt')
+  })
+}
+
+test('Hardening K: ALREADY_LINKED_CONFLICT superado por invalidação ainda chama onLinked, sem repintar a UI de A', async () => {
+  let resolveLink
+  const linkPromise = new Promise((resolve) => {
+    resolveLink = resolve
+  })
+
+  const controller = createConversationController('conv-a')
+  const calls = []
+  const sendMessage = async (message) => {
+    calls.push(message)
+    if (message.action === 'SEARCH_LINKABLE_LEADS') return searchOk([leadRow()])
+    if (message.action === 'FIRST_LINK_EXTERNAL_IDENTITY') return linkPromise
+    throw new Error(`ação inesperada: ${message.action}`)
+  }
+
+  let onLinkedCalled = false
+  const { runtime, panelMount } = createRuntime({
+    sendMessage,
+    getCurrentConversationKey: controller.get,
+    onLinked: async () => {
+      onLinkedCalled = true
+    },
+  })
+
+  await runtime.startLinkFlow('conv-a')
+  await runtime.runSearch('conv-a', 'Cliente')
+  runtime.selectLead('conv-a', 'lead-1')
+
+  const confirmPromise = runtime.confirmLink('conv-a')
+
+  for (let i = 0; i < 10 && !calls.some((call) => call.action === 'FIRST_LINK_EXTERNAL_IDENTITY'); i += 1) {
+    await Promise.resolve()
+  }
+  assert.ok(calls.some((call) => call.action === 'FIRST_LINK_EXTERNAL_IDENTITY'))
+
+  simulateRealConversationChange(controller, runtime, 'conv-a', 'conv-b')
+  const panelWritesAfterInvalidation = panelMount.contents.length
+
+  resolveLink(linkConflict())
+  await confirmPromise
+
+  assert.equal(onLinkedCalled, true)
+  assert.equal(panelMount.contents.length, panelWritesAfterInvalidation)
+  assert.equal(runtime.getConversationLinkState('conv-a').phase, 'prompt')
+})

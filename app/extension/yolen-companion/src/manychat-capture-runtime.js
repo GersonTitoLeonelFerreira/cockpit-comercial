@@ -241,6 +241,12 @@
       return adapter.getCurrentConversation(getConversationUrl())?.conversation_key === conversationKey
     }
 
+    function matchesExpectedIdentity(identity, expectedPlatform, expectedIdentityKey) {
+      return (
+        identity?.platform === expectedPlatform && identity?.platform_identity?.key === expectedIdentityKey
+      )
+    }
+
     async function refreshLeadResolution({ conversationKey, expectedPlatform, expectedIdentityKey }) {
       const state = getConversationState(conversationKey)
 
@@ -258,17 +264,28 @@
 
       const safeIdentity = await getSafeIdentity()
 
-      const identityMatches =
-        safeIdentity?.platform === expectedPlatform &&
-        safeIdentity?.platform_identity?.key === expectedIdentityKey
-
-      if (!identityMatches || !isCurrentConversation(conversationKey)) {
+      if (!matchesExpectedIdentity(safeIdentity, expectedPlatform, expectedIdentityKey) || !isCurrentConversation(conversationKey)) {
         return abortStale()
       }
 
       const resolution = await resolveLeadForIdentity(safeIdentity)
 
-      if (!isCurrentConversation(conversationKey)) {
+      // Hardening (auditoria STEP 2A.3, "POST-RESOLVE IDENTITY
+      // REVALIDATION"): resolveLeadForIdentity é outro await — o contato
+      // pode ter mudado DENTRO da mesma conversation_key (ex.: o ManyChat
+      // reaproveita a mesma thread para outro assinante) sem que
+      // isCurrentConversation detecte nada, já que ela só compara
+      // conversation_key. Sem reler a safe identity aqui, um resultado de
+      // RESOLVE_LEAD para o contato ANTIGO seria gravado como se fosse do
+      // contato atual. Rechecar a identidade segura pela segunda vez (não
+      // só a conversa) antes de persistir fecha essa janela.
+      const identityStillMatches = matchesExpectedIdentity(
+        await getSafeIdentity(),
+        expectedPlatform,
+        expectedIdentityKey,
+      )
+
+      if (!identityStillMatches || !isCurrentConversation(conversationKey)) {
         return abortStale()
       }
 

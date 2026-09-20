@@ -302,6 +302,96 @@ test('capture_result repetido com a MESMA resolução não reescreve o status (d
   assert.ok(panelCalls.includes('syncPanelVisibility'))
 })
 
+// -----------------------------------------------------------------------
+// Auditoria terse "VISIBLE PANEL CROSS-CONVERSATION ISOLATION": o dedup por
+// assinatura (teste acima) só é seguro DENTRO da mesma conversa que já está
+// pintada agora. O painel é um único elemento de DOM compartilhado — se A
+// pinta uma assinatura, o vendedor troca para B (que pinta OUTRA coisa por
+// cima do MESMO elemento) e depois volta para A cuja assinatura de
+// resolução não mudou desde a última vez registrada, o dedup sozinho
+// pularia o repaint e deixaria o conteúdo de B visível mesmo com A aberta.
+// -----------------------------------------------------------------------
+
+test('A→B→A: voltar para uma conversa cuja assinatura não mudou ainda assim repinta — nunca deixa o conteúdo de B visível sobre A', () => {
+  const panelCalls = []
+  let receivedOptions = null
+  const currentKeyRef = { value: null }
+  const resolutionByKey = {
+    k1: { ready: false, reason: 'CONTACT_NOT_LINKED' },
+    k2: { ready: false, reason: 'NOT_FOUND' },
+  }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState(key) {
+            return { resolution: resolutionByKey[key] }
+          },
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen() {
+        return true
+      },
+      syncPanelVisibility() {
+        panelCalls.push('syncPanelVisibility')
+      },
+      setPanelContent(html) {
+        panelCalls.push(html)
+      },
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  function contentWrites(calls) {
+    return calls.filter((call) => call !== 'syncPanelVisibility')
+  }
+
+  // A: primeira pintura de k1 (CONTACT_NOT_LINKED).
+  currentKeyRef.value = 'k1'
+  receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'k1' } })
+  assert.ok(contentWrites(panelCalls).length >= 1, 'sanity: k1 pintou na primeira vez')
+
+  panelCalls.length = 0
+
+  // B: troca real de conversa para k2 (assinatura diferente) — pinta por
+  // cima do MESMO painel compartilhado.
+  currentKeyRef.value = 'k2'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'k2' },
+  })
+  assert.ok(
+    contentWrites(panelCalls).some((html) => html.includes('lead não encontrado')),
+    'sanity: k2 realmente pintou por cima do painel de k1',
+  )
+
+  panelCalls.length = 0
+
+  // Volta para k1: a assinatura de k1 é EXATAMENTE a mesma já registrada
+  // antes — mas o painel visível agora é o de k2. Sem o fix, o dedup por
+  // assinatura pularia este repaint.
+  currentKeyRef.value = 'k1'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'k1' },
+  })
+
+  const writesAfterReturningToA = contentWrites(panelCalls)
+  assert.ok(
+    writesAfterReturningToA.length >= 1,
+    'repinta k1 mesmo com assinatura repetida, porque a conversa autoritativa mudou desde a última pintura',
+  )
+  assert.ok(writesAfterReturningToA.some((html) => html.includes('não vinculado')))
+})
+
 test('bootstrap nunca chama sellerPanelRuntime.renderPanel diretamente — só handleCaptureResult, que decide sozinho quando renderizar', () => {
   const sellerCalls = []
   let receivedOptions = null
