@@ -587,3 +587,102 @@ test('link-lead: cliente tentando sobrescrever identity_source é ignorado — R
   assert.equal(fake.rpcCalls.length, 1)
   assert.equal(fake.rpcCalls[0].params.p_identity_source, 'subscriber_id')
 })
+
+// --- Authorization Hardening E (STEP 2A.4): nenhuma mensagem interna de
+// Supabase/Postgres/RPC/Error.message pode ser devolvida por esta rota —
+// sempre mensagens fixas e canônicas, mesmo quando o banco/RPC devolve
+// detalhe sensível. ---
+
+test('link-lead: erro ao consultar company_memberships nunca expõe detalhe interno do banco', async () => {
+  useAdmin([selectStep('company_memberships', null, { message: 'detalhe interno do postgres' })])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'MEMBERSHIP_ERROR')
+  assert.equal(payload.error, 'Não foi possível validar o vínculo do usuário.')
+  assert.doesNotMatch(payload.error, /detalhe interno do postgres/i)
+})
+
+test('link-lead: erro ao consultar leads nunca expõe detalhe interno do banco', async () => {
+  useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('leads', null, { message: 'relation leads does not exist' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'LEAD_SEARCH_ERROR')
+  assert.equal(payload.error, 'Não foi possível validar o lead selecionado.')
+  assert.doesNotMatch(payload.error, /relation leads does not exist/i)
+})
+
+test('link-lead: erro ao consultar sales_cycles nunca expõe detalhe interno do banco', async () => {
+  useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('leads', leadRow(IDS.leadOwnedByMe)),
+    selectStep('sales_cycles', null, { message: 'permission denied for table leads' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'CYCLE_SEARCH_ERROR')
+  assert.equal(payload.error, 'Não foi possível validar os ciclos comerciais.')
+  assert.doesNotMatch(payload.error, /permission denied/i)
+})
+
+test('link-lead: erro na RPC de first-link nunca expõe detalhe interno do banco', async () => {
+  useAdmin(
+    [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('leads', leadRow(IDS.leadOwnedByMe)),
+      selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
+    ],
+    { rpcResponder: () => ({ error: { message: 'duplicate key value violates unique constraint' } }) },
+  )
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'FIRST_LINK_RPC_ERROR')
+  assert.equal(payload.error, 'Não foi possível vincular o contato ao lead.')
+  assert.doesNotMatch(payload.error, /duplicate key value/i)
+})
+
+test('link-lead: exceção inesperada nunca expõe Error.message interno', async () => {
+  useAdmin(
+    [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('leads', leadRow(IDS.leadOwnedByMe)),
+      selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
+    ],
+    {
+      rpcResponder: () => {
+        throw new Error('internal rpc detail: connection reset by peer')
+      },
+    },
+  )
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 500)
+  assert.equal(payload.status, 'UNEXPECTED_ERROR')
+  assert.equal(payload.error, 'Erro inesperado ao vincular lead.')
+  assert.doesNotMatch(payload.error, /internal rpc detail|connection reset/i)
+})

@@ -187,7 +187,7 @@ export async function POST(request: Request) {
 
       if (candidateError) {
         return NextResponse.json(
-          { ok: false, status: 'LEAD_SEARCH_ERROR', error: candidateError.message },
+          { ok: false, status: 'LEAD_SEARCH_ERROR', error: 'Não foi possível buscar leads.' },
           { status: 400, headers: corsHeaders },
         )
       }
@@ -212,7 +212,7 @@ export async function POST(request: Request) {
 
       if (cycleError) {
         return NextResponse.json(
-          { ok: false, status: 'CYCLE_SEARCH_ERROR', error: cycleError.message },
+          { ok: false, status: 'CYCLE_SEARCH_ERROR', error: 'Não foi possível validar os ciclos comerciais.' },
           { status: 400, headers: corsHeaders },
         )
       }
@@ -247,7 +247,7 @@ export async function POST(request: Request) {
 
         if (ownerError) {
           return NextResponse.json(
-            { ok: false, status: 'OWNER_SEARCH_ERROR', error: ownerError.message },
+            { ok: false, status: 'OWNER_SEARCH_ERROR', error: 'Não foi possível carregar os responsáveis dos leads.' },
             { status: 400, headers: corsHeaders },
           )
         }
@@ -308,7 +308,7 @@ export async function POST(request: Request) {
 
       if (matchError) {
         return NextResponse.json(
-          { ok: false, status: 'LEAD_SEARCH_ERROR', error: matchError.message },
+          { ok: false, status: 'LEAD_SEARCH_ERROR', error: 'Não foi possível buscar leads.' },
           { status: 400, headers: corsHeaders },
         )
       }
@@ -336,15 +336,12 @@ export async function POST(request: Request) {
     // Só o suficiente para o vendedor distinguir leads — nunca
     // cpf/cnpj/email completo/endereço/notas (STEP 2A.2, seção 9).
     return NextResponse.json({ ok: true, leads }, { status: 200, headers: corsHeaders })
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       {
         ok: false,
         status: 'UNEXPECTED_ERROR',
-        error:
-          error instanceof Error && error.message
-            ? error.message
-            : 'Erro inesperado ao buscar leads.',
+        error: 'Erro inesperado ao buscar leads.',
       },
       { status: 500, headers: corsHeaders },
     )

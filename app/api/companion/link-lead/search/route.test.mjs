@@ -99,6 +99,16 @@ function useAdmin(steps) {
   return fake
 }
 
+function throwingStep(table, message) {
+  return {
+    table,
+    method: 'select',
+    respond: () => {
+      throw new Error(message)
+    },
+  }
+}
+
 function postRequest({ token, body }) {
   return new Request('http://localhost/api/companion/link-lead/search', {
     method: 'POST',
@@ -586,4 +596,130 @@ test('link-lead/search: phone query usa dígitos e nunca aceita company_id vindo
       assert.equal(companyFilter.value, IDS.companyA)
     }
   }
+})
+
+// --- Authorization Hardening E (STEP 2A.4): nenhuma mensagem interna de
+// Supabase/Postgres/Error.message pode ser devolvida por esta rota —
+// sempre mensagens fixas e canônicas, mesmo quando o banco devolve
+// detalhe sensível. ---
+
+test('link-lead/search: erro ao consultar company_memberships nunca expõe detalhe interno do banco', async () => {
+  useAdmin([selectStep('company_memberships', null, { message: 'detalhe interno do postgres' })])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'MEMBERSHIP_ERROR')
+  assert.equal(payload.error, 'Não foi possível validar o vínculo do usuário.')
+  assert.doesNotMatch(payload.error, /detalhe interno do postgres/i)
+})
+
+test('link-lead/search: member — erro ao consultar sales_cycles (carteira própria) nunca expõe detalhe interno', async () => {
+  useAdmin([
+    selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
+    selectStep('sales_cycles', null, { message: 'relation sales_cycles does not exist' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'CYCLE_SEARCH_ERROR')
+  assert.equal(payload.error, 'Não foi possível validar os ciclos comerciais.')
+  assert.doesNotMatch(payload.error, /relation sales_cycles does not exist/i)
+})
+
+test('link-lead/search: member — erro ao consultar leads (match do termo) nunca expõe detalhe interno', async () => {
+  useAdmin([
+    selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
+    selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
+    selectStep('leads', null, { message: 'permission denied for table leads' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'LEAD_SEARCH_ERROR')
+  assert.equal(payload.error, 'Não foi possível buscar leads.')
+  assert.doesNotMatch(payload.error, /permission denied/i)
+})
+
+test('link-lead/search: admin/manager — erro ao consultar leads candidatos nunca expõe detalhe interno', async () => {
+  useAdmin([
+    selectStep('company_memberships', membership('admin')),
+    selectStep('profiles', activeProfile()),
+    selectStep('leads', null, { message: 'syntax error in ILIKE pattern' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'LEAD_SEARCH_ERROR')
+  assert.equal(payload.error, 'Não foi possível buscar leads.')
+  assert.doesNotMatch(payload.error, /syntax error/i)
+})
+
+test('link-lead/search: admin/manager — erro ao consultar sales_cycles dos candidatos nunca expõe detalhe interno', async () => {
+  useAdmin([
+    selectStep('company_memberships', membership('admin')),
+    selectStep('profiles', activeProfile()),
+    selectStep('leads', [leadRow(IDS.leadOwnedByOther)]),
+    selectStep('sales_cycles', null, { message: 'deadlock detected' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'CYCLE_SEARCH_ERROR')
+  assert.equal(payload.error, 'Não foi possível validar os ciclos comerciais.')
+  assert.doesNotMatch(payload.error, /deadlock detected/i)
+})
+
+test('link-lead/search: admin/manager — erro ao consultar responsáveis (profiles) nunca expõe detalhe interno', async () => {
+  useAdmin([
+    selectStep('company_memberships', membership('admin')),
+    selectStep('profiles', activeProfile()),
+    selectStep('leads', [leadRow(IDS.leadOwnedByOther)]),
+    selectStep('sales_cycles', [
+      cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
+    ]),
+    selectStep('profiles', null, { message: 'permission denied for table profiles' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.status, 'OWNER_SEARCH_ERROR')
+  assert.equal(payload.error, 'Não foi possível carregar os responsáveis dos leads.')
+  assert.doesNotMatch(payload.error, /permission denied/i)
+})
+
+test('link-lead/search: exceção inesperada nunca expõe Error.message interno', async () => {
+  useAdmin([
+    selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
+    throwingStep('sales_cycles', 'internal socket hang up'),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 500)
+  assert.equal(payload.status, 'UNEXPECTED_ERROR')
+  assert.equal(payload.error, 'Erro inesperado ao buscar leads.')
+  assert.doesNotMatch(payload.error, /internal socket hang up/i)
 })

@@ -205,7 +205,7 @@ export async function POST(request: Request) {
 
     if (leadError) {
       return NextResponse.json(
-        { ok: false, status: 'LEAD_SEARCH_ERROR', error: leadError.message },
+        { ok: false, status: 'LEAD_SEARCH_ERROR', error: 'Não foi possível validar o lead selecionado.' },
         { status: 400, headers: corsHeaders },
       )
     }
@@ -279,7 +279,7 @@ export async function POST(request: Request) {
 
     if (rpcError) {
       return NextResponse.json(
-        { ok: false, status: 'FIRST_LINK_RPC_ERROR', error: rpcError.message },
+        { ok: false, status: 'FIRST_LINK_RPC_ERROR', error: 'Não foi possível vincular o contato ao lead.' },
         { status: 400, headers: corsHeaders },
       )
     }
@@ -309,15 +309,12 @@ export async function POST(request: Request) {
       { ok: true, status: row.status, lead_id: row.lead_id },
       { status: 200, headers: corsHeaders },
     )
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       {
         ok: false,
         status: 'UNEXPECTED_ERROR',
-        error:
-          error instanceof Error && error.message
-            ? error.message
-            : 'Erro inesperado ao vincular lead.',
+        error: 'Erro inesperado ao vincular lead.',
       },
       { status: 500, headers: corsHeaders },
     )

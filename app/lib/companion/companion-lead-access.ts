@@ -153,7 +153,11 @@ export async function verifyActiveCompanionMembership({
     .maybeSingle()
 
   if (error) {
-    return { active: false, role: null as string | null, error: error.message as string }
+    return {
+      active: false,
+      role: null as string | null,
+      error: 'Não foi possível validar o vínculo do usuário.',
+    }
   }
 
   const membership = (data as CompanionMembershipRow | null) ?? null
@@ -197,7 +201,10 @@ export async function loadSalesCyclesForLead({
     .order('created_at', { ascending: false, nullsFirst: false })
 
   if (error) {
-    return { cycles: [] as CompanionSalesCycleRow[], error: error.message as string }
+    return {
+      cycles: [] as CompanionSalesCycleRow[],
+      error: 'Não foi possível validar os ciclos comerciais.',
+    }
   }
 
   return {
@@ -234,7 +241,10 @@ export async function loadOpenCyclesOwnedByUser({
     .order('created_at', { ascending: false, nullsFirst: false })
 
   if (error) {
-    return { cycles: [] as CompanionSalesCycleRow[], error: error.message as string }
+    return {
+      cycles: [] as CompanionSalesCycleRow[],
+      error: 'Não foi possível validar os ciclos comerciais.',
+    }
   }
 
   return {
