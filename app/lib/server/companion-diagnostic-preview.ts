@@ -16,6 +16,10 @@ import type {
   CompanionTokenPayload,
 } from './companion-token'
 
+import {
+  verifyActiveCompanionProfile,
+} from '../companion/companion-principal-access'
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -578,6 +582,29 @@ export async function runCompanionDiagnosticPreview({
       membership,
       token,
     })
+
+  const profileAccess =
+    await verifyActiveCompanionProfile({
+      admin,
+      userId,
+    })
+
+  if (profileAccess.error) {
+    throwQueryFailure()
+  }
+
+  if (!profileAccess.active) {
+    fail({
+      code:
+        'PREVIEW_PROFILE_INACTIVE',
+
+      message:
+        'Usuário globalmente inativo ou sem perfil válido.',
+
+      status_code: 403,
+      retryable: false,
+    })
+  }
 
   const {
     data: cycle,
