@@ -144,6 +144,7 @@
       if (!stateByConversationKey.has(conversationKey)) {
         stateByConversationKey.set(conversationKey, {
           resolution: null,
+          resolutionIdentity: null,
           baseVersionsByMessageKey: {},
           lastContentFingerprint: null,
           transcribedMessageKeys: new Set(),
@@ -192,11 +193,15 @@
     // usado por captureNow para ingerir o conteúdo do contato NOVO). Usa a
     // mesma dupla checagem de identidade (antes e depois do await) já
     // aplicada em refreshLeadResolution — nunca um segundo algoritmo.
-    async function resolveAndStoreResolution(conversationKey) {
+    async function resolveAndStoreResolution(
+      conversationKey,
+      initialSafeIdentity = null,
+    ) {
       const state = getConversationState(conversationKey)
 
       function abortStale() {
         state.resolution = null
+        state.resolutionIdentity = null
         return Object.freeze({
           ready: false,
           reason: 'CONTACT_CHANGED',
@@ -208,7 +213,8 @@
         return abortStale()
       }
 
-      const safeIdentity = await getSafeIdentity()
+      const safeIdentity =
+        initialSafeIdentity ?? await getSafeIdentity()
 
       if (!isCurrentConversation(conversationKey)) {
         return abortStale()
@@ -220,6 +226,7 @@
           reason: 'identity_not_ready',
           cycle_id: null,
         })
+        state.resolutionIdentity = null
         return state.resolution
       }
 
@@ -252,16 +259,81 @@
         cycle_id: eligible ? resolution.cycle.id : null,
       })
 
+      state.resolutionIdentity = Object.freeze({
+        platform: expectedPlatform,
+        key: expectedIdentityKey,
+      })
+
       return state.resolution
     }
 
+    // Hardening (auditoria STEP 2A.4, "CACHED RESOLUTION IDENTITY SAFETY"):
+    // o cache quente (state.resolution já preenchido) nunca pode ser
+    // reutilizado sem confirmar que a safe identity ATUAL ainda é a mesma
+    // que originou aquele cache — conversation_key sozinho não garante
+    // isso, já que o ManyChat pode reaproveitar a mesma thread para outro
+    // assinante sem nenhum conversation_changed. Toda leitura de
+    // state.resolution passa a exigir uma leitura de identidade fresca e a
+    // comparação contra state.resolutionIdentity (o binding gravado por
+    // resolveAndStoreResolution/refreshLeadResolution). Identidade
+    // divergente descarta o cache e força um resolve novo — nunca reusa o
+    // cycle antigo. A identidade recém-lida é repassada para
+    // resolveAndStoreResolution como initialSafeIdentity para nunca pedir
+    // a mesma identidade duas vezes.
     async function ensureCycleResolved(conversationKey) {
       const state = getConversationState(conversationKey)
-      if (state.resolution) {
+
+      if (!isCurrentConversation(conversationKey)) {
+        state.resolution = null
+        state.resolutionIdentity = null
+        return Object.freeze({
+          ready: false,
+          reason: 'CONTACT_CHANGED',
+          cycle_id: null,
+        })
+      }
+
+      const safeIdentity = await getSafeIdentity()
+
+      if (!isCurrentConversation(conversationKey)) {
+        state.resolution = null
+        state.resolutionIdentity = null
+        return Object.freeze({
+          ready: false,
+          reason: 'CONTACT_CHANGED',
+          cycle_id: null,
+        })
+      }
+
+      if (!safeIdentity?.platform || !safeIdentity?.platform_identity?.key) {
+        state.resolution = Object.freeze({
+          ready: false,
+          reason: 'identity_not_ready',
+          cycle_id: null,
+        })
+        state.resolutionIdentity = null
         return state.resolution
       }
 
-      return resolveAndStoreResolution(conversationKey)
+      if (
+        state.resolution &&
+        state.resolutionIdentity &&
+        matchesExpectedIdentity(
+          safeIdentity,
+          state.resolutionIdentity.platform,
+          state.resolutionIdentity.key,
+        )
+      ) {
+        return state.resolution
+      }
+
+      state.resolution = null
+      state.resolutionIdentity = null
+
+      return resolveAndStoreResolution(
+        conversationKey,
+        safeIdentity,
+      )
     }
 
     // Hardening (auditoria STEP 2A.3, "CONTACT_NOT_LINKED INVALIDATED ON
@@ -281,6 +353,7 @@
       }
 
       state.resolution = null
+      state.resolutionIdentity = null
       return true
     }
 
@@ -321,6 +394,7 @@
         // normal (captureNow/ensureCycleResolved) fará RESOLVE_LEAD de
         // novo quando o vendedor realmente voltar para ela.
         state.resolution = null
+        state.resolutionIdentity = null
         return Object.freeze({ ready: false, reason: 'CONTACT_CHANGED', cycle_id: null })
       }
 
@@ -361,6 +435,11 @@
         ready: eligible,
         reason: eligible ? null : (resolution?.status ?? 'resolution_unavailable'),
         cycle_id: eligible ? resolution.cycle.id : null,
+      })
+
+      state.resolutionIdentity = Object.freeze({
+        platform: expectedPlatform,
+        key: expectedIdentityKey,
       })
 
       return state.resolution
