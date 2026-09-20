@@ -8,6 +8,7 @@ import {
   type LeadEnrichmentUpdateField,
 } from '@/app/lib/companion/lead-enrichment-update-contract'
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
+import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
 
 type MembershipRow = {
   company_id: string
@@ -342,6 +343,39 @@ export async function POST(
           'no_company_permission',
         error:
           'Usuário sem vínculo ativo com esta empresa.',
+      },
+      403,
+    )
+  }
+
+  // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership ativa
+  // sozinha não basta — um usuário com profiles.is_active_global=false
+  // precisa perder a capacidade de atualizar lead/lead_profile
+  // IMEDIATAMENTE, mesmo com um Companion token ainda válido por horas.
+  const profileAccess = await verifyActiveCompanionProfile({
+    admin,
+    userId: tokenPayload.sub,
+  })
+
+  if (profileAccess.error) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        code: 'profile_lookup_failed',
+        error: profileAccess.error,
+      },
+      400,
+    )
+  }
+
+  if (!profileAccess.active) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        code: 'profile_inactive',
+        error: 'Usuário globalmente inativo ou sem perfil válido.',
       },
       403,
     )

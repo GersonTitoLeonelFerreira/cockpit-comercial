@@ -54,6 +54,7 @@ function matchesFilters(
 
 function createFakeAdmin({
   memberships = [],
+  profiles = [],
   cycles = [],
   reconciliation = [],
   messages = [],
@@ -66,6 +67,8 @@ function createFakeAdmin({
   slaRulesError = null,
 } = {}) {
   const tables = {
+    profiles,
+
     company_memberships:
       memberships,
 
@@ -257,6 +260,21 @@ function baseFixtures(
       },
     ],
 
+    // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): default com os
+    // dois usuários usados pelos testes (dono e "outro vendedor") já
+    // globalmente ativos, para que overrides de `memberships` sozinhos
+    // (trocando só o dono do ciclo) não precisem repetir o profile.
+    profiles: [
+      {
+        id: OWNER_USER_ID,
+        is_active_global: true,
+      },
+      {
+        id: OTHER_USER_ID,
+        is_active_global: true,
+      },
+    ],
+
     cycles: [
       {
         id:
@@ -395,6 +413,101 @@ test(
         assert.equal(
           error.status_code,
           403,
+        )
+
+        return true
+      },
+    )
+  },
+)
+
+// REVOGAÇÃO GLOBAL IMEDIATA (STEP 2A.4): membership ativa sozinha não
+// basta — profiles.is_active_global=false precisa bloquear antes de
+// qualquer leitura de cycle/lead/mensagem.
+test(
+  'profile globalmente inativo é negado antes de qualquer leitura do ciclo',
+  async () => {
+    const admin =
+      createFakeAdmin(
+        baseFixtures({
+          profiles: [
+            {
+              id: OWNER_USER_ID,
+              is_active_global: false,
+            },
+          ],
+        }),
+      )
+
+    await assert.rejects(
+      () =>
+        loadCompanionClientContext({
+          admin,
+
+          token:
+            buildToken(),
+
+          cycle_id:
+            CYCLE_ID,
+
+          conversation_key:
+            CONVERSATION_KEY,
+
+          reference_time:
+            REFERENCE_TIME,
+        }),
+      (
+        error,
+      ) => {
+        assert.equal(
+          error.code,
+          'CLIENT_CONTEXT_PROFILE_INACTIVE',
+        )
+
+        assert.equal(
+          error.status_code,
+          403,
+        )
+
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'profile ausente é tratado como globalmente inativo (fail closed)',
+  async () => {
+    const admin =
+      createFakeAdmin(
+        baseFixtures({
+          profiles: [],
+        }),
+      )
+
+    await assert.rejects(
+      () =>
+        loadCompanionClientContext({
+          admin,
+
+          token:
+            buildToken(),
+
+          cycle_id:
+            CYCLE_ID,
+
+          conversation_key:
+            CONVERSATION_KEY,
+
+          reference_time:
+            REFERENCE_TIME,
+        }),
+      (
+        error,
+      ) => {
+        assert.equal(
+          error.code,
+          'CLIENT_CONTEXT_PROFILE_INACTIVE',
         )
 
         return true

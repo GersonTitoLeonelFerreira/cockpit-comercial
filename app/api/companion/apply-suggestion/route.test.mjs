@@ -55,6 +55,11 @@ const ACTIVE_MEMBERSHIP = {
   is_active: true,
 }
 
+const ACTIVE_PROFILE = {
+  id: IDS.userA,
+  is_active_global: true,
+}
+
 function openCycle(overrides = {}) {
   return {
     id: IDS.cycle,
@@ -135,6 +140,38 @@ test('apply-suggestion: token expirado é rejeitado', async () => {
 
   assert.equal(response.status, 401)
   assert.equal(fake.calls.length, 0)
+})
+
+// ---------------------------------------------------------------------
+// REVOGAÇÃO GLOBAL IMEDIATA — token válido + membership ativa não
+// bastam: profiles.is_active_global=false precisa bloquear IMEDIATAMENTE.
+// ---------------------------------------------------------------------
+
+test('apply-suggestion: token válido + membership ativa, mas profile.is_active_global=false — 403, ZERO sales_cycles update, ZERO cycle_events', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', { ...ACTIVE_PROFILE, is_active_global: false }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycle,
+        applied_status: 'negociacao',
+        suggestion: suggestion(),
+        confirmed_by_human: true,
+      },
+    }),
+  )
+
+  assert.equal(response.status, 403)
+  assert.equal(
+    fake.calls.some((call) => call.method === 'update' || call.method === 'insert'),
+    false,
+    'profile globalmente inativo nunca pode escrever em sales_cycles/cycle_events',
+  )
 })
 
 // ---------------------------------------------------------------------
@@ -219,6 +256,7 @@ test('apply-suggestion: confirmed_by_human com valor truthy não-booleano (ex.: 
 test('apply-suggestion: confirmed_by_human=true explícito também aplica e registra o sinal real recebido', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', openCycle()),
     updateStep('sales_cycles', null),
     insertStep('cycle_events', null),
@@ -255,6 +293,7 @@ test('apply-suggestion: confirmed_by_human=true explícito também aplica e regi
 test('apply-suggestion DOWNGRADE: token diz admin mas a membership ATUAL é member, ciclo de outro vendedor — 403, ZERO sales_cycles.update, ZERO cycle_events', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', openCycle({ owner_user_id: IDS.otherSeller })),
   ])
   // Token assinado com role=admin — pode ter sido emitido ANTES do
@@ -284,6 +323,7 @@ test('apply-suggestion DOWNGRADE: token diz admin mas a membership ATUAL é memb
 test('apply-suggestion UPGRADE: token diz member mas a membership ATUAL é manager, ciclo de outro vendedor — não rejeita por ownership', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', openCycle({ owner_user_id: IDS.otherSeller })),
     updateStep('sales_cycles', null),
     insertStep('cycle_events', null),
@@ -312,6 +352,7 @@ test('apply-suggestion UPGRADE: token diz member mas a membership ATUAL é manag
 test('apply-suggestion: consulta do ciclo usa o company_id do token, mesmo que o corpo tente injetar outro', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', openCycle()),
     updateStep('sales_cycles', null),
     insertStep('cycle_events', null),
@@ -343,6 +384,7 @@ test('apply-suggestion: consulta do ciclo usa o company_id do token, mesmo que o
 test('apply-suggestion: ciclo de outra empresa (tenant errado) não é encontrado, mesmo com confirmação válida', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     // A query real filtra por company_id do token; um ciclo de outra
     // empresa nunca bateria o filtro e o Supabase real devolveria null.
     selectStep('sales_cycles', null),
@@ -374,6 +416,7 @@ test('apply-suggestion: ciclo de outra empresa (tenant errado) não é encontrad
 test('apply-suggestion: replay da mesma sugestão já confirmada contra ciclo inalterado é idempotente (não escreve de novo)', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     // O ciclo já está no estado que a sugestão pediria (replay de uma
     // aplicação anterior bem-sucedida) — o route.ts detecta que nada
     // mudaria e responde already_applied:true sem tocar em update/insert.

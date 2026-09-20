@@ -54,6 +54,11 @@ const ACTIVE_MEMBERSHIP = {
   is_active: true,
 }
 
+const ACTIVE_PROFILE = {
+  id: IDS.userA,
+  is_active_global: true,
+}
+
 const CYCLE_OWNED_BY_OTHER = {
   id: IDS.cycle,
   company_id: IDS.companyA,
@@ -84,6 +89,7 @@ async function readJson(response) {
 test('audio-transcriptions DOWNGRADE: token diz admin mas a membership ATUAL é member, ciclo de outro vendedor — 403, ZERO transcrições retornadas', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', CYCLE_OWNED_BY_OTHER),
   ])
   // Token assinado com role=admin — pode ter sido emitido ANTES do
@@ -105,6 +111,7 @@ test('audio-transcriptions DOWNGRADE: token diz admin mas a membership ATUAL é 
 test('audio-transcriptions UPGRADE: token diz member mas a membership ATUAL é admin, ciclo de outro vendedor — acesso permitido conforme regra administrativa', async () => {
   useAdmin([
     selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', CYCLE_OWNED_BY_OTHER),
     selectStep('cycle_events', [
       {
@@ -134,6 +141,7 @@ test('audio-transcriptions UPGRADE: token diz member mas a membership ATUAL é a
 test('audio-transcriptions: member dono do ciclo sempre acessa as próprias transcrições, sem depender de role administrativa', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, owner_user_id: IDS.userA }),
     selectStep('cycle_events', []),
   ])
@@ -144,4 +152,28 @@ test('audio-transcriptions: member dono do ciclo sempre acessa as próprias tran
 
   assert.equal(response.status, 200)
   assert.equal(payload.data.transcriptions.length, 0)
+})
+
+// ---------------------------------------------------------------------
+// REVOGAÇÃO GLOBAL IMEDIATA — token válido + membership ativa não
+// bastam: profiles.is_active_global=false precisa bloquear IMEDIATAMENTE.
+// ---------------------------------------------------------------------
+
+test('audio-transcriptions: token válido + membership ativa, mas profile.is_active_global=false — 403, ZERO texto de transcrição retornado', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', { ...ACTIVE_PROFILE, is_active_global: false }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 403)
+  assert.equal(payload.ok, false)
+  assert.equal(
+    fake.calls.some((call) => call.table === 'cycle_events'),
+    false,
+    'profile globalmente inativo nunca pode ler transcrições de cycle_events',
+  )
 })

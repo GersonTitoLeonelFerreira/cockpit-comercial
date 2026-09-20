@@ -35,9 +35,10 @@ function matchesFilters(row, filters) {
   return filters.every((filter) => row[filter.column] === filter.value)
 }
 
-function createFakeAdmin({ memberships = [], cycles = [], reconciliation = [], messages = [] } = {}) {
+function createFakeAdmin({ memberships = [], profiles = [], cycles = [], reconciliation = [], messages = [] } = {}) {
   const tables = {
     company_memberships: memberships,
+    profiles,
     sales_cycles: cycles,
     conversation_message_reconciliation_state: reconciliation,
     conversation_messages: messages,
@@ -109,6 +110,14 @@ function membershipRow(overrides = {}) {
   }
 }
 
+function profileRow(overrides = {}) {
+  return {
+    id: OWNER_USER_ID,
+    is_active_global: true,
+    ...overrides,
+  }
+}
+
 function cycleRow(overrides = {}) {
   return {
     id: CYCLE_A,
@@ -139,6 +148,11 @@ function textMessage({ id, messageKey, version = 1, direction = 'incoming', occu
 function baseFixtures(overrides = {}) {
   return {
     memberships: [membershipRow()],
+    // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): os dois
+    // usuários usados pelos testes (dono e "outro vendedor") já
+    // globalmente ativos, para que overrides de `memberships` sozinhos
+    // não precisem repetir o profile.
+    profiles: [profileRow(), profileRow({ id: OTHER_USER_ID })],
     cycles: [cycleRow()],
     reconciliation: [
       { company_id: COMPANY_A, conversation_key: CONVERSATION_KEY, current_message_id: 1 },
@@ -446,6 +460,49 @@ test('usuário sem vínculo ativo com a empresa é bloqueado antes de tocar o ci
     (error) => {
       assert.ok(error instanceof CompanionConversationRegistrationError)
       assert.equal(error.code, 'CONVERSATION_REGISTRATION_MEMBERSHIP_REQUIRED')
+      return true
+    },
+  )
+})
+
+// REVOGAÇÃO GLOBAL IMEDIATA (STEP 2A.4): membership ativa sozinha não
+// basta — profiles.is_active_global=false precisa bloquear antes de
+// qualquer leitura do ciclo/mensagens.
+test('profile globalmente inativo é bloqueado antes de tocar o ciclo', async () => {
+  const admin = createFakeAdmin(baseFixtures({ profiles: [profileRow({ is_active_global: false })] }))
+  const token = buildToken()
+
+  await assert.rejects(
+    () =>
+      loadCanonicalConversationForRegistration({
+        admin,
+        token,
+        cycle_id: CYCLE_A,
+        conversation_key: CONVERSATION_KEY,
+      }),
+    (error) => {
+      assert.ok(error instanceof CompanionConversationRegistrationError)
+      assert.equal(error.code, 'CONVERSATION_REGISTRATION_PROFILE_INACTIVE')
+      assert.equal(error.status_code, 403)
+      return true
+    },
+  )
+})
+
+test('profile ausente é tratado como globalmente inativo (fail closed)', async () => {
+  const admin = createFakeAdmin(baseFixtures({ profiles: [] }))
+  const token = buildToken()
+
+  await assert.rejects(
+    () =>
+      loadCanonicalConversationForRegistration({
+        admin,
+        token,
+        cycle_id: CYCLE_A,
+        conversation_key: CONVERSATION_KEY,
+      }),
+    (error) => {
+      assert.equal(error.code, 'CONVERSATION_REGISTRATION_PROFILE_INACTIVE')
       return true
     },
   )

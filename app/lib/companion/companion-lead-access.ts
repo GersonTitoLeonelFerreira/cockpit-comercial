@@ -12,6 +12,8 @@
 // divirjam da mesma definição de carteira que o resto do Companion já usa
 // — ver STEP 2A.2, seção 6/7 da missão.
 
+import { verifyActiveCompanionProfile } from './companion-principal-access'
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabaseAdminClient = any
 
@@ -125,6 +127,14 @@ export type CompanionMembershipRow = {
 // A role autorizativa deve ser sempre a membership ATUAL do banco, nunca
 // tokenPayload.role, porque o token Companion pode permanecer válido
 // depois de downgrade/upgrade de role.
+//
+// Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership ativa
+// sozinha não basta — um usuário com profiles.is_active_global=false
+// precisa perder acesso IMEDIATAMENTE, mesmo com company_memberships
+// ainda ativa e um Companion token ainda válido por horas. A revalidação
+// do profile acontece aqui, dentro da mesma checagem de membership, para
+// que nenhum dos dois call sites (link-lead/route.ts e
+// link-lead/search/route.ts) precise duplicar essa consulta.
 export async function verifyActiveCompanionMembership({
   admin,
   companyId,
@@ -148,9 +158,23 @@ export async function verifyActiveCompanionMembership({
 
   const membership = (data as CompanionMembershipRow | null) ?? null
 
+  if (!membership?.company_id) {
+    return { active: false, role: null as string | null, error: null as string | null }
+  }
+
+  const profileAccess = await verifyActiveCompanionProfile({ admin, userId })
+
+  if (profileAccess.error) {
+    return { active: false, role: null as string | null, error: profileAccess.error }
+  }
+
+  if (!profileAccess.active) {
+    return { active: false, role: null as string | null, error: null as string | null }
+  }
+
   return {
-    active: Boolean(membership?.company_id),
-    role: membership?.role ?? null,
+    active: true,
+    role: membership.role ?? null,
     error: null as string | null,
   }
 }

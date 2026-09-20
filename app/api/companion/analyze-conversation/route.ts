@@ -13,6 +13,7 @@ import {
 import {
   processStatefulCopilotBackgroundMessage,
 } from '@/app/lib/server/stateful-copilot-background-worker'
+import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
 import type {
   AISalesContext,
   AISalesRecentEvent,
@@ -605,6 +606,43 @@ export async function POST(request: Request) {
         {
           ok: false,
           error: 'Usuário sem vínculo ativo com a empresa do Companion.',
+        },
+        {
+          status: 403,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership
+    // ativa sozinha não basta — um usuário com
+    // profiles.is_active_global=false precisa perder a capacidade de
+    // disparar análise profunda IMEDIATAMENTE, mesmo com um Companion
+    // token ainda válido por horas. Antes de qualquer insert de job de
+    // análise ou publicação na queue.
+    const profileAccess = await verifyActiveCompanionProfile({
+      admin,
+      userId: tokenPayload.sub,
+    })
+
+    if (profileAccess.error) {
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
+        {
+          ok: false,
+          error: profileAccess.error,
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (!profileAccess.active) {
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
+        {
+          ok: false,
+          error: 'Usuário globalmente inativo ou sem perfil válido.',
         },
         {
           status: 403,

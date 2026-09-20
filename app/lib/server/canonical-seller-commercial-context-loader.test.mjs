@@ -127,6 +127,12 @@ function createFakeAdmin({
         is_active: true,
       },
     ],
+    profiles: [
+      {
+        id: USER_ID,
+        is_active_global: true,
+      },
+    ],
     sales_cycles: [
       {
         id: CYCLE_ID,

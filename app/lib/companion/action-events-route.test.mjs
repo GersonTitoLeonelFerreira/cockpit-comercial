@@ -39,6 +39,11 @@ function createFakeAdmin({
     is_active: true,
   },
   membershipError = null,
+  profile = {
+    id: IDS.user,
+    is_active_global: true,
+  },
+  profileError = null,
   cycle = {
     id: IDS.cycle,
     company_id: IDS.company,
@@ -74,6 +79,10 @@ function createFakeAdmin({
         async maybeSingle() {
           if (table === 'company_memberships') {
             return { data: membership, error: membershipError }
+          }
+
+          if (table === 'profiles') {
+            return { data: profile, error: profileError }
           }
 
           if (table === 'sales_cycles') {
@@ -142,6 +151,34 @@ test('POST rejeita membership ausente', async () => {
 
   assert.equal(response.status, 403)
   assert.equal((await readJson(response)).status, 'NO_ACTIVE_MEMBERSHIP')
+})
+
+// REVOGAÇÃO GLOBAL IMEDIATA (STEP 2A.4): membership ativa sozinha não
+// basta — profiles.is_active_global=false precisa bloquear antes de
+// qualquer leitura de ciclo ou escrita de action event.
+test('POST rejeita profile globalmente inativo antes de tocar o ciclo', async () => {
+  const { POST, rpcCalls, queryCalls } = createHandlers({
+    adminConfig: { profile: { id: IDS.user, is_active_global: false } },
+  })
+  const response = await POST(postRequest(validBody()))
+
+  assert.equal(response.status, 403)
+  assert.equal((await readJson(response)).status, 'PROFILE_INACTIVE')
+  assert.equal(rpcCalls.length, 0)
+  assert.equal(
+    queryCalls.some((call) => call.table === 'sales_cycles'),
+    false,
+  )
+})
+
+test('POST rejeita profile ausente (fail closed)', async () => {
+  const { POST } = createHandlers({
+    adminConfig: { profile: null },
+  })
+  const response = await POST(postRequest(validBody()))
+
+  assert.equal(response.status, 403)
+  assert.equal((await readJson(response)).status, 'PROFILE_INACTIVE')
 })
 
 test('POST rejeita ciclo inexistente na empresa', async () => {
@@ -259,6 +296,19 @@ test('GET rejeita token inválido', async () => {
 
   assert.equal(response.status, 401)
   assert.equal((await readJson(response)).status, 'INVALID_COMPANION_TOKEN')
+})
+
+test('GET rejeita profile globalmente inativo antes de listar action events', async () => {
+  const { GET, rpcCalls } = createHandlers({
+    adminConfig: { profile: { id: IDS.user, is_active_global: false } },
+  })
+  const response = await GET(
+    new Request('http://localhost/api/companion/actions/events'),
+  )
+
+  assert.equal(response.status, 403)
+  assert.equal((await readJson(response)).status, 'PROFILE_INACTIVE')
+  assert.equal(rpcCalls.length, 0)
 })
 
 test('GET rejeita action_type inválido', async () => {

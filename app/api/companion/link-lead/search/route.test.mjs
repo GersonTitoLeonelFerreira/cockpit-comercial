@@ -62,6 +62,14 @@ function membership(role) {
   }
 }
 
+function activeProfile(overrides = {}) {
+  return {
+    id: IDS.userA,
+    is_active_global: true,
+    ...overrides,
+  }
+}
+
 function leadRow(id, overrides = {}) {
   return {
     id,
@@ -139,6 +147,25 @@ test('link-lead/search: membership inativa é bloqueada', async () => {
   assert.equal(payload.status, 'NO_COMPANY_PERMISSION')
 })
 
+test('link-lead/search: token válido + membership ativa, mas profile.is_active_global=false — bloqueado, ZERO leads/sales_cycles', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile({ is_active_global: false })),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: { query: 'Cliente' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 403)
+  assert.equal(payload.status, 'NO_COMPANY_PERMISSION')
+  assert.equal(
+    fake.calls.some((call) => call.table === 'leads' || call.table === 'sales_cycles'),
+    false,
+    'profile globalmente inativo nunca pode chegar a leads/sales_cycles',
+  )
+})
+
 test('link-lead/search: query vazia é recusada sem tocar o banco', async () => {
   const fake = useAdmin([])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -182,6 +209,7 @@ for (const wildcardQuery of ['__', '_%', '%_']) {
 test('link-lead/search: member só recebe lead OWNED_BY_ME — a própria consulta de ciclos já é escopada ao usuário', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
     selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     selectStep('leads', [
       leadRow(IDS.leadOwnedByMe),
@@ -204,10 +232,10 @@ test('link-lead/search: member só recebe lead OWNED_BY_ME — a própria consul
 
   assert.deepEqual(
     fake.calls.map((call) => call.table),
-    ['company_memberships', 'sales_cycles', 'leads'],
+    ['company_memberships', 'profiles', 'sales_cycles', 'leads'],
   )
 
-  const ownedCyclesCall = fake.calls[1]
+  const ownedCyclesCall = fake.calls[2]
   const ownerFilter = ownedCyclesCall.filters.find((f) => f.column === 'owner_user_id')
   assert.equal(ownerFilter.value, IDS.userA)
 })
@@ -215,6 +243,7 @@ test('link-lead/search: member só recebe lead OWNED_BY_ME — a própria consul
 test('link-lead/search: member sem nenhum ciclo aberto próprio recebe lista vazia sem consultar leads', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
     selectStep('sales_cycles', []),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
@@ -233,6 +262,7 @@ test('link-lead/search: member sem nenhum ciclo aberto próprio recebe lista vaz
 test('link-lead/search: lead soft-deleted nunca aparece, mesmo com ciclo aberto próprio', async () => {
   useAdmin([
     selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
     selectStep('sales_cycles', [
       cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA }),
       cycleRow({ leadId: IDS.leadDeleted, ownerUserId: IDS.userA }),
@@ -255,6 +285,7 @@ test('link-lead/search: lead soft-deleted nunca aparece, mesmo com ciclo aberto 
 test('link-lead/search: admin encontra leads de outros vendedores, do pool e sem ciclo (company-wide) com owner_name', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', membership('admin')),
+    selectStep('profiles', activeProfile()),
     selectStep('leads', [
       leadRow(IDS.leadOwnedByMe),
       leadRow(IDS.leadOwnedByOther),
@@ -302,6 +333,7 @@ test('link-lead/search: admin encontra leads de outros vendedores, do pool e sem
 test('link-lead/search: manager tem a mesma visibilidade company-wide que admin', async () => {
   useAdmin([
     selectStep('company_memberships', membership('manager')),
+    selectStep('profiles', activeProfile()),
     selectStep('leads', [
       leadRow(IDS.leadOwnedByMe),
       leadRow(IDS.leadOwnedByOther),
@@ -332,6 +364,7 @@ test('link-lead/search: manager tem a mesma visibilidade company-wide que admin'
 test('link-lead/search: token diz admin, membership atual diz member -> comportamento de MEMBER', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
     selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     selectStep('leads', [leadRow(IDS.leadOwnedByMe)]),
   ])
@@ -343,15 +376,19 @@ test('link-lead/search: token diz admin, membership atual diz member -> comporta
   assert.equal(response.status, 200)
   assert.equal(payload.leads.length, 1)
   assert.equal(payload.leads[0].owner_name, null)
+  // Só a checagem de perfil globalmente ativo consulta profiles — nunca
+  // uma segunda consulta de owner_name (o caminho member nunca busca
+  // nome de dono, já que o dono é sempre o próprio usuário).
   assert.equal(
-    fake.calls.some((call) => call.table === 'profiles'),
-    false,
+    fake.calls.filter((call) => call.table === 'profiles').length,
+    1,
   )
 })
 
 test('link-lead/search: token diz manager, membership atual diz member -> comportamento de MEMBER', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
     selectStep('sales_cycles', []),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'manager' })
@@ -370,6 +407,7 @@ test('link-lead/search: token diz manager, membership atual diz member -> compor
 test('link-lead/search: token diz member, membership atual diz admin -> comportamento de ADMIN', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', membership('admin')),
+    selectStep('profiles', activeProfile()),
     selectStep('leads', [leadRow(IDS.leadOwnedByOther)]),
     selectStep('sales_cycles', [
       cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
@@ -385,12 +423,13 @@ test('link-lead/search: token diz member, membership atual diz admin -> comporta
   assert.equal(payload.leads.length, 1)
   assert.equal(payload.leads[0].id, IDS.leadOwnedByOther)
   assert.equal(payload.leads[0].owner_name, 'Vendedor Dois')
-  assert.equal(fake.calls[1].table, 'leads')
+  assert.equal(fake.calls[2].table, 'leads')
 })
 
 test('link-lead/search: token diz member, membership atual diz manager -> comportamento de MANAGER', async () => {
   useAdmin([
     selectStep('company_memberships', membership('manager')),
+    selectStep('profiles', activeProfile()),
     selectStep('leads', [leadRow(IDS.leadPool)]),
     selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadPool, ownerUserId: null })]),
   ])
@@ -409,6 +448,7 @@ test('link-lead/search: token diz member, membership atual diz manager -> compor
 test('link-lead/search: owner sem full_name nunca expõe e-mail como owner_name', async () => {
   useAdmin([
     selectStep('company_memberships', membership('admin')),
+    selectStep('profiles', activeProfile()),
     selectStep('leads', [leadRow(IDS.leadOwnedByOther)]),
     selectStep('sales_cycles', [
       cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
@@ -431,6 +471,7 @@ test('link-lead/search: owner sem full_name nunca expõe e-mail como owner_name'
 test('link-lead/search: caminho member começa pela carteira própria (sales_cycles escopado por owner_user_id), nunca por uma busca company-wide em leads', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
     selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     selectStep('leads', [leadRow(IDS.leadOwnedByMe)]),
   ])
@@ -443,17 +484,18 @@ test('link-lead/search: caminho member começa pela carteira própria (sales_cyc
   assert.equal(payload.leads.length, 1)
   assert.equal(payload.leads[0].id, IDS.leadOwnedByMe)
 
-  // Prova direta de "portfolio-first": a segunda chamada ao banco (logo
-  // após a membership) é sales_cycles, nunca leads — e ela já chega
-  // filtrada por company_id do token E owner_user_id do usuário, nunca
-  // uma varredura company-wide sem dono. `leads` só é consultada DEPOIS,
-  // e já restrita (`in`) ao conjunto de ids que essa consulta devolveu.
+  // Prova direta de "portfolio-first": logo após membership/profile, a
+  // chamada seguinte ao banco é sales_cycles, nunca leads — e ela já
+  // chega filtrada por company_id do token E owner_user_id do usuário,
+  // nunca uma varredura company-wide sem dono. `leads` só é consultada
+  // DEPOIS, e já restrita (`in`) ao conjunto de ids que essa consulta
+  // devolveu.
   assert.deepEqual(
     fake.calls.map((call) => call.table),
-    ['company_memberships', 'sales_cycles', 'leads'],
+    ['company_memberships', 'profiles', 'sales_cycles', 'leads'],
   )
 
-  const ownedCyclesCall = fake.calls[1]
+  const ownedCyclesCall = fake.calls[2]
   assert.deepEqual(
     ownedCyclesCall.filters.map((filter) => [filter.column, filter.value]),
     [
@@ -462,7 +504,7 @@ test('link-lead/search: caminho member começa pela carteira própria (sales_cyc
     ],
   )
 
-  const leadsMatchCall = fake.calls[2]
+  const leadsMatchCall = fake.calls[3]
   const leadsInFilter = leadsMatchCall.filters.find((filter) => filter.op === 'in')
   assert.equal(leadsInFilter.column, 'id')
   assert.deepEqual(leadsInFilter.values, [IDS.leadOwnedByMe])
@@ -478,6 +520,7 @@ test('link-lead/search: nunca retorna mais que MAX_RESULTS (10) leads para membe
 
   useAdmin([
     selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
     selectStep('sales_cycles', manyCycles),
     selectStep('leads', manyLeads),
   ])
@@ -493,6 +536,7 @@ test('link-lead/search: nunca retorna mais que MAX_RESULTS (10) leads para membe
 test('link-lead/search: resposta nunca contém CPF/CNPJ/e-mail completo/endereço/identidade externa bruta', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', membership('admin')),
+    selectStep('profiles', activeProfile()),
     selectStep('leads', [leadRow(IDS.leadOwnedByOther)]),
     selectStep('sales_cycles', [
       cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
@@ -521,6 +565,7 @@ test('link-lead/search: resposta nunca contém CPF/CNPJ/e-mail completo/endereç
 test('link-lead/search: phone query usa dígitos e nunca aceita company_id vindo do corpo', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', membership('member')),
+    selectStep('profiles', activeProfile()),
     selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     selectStep('leads', [leadRow(IDS.leadOwnedByMe)]),
   ])

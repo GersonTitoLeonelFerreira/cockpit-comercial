@@ -142,9 +142,10 @@ function buildQueryClass(tables) {
   }
 }
 
-function createFakeAdmin({ memberships, cycles, jobs, events }) {
+function createFakeAdmin({ memberships, profiles = [], cycles, jobs, events }) {
   const Query = buildQueryClass({
     company_memberships: memberships,
+    profiles,
     sales_cycles: cycles,
     companion_background_analysis_jobs: jobs,
     companion_commercial_state_events: events,
@@ -222,4 +223,67 @@ test('membership com is_active=false é negada mesmo com token válido e víncul
   assert.equal(body.ok, false)
   assert.equal(body.code, 'ANALYSIS_JOB_MEMBERSHIP_REQUIRED')
   assert.equal(body.data, undefined)
+})
+
+// REVOGAÇÃO GLOBAL IMEDIATA (STEP 2A.4): membership ativa sozinha não
+// basta — profiles.is_active_global=false precisa bloquear status/retry
+// da análise profunda IMEDIATAMENTE, mesmo com um Companion token ainda
+// válido e uma membership.is_active=true.
+test('profile.is_active_global=false é negado mesmo com token válido e membership ativa', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = {
+    memberships: [{
+      company_id: IDS.companyA,
+      user_id: IDS.userA,
+      role: 'member',
+      is_active: true,
+    }],
+    profiles: [{
+      id: IDS.userA,
+      is_active_global: false,
+    }],
+    cycles: [{
+      id: IDS.cycleA,
+      company_id: IDS.companyA,
+      owner_user_id: IDS.userA,
+    }],
+    jobs: [jobRow({ status: 'queued' })],
+    events: [],
+  }
+
+  const { status, body } = await callStatus(fixtures, token, {
+    analysis_job_id: ANALYSIS_JOB_ID_A,
+  })
+
+  assert.equal(status, 403)
+  assert.equal(body.ok, false)
+  assert.equal(body.code, 'ANALYSIS_JOB_PROFILE_INACTIVE')
+  assert.equal(body.data, undefined)
+})
+
+test('profile ausente é tratado como globalmente inativo (fail closed)', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = {
+    memberships: [{
+      company_id: IDS.companyA,
+      user_id: IDS.userA,
+      role: 'member',
+      is_active: true,
+    }],
+    profiles: [],
+    cycles: [{
+      id: IDS.cycleA,
+      company_id: IDS.companyA,
+      owner_user_id: IDS.userA,
+    }],
+    jobs: [jobRow({ status: 'queued' })],
+    events: [],
+  }
+
+  const { status, body } = await callStatus(fixtures, token, {
+    analysis_job_id: ANALYSIS_JOB_ID_A,
+  })
+
+  assert.equal(status, 403)
+  assert.equal(body.code, 'ANALYSIS_JOB_PROFILE_INACTIVE')
 })

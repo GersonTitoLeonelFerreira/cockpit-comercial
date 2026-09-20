@@ -14,6 +14,10 @@ import {
 } from './stateful-copilot-background-job'
 
 import {
+  verifyActiveCompanionProfile,
+} from '../companion/companion-principal-access'
+
+import {
   STATEFUL_COPILOT_CONTRACT_VERSION,
 } from '../companion/stateful-copilot-contract'
 
@@ -298,6 +302,42 @@ async function validateMembership({
 
       message:
         'Usuário sem vínculo ativo com a empresa do Companion.',
+
+      status_code: 403,
+      retryable: false,
+    })
+  }
+
+  // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership ativa
+  // sozinha não basta — um usuário com profiles.is_active_global=false
+  // precisa perder acesso ao status/retry da análise profunda
+  // IMEDIATAMENTE, mesmo com um Companion token ainda válido por horas.
+  const profileAccess =
+    await verifyActiveCompanionProfile({
+      admin,
+      userId,
+    })
+
+  if (profileAccess.error) {
+    fail({
+      code:
+        'ANALYSIS_JOB_QUERY_FAILED',
+
+      message:
+        'Não foi possível validar o perfil do usuário.',
+
+      status_code: 500,
+      retryable: true,
+    })
+  }
+
+  if (!profileAccess.active) {
+    fail({
+      code:
+        'ANALYSIS_JOB_PROFILE_INACTIVE',
+
+      message:
+        'Usuário globalmente inativo ou sem perfil válido.',
 
       status_code: 403,
       retryable: false,

@@ -13,6 +13,10 @@ import type {
 } from './companion-token'
 
 import {
+  verifyActiveCompanionProfile,
+} from '../companion/companion-principal-access'
+
+import {
   computeCompanionClientRelationship,
   computeCompanionClientWaiting,
   type CompanionClientMessageFact,
@@ -366,6 +370,44 @@ async function validateMembership({
 
       message:
         'Usuário sem vínculo ativo com a empresa do Companion.',
+
+      status_code: 403,
+      retryable: false,
+    })
+  }
+
+  // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership ativa
+  // sozinha não basta — um usuário com profiles.is_active_global=false
+  // precisa perder acesso a esta cadeia seller-facing (client-context,
+  // decision-state, analysis-view-model, customer-view-model,
+  // method-guidance) IMEDIATAMENTE, mesmo com um Companion token ainda
+  // válido por horas.
+  const profileAccess =
+    await verifyActiveCompanionProfile({
+      admin,
+      userId,
+    })
+
+  if (profileAccess.error) {
+    fail({
+      code:
+        'CLIENT_CONTEXT_QUERY_FAILED',
+
+      message:
+        'Não foi possível validar o perfil do usuário.',
+
+      status_code: 500,
+      retryable: true,
+    })
+  }
+
+  if (!profileAccess.active) {
+    fail({
+      code:
+        'CLIENT_CONTEXT_PROFILE_INACTIVE',
+
+      message:
+        'Usuário globalmente inativo ou sem perfil válido.',
 
       status_code: 403,
       retryable: false,

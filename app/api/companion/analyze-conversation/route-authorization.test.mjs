@@ -76,6 +76,11 @@ const ACTIVE_MEMBERSHIP = {
   is_active: true,
 }
 
+const ACTIVE_PROFILE = {
+  id: IDS.userA,
+  is_active_global: true,
+}
+
 function cycleOwnedByOther(overrides = {}) {
   return {
     id: IDS.cycle,
@@ -140,9 +145,32 @@ async function readJson(response) {
   return response.json()
 }
 
+test('analyze-conversation: token válido + membership ativa, mas profile.is_active_global=false — 403, ZERO job de análise, ZERO publicação na queue', async () => {
+  queueCalls.length = 0
+
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', { ...ACTIVE_PROFILE, is_active_global: false }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 403)
+  assert.equal(payload.ok, false)
+  assert.equal(
+    fake.calls.some((call) => call.table === 'companion_background_analysis_jobs'),
+    false,
+    'profile globalmente inativo nunca pode criar job de análise profunda',
+  )
+  assert.equal(queueCalls.length, 0, 'profile globalmente inativo nunca pode publicar na queue/worker')
+})
+
 test('analyze-conversation DOWNGRADE: token diz admin mas a membership ATUAL é member, ciclo de outro vendedor — 403, ZERO job de análise, ZERO publicação na queue', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', cycleOwnedByOther()),
   ])
   // Token assinado com role=admin — pode ter sido emitido ANTES do
@@ -167,6 +195,7 @@ test('analyze-conversation UPGRADE: token diz member mas a membership ATUAL é m
 
   const fake = useAdmin([
     selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', cycleOwnedByOther()),
     selectStep('leads', { id: IDS.lead, name: 'Cliente Exemplo', phone: '11988887777', email: null, company_id: IDS.companyA }),
     selectStep('cycle_events', []),

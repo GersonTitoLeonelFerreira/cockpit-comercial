@@ -10,6 +10,10 @@ import type {
   CompanionTokenPayload,
 } from './companion-token'
 
+import {
+  verifyActiveCompanionProfile,
+} from '../companion/companion-principal-access'
+
 // Carrega o snapshot canônico de uma conversa (company_id + cycle_id +
 // conversation_key) para a ação manual "Registrar conversa". Independente
 // da análise profunda (V2): não importa nada de
@@ -202,6 +206,30 @@ export async function validateMembership({
     fail({
       code: 'CONVERSATION_REGISTRATION_MEMBERSHIP_REQUIRED',
       message: 'Usuário sem vínculo ativo com a empresa do Companion.',
+      status_code: 403,
+      retryable: false,
+    })
+  }
+
+  // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership ativa
+  // sozinha não basta — um usuário com profiles.is_active_global=false
+  // precisa perder acesso a "Registrar conversa"/lead-summary
+  // IMEDIATAMENTE, mesmo com um Companion token ainda válido por horas.
+  const profileAccess = await verifyActiveCompanionProfile({ admin, userId })
+
+  if (profileAccess.error) {
+    fail({
+      code: 'CONVERSATION_REGISTRATION_QUERY_FAILED',
+      message: 'Não foi possível validar o perfil do usuário.',
+      status_code: 500,
+      retryable: true,
+    })
+  }
+
+  if (!profileAccess.active) {
+    fail({
+      code: 'CONVERSATION_REGISTRATION_PROFILE_INACTIVE',
+      message: 'Usuário globalmente inativo ou sem perfil válido.',
       status_code: 403,
       retryable: false,
     })

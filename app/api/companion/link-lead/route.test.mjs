@@ -45,6 +45,11 @@ const ACTIVE_MEMBERSHIP = {
   is_active: true,
 }
 
+const ACTIVE_PROFILE = {
+  id: IDS.userA,
+  is_active_global: true,
+}
+
 const VALID_KEY = `manychat:contact:v1:sha256:${'a'.repeat(64)}`
 
 function leadRow(id, overrides = {}) {
@@ -139,6 +144,26 @@ test('link-lead: membership inativa é bloqueada', async () => {
   assert.equal(payload.status, 'NO_COMPANY_PERMISSION')
 })
 
+test('link-lead: token válido + membership ativa, mas profile.is_active_global=false — bloqueado, ZERO leads/sales_cycles/rpc', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', { ...ACTIVE_PROFILE, is_active_global: false }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 403)
+  assert.equal(payload.status, 'NO_COMPANY_PERMISSION')
+  assert.equal(
+    fake.calls.some((call) => call.table === 'leads' || call.table === 'sales_cycles'),
+    false,
+    'profile globalmente inativo nunca pode chegar a leads/sales_cycles',
+  )
+  assert.equal(fake.rpcCalls.length, 0, 'profile globalmente inativo nunca pode chegar à RPC de vínculo')
+})
+
 test('link-lead: confirmed ausente exige CONFIRMATION_REQUIRED sem tocar o banco', async () => {
   const fake = useAdmin([])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -204,6 +229,7 @@ test('link-lead: channel diferente de null/"whatsapp" é recusado', async () => 
 test('link-lead: lead de outra empresa é recusado (LEAD_NOT_FOUND, nunca chega à RPC)', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', null),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -221,6 +247,7 @@ test('link-lead: lead de outra empresa é recusado (LEAD_NOT_FOUND, nunca chega 
 test('link-lead: lead soft-deleted é recusado, nunca chega à RPC', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', leadRow(IDS.leadDeleted, { deleted_at: '2026-01-01T00:00:00.000Z' })),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -237,6 +264,7 @@ test('link-lead: member OWNED_BY_ME chega à RPC e recebe LINKED (200)', async (
   const fake = useAdmin(
     [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadOwnedByMe)),
       selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     ],
@@ -266,6 +294,7 @@ test('link-lead: member OWNED_BY_ME chega à RPC e recebe LINKED (200)', async (
 test('link-lead: member OWNED_BY_OTHER é bloqueado antes da RPC (LEAD_ACCESS_DENIED)', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', leadRow(IDS.leadOwnedByOther)),
     selectStep('sales_cycles', [
       cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
@@ -286,6 +315,7 @@ test('link-lead: member OWNED_BY_OTHER é bloqueado antes da RPC (LEAD_ACCESS_DE
 test('link-lead: member não pode vincular lead do pool', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', leadRow(IDS.leadPool)),
     selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadPool, ownerUserId: null })]),
   ])
@@ -303,6 +333,7 @@ test('link-lead: admin pode vincular lead de outro vendedor (company-wide, sem p
   const fake = useAdmin(
     [
       selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadOwnedByOther)),
       selectStep('sales_cycles', [
         cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
@@ -326,6 +357,7 @@ test('link-lead: manager pode vincular lead do pool (company-wide)', async () =>
   const fake = useAdmin(
     [
       selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadPool)),
       selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadPool, ownerUserId: null })]),
     ],
@@ -345,6 +377,7 @@ test('link-lead: IDEMPOTENT_ALREADY_LINKED_TO_TARGET responde 200', async () => 
   useAdmin(
     [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadOwnedByMe)),
       selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     ],
@@ -368,6 +401,7 @@ test('link-lead: ALREADY_LINKED_CONFLICT responde 409 e nunca revela o outro lea
   useAdmin(
     [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadOwnedByMe)),
       selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     ],
@@ -407,6 +441,7 @@ test('link-lead: nunca chama a RPC antiga de relink (rpc_link_companion_external
   const fake = useAdmin(
     [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadOwnedByMe)),
       selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     ],
@@ -419,10 +454,11 @@ test('link-lead: nunca chama a RPC antiga de relink (rpc_link_companion_external
   assert.ok(fake.rpcCalls.every((call) => call.name !== 'rpc_link_companion_external_identity'))
 })
 
-test('link-lead: nenhuma ação além de membership/leads/sales_cycles/rpc acontece (sem capture/análise)', async () => {
+test('link-lead: nenhuma ação além de membership/profile/leads/sales_cycles/rpc acontece (sem capture/análise)', async () => {
   const fake = useAdmin(
     [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadOwnedByMe)),
       selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     ],
@@ -433,7 +469,7 @@ test('link-lead: nenhuma ação além de membership/leads/sales_cycles/rpc acont
   await POST(postRequest({ token, body: validBody() }))
 
   const tablesTouched = fake.calls.map((call) => call.table)
-  assert.deepEqual(tablesTouched, ['company_memberships', 'leads', 'sales_cycles'])
+  assert.deepEqual(tablesTouched, ['company_memberships', 'profiles', 'leads', 'sales_cycles'])
 })
 
 // --- Correção 1 (STEP 2A.2): role da membership ATUAL decide, nunca a do
@@ -442,6 +478,7 @@ test('link-lead: nenhuma ação além de membership/leads/sales_cycles/rpc acont
 test('link-lead: token diz admin, membership atual diz member -> comportamento de MEMBER (bloqueado fora da carteira)', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', leadRow(IDS.leadOwnedByOther)),
     selectStep('sales_cycles', [
       cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
@@ -462,6 +499,7 @@ test('link-lead: token diz admin, membership atual diz member -> comportamento d
 test('link-lead: token diz manager, membership atual diz member -> comportamento de MEMBER (bloqueado no pool)', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', leadRow(IDS.leadPool)),
     selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadPool, ownerUserId: null })]),
   ])
@@ -479,6 +517,7 @@ test('link-lead: token diz member, membership atual diz admin -> comportamento d
   const fake = useAdmin(
     [
       selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadOwnedByOther)),
       selectStep('sales_cycles', [
         cycleRow({ leadId: IDS.leadOwnedByOther, ownerUserId: IDS.otherSeller }),
@@ -502,6 +541,7 @@ test('link-lead: token diz member, membership atual diz manager -> comportamento
   const fake = useAdmin(
     [
       selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadPool)),
       selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadPool, ownerUserId: null })]),
     ],
@@ -526,6 +566,7 @@ test('link-lead: cliente tentando sobrescrever identity_source é ignorado — R
   const fake = useAdmin(
     [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
       selectStep('leads', leadRow(IDS.leadOwnedByMe)),
       selectStep('sales_cycles', [cycleRow({ leadId: IDS.leadOwnedByMe, ownerUserId: IDS.userA })]),
     ],

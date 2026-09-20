@@ -6,6 +6,8 @@ import {
   normalizeRegisterActionEventBody,
 } from './action-events-contract'
 
+import { verifyActiveCompanionProfile } from './companion-principal-access'
+
 type ActionEventsTokenPayload = {
   sub: string
   company_id: string
@@ -150,6 +152,34 @@ export function createActionEventsRouteHandlers(
             ok: false,
             status: 'NO_ACTIVE_MEMBERSHIP',
             error: 'Usuário sem vínculo ativo com a empresa do Companion.',
+          },
+          { status: 403, headers: corsHeaders },
+        )
+      }
+
+      // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership
+      // ativa sozinha não basta — um usuário com
+      // profiles.is_active_global=false precisa perder a capacidade de
+      // registrar um action event IMEDIATAMENTE, mesmo com um Companion
+      // token ainda válido por horas.
+      const profileAccess = await verifyActiveCompanionProfile({
+        admin,
+        userId: tokenPayload.sub,
+      })
+
+      if (profileAccess.error) {
+        return Response.json(
+          { ok: false, status: 'PROFILE_LOOKUP_FAILED', error: profileAccess.error },
+          { status: 400, headers: corsHeaders },
+        )
+      }
+
+      if (!profileAccess.active) {
+        return Response.json(
+          {
+            ok: false,
+            status: 'PROFILE_INACTIVE',
+            error: 'Usuário globalmente inativo ou sem perfil válido.',
           },
           { status: 403, headers: corsHeaders },
         )
@@ -315,6 +345,34 @@ export function createActionEventsRouteHandlers(
             ok: false,
             status: 'NO_ACTIVE_MEMBERSHIP',
             error: 'Usuário sem vínculo ativo com a empresa do Companion.',
+          },
+          { status: 403, headers: corsHeaders },
+        )
+      }
+
+      // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership
+      // ativa sozinha não basta — um usuário com
+      // profiles.is_active_global=false precisa perder a leitura de
+      // action events IMEDIATAMENTE, mesmo com um Companion token ainda
+      // válido por horas.
+      const profileAccess = await verifyActiveCompanionProfile({
+        admin,
+        userId: tokenPayload.sub,
+      })
+
+      if (profileAccess.error) {
+        return Response.json(
+          { ok: false, status: 'PROFILE_LOOKUP_FAILED', error: profileAccess.error },
+          { status: 400, headers: corsHeaders },
+        )
+      }
+
+      if (!profileAccess.active) {
+        return Response.json(
+          {
+            ok: false,
+            status: 'PROFILE_INACTIVE',
+            error: 'Usuário globalmente inativo ou sem perfil válido.',
           },
           { status: 403, headers: corsHeaders },
         )
