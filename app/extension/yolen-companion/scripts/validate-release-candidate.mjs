@@ -24,7 +24,11 @@ import { fileURLToPath } from 'node:url'
 import {
   CHROME_MIN_VERSION,
   ENVIRONMENTS,
+  EXPECTED_MANYCHAT_CAPTURE_ENABLED_BY_ENVIRONMENT,
+  E2E_ENVIRONMENTS,
+  E2E_OUTPUT_ROOT,
   EXTENSION_ROOT,
+  FEATURE_FLAGS_PATHNAME,
   FIREFOX_STRICT_MIN_VERSION,
   ICON_SIZES,
   OUTPUT_ROOT,
@@ -33,8 +37,10 @@ import {
   TARGETS,
   assertAllowlistMatchesManifest,
   getTargetZipEntries,
+  parseManyChatCaptureEnabledFromSource,
   readSourceManifest,
   sha256,
+  toE2EManifest,
   toProductionManifest,
   zipFileName,
 } from './build-package.mjs'
@@ -140,6 +146,21 @@ export function manifestMatchesExpectedTransform(actualManifest, expectedManifes
   return actualManifest != null && JSON.stringify(actualManifest) === JSON.stringify(expectedManifest)
 }
 
+// Predicado puro (STEP 2B.1): compara o valor EFETIVO de
+// MANYCHAT_CAPTURE_ENABLED já parseado do arquivo staged/zipado contra o
+// valor esperado para aquele ambiente (dev/prod=false, e2e=true — ver
+// EXPECTED_MANYCHAT_CAPTURE_ENABLED_BY_ENVIRONMENT). Nunca usa
+// `content.includes('true')`: o parser (parseManyChatCaptureEnabledFromSource,
+// em build-package.mjs) já falhou alto se a declaração estivesse ausente,
+// inválida ou ambígua — aqui só resta comparar o booleano já validado.
+export function manyChatCaptureFlagCorrect(effectiveValue, environment) {
+  const expected = EXPECTED_MANYCHAT_CAPTURE_ENABLED_BY_ENVIRONMENT[environment]
+  if (expected === undefined) {
+    throw new Error(`manyChatCaptureFlagCorrect: ambiente desconhecido "${environment}".`)
+  }
+  return effectiveValue === expected
+}
+
 // Classificação por combinação (navegador × ambiente). `STORE_ELIGIBLE_CANDIDATE`
 // NUNCA depende só da ausência de `localhost`: `technicalPass` já é o "E"
 // lógico de TODAS as verificações da combinação (arquivos obrigatórios,
@@ -149,12 +170,30 @@ export function manifestMatchesExpectedTransform(actualManifest, expectedManifes
 // limites de tamanho — ver `runChecksForTarget`). `localhostDetected` é só
 // mais um fator que essa mesma combinação de checks já cobre para pacotes
 // prod; para pacotes dev ele é esperado e não entra em `checks`.
-export function classifyReleaseCandidate({ technicalPass, localhostDetected }) {
+// `isE2E` é opcional e default `false` — chamadas existentes (dev/prod)
+// nunca passam esse campo, então seu comportamento permanece
+// bit-a-bit idêntico ao de antes do STEP 2B.1. Quando `isE2E` é true (e só
+// então), a classificação é SEMPRE `E2E_INTERNAL_ONLY`/`storeEligible:
+// false` — nunca `STORE_ELIGIBLE_CANDIDATE`, mesmo que, hipoteticamente,
+// nenhum outro problema técnico exista e `localhostDetected` seja true
+// (esperado para e2e, que preserva hosts de dev de propósito).
+export function classifyReleaseCandidate({ technicalPass, localhostDetected, isE2E = false }) {
   if (!technicalPass) {
     return {
       classification: 'BUILD_INVALID',
       storeEligible: false,
       label: 'Build inválido — uma ou mais verificações técnicas falharam. Não é um build interno válido nem um RC técnico.',
+    }
+  }
+
+  if (isE2E) {
+    return {
+      classification: 'E2E_INTERNAL_ONLY',
+      storeEligible: false,
+      label:
+        'Build do canal E2E (STEP 2B.1) — uso interno exclusivo para validar o ManyChat ao vivo, com ' +
+        'MANYCHAT_CAPTURE_ENABLED=true e identificação forte no manifest ([E2E]). NUNCA elegível para submissão à ' +
+        'Chrome Web Store ou à AMO, independentemente de qualquer outra verificação técnica.',
     }
   }
 
@@ -180,9 +219,9 @@ export function classifyReleaseCandidate({ technicalPass, localhostDetected }) {
   }
 }
 
-function runBuild() {
+function runBuild(buildArgs = []) {
   try {
-    execFileSync('node', [BUILD_SCRIPT], { stdio: 'pipe' })
+    execFileSync('node', [BUILD_SCRIPT, ...buildArgs], { stdio: 'pipe' })
     return { pass: true }
   } catch (error) {
     return { pass: false, details: error.stderr?.toString() || error.message }
@@ -216,9 +255,15 @@ function validateManifestShape(manifest) {
   return problems
 }
 
-function runChecksForTarget(targetName, environment, sourceManifest, globalAllowlistCoherent) {
+function runChecksForTarget(
+  targetName,
+  environment,
+  sourceManifest,
+  globalAllowlistCoherent,
+  { outputRoot = OUTPUT_ROOT, isE2E = false } = {},
+) {
   const isProd = environment === 'prod'
-  const zipPath = join(OUTPUT_ROOT, zipFileName(targetName, environment, sourceManifest.version))
+  const zipPath = join(outputRoot, zipFileName(targetName, environment, sourceManifest.version))
   const checks = []
 
   const zipExists = existsSync(zipPath)
@@ -268,13 +313,64 @@ function runChecksForTarget(targetName, environment, sourceManifest, globalAllow
   }
   checks.push(check('manifest_valid', 'manifest.json do pacote é válido', manifestProblems.length === 0, manifestProblems))
 
+  // Guarda EFETIVA da flag (STEP 2B.1): relê o arquivo de flags de dentro
+  // do zip real — nunca confia na fonte em disco nem em `content.includes`
+  // — e compara contra o valor esperado para este ambiente. PROD com
+  // MANYCHAT_CAPTURE_ENABLED=true faz este check falhar, o que por sua vez
+  // derruba `technicalPass` e força BUILD_INVALID em classifyReleaseCandidate,
+  // não importa quão perfeito seja o resto do pacote.
+  const expectedManyChatCaptureEnabled = EXPECTED_MANYCHAT_CAPTURE_ENABLED_BY_ENVIRONMENT[environment]
+  let manyChatFlagCorrect = false
+  let manyChatFlagDetails = { expected: expectedManyChatCaptureEnabled, actual: null, environment, parseError: null }
+
+  if (actualEntries.includes(FEATURE_FLAGS_PATHNAME)) {
+    try {
+      const effectiveManyChatCaptureEnabled = parseManyChatCaptureEnabledFromSource(
+        extractEntry(zipPath, FEATURE_FLAGS_PATHNAME).toString('utf8'),
+      )
+      manyChatFlagCorrect = manyChatCaptureFlagCorrect(effectiveManyChatCaptureEnabled, environment)
+      manyChatFlagDetails = {
+        expected: expectedManyChatCaptureEnabled,
+        actual: effectiveManyChatCaptureEnabled,
+        environment,
+        parseError: null,
+      }
+    } catch (error) {
+      manyChatFlagDetails = {
+        expected: expectedManyChatCaptureEnabled,
+        actual: null,
+        environment,
+        parseError: error.message,
+      }
+    }
+  } else {
+    manyChatFlagDetails = {
+      expected: expectedManyChatCaptureEnabled,
+      actual: null,
+      environment,
+      parseError: `${FEATURE_FLAGS_PATHNAME} ausente no pacote`,
+    }
+  }
+
+  checks.push(
+    check(
+      'manychat_capture_flag_correct',
+      `MANYCHAT_CAPTURE_ENABLED efetivo do pacote bate com o esperado para o ambiente "${environment}" (esperado ${expectedManyChatCaptureEnabled})`,
+      manyChatFlagCorrect,
+      manyChatFlagDetails,
+    ),
+  )
+
   // Fonte única de verdade sobre "o que deveria estar neste manifest":
   // a mesma transformação que o build usou para gerá-lo (dev = adaptManifest
-  // do alvo; prod = toProductionManifest). Comparar contra ela evita que o
-  // validador duplique regras de transformação que possam divergir do build.
+  // do alvo; prod = toProductionManifest; e2e = toE2EManifest). Comparar
+  // contra ela evita que o validador duplique regras de transformação que
+  // possam divergir do build.
   const expectedManifest = isProd
     ? toProductionManifest(sourceManifest, targetName)
-    : TARGETS[targetName].adaptManifest(sourceManifest)
+    : isE2E
+      ? toE2EManifest(sourceManifest, targetName)
+      : TARGETS[targetName].adaptManifest(sourceManifest)
 
   const backgroundMatches = manifestBackgroundMatches(manifest, expectedManifest)
   const backgroundLabel =
@@ -403,6 +499,44 @@ function runChecksForTarget(targetName, environment, sourceManifest, globalAllow
     )
   }
 
+  // Identificação forte do canal e2e (STEP 2B.1, seção 9/14/16) — nunca
+  // depender só do nome do arquivo zip. E2E preserva hosts de dev de
+  // propósito (localhostDetected=true é esperado aqui, nunca um problema),
+  // então esses checks não reutilizam nenhum dos checks isProd-only acima.
+  if (isE2E) {
+    checks.push(
+      check(
+        'e2e_manifest_identification',
+        'Manifest do pacote e2e se identifica claramente como build interno (name/description)',
+        manifest?.name === expectedManifest.name &&
+          typeof manifest?.description === 'string' &&
+          manifest.description.includes('Internal E2E build'),
+        { expectedName: expectedManifest.name, actualName: manifest?.name ?? null, actualDescription: manifest?.description ?? null },
+      ),
+    )
+
+    if (targetName === 'firefox') {
+      const expectedGeckoId = expectedManifest.browser_specific_settings?.gecko?.id ?? null
+      checks.push(
+        check(
+          'e2e_firefox_id_distinct',
+          `Firefox e2e usa um id de extensão distinto do normal (esperado ${expectedGeckoId})`,
+          manifest?.browser_specific_settings?.gecko?.id === expectedGeckoId,
+          { actual: manifest?.browser_specific_settings?.gecko?.id ?? null, expected: expectedGeckoId },
+        ),
+      )
+    }
+
+    checks.push(
+      check(
+        'e2e_manifest_matches_expected_transform',
+        'Manifest do pacote e2e é exatamente igual à transformação e2e esperada (nenhuma diferença não prevista)',
+        manifestMatchesExpectedTransform(manifest, expectedManifest),
+        { expected: expectedManifest, actual: manifest },
+      ),
+    )
+  }
+
   const entryBuffers = actualEntries.map((name) => ({ name, buffer: extractEntry(zipPath, name) }))
   const entryHashes = entryBuffers.map(({ name, buffer }) => ({
     name,
@@ -430,11 +564,29 @@ function runChecksForTarget(targetName, environment, sourceManifest, globalAllow
   }
 }
 
-function main() {
-  console.log('== Validador de Release Candidate — Yolen Companion (D2/D3) ==\n')
+// Parser explícito de argumentos de CLI (STEP 2B.1) — mesmo contrato do
+// build-package.mjs: sem argumento roda o validador normal (dev/prod);
+// `--e2e` roda somente o validador e2e; qualquer outra coisa falha
+// fechado.
+export function parseValidatorCliArgs(argv) {
+  const args = argv.slice(2)
 
-  console.log('[1/2] Rodando build reproduzível (D1/D3)...')
-  const buildResult = runBuild()
+  if (args.length === 0) {
+    return { e2e: false }
+  }
+
+  if (args.length === 1 && args[0] === '--e2e') {
+    return { e2e: true }
+  }
+
+  throw new Error(
+    `Argumento de linha de comando desconhecido: "${args.join(' ')}". Uso: validate-release-candidate.mjs [--e2e]`,
+  )
+}
+
+function runValidation({ environments, outputRoot, isE2E, buildArgs, reportFileName, inspectionLabel }) {
+  console.log(`[1/2] Rodando build reproduzível${isE2E ? ' (canal e2e)' : ' (D1/D3)'}...`)
+  const buildResult = runBuild(buildArgs)
   console.log(buildResult.pass ? '  build OK' : `  build FALHOU:\n${buildResult.details}`)
 
   const sourceManifest = readSourceManifest()
@@ -448,10 +600,12 @@ function main() {
     allowlistDetails = error.message
   }
 
-  console.log('\n[2/2] Inspecionando pacotes gerados (Chrome/Firefox × dev/prod)...')
+  console.log(`\n[2/2] ${inspectionLabel}`)
   const rawResults = buildResult.pass
     ? Object.keys(TARGETS).flatMap((targetName) =>
-        ENVIRONMENTS.map((environment) => runChecksForTarget(targetName, environment, sourceManifest, allowlistCoherent)),
+        environments.map((environment) =>
+          runChecksForTarget(targetName, environment, sourceManifest, allowlistCoherent, { outputRoot, isE2E }),
+        ),
       )
     : []
 
@@ -460,6 +614,7 @@ function main() {
     const { classification, storeEligible, label } = classifyReleaseCandidate({
       technicalPass,
       localhostDetected: result.localhostDetected,
+      isE2E,
     })
     return { ...result, technicalPass, classification, storeEligible, label }
   })
@@ -470,6 +625,7 @@ function main() {
   const report = {
     version: sourceManifest.version,
     generatedAt: new Date().toISOString(),
+    channel: isE2E ? 'e2e' : 'default',
     buildSucceeded: buildResult.pass,
     buildDetails: buildResult.pass ? null : buildResult.details,
     globalChecks: [check('allowlist_coherent', 'Allowlist do build coerente com manifest.json de origem', allowlistCoherent, allowlistDetails)],
@@ -480,6 +636,8 @@ function main() {
         {
           target: result.target,
           environment: result.environment,
+          effectiveManyChatCaptureEnabled:
+            result.checks.find((c) => c.id === 'manychat_capture_flag_correct')?.details?.actual ?? null,
           zipPath: result.zipPath.replace(`${REPO_ROOT}/`, ''),
           zipBytes: result.zipBytes,
           zipSha256: result.zipSha256,
@@ -495,8 +653,8 @@ function main() {
     ),
   }
 
-  mkdirSync(OUTPUT_ROOT, { recursive: true })
-  const reportPath = join(OUTPUT_ROOT, 'release-candidate-report.json')
+  mkdirSync(outputRoot, { recursive: true })
+  const reportPath = join(outputRoot, reportFileName)
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
 
   console.log('\n== Resultado por pacote ==')
@@ -522,6 +680,33 @@ function main() {
   console.log(`\nRelatório completo: ${reportPath.replace(`${REPO_ROOT}/`, '')}`)
 
   process.exit(overallTechnicalPass ? 0 : 1)
+}
+
+function main() {
+  const { e2e } = parseValidatorCliArgs(process.argv)
+
+  if (e2e) {
+    console.log('== Validador de Release Candidate — Yolen Companion — CANAL E2E (STEP 2B.1) ==\n')
+    runValidation({
+      environments: E2E_ENVIRONMENTS,
+      outputRoot: E2E_OUTPUT_ROOT,
+      isE2E: true,
+      buildArgs: ['--e2e'],
+      reportFileName: 'e2e-release-candidate-report.json',
+      inspectionLabel: 'Inspecionando pacotes e2e gerados (Chrome/Firefox × e2e)...',
+    })
+    return
+  }
+
+  console.log('== Validador de Release Candidate — Yolen Companion (D2/D3) ==\n')
+  runValidation({
+    environments: ENVIRONMENTS,
+    outputRoot: OUTPUT_ROOT,
+    isE2E: false,
+    buildArgs: [],
+    reportFileName: 'release-candidate-report.json',
+    inspectionLabel: 'Inspecionando pacotes gerados (Chrome/Firefox × dev/prod)...',
+  })
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
