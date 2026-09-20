@@ -10,6 +10,7 @@ export default function ShellGate({ children }: { children: React.ReactNode }) {
   const currentPathname = pathname || ''
 
   const noShellRoutes = [
+    '/',
     '/login',
     '/esqueci-senha',
     '/reset-senha',
@@ -17,8 +18,13 @@ export default function ShellGate({ children }: { children: React.ReactNode }) {
     '/select-company',
   ]
 
+  const publicRoutePrefixes = ['/como-funciona', '/destaques', '/seguranca']
+
   const noShell =
     noShellRoutes.includes(currentPathname) ||
+    publicRoutePrefixes.some(
+      (route) => currentPathname === route || currentPathname.startsWith(`${route}/`),
+    ) ||
     currentPathname.startsWith('/auth') ||
     currentPathname.startsWith('/convites') ||
     currentPathname.startsWith('/_next') ||
