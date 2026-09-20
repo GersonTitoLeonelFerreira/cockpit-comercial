@@ -173,8 +173,12 @@
   // ele quem detecta navegação real). Invalida o fluxo de vínculo da
   // conversa que está sendo deixada para trás ANTES de deixar a nova
   // assumir o painel (STEP 2A.3, hardening final, item 1/2).
-  function handleAuthoritativeConversationChange(newConversationKey) {
-    const previousConversationKey = lastKnownConversationKey
+  function handleAuthoritativeConversationChange(
+    newConversationKey,
+    previousConversationKeyFromEvent = null,
+  ) {
+    const previousConversationKey =
+      previousConversationKeyFromEvent ?? lastKnownConversationKey
 
     if (
       previousConversationKey &&
@@ -257,7 +261,10 @@
       // próprio debounce/fingerprint). O painel só reage ao RESULTADO de
       // uma captura de verdade (capture_result), nunca à mutação bruta.
       if (event?.type === 'reader_event' && event.event?.type === 'conversation_changed') {
-        handleAuthoritativeConversationChange(event.event.conversation_key ?? null)
+        handleAuthoritativeConversationChange(
+          event.event.conversation_key ?? null,
+          event.event.previous_conversation_key ?? null,
+        )
       } else if (event?.type === 'capture_result') {
         // Um capture_result pode chegar depois que o vendedor já trocou de
         // conversa (captureNow é assíncrono). syncPanel() nunca recebe a
@@ -397,6 +404,7 @@
   }
 
   runtime.start()
+  lastKnownConversationKey = getCurrentConversationKey()
   syncPanel()
 
   root.__YOLEN_MANYCHAT_CAPTURE_RUNTIME__ = runtime

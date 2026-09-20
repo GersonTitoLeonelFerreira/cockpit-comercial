@@ -1253,3 +1253,144 @@ test('CONTACT_NOT_LINKED é invalidado ao abandonar a conversa (resposta ambígu
   assert.deepEqual(invalidateCalls, ['conv-a'], 'B (ready=true) nunca é invalidado ao ser abandonado')
   assert.equal(resolutionByKey['conv-b'].ready, true)
 })
+
+// -----------------------------------------------------------------------
+// Auditoria terse "INITIAL OPEN CONVERSATION BOOKKEEPING" / "READER
+// previous_conversation_key USED": manychat-dom-reader.js já conhece a
+// conversa aberta quando observeChanges() começa (lastConversationKey é
+// inicializado a partir da leitura real do DOM) e NUNCA emite um
+// conversation_changed inicial para ela — só emite o evento real na
+// PRÓXIMA troca, e esse evento já carrega previous_conversation_key. Sem
+// usar esse campo (evidência primária) e sem inicializar
+// lastKnownConversationKey no start() do bootstrap (fallback), a primeira
+// conversa vista após o load nunca seria invalidada na primeira troca.
+// -----------------------------------------------------------------------
+
+test('primeira conversa depois do load: evento real conversation_changed com previous_conversation_key invalida A (nenhum evento artificial de A antes da troca)', () => {
+  let receivedOptions = null
+  const invalidateLeadCalls = []
+  const contactLinkInvalidateCalls = []
+  // Bootstrap inicia já com conv-a aberta (equivalente a
+  // manychat-dom-reader.js já ter lastConversationKey = "conv-a" antes de
+  // qualquer observeChanges() disparar) — SEM nenhum conversation_changed
+  // inicial, exatamente a topologia real do reader.
+  const currentKeyRef = { value: 'conv-a' }
+  const resolutionByKey = {
+    'conv-a': { ready: false, reason: 'CONTACT_NOT_LINKED', cycle_id: null },
+    'conv-b': { ready: false, reason: 'CONTACT_NOT_LINKED', cycle_id: null },
+  }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState(key) {
+            return { resolution: resolutionByKey[key] }
+          },
+          getCurrentConversationKey: () => currentKeyRef.value,
+          invalidateLeadResolution(key) {
+            invalidateLeadCalls.push(key)
+            resolutionByKey[key] = null
+            return true
+          },
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatContactLinkRuntime: {
+      createManyChatContactLinkRuntime() {
+        return {
+          renderContactLinkPanel() {},
+          invalidateConversation(key) {
+            contactLinkInvalidateCalls.push(key)
+          },
+        }
+      },
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  // Única troca real: o vendedor navega para B. O evento carrega
+  // previous_conversation_key = "conv-a" (evidência primária do reader) —
+  // nenhum conversation_changed("conv-a") foi disparado antes disso.
+  currentKeyRef.value = 'conv-b'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: {
+      type: 'conversation_changed',
+      previous_conversation_key: 'conv-a',
+      conversation_key: 'conv-b',
+    },
+  })
+
+  assert.deepEqual(invalidateLeadCalls, ['conv-a'])
+  assert.deepEqual(contactLinkInvalidateCalls, ['conv-a'])
+})
+
+test('fallback: sem previous_conversation_key no evento (mock/compatibilidade), lastKnownConversationKey inicializado no start() ainda invalida A corretamente', () => {
+  let receivedOptions = null
+  const invalidateLeadCalls = []
+  const contactLinkInvalidateCalls = []
+  const currentKeyRef = { value: 'conv-a' }
+  const resolutionByKey = {
+    'conv-a': { ready: false, reason: 'CONTACT_NOT_LINKED', cycle_id: null },
+    'conv-b': { ready: false, reason: 'CONTACT_NOT_LINKED', cycle_id: null },
+  }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState(key) {
+            return { resolution: resolutionByKey[key] }
+          },
+          getCurrentConversationKey: () => currentKeyRef.value,
+          invalidateLeadResolution(key) {
+            invalidateLeadCalls.push(key)
+            resolutionByKey[key] = null
+            return true
+          },
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatContactLinkRuntime: {
+      createManyChatContactLinkRuntime() {
+        return {
+          renderContactLinkPanel() {},
+          invalidateConversation(key) {
+            contactLinkInvalidateCalls.push(key)
+          },
+        }
+      },
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  // Evento SEM previous_conversation_key — só conversation_key, como um
+  // mock antigo ou uma versão de compatibilidade do reader emitiria.
+  currentKeyRef.value = 'conv-b'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b' },
+  })
+
+  assert.deepEqual(invalidateLeadCalls, ['conv-a'])
+  assert.deepEqual(contactLinkInvalidateCalls, ['conv-a'])
+})
