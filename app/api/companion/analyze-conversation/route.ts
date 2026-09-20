@@ -649,7 +649,9 @@ export async function POST(request: Request) {
     }
 
     const ownerUserId = getNullableString(cycle.owner_user_id)
-    const isAdminOrManager = tokenPayload.role === 'admin' || tokenPayload.role === 'manager'
+    const isAdminOrManager =
+      membership.role === 'admin' ||
+      membership.role === 'manager'
 
     if (!isAdminOrManager && ownerUserId !== tokenPayload.sub) {
       return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(

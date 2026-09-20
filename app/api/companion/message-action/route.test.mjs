@@ -165,6 +165,46 @@ test('message-action: manager registra ação em ciclo fora da própria carteira
 })
 
 // ---------------------------------------------------------------------
+// STALE COMPANION TOKEN ROLE — a role autorizativa é SEMPRE a membership
+// ATUAL do banco, nunca tokenPayload.role.
+// ---------------------------------------------------------------------
+
+test('message-action DOWNGRADE: token diz admin mas a membership ATUAL é member, ciclo de outro vendedor — 403, ZERO cycle_events write', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.otherSeller }),
+  ])
+  // Token assinado com role=admin — pode ter sido emitido ANTES do
+  // rebaixamento para member. A membership live (acima) já é member.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+
+  assert.equal(response.status, 403)
+  assert.equal(
+    fake.calls.some((call) => call.table === 'cycle_events'),
+    false,
+    'downgrade nunca pode ler/gravar cycle_events',
+  )
+})
+
+test('message-action UPGRADE: token diz member mas a membership ATUAL é admin, ciclo de outro vendedor — não rejeita por ownership', async () => {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
+    selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.otherSeller }),
+    selectStep('cycle_events', null),
+    insertStep('cycle_events', null),
+  ])
+  // Token assinado com role=member — pode ter sido emitido ANTES da
+  // promoção a admin. A membership live (acima) já é admin.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+
+  assert.equal(response.status, 200)
+})
+
+// ---------------------------------------------------------------------
 // Idempotência
 // ---------------------------------------------------------------------
 

@@ -449,8 +449,8 @@ export async function POST(request: Request) {
       getNullableString(cycle.owner_user_id)
 
     const isAdminOrManager =
-      tokenPayload.role === 'admin' ||
-      tokenPayload.role === 'manager'
+      membership.role === 'admin' ||
+      membership.role === 'manager'
 
     if (
       !isAdminOrManager &&

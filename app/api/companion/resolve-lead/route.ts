@@ -344,6 +344,7 @@ function buildResolutionPayload({
   phoneVariants,
   displayName,
   tokenPayload,
+  authorizationRole,
 }: {
   status:
     | 'NO_PHONE_DETECTED'
@@ -365,8 +366,14 @@ function buildResolutionPayload({
   phoneVariants?: string[]
   displayName: string | null
   tokenPayload: CompanionTokenPayload
+  authorizationRole:
+    | string
+    | null
+    | undefined
 }) {
-  const isAdminOrManager = tokenPayload.role === 'admin' || tokenPayload.role === 'manager'
+  const isAdminOrManager =
+    authorizationRole === 'admin' ||
+    authorizationRole === 'manager'
   const isOwnedByMe = cycle?.owner_user_id === tokenPayload.sub
 
   const canReadLeadProfile =
@@ -523,6 +530,7 @@ export async function POST(request: Request) {
           phoneVariants,
           displayName,
           tokenPayload,
+          authorizationRole: null,
         }),
         {
           status: 200,
@@ -604,6 +612,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -646,6 +655,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -665,6 +675,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -718,6 +729,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -739,6 +751,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -757,6 +770,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -845,6 +859,7 @@ export async function POST(request: Request) {
           phoneVariants,
           displayName,
           tokenPayload,
+          authorizationRole: membership.role,
         }),
         {
           status: 200,
@@ -882,6 +897,7 @@ export async function POST(request: Request) {
           phoneVariants,
           displayName,
           tokenPayload,
+          authorizationRole: membership.role,
         }),
         {
           status: 200,
@@ -904,6 +920,7 @@ export async function POST(request: Request) {
           phoneVariants,
           displayName,
           tokenPayload,
+          authorizationRole: membership.role,
         }),
         {
           status: 200,
@@ -925,6 +942,7 @@ export async function POST(request: Request) {
           phoneVariants,
           displayName,
           tokenPayload,
+          authorizationRole: membership.role,
         }),
         {
           status: 200,
@@ -945,6 +963,7 @@ export async function POST(request: Request) {
         phoneVariants,
         displayName,
         tokenPayload,
+        authorizationRole: membership.role,
       }),
       {
         status: 200,

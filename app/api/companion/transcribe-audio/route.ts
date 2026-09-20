@@ -798,8 +798,33 @@ export async function POST(request: Request) {
       )
     }
 
+    const normalizedCycleStatus =
+      String(cycle.status ?? '')
+        .trim()
+        .toLowerCase()
+
+    if (
+      normalizedCycleStatus === 'ganho' ||
+      normalizedCycleStatus === 'perdido' ||
+      normalizedCycleStatus === 'cancelado'
+    ) {
+      return NextResponse.json<TranscribeCompanionAudioResponse>(
+        {
+          ok: false,
+          error:
+            'Ciclo comercial encerrado não aceita transcrição de áudio.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
     const ownerUserId = getNullableString(cycle.owner_user_id)
-    const isAdminOrManager = tokenPayload.role === 'admin' || tokenPayload.role === 'manager'
+    const isAdminOrManager =
+      membership.role === 'admin' ||
+      membership.role === 'manager'
 
     if (!isAdminOrManager && ownerUserId !== tokenPayload.sub) {
       return NextResponse.json<TranscribeCompanionAudioResponse>(

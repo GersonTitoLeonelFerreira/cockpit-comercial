@@ -240,6 +240,58 @@ test('resolve-lead: manager vê cpf_cnpj e lead_profile mesmo sem ser dono do ci
   assert.equal(payload.flags.is_admin_or_manager, true)
 })
 
+// ---------------------------------------------------------------------
+// STALE COMPANION TOKEN ROLE — a role autorizativa é SEMPRE a membership
+// ATUAL do banco, nunca tokenPayload.role. O token dura até 6h e pode
+// ficar desatualizado se a role da pessoa mudar nesse meio-tempo.
+// ---------------------------------------------------------------------
+
+test('resolve-lead DOWNGRADE: token diz admin mas a membership ATUAL é member — nunca herda privilégio administrativo stale', async () => {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('leads', [LEAD_ROW]),
+    selectStep('lead_profiles', LEAD_PROFILE_ROW),
+    selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.otherSeller })]),
+    selectStep('profiles', { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' }),
+  ])
+  // Token assinado com role=admin — pode ter sido emitido ANTES do
+  // rebaixamento para member. A membership live (acima) já é member.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'OWNED_BY_OTHER')
+  assert.equal(payload.lead.cpf_cnpj, null, 'downgrade: nunca vaza cpf_cnpj por role stale do token')
+  assert.equal(payload.lead_profile, null, 'downgrade: nunca vaza lead_profile por role stale do token')
+  assert.equal(payload.actions.can_analyze_conversation, false)
+  assert.equal(payload.flags.is_admin_or_manager, false)
+})
+
+test('resolve-lead UPGRADE: token diz member mas a membership ATUAL é admin — comportamento administrativo aplica imediatamente', async () => {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
+    selectStep('leads', [LEAD_ROW]),
+    selectStep('lead_profiles', LEAD_PROFILE_ROW),
+    selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.otherSeller })]),
+    selectStep('profiles', { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' }),
+  ])
+  // Token assinado com role=member — pode ter sido emitido ANTES da
+  // promoção a admin. A membership live (acima) já é admin.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'OWNED_BY_OTHER')
+  assert.equal(payload.lead.cpf_cnpj, '52998224725', 'upgrade: role administrativa live libera cpf_cnpj imediatamente')
+  assert.ok(payload.lead_profile, 'upgrade: role administrativa live libera lead_profile imediatamente')
+  assert.equal(payload.actions.can_analyze_conversation, true)
+  assert.equal(payload.flags.is_admin_or_manager, true)
+})
+
 test('resolve-lead: lead no Pool (sem dono) responde IN_POOL', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),

@@ -120,9 +120,11 @@ export type CompanionMembershipRow = {
 // (promoção ou rebaixamento), o token antigo continua dizendo a role
 // antiga até expirar. Para busca/vínculo de lead — uma ação de escrita
 // sensível a portfolio — a autoridade de role tem que ser a membership
-// ATUAL do banco, nunca tokenPayload.role. (resolve-lead/route.ts ainda
-// usa tokenPayload.role — comportamento legado pré-existente, registrado
-// aqui mas fora do escopo desta correção: não ampliar sem autorização.)
+// ATUAL do banco, nunca tokenPayload.role.
+//
+// A role autorizativa deve ser sempre a membership ATUAL do banco, nunca
+// tokenPayload.role, porque o token Companion pode permanecer válido
+// depois de downgrade/upgrade de role.
 export async function verifyActiveCompanionMembership({
   admin,
   companyId,
