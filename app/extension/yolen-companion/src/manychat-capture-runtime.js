@@ -144,12 +144,123 @@
       if (!stateByConversationKey.has(conversationKey)) {
         stateByConversationKey.set(conversationKey, {
           resolution: null,
+          resolutionIdentity: null,
+          // Hardening (auditoria STEP 2A.4, "AUXILIARY CAPTURE STATE
+          // ISOLATION"): identidade que atualmente "possui"
+          // baseVersionsByMessageKey/lastContentFingerprint/
+          // transcribedMessageKeys — nunca inferida do conversation_key
+          // sozinho. Ver ensureAuxiliaryStateBound.
+          auxiliaryIdentity: null,
           baseVersionsByMessageKey: {},
           lastContentFingerprint: null,
           transcribedMessageKeys: new Set(),
         })
       }
       return stateByConversationKey.get(conversationKey)
+    }
+
+    // Extrai SOMENTE o binding {platform, key} de uma safe identity bruta
+    // (nunca aceita subscriber_id cru) — usado para comparar/gravar
+    // bindings de forma uniforme em todo o módulo.
+    function normalizeIdentityBinding(identity) {
+      if (!identity?.platform || !identity?.platform_identity?.key) {
+        return null
+      }
+      return Object.freeze({
+        platform: identity.platform,
+        key: identity.platform_identity.key,
+      })
+    }
+
+    // Hardening (auditoria STEP 2A.4, "LEDGER MESSAGE KEY IDENTITY-SCOPED"):
+    // conversation_key + data-mid NUNCA é suficiente como identidade de
+    // mensagem entre contatos diferentes — data-mid só foi validado como
+    // único DENTRO de uma única conversa observada
+    // (MANYCHAT_NATIVE_MESSAGE_IDENTITY_GATE.md), nunca entre contatos
+    // diferentes que passam pela MESMA conversation_key ao longo do tempo.
+    // Toda chave persistida no ledger (message_key enviado a
+    // INGEST_CAPTURE_MESSAGES/TRANSCRIBE_MANYCHAT_AUDIO) é sempre
+    // namespaced pelo contato: manychat:<contact-sha256>:<data-mid
+    // codificado> — nunca o subscriber_id bruto (só o hash pseudônimo já
+    // validado pelo bridge, no formato manychat:contact:v1:sha256:<64
+    // hex>). Falha fechada (retorna null) se o binding não tiver esse
+    // formato exato, ou se a chave estrutural não vier no formato
+    // manychat:<...> já validado por manychat-message-profile.js.
+    const CONTACT_DIGEST_PATTERN = /^manychat:contact:v1:sha256:([a-f0-9]{64})$/
+
+    function extractContactDigest(identityBinding) {
+      const match = CONTACT_DIGEST_PATTERN.exec(identityBinding?.key ?? '')
+      return match ? match[1] : null
+    }
+
+    function buildIdentityScopedMessageKey(
+      identityBinding,
+      structuralMessageKey,
+    ) {
+      const digest =
+        extractContactDigest(identityBinding)
+
+      if (
+        !digest ||
+        typeof structuralMessageKey !== 'string'
+      ) {
+        return null
+      }
+
+      const prefix = `${PLATFORM}:`
+
+      if (!structuralMessageKey.startsWith(prefix)) {
+        return null
+      }
+
+      const nativePart =
+        structuralMessageKey.slice(prefix.length)
+
+      if (!nativePart) {
+        return null
+      }
+
+      const scopedMessageKey =
+        `${prefix}${digest}:${nativePart}`
+
+      return scopedMessageKey.length <= 500
+        ? scopedMessageKey
+        : null
+    }
+
+    // Garante que o estado auxiliar de captura (base_version por mensagem,
+    // fingerprint do último snapshot enviado, mensagens já transcritas)
+    // pertence à identidade ATUAL — nunca ao contato anterior que só
+    // coincide na mesma conversation_key. Chamado sempre imediatamente
+    // antes de LER ou GRAVAR qualquer um desses três campos.
+    function ensureAuxiliaryStateBound(state, identityBinding) {
+      if (
+        state.auxiliaryIdentity &&
+        identityBinding &&
+        state.auxiliaryIdentity.platform === identityBinding.platform &&
+        state.auxiliaryIdentity.key === identityBinding.key
+      ) {
+        return
+      }
+
+      state.baseVersionsByMessageKey = {}
+      state.lastContentFingerprint = null
+      state.transcribedMessageKeys = new Set()
+      state.auxiliaryIdentity = identityBinding ?? null
+    }
+
+    // Hardening (auditoria STEP 2A.4, "STALE INGEST CALLBACK"): uma
+    // resposta de INGEST_CAPTURE_MESSAGES/TRANSCRIBE_MANYCHAT_AUDIO pode
+    // voltar depois que outra identidade (Y) já assumiu esta
+    // conversationKey — o servidor já ter concluído a gravação de X é
+    // aceitável e nunca é desfeito, mas essa resposta atrasada nunca pode
+    // gravar bookkeeping na conta de quem já é o dono corrente do estado.
+    function identityStillOwnsCapture(state, resolution, identityBinding) {
+      return (
+        state.resolution === resolution &&
+        state.auxiliaryIdentity?.platform === identityBinding?.platform &&
+        state.auxiliaryIdentity?.key === identityBinding?.key
+      )
     }
 
     async function getSafeIdentity() {
@@ -178,29 +289,308 @@
       return response?.payload ?? null
     }
 
-    async function ensureCycleResolved(conversationKey) {
+    // Resolve de verdade (sempre chama a identidade + RESOLVE_LEAD, nunca
+    // olha o cache) e GRAVA o resultado em state.resolution — usado tanto
+    // pela primeira resolução (ensureCycleResolved) quanto pelo refresh
+    // explícito depois de um first-link (refreshLeadResolution). Nunca
+    // mexe em nenhum outro campo do estado da conversa (base_version por
+    // mensagem, fingerprint, transcrições) — só resolution.
+    // Hardening (auditoria STEP 2A.3, "INITIAL SAME-CONVERSATION IDENTITY
+    // SWAP"): a resolução inicial usava só uma leitura de identidade antes
+    // do RESOLVE_LEAD — se o ManyChat trocar de contato NA MESMA
+    // conversation_key enquanto RESOLVE_LEAD ainda está em voo, o cycle
+    // devolvido pertence ao contato ANTIGO e nunca pode ser persistido (nem
+    // usado por captureNow para ingerir o conteúdo do contato NOVO). Usa a
+    // mesma dupla checagem de identidade (antes e depois do await) já
+    // aplicada em refreshLeadResolution — nunca um segundo algoritmo.
+    async function resolveAndStoreResolution(
+      conversationKey,
+      initialSafeIdentity = null,
+    ) {
       const state = getConversationState(conversationKey)
-      if (state.resolution) {
-        return state.resolution
+
+      function abortStale() {
+        state.resolution = null
+        state.resolutionIdentity = null
+        return Object.freeze({
+          ready: false,
+          reason: 'CONTACT_CHANGED',
+          cycle_id: null,
+        })
       }
 
-      const safeIdentity = await getSafeIdentity()
-      if (!safeIdentity) {
+      if (!isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
+      const safeIdentity =
+        initialSafeIdentity ?? await getSafeIdentity()
+
+      if (!isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
+      if (!safeIdentity?.platform || !safeIdentity?.platform_identity?.key) {
         state.resolution = Object.freeze({
           ready: false,
           reason: 'identity_not_ready',
           cycle_id: null,
         })
+        state.resolutionIdentity = null
         return state.resolution
       }
 
+      const expectedPlatform = safeIdentity.platform
+      const expectedIdentityKey = safeIdentity.platform_identity.key
+
       const resolution = await resolveLeadForIdentity(safeIdentity)
+
+      const safeIdentityAfterResolve = await getSafeIdentity()
+
+      if (
+        !isCurrentConversation(conversationKey) ||
+        !matchesExpectedIdentity(
+          safeIdentityAfterResolve,
+          expectedPlatform,
+          expectedIdentityKey,
+        )
+      ) {
+        return abortStale()
+      }
+
+      const eligible =
+        captureBatchApi.isCaptureResolutionEligible(resolution)
+
+      state.resolution = Object.freeze({
+        ready: eligible,
+        reason: eligible
+          ? null
+          : (resolution?.status ?? 'resolution_unavailable'),
+        cycle_id: eligible ? resolution.cycle.id : null,
+      })
+
+      state.resolutionIdentity = Object.freeze({
+        platform: expectedPlatform,
+        key: expectedIdentityKey,
+      })
+
+      return state.resolution
+    }
+
+    // Hardening (auditoria STEP 2A.4, "CACHED RESOLUTION IDENTITY SAFETY"):
+    // o cache quente (state.resolution já preenchido) nunca pode ser
+    // reutilizado sem confirmar que a safe identity ATUAL ainda é a mesma
+    // que originou aquele cache — conversation_key sozinho não garante
+    // isso, já que o ManyChat pode reaproveitar a mesma thread para outro
+    // assinante sem nenhum conversation_changed. Toda leitura de
+    // state.resolution passa a exigir uma leitura de identidade fresca e a
+    // comparação contra state.resolutionIdentity (o binding gravado por
+    // resolveAndStoreResolution/refreshLeadResolution). Identidade
+    // divergente descarta o cache e força um resolve novo — nunca reusa o
+    // cycle antigo. A identidade recém-lida é repassada para
+    // resolveAndStoreResolution como initialSafeIdentity para nunca pedir
+    // a mesma identidade duas vezes.
+    async function ensureCycleResolved(conversationKey) {
+      const state = getConversationState(conversationKey)
+
+      if (!isCurrentConversation(conversationKey)) {
+        state.resolution = null
+        state.resolutionIdentity = null
+        return Object.freeze({
+          ready: false,
+          reason: 'CONTACT_CHANGED',
+          cycle_id: null,
+        })
+      }
+
+      const safeIdentity = await getSafeIdentity()
+
+      if (!isCurrentConversation(conversationKey)) {
+        state.resolution = null
+        state.resolutionIdentity = null
+        return Object.freeze({
+          ready: false,
+          reason: 'CONTACT_CHANGED',
+          cycle_id: null,
+        })
+      }
+
+      if (!safeIdentity?.platform || !safeIdentity?.platform_identity?.key) {
+        state.resolution = Object.freeze({
+          ready: false,
+          reason: 'identity_not_ready',
+          cycle_id: null,
+        })
+        state.resolutionIdentity = null
+        return state.resolution
+      }
+
+      if (
+        state.resolution &&
+        state.resolutionIdentity &&
+        matchesExpectedIdentity(
+          safeIdentity,
+          state.resolutionIdentity.platform,
+          state.resolutionIdentity.key,
+        )
+      ) {
+        return state.resolution
+      }
+
+      state.resolution = null
+      state.resolutionIdentity = null
+
+      return resolveAndStoreResolution(
+        conversationKey,
+        safeIdentity,
+      )
+    }
+
+    // Hardening (auditoria STEP 2A.3, "CONTACT_NOT_LINKED INVALIDATED ON
+    // LEAVE"): um first-link cuja resposta HTTP se perde nunca dispara
+    // onLinked/refreshLeadResolution — sem isto, state.resolution
+    // continuaria CONTACT_NOT_LINKED para sempre mesmo depois do servidor
+    // já ter gravado o vínculo. Chamado pelo bootstrap só ao abandonar uma
+    // conversa cuja última resolução conhecida era CONTACT_NOT_LINKED,
+    // nunca em toda troca de conversa. Limpa SÓ resolution — nunca
+    // baseVersionsByMessageKey, lastContentFingerprint ou
+    // transcribedMessageKeys.
+    function invalidateLeadResolution(conversationKey) {
+      const state = stateByConversationKey.get(conversationKey)
+
+      if (!state) {
+        return false
+      }
+
+      state.resolution = null
+      state.resolutionIdentity = null
+      return true
+    }
+
+    // Chamado depois de um first-link bem-sucedido (LINKED/IDEMPOTENT/
+    // ALREADY_LINKED_CONFLICT — sempre, para refletir o estado real):
+    // invalida SÓ a resolução desta conversa e busca de novo via
+    // RESOLVE_LEAD, nunca inventa cycle a partir do lead selecionado na UI
+    // (STEP 2A.3, seção 18/19). baseVersionsByMessageKey,
+    // lastContentFingerprint e transcribedMessageKeys permanecem
+    // intocados.
+    //
+    // Hardening (STEP 2A.3, correção final): entre o first-link terminar
+    // no servidor e este refresh rodar, o vendedor pode ter trocado de
+    // conversa/contato — expectedPlatform/expectedIdentityKey são a
+    // identidade que foi REALMENTE vinculada, e conversationKey é a
+    // conversa daquele vínculo. Revalida os dois ANTES e DEPOIS de cada
+    // await: só grava state[conversationKey].resolution se a conversa
+    // atual ainda for exatamente essa E a safe identity atual ainda for
+    // exatamente essa. Se qualquer uma mudou, nunca persiste o resultado
+    // (que poderia pertencer a outro contato/conversa — ex.: B) e limpa o
+    // cache antigo (nunca deixa uma conversa presa eternamente num
+    // CONTACT_NOT_LINKED que já foi resolvido no servidor).
+    function isCurrentConversation(conversationKey) {
+      return adapter.getCurrentConversation(getConversationUrl())?.conversation_key === conversationKey
+    }
+
+    function matchesExpectedIdentity(identity, expectedPlatform, expectedIdentityKey) {
+      return (
+        identity?.platform === expectedPlatform && identity?.platform_identity?.key === expectedIdentityKey
+      )
+    }
+
+    // Releitura de identidade ao vivo (nunca confia em cache) usada pelos
+    // pontos de checagem do fluxo de áudio (STEP 2A.4, "AUDIO PRE-DOM
+    // IDENTITY CHECK" / "AUDIO POST-TRANSCRIPTION IDENTITY CHECK") — a
+    // conversa E a identidade precisam continuar sendo exatamente o
+    // binding esperado.
+    async function currentIdentityMatchesBinding(
+      conversationKey,
+      state,
+      resolution,
+      expectedBinding,
+    ) {
+      if (
+        !expectedBinding ||
+        !isCurrentConversation(conversationKey) ||
+        state.resolution !== resolution ||
+        state.resolutionIdentity?.platform !==
+          expectedBinding.platform ||
+        state.resolutionIdentity?.key !==
+          expectedBinding.key
+      ) {
+        return false
+      }
+
+      const freshIdentity = await getSafeIdentity()
+      const freshBinding =
+        normalizeIdentityBinding(freshIdentity)
+
+      return Boolean(
+        isCurrentConversation(conversationKey) &&
+          state.resolution === resolution &&
+          state.resolutionIdentity?.platform ===
+            expectedBinding.platform &&
+          state.resolutionIdentity?.key ===
+            expectedBinding.key &&
+          freshBinding?.platform ===
+            expectedBinding.platform &&
+          freshBinding?.key ===
+            expectedBinding.key
+      )
+    }
+
+    async function refreshLeadResolution({ conversationKey, expectedPlatform, expectedIdentityKey }) {
+      const state = getConversationState(conversationKey)
+
+      function abortStale() {
+        // Nunca deixa a conversa presa num cache antigo: o próximo ciclo
+        // normal (captureNow/ensureCycleResolved) fará RESOLVE_LEAD de
+        // novo quando o vendedor realmente voltar para ela.
+        state.resolution = null
+        state.resolutionIdentity = null
+        return Object.freeze({ ready: false, reason: 'CONTACT_CHANGED', cycle_id: null })
+      }
+
+      if (!isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
+      const safeIdentity = await getSafeIdentity()
+
+      if (!matchesExpectedIdentity(safeIdentity, expectedPlatform, expectedIdentityKey) || !isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
+      const resolution = await resolveLeadForIdentity(safeIdentity)
+
+      // Hardening (auditoria STEP 2A.3, "POST-RESOLVE IDENTITY
+      // REVALIDATION"): resolveLeadForIdentity é outro await — o contato
+      // pode ter mudado DENTRO da mesma conversation_key (ex.: o ManyChat
+      // reaproveita a mesma thread para outro assinante) sem que
+      // isCurrentConversation detecte nada, já que ela só compara
+      // conversation_key. Sem reler a safe identity aqui, um resultado de
+      // RESOLVE_LEAD para o contato ANTIGO seria gravado como se fosse do
+      // contato atual. Rechecar a identidade segura pela segunda vez (não
+      // só a conversa) antes de persistir fecha essa janela.
+      const identityStillMatches = matchesExpectedIdentity(
+        await getSafeIdentity(),
+        expectedPlatform,
+        expectedIdentityKey,
+      )
+
+      if (!identityStillMatches || !isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
       const eligible = captureBatchApi.isCaptureResolutionEligible(resolution)
 
       state.resolution = Object.freeze({
         ready: eligible,
         reason: eligible ? null : (resolution?.status ?? 'resolution_unavailable'),
         cycle_id: eligible ? resolution.cycle.id : null,
+      })
+
+      state.resolutionIdentity = Object.freeze({
+        platform: expectedPlatform,
+        key: expectedIdentityKey,
       })
 
       return state.resolution
@@ -223,15 +613,20 @@
       }
     }
 
-    function findNodeForMessageKey(messageKey) {
+    // Compara a chave identity-scoped (nunca a estrutural crua): dois nós
+    // com o MESMO data-mid sob identidades diferentes nunca podem parecer
+    // a mesma mensagem (STEP 2A.4, "LEDGER MESSAGE KEY IDENTITY-SCOPED").
+    function findNodeForMessageKey(messageKey, identityBinding) {
       if (!audioIdentityApi) return null
 
       for (const node of queryMessageNodes()) {
         const identity = audioIdentityApi.extractManyChatMessageIdentity(node)
-        if (
-          identity?.ready === true &&
-          messageProfileApi.buildMessageKey(identity.native_message_id) === messageKey
-        ) {
+        if (identity?.ready !== true) continue
+
+        const structuralKey = messageProfileApi.buildMessageKey(identity.native_message_id)
+        const scopedKey = buildIdentityScopedMessageKey(identityBinding, structuralKey)
+
+        if (scopedKey && scopedKey === messageKey) {
           return node
         }
       }
@@ -246,8 +641,16 @@
     // captura assim que a transcrição chega, virando uma nova versão do
     // ledger em vez de um registro paralelo. Nunca bloqueia nem atrasa a
     // captura de texto: falhas aqui são sempre silenciosas por mensagem.
-    async function dispatchPendingAudioTranscriptions({ conversationKey, cycleId, channel, messages }) {
+    //
+    // Hardening (STEP 2A.4, "AUDIO PRE-DOM IDENTITY CHECK" / "AUDIO
+    // POST-TRANSCRIPTION IDENTITY CHECK"): recebe resolution +
+    // resolutionIdentity (nunca só cycleId) porque o contato pode mudar
+    // (mesma conversation_key) tanto ANTES de procurar o node/fonte de
+    // áudio no DOM quanto DEPOIS do await de TRANSCRIBE_MANYCHAT_AUDIO —
+    // os dois pontos são revalidados ao vivo, nunca só uma vez no início.
+    async function dispatchPendingAudioTranscriptions({ conversationKey, resolution, resolutionIdentity, channel, messages }) {
       if (!audioSourceApi || !audioIdentityApi) return
+      if (!resolutionIdentity) return
 
       const state = getConversationState(conversationKey)
 
@@ -259,11 +662,54 @@
       )
 
       for (const message of pending) {
-        const node = findNodeForMessageKey(message.message_key)
+        // Pré-DOM: o contato pode ter mudado entre o snapshot já validado
+        // por captureNow e este exato instante — nunca busca o node/fonte
+        // de áudio no DOM sob uma identidade que já não é mais a atual.
+        if (
+          !(await currentIdentityMatchesBinding(
+            conversationKey,
+            state,
+            resolution,
+            resolutionIdentity,
+          ))
+        ) {
+          return
+        }
+
+        const node =
+          findNodeForMessageKey(
+            message.message_key,
+            resolutionIdentity,
+          )
+
         if (!node) continue
 
-        const source = audioSourceApi.extractManyChatAudioSource(node)
-        if (source?.source_ready !== true || source.source_kind !== 'https') continue
+        const source =
+          audioSourceApi.extractManyChatAudioSource(
+            node,
+          )
+
+        if (
+          source?.source_ready !== true ||
+          source.source_kind !== 'https'
+        ) {
+          continue
+        }
+
+        // O primeiro GET de identidade pode ter retornado uma amostra X
+        // que ficou stale antes de o content script retomar. A fonte do
+        // DOM só é confiável se uma NOVA leitura, feita depois da própria
+        // consulta do DOM/source, ainda confirmar X.
+        if (
+          !(await currentIdentityMatchesBinding(
+            conversationKey,
+            state,
+            resolution,
+            resolutionIdentity,
+          ))
+        ) {
+          return
+        }
 
         let transcriptionResponse
         try {
@@ -272,7 +718,7 @@
             action: 'TRANSCRIBE_MANYCHAT_AUDIO',
             payload: {
               audio_url: source.source_url,
-              cycle_id: cycleId,
+              cycle_id: resolution.cycle_id,
               audio_target_key: message.message_key,
               channel,
               audio_index: 0,
@@ -288,10 +734,17 @@
         const normalizedText = typeof text === 'string' ? text.trim() : ''
         if (!normalizedText) continue
 
-        // Revalida a conversa antes de aplicar qualquer efeito: a
-        // transcrição é assíncrona e o usuário pode ter trocado de
-        // conversa enquanto ela estava em andamento.
-        if (adapter.getCurrentConversation(getConversationUrl())?.conversation_key !== conversationKey) {
+        // Pós-transcrição: TRANSCRIBE_MANYCHAT_AUDIO é outro await — uma
+        // resposta que retorna depois que o contato já mudou nunca pode
+        // ser ingerida sob o cycle antigo.
+        if (
+          !(await currentIdentityMatchesBinding(
+            conversationKey,
+            state,
+            resolution,
+            resolutionIdentity,
+          ))
+        ) {
           return
         }
 
@@ -303,7 +756,7 @@
         }
 
         const plan = captureBatchApi.buildCaptureIngestionPlanFromMessages({
-          cycleId,
+          cycleId: resolution.cycle_id,
           conversationKey,
           messages: [transcribedMessage],
         })
@@ -321,6 +774,13 @@
           }
 
           if (response?.ok !== true) continue
+
+          // Stale ingest callback: se outra identidade já assumiu esta
+          // conversationKey, esta resposta atrasada nunca grava bookkeeping
+          // na conta de quem já é o dono corrente.
+          if (!identityStillOwnsCapture(state, resolution, resolutionIdentity)) {
+            continue
+          }
 
           for (const result of response.payload?.message_results ?? []) {
             if (result?.synced === true && typeof result.message_key === 'string') {
@@ -349,15 +809,31 @@
         return { ok: false, reason: resolution.reason, conversation_key: conversationKey }
       }
 
-      // A conversa pode ter mudado enquanto a resolução de identidade/lead
-      // (assíncrona) estava em andamento — nunca captura para a conversa
-      // errada.
-      if (adapter.getCurrentConversation(getConversationUrl())?.conversation_key !== conversationKey) {
+      const state = getConversationState(conversationKey)
+      const resolutionIdentity = state.resolutionIdentity
+
+      function abortSnapshotCorrelation() {
+        // Só limpa se esta captura ainda estiver olhando para a mesma
+        // resolution. Uma captura concorrente pode já ter resolvido outra
+        // identidade corretamente; nunca apague o estado novo dela.
+        if (state.resolution === resolution) {
+          state.resolution = null
+          state.resolutionIdentity = null
+        }
+
         return {
           ok: false,
-          reason: 'conversation_changed_during_resolution',
+          reason: 'contact_changed_during_snapshot',
           conversation_key: conversationKey,
         }
+      }
+
+      if (
+        !isCurrentConversation(conversationKey) ||
+        state.resolution !== resolution ||
+        !resolutionIdentity
+      ) {
+        return abortSnapshotCorrelation()
       }
 
       const built = adapter.buildUniversalConversation(getConversationUrl())
@@ -365,14 +841,79 @@
         return { ok: false, reason: built.reason, conversation_key: conversationKey }
       }
 
-      const state = getConversationState(conversationKey)
+      // ensureCycleResolved já forneceu a amostra de identidade ANTES do
+      // snapshot. Agora relê a identidade DEPOIS que o DOM foi materializado.
+      // O snapshot só pode ser usado se continuar pertencendo ao mesmo
+      // binding que produziu `resolution`.
+      const safeIdentityAfterSnapshot = await getSafeIdentity()
+
+      if (
+        !isCurrentConversation(conversationKey) ||
+        state.resolution !== resolution ||
+        state.resolutionIdentity?.platform !== resolutionIdentity.platform ||
+        state.resolutionIdentity?.key !== resolutionIdentity.key ||
+        !matchesExpectedIdentity(
+          safeIdentityAfterSnapshot,
+          resolutionIdentity.platform,
+          resolutionIdentity.key,
+        )
+      ) {
+        return abortSnapshotCorrelation()
+      }
+
+      // Hardening (auditoria STEP 2A.4, "AUXILIARY CAPTURE STATE
+      // ISOLATION"): resolutionIdentity já foi confirmada como a
+      // identidade atual, imediatamente antes E depois do snapshot. Só
+      // agora garante que o bookkeeping auxiliar (base_version,
+      // fingerprint, transcrições) pertence a ESTA identidade — nunca
+      // reaproveita o de um contato anterior que só coincide na mesma
+      // conversation_key.
+      ensureAuxiliaryStateBound(state, resolutionIdentity)
+
       const observedAt = now()
 
-      const messagesWithVersion = built.conversation.messages.map((message) => ({
-        ...message,
-        observed_at: observedAt,
-        base_version: state.baseVersionsByMessageKey[message.message_key] ?? null,
-      }))
+      // Hardening (STEP 2A.4, "LEDGER MESSAGE KEY IDENTITY-SCOPED"): a
+      // chave estrutural (manychat:<data-mid>) nunca é persistida como
+      // veio do DOM — data-mid nunca foi validado como único fora de uma
+      // única conversa observada. Toda chave que chega ao ledger é sempre
+      // namespaced pelo contato (manychat:<contact-sha256>:<data-mid>);
+      // uma mensagem cuja chave não pode ser assim construída é excluída
+      // da captura (fail closed), nunca enviada com uma chave ambígua.
+      const messagesWithVersion = []
+
+      for (
+        const message of
+        built.conversation.messages
+      ) {
+        const scopedMessageKey =
+          buildIdentityScopedMessageKey(
+            resolutionIdentity,
+            message.message_key,
+          )
+
+        if (!scopedMessageKey) {
+          return {
+            ok: false,
+            reason:
+              'message_identity_scope_invalid',
+            conversation_key:
+              conversationKey,
+          }
+        }
+
+        messagesWithVersion.push({
+          ...message,
+          message_key:
+            scopedMessageKey,
+          observed_at:
+            observedAt,
+          base_version:
+            state
+              .baseVersionsByMessageKey[
+                scopedMessageKey
+              ] ?? null,
+        })
+      }
 
       const plan = captureBatchApi.buildCaptureIngestionPlanFromMessages({
         cycleId: resolution.cycle_id,
@@ -420,19 +961,26 @@
             }
           }
 
-          for (const result of response.payload?.message_results ?? []) {
-            if (result?.synced === true && typeof result.message_key === 'string') {
-              state.baseVersionsByMessageKey[result.message_key] = result.canonical_version
+          // Stale ingest callback (STEP 2A.4): esta resposta pode voltar
+          // depois que outra identidade já assumiu esta conversationKey —
+          // o servidor já ter concluído a gravação é aceitável (nunca
+          // desfeito), mas nunca grava bookkeeping na conta de quem já é o
+          // dono corrente do estado.
+          if (identityStillOwnsCapture(state, resolution, resolutionIdentity)) {
+            for (const result of response.payload?.message_results ?? []) {
+              if (result?.synced === true && typeof result.message_key === 'string') {
+                state.baseVersionsByMessageKey[result.message_key] = result.canonical_version
+              }
             }
           }
         }
 
-        // A troca de conversa pode ter acontecido durante o despacho
-        // (assíncrono). O estado gravado é sempre o de `conversationKey`
-        // (nunca o da conversa atual no momento em que a resposta chega),
-        // então nunca contamina a conversa para a qual o usuário já
-        // navegou.
-        state.lastContentFingerprint = contentFingerprint
+        // A troca de conversa/identidade pode ter acontecido durante o
+        // despacho (assíncrono) — nunca grava o fingerprint na conta de
+        // quem já não é mais o dono corrente do estado.
+        if (identityStillOwnsCapture(state, resolution, resolutionIdentity)) {
+          state.lastContentFingerprint = contentFingerprint
+        }
       }
 
       // Independente de o texto ter mudado: sempre que houver mensagem de
@@ -442,7 +990,8 @@
       // mensagem repetidamente.
       await dispatchPendingAudioTranscriptions({
         conversationKey,
-        cycleId: resolution.cycle_id,
+        resolution,
+        resolutionIdentity,
         channel: built.conversation.channel,
         messages: messagesWithVersion,
       })
@@ -502,6 +1051,15 @@
       stop,
       captureNow,
       getConversationState,
+      getSafeIdentity,
+      refreshLeadResolution,
+      invalidateLeadResolution,
+      // Fonte autoritativa única de "qual conversa está aberta agora",
+      // sempre derivada ao vivo do adapter/URL — nunca uma variável que um
+      // callback assíncrono desatualizado poderia sobrescrever (STEP
+      // 2A.3, hardening final, item 7/8).
+      getCurrentConversationKey: () =>
+        adapter.getCurrentConversation(getConversationUrl())?.conversation_key ?? null,
     })
   }
 

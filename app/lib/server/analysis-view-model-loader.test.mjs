@@ -55,6 +55,7 @@ function createFakeAdmin({
   slaRules = [],
   commercialStates = [],
   commercialStateEvents = [],
+  profiles = [{ id: OWNER_USER_ID, is_active_global: true }],
 } = {}) {
   const tables = {
     company_memberships: memberships,
@@ -65,6 +66,7 @@ function createFakeAdmin({
     sla_rules: slaRules,
     companion_commercial_states: commercialStates,
     companion_commercial_state_events: commercialStateEvents,
+    profiles,
   }
 
   class Query {
@@ -245,6 +247,50 @@ test('ciclo de outra empresa (cross-company) nunca é retornado, mesmo com o mes
     (error) => {
       assert.ok(error instanceof CompanionClientContextError)
       assert.equal(error.code, 'CLIENT_CONTEXT_CYCLE_NOT_FOUND')
+      return true
+    },
+  )
+})
+
+test('profile globalmente inativo é negado antes de qualquer leitura do ANÁLISE view model', async () => {
+  const admin = createFakeAdmin(
+    baseFixtures({
+      profiles: [{ id: OWNER_USER_ID, is_active_global: false }],
+    }),
+  )
+
+  await assert.rejects(
+    () =>
+      loadAnalysisViewModel({
+        admin,
+        token: buildToken(),
+        cycle_id: CYCLE_ID,
+        conversation_key: CONVERSATION_KEY,
+        reference_time: REFERENCE_TIME,
+      }),
+    (error) => {
+      assert.ok(error instanceof CompanionClientContextError)
+      assert.equal(error.code, 'CLIENT_CONTEXT_PROFILE_INACTIVE')
+      return true
+    },
+  )
+})
+
+test('profile ausente é tratado como globalmente inativo (fail closed)', async () => {
+  const admin = createFakeAdmin(baseFixtures({ profiles: [] }))
+
+  await assert.rejects(
+    () =>
+      loadAnalysisViewModel({
+        admin,
+        token: buildToken(),
+        cycle_id: CYCLE_ID,
+        conversation_key: CONVERSATION_KEY,
+        reference_time: REFERENCE_TIME,
+      }),
+    (error) => {
+      assert.ok(error instanceof CompanionClientContextError)
+      assert.equal(error.code, 'CLIENT_CONTEXT_PROFILE_INACTIVE')
       return true
     },
   )

@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
+
 type CompanionRole = 'admin' | 'manager' | 'member'
 
 type CompanionTokenPayload = {
@@ -403,6 +405,42 @@ export async function POST(request: Request) {
       )
     }
 
+    // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership
+    // ativa sozinha não basta — um usuário com
+    // profiles.is_active_global=false precisa perder acesso ao texto de
+    // transcrições IMEDIATAMENTE, mesmo com um Companion token ainda
+    // válido por horas.
+    const profileAccess = await verifyActiveCompanionProfile({
+      admin,
+      userId: tokenPayload.sub,
+    })
+
+    if (profileAccess.error) {
+      return NextResponse.json<AudioTranscriptionsResponse>(
+        {
+          ok: false,
+          error: profileAccess.error,
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (!profileAccess.active) {
+      return NextResponse.json<AudioTranscriptionsResponse>(
+        {
+          ok: false,
+          error: 'Usuário globalmente inativo ou sem perfil válido.',
+        },
+        {
+          status: 403,
+          headers: corsHeaders,
+        },
+      )
+    }
+
     const {
       data: cycle,
       error: cycleError,
@@ -449,8 +487,8 @@ export async function POST(request: Request) {
       getNullableString(cycle.owner_user_id)
 
     const isAdminOrManager =
-      tokenPayload.role === 'admin' ||
-      tokenPayload.role === 'manager'
+      membership.role === 'admin' ||
+      membership.role === 'manager'
 
     if (
       !isAdminOrManager &&

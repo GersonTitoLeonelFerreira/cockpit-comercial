@@ -241,6 +241,14 @@ function runPreview({
   membership =
     buildMembership(),
 
+  profile = {
+    id:
+      USER_ID,
+
+    is_active_global:
+      true,
+  },
+
   cycle =
     buildCycle(),
 
@@ -257,6 +265,9 @@ function runPreview({
   } = createFakeClient({
     company_memberships:
       ok(membership),
+
+    profiles:
+      ok(profile),
 
     sales_cycles:
       ok(cycle),
@@ -545,6 +556,155 @@ test(
     assert.equal(
       engineCalls.length,
       0,
+    )
+  },
+)
+
+test(
+  'profile globalmente inativo bloqueia a prévia antes de consultar o ciclo',
+  async () => {
+    const {
+      dependencies,
+      engineCalls,
+    } = createPreviewDependencies()
+
+    const {
+      promise,
+      calls,
+    } = runPreview({
+      profile: {
+        id:
+          USER_ID,
+
+        is_active_global:
+          false,
+      },
+
+      dependencies,
+    })
+
+    await assertPreviewError(
+      () => promise,
+      'PREVIEW_PROFILE_INACTIVE',
+    )
+
+    assert.equal(
+      engineCalls.length,
+      0,
+    )
+
+    assert.equal(
+      calls.some(
+        (call) =>
+          call.table ===
+          'sales_cycles',
+      ),
+      false,
+    )
+  },
+)
+
+test(
+  'profile ausente é tratado como globalmente inativo (fail closed)',
+  async () => {
+    const {
+      dependencies,
+      engineCalls,
+    } = createPreviewDependencies()
+
+    const {
+      promise,
+      calls,
+    } = runPreview({
+      profile:
+        null,
+
+      dependencies,
+    })
+
+    await assertPreviewError(
+      () => promise,
+      'PREVIEW_PROFILE_INACTIVE',
+    )
+
+    assert.equal(
+      engineCalls.length,
+      0,
+    )
+
+    assert.equal(
+      calls.some(
+        (call) =>
+          call.table ===
+          'sales_cycles',
+      ),
+      false,
+    )
+  },
+)
+
+test(
+  'falha ao consultar profile não expõe mensagem interna do banco',
+  async () => {
+    const {
+      dependencies,
+      engineCalls,
+    } = createPreviewDependencies()
+
+    const {
+      promise,
+      calls,
+    } = runPreview({
+      tableOverrides: {
+        profiles: {
+          data: null,
+
+          error: {
+            message:
+              'detalhe interno do banco',
+          },
+        },
+      },
+
+      dependencies,
+    })
+
+    await assert.rejects(
+      () => promise,
+      (error) => {
+        assert.ok(
+          error instanceof
+            CompanionDiagnosticPreviewError,
+        )
+
+        assert.equal(
+          error.code,
+          'PREVIEW_QUERY_FAILED',
+        )
+
+        assert.equal(
+          error.message.includes(
+            'detalhe interno do banco',
+          ),
+          false,
+        )
+
+        return true
+      },
+    )
+
+    assert.equal(
+      engineCalls.length,
+      0,
+    )
+
+    assert.equal(
+      calls.some(
+        (call) =>
+          call.table ===
+          'sales_cycles',
+      ),
+      false,
     )
   },
 )

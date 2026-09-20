@@ -39,6 +39,15 @@
         : (handle) => root.clearTimeout(handle)
     const now = typeof options.now === 'function' ? options.now : () => Date.now()
 
+    // Fonte autoritativa de qual conversa está realmente aberta AGORA.
+    // Em produção vem diretamente do bootstrap/capture-runtime. Se não
+    // estiver disponível, render seller-facing falha fechado: estado
+    // interno pode continuar sendo atualizado, mas nenhum DOM é pintado.
+    const getCurrentConversationKey =
+      typeof options.getCurrentConversationKey === 'function'
+        ? options.getCurrentConversationKey
+        : () => null
+
     const stateByConversationKey = new Map()
 
     function getState(conversationKey) {
@@ -73,6 +82,14 @@
 
     function renderPanel(conversationKey) {
       if (!panelMountApi) return
+
+      if (
+        !conversationKey ||
+        getCurrentConversationKey() !== conversationKey
+      ) {
+        return
+      }
+
       const state = getState(conversationKey)
 
       const clientApi = clientContextApi()

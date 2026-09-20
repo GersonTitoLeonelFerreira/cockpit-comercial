@@ -44,6 +44,11 @@ const ACTIVE_MEMBERSHIP = {
   is_active: true,
 }
 
+const ACTIVE_PROFILE = {
+  id: IDS.userA,
+  is_active_global: true,
+}
+
 function useAdmin(steps) {
   const fake = createStepAdmin(steps)
   adminBox.admin = fake.admin
@@ -126,9 +131,27 @@ test('message-action: membership ausente é bloqueado', async () => {
   assert.equal(response.status, 403)
 })
 
+test('message-action: token válido + membership ativa, mas profile.is_active_global=false — 403, ZERO cycle_events write', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', { ...ACTIVE_PROFILE, is_active_global: false }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+
+  assert.equal(response.status, 403)
+  assert.equal(
+    fake.calls.some((call) => call.table === 'cycle_events'),
+    false,
+    'profile globalmente inativo nunca pode ler/gravar cycle_events',
+  )
+})
+
 test('message-action: ciclo inexistente na empresa responde 404', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', null),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -141,6 +164,7 @@ test('message-action: ciclo inexistente na empresa responde 404', async () => {
 test('message-action: member fora da carteira (ciclo de outro dono) é bloqueado', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.otherSeller }),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
@@ -153,11 +177,54 @@ test('message-action: member fora da carteira (ciclo de outro dono) é bloqueado
 test('message-action: manager registra ação em ciclo fora da própria carteira', async () => {
   useAdmin([
     selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.otherSeller }),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'manager' })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+
+  assert.equal(response.status, 200)
+})
+
+// ---------------------------------------------------------------------
+// STALE COMPANION TOKEN ROLE — a role autorizativa é SEMPRE a membership
+// ATUAL do banco, nunca tokenPayload.role.
+// ---------------------------------------------------------------------
+
+test('message-action DOWNGRADE: token diz admin mas a membership ATUAL é member, ciclo de outro vendedor — 403, ZERO cycle_events write', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.otherSeller }),
+  ])
+  // Token assinado com role=admin — pode ter sido emitido ANTES do
+  // rebaixamento para member. A membership live (acima) já é member.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+
+  assert.equal(response.status, 403)
+  assert.equal(
+    fake.calls.some((call) => call.table === 'cycle_events'),
+    false,
+    'downgrade nunca pode ler/gravar cycle_events',
+  )
+})
+
+test('message-action UPGRADE: token diz member mas a membership ATUAL é admin, ciclo de outro vendedor — não rejeita por ownership', async () => {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.otherSeller }),
+    selectStep('cycle_events', null),
+    insertStep('cycle_events', null),
+  ])
+  // Token assinado com role=member — pode ter sido emitido ANTES da
+  // promoção a admin. A membership live (acima) já é admin.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
 
   const response = await POST(postRequest({ token, body: validBody() }))
 
@@ -171,6 +238,7 @@ test('message-action: manager registra ação em ciclo fora da própria carteira
 test('message-action: ação nova (copied) grava exatamente um evento', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.userA }),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),
@@ -191,6 +259,7 @@ test('message-action: ação nova (copied) grava exatamente um evento', async ()
 test('message-action: ação "sent" grava o evento de uso E um evento adicional de contato comercial (dois inserts por desenho)', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.userA }),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),
@@ -212,6 +281,7 @@ test('message-action: ação "sent" grava o evento de uso E um evento adicional 
 test('message-action: reenviar a MESMA ação (mesma idempotency_key) não duplica gravação', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.userA }),
     selectStep('cycle_events', { id: 'evt-1', occurred_at: '2026-08-18T04:30:00.000Z' }),
   ])
@@ -231,6 +301,7 @@ test('message-action: reenviar a MESMA ação (mesma idempotency_key) não dupli
 test('message-action: mensagens diferentes para o mesmo ciclo/ação geram idempotency_key diferentes (não colidem)', async () => {
   const fakeFirst = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.userA }),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),
@@ -244,6 +315,7 @@ test('message-action: mensagens diferentes para o mesmo ciclo/ação geram idemp
 
   const fakeSecond = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.userA }),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),
@@ -264,6 +336,7 @@ test('message-action: mensagens diferentes para o mesmo ciclo/ação geram idemp
 test('message-action: busca e gravação são sempre filtradas pelo company_id do token', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.userA }),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),

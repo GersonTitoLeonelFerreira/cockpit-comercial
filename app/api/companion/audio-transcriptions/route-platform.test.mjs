@@ -43,6 +43,11 @@ const ACTIVE_MEMBERSHIP = {
   is_active: true,
 }
 
+const ACTIVE_PROFILE = {
+  id: IDS.userA,
+  is_active_global: true,
+}
+
 const ACTIVE_CYCLE = {
   id: IDS.cycle,
   company_id: IDS.companyA,
@@ -70,6 +75,7 @@ function request() {
 test('leitor retorna legado WhatsApp e evento universal ManyChat sem colisão', async () => {
   const fake = createStepAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', ACTIVE_CYCLE),
     selectStep('cycle_events', [
       {
@@ -143,6 +149,7 @@ test('leitor retorna legado WhatsApp e evento universal ManyChat sem colisão', 
 test('deduplicação inclui plataforma para não colidir target keys iguais', async () => {
   const fake = createStepAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', ACTIVE_CYCLE),
     selectStep('cycle_events', [
       {

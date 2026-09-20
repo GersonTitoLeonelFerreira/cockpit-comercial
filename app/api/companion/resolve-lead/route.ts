@@ -5,6 +5,7 @@ import {
   verifyCompanionRequestToken,
   type CompanionTokenPayload,
 } from '@/app/lib/server/companion-token'
+import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
 
 type ResolveLeadBody = {
   phone?: unknown
@@ -344,6 +345,7 @@ function buildResolutionPayload({
   phoneVariants,
   displayName,
   tokenPayload,
+  authorizationRole,
 }: {
   status:
     | 'NO_PHONE_DETECTED'
@@ -365,8 +367,14 @@ function buildResolutionPayload({
   phoneVariants?: string[]
   displayName: string | null
   tokenPayload: CompanionTokenPayload
+  authorizationRole:
+    | string
+    | null
+    | undefined
 }) {
-  const isAdminOrManager = tokenPayload.role === 'admin' || tokenPayload.role === 'manager'
+  const isAdminOrManager =
+    authorizationRole === 'admin' ||
+    authorizationRole === 'manager'
   const isOwnedByMe = cycle?.owner_user_id === tokenPayload.sub
 
   const canReadLeadProfile =
@@ -513,24 +521,12 @@ export async function POST(request: Request) {
     const platformContactKey = cleanText(body.platform_contact_key)
     const isExternalIdentityMode = Boolean(platform && platformContactKey)
 
-    if (!isExternalIdentityMode && phoneVariants.length === 0) {
-      return NextResponse.json(
-        buildResolutionPayload({
-          status: 'NO_PHONE_DETECTED',
-          userMessage:
-            'Não consegui detectar um telefone confiável na conversa aberta.',
-          phone: null,
-          phoneVariants,
-          displayName,
-          tokenPayload,
-        }),
-        {
-          status: 200,
-          headers: corsHeaders,
-        },
-      )
-    }
-
+    // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership +
+    // profile precisam ser validados ANTES de qualquer retorno
+    // seller-facing desta rota — inclusive NO_PHONE_DETECTED, que antes
+    // retornava sem nunca checar vínculo/perfil. Isso garante que a
+    // revogação nunca depende do formato específico do corpo da
+    // requisição.
     const { data: membership, error: membershipError } = await admin
       .from('company_memberships')
       .select('company_id, user_id, role, is_active')
@@ -562,6 +558,58 @@ export async function POST(request: Request) {
         },
         {
           status: 403,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    const profileAccess = await verifyActiveCompanionProfile({
+      admin,
+      userId: tokenPayload.sub,
+    })
+
+    if (profileAccess.error) {
+      return NextResponse.json(
+        {
+          ok: false,
+          status: 'PROFILE_ERROR',
+          error: profileAccess.error,
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (!profileAccess.active) {
+      return NextResponse.json(
+        {
+          ok: false,
+          status: 'PROFILE_INACTIVE',
+          error: 'Usuário globalmente inativo ou sem perfil válido.',
+        },
+        {
+          status: 403,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (!isExternalIdentityMode && phoneVariants.length === 0) {
+      return NextResponse.json(
+        buildResolutionPayload({
+          status: 'NO_PHONE_DETECTED',
+          userMessage:
+            'Não consegui detectar um telefone confiável na conversa aberta.',
+          phone: null,
+          phoneVariants,
+          displayName,
+          tokenPayload,
+          authorizationRole: membership.role,
+        }),
+        {
+          status: 200,
           headers: corsHeaders,
         },
       )
@@ -604,6 +652,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -646,6 +695,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -665,6 +715,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -718,6 +769,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -739,6 +791,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -757,6 +810,7 @@ export async function POST(request: Request) {
             phoneVariants,
             displayName,
             tokenPayload,
+            authorizationRole: membership.role,
           }),
           {
             status: 200,
@@ -845,6 +899,7 @@ export async function POST(request: Request) {
           phoneVariants,
           displayName,
           tokenPayload,
+          authorizationRole: membership.role,
         }),
         {
           status: 200,
@@ -882,6 +937,7 @@ export async function POST(request: Request) {
           phoneVariants,
           displayName,
           tokenPayload,
+          authorizationRole: membership.role,
         }),
         {
           status: 200,
@@ -904,6 +960,7 @@ export async function POST(request: Request) {
           phoneVariants,
           displayName,
           tokenPayload,
+          authorizationRole: membership.role,
         }),
         {
           status: 200,
@@ -925,6 +982,7 @@ export async function POST(request: Request) {
           phoneVariants,
           displayName,
           tokenPayload,
+          authorizationRole: membership.role,
         }),
         {
           status: 200,
@@ -945,6 +1003,7 @@ export async function POST(request: Request) {
         phoneVariants,
         displayName,
         tokenPayload,
+        authorizationRole: membership.role,
       }),
       {
         status: 200,

@@ -132,9 +132,10 @@ function buildQueryClass(tables) {
   }
 }
 
-function createFakeAdmin({ memberships, cycles, jobs, events }) {
+function createFakeAdmin({ memberships, profiles = [], cycles, jobs, events }) {
   const Query = buildQueryClass({
     company_memberships: memberships,
+    profiles,
     sales_cycles: cycles,
     companion_background_analysis_jobs: jobs,
     companion_commercial_state_events: events,
@@ -155,6 +156,13 @@ function baseFixtures() {
       role: 'member',
       is_active: true,
     }],
+    // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): os dois
+    // usuários usados pelos testes já globalmente ativos, para que
+    // overrides de `memberships` sozinhos não precisem repetir o profile.
+    profiles: [
+      { id: IDS.userA, is_active_global: true },
+      { id: IDS.userOther, is_active_global: true },
+    ],
     cycles: [
       {
         id: IDS.cycleA,

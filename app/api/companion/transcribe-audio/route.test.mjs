@@ -35,6 +35,7 @@ const { POST } = await import('./route.ts')
 const IDS = {
   companyA: 'aaaaaaaa-0000-4000-8000-000000000001',
   userA: 'aaaaaaaa-0000-4000-8000-0000000000a1',
+  userB: 'aaaaaaaa-0000-4000-8000-0000000000a2',
   cycle: 'aaaaaaaa-0000-4000-8000-0000000000d1',
 }
 
@@ -43,6 +44,11 @@ const ACTIVE_MEMBERSHIP = {
   user_id: IDS.userA,
   role: 'member',
   is_active: true,
+}
+
+const ACTIVE_PROFILE = {
+  id: IDS.userA,
+  is_active_global: true,
 }
 
 const ACTIVE_CYCLE = { id: IDS.cycle, company_id: IDS.companyA, status: 'contato', owner_user_id: IDS.userA }
@@ -128,9 +134,34 @@ test('transcribe-audio: token ausente é rejeitado antes de qualquer chamada ext
   assert.equal(fetchQueue.calls.length, 0)
 })
 
+// ---------------------------------------------------------------------
+// REVOGAÇÃO GLOBAL IMEDIATA — token válido + membership ativa não
+// bastam: profiles.is_active_global=false precisa bloquear IMEDIATAMENTE.
+// ---------------------------------------------------------------------
+
+test('transcribe-audio: token válido + membership ativa, mas profile.is_active_global=false — 403, ZERO OpenAI, ZERO cycle_events', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', { ...ACTIVE_PROFILE, is_active_global: false }),
+  ])
+  const fetchQueue = useFetchQueue([])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+
+  assert.equal(response.status, 403)
+  assert.equal(fetchQueue.calls.length, 0, 'profile globalmente inativo nunca pode chamar a OpenAI')
+  assert.equal(
+    fake.calls.some((call) => call.table === 'cycle_events'),
+    false,
+    'profile globalmente inativo nunca pode ler/gravar cycle_events',
+  )
+})
+
 test('transcribe-audio: ciclo inexistente responde 404 sem chamar a OpenAI', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', null),
   ])
   const fetchQueue = useFetchQueue([])
@@ -149,6 +180,7 @@ test('transcribe-audio: ciclo inexistente responde 404 sem chamar a OpenAI', asy
 test('transcribe-audio: áudio já transcrito (mesmo fingerprint) reaproveita o cache e NÃO chama a OpenAI', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', ACTIVE_CYCLE),
     selectStep('cycle_events', {
       id: 'evt-cached',
@@ -176,6 +208,7 @@ test('transcribe-audio: áudio já transcrito (mesmo fingerprint) reaproveita o 
 test('transcribe-audio: sucesso na primeira tentativa (gpt-4o-mini-transcribe) não tenta whisper-1', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', ACTIVE_CYCLE),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),
@@ -197,6 +230,7 @@ test('transcribe-audio: sucesso na primeira tentativa (gpt-4o-mini-transcribe) n
 test('transcribe-audio: falha "processing failed" no modelo primário aciona fallback para whisper-1 com sucesso', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', ACTIVE_CYCLE),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),
@@ -218,6 +252,7 @@ test('transcribe-audio: falha "processing failed" no modelo primário aciona fal
 test('transcribe-audio: falha "unsupported" no modelo primário também aciona fallback', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', ACTIVE_CYCLE),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),
@@ -238,6 +273,7 @@ test('transcribe-audio: falha "unsupported" no modelo primário também aciona f
 test('transcribe-audio: erro NÃO elegível ao fallback (ex.: limite de taxa) propaga sem tentar whisper-1', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', ACTIVE_CYCLE),
     selectStep('cycle_events', null),
   ])
@@ -257,6 +293,7 @@ test('transcribe-audio: erro NÃO elegível ao fallback (ex.: limite de taxa) pr
 test('transcribe-audio: falha nos DOIS modelos propaga o erro do fallback (whisper-1)', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', ACTIVE_CYCLE),
     selectStep('cycle_events', null),
   ])
@@ -275,12 +312,94 @@ test('transcribe-audio: falha nos DOIS modelos propaga o erro do fallback (whisp
 })
 
 // ---------------------------------------------------------------------
+// STALE COMPANION TOKEN ROLE — a role autorizativa é SEMPRE a membership
+// ATUAL do banco, nunca tokenPayload.role.
+// ---------------------------------------------------------------------
+
+test('transcribe-audio DOWNGRADE: token diz admin mas a membership ATUAL é member, ciclo de outro vendedor — 403, ZERO OpenAI, ZERO cycle_events', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('sales_cycles', { ...ACTIVE_CYCLE, owner_user_id: IDS.userB }),
+  ])
+  const fetchQueue = useFetchQueue([])
+  // Token assinado com role=admin — pode ter sido emitido ANTES do
+  // rebaixamento para member. A membership live (acima) já é member, e o
+  // ciclo pertence a outro vendedor.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+
+  assert.equal(response.status, 403)
+  assert.equal(fetchQueue.calls.length, 0, 'downgrade nunca pode chamar a OpenAI')
+  assert.equal(
+    fake.calls.some((call) => call.table === 'cycle_events'),
+    false,
+    'downgrade nunca pode ler/gravar cycle_events',
+  )
+})
+
+test('transcribe-audio UPGRADE: token diz member mas a membership ATUAL é admin, ciclo de outro vendedor — não rejeita por ownership', async () => {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('sales_cycles', { ...ACTIVE_CYCLE, owner_user_id: IDS.userB }),
+    selectStep('cycle_events', null),
+    insertStep('cycle_events', null),
+  ])
+  const fetchQueue = useFetchQueue([
+    async () => jsonFetchResponse(200, { text: 'Transcrição autorizada por role live.' }),
+  ])
+  // Token assinado com role=member — pode ter sido emitido ANTES da
+  // promoção a admin. A membership live (acima) já é admin.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: validBody() }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.data.text, 'Transcrição autorizada por role live.')
+  assert.equal(fetchQueue.calls.length, 1)
+})
+
+// ---------------------------------------------------------------------
+// CLOSED CYCLE — ciclo comercial encerrado nunca aceita transcrição de
+// áudio (mesma regra de integridade que rpc_ingest_companion_messages já
+// aplica para captura de texto).
+// ---------------------------------------------------------------------
+
+for (const closedStatus of ['ganho', 'perdido', 'cancelado']) {
+  test(`transcribe-audio CLOSED CYCLE: ciclo com status "${closedStatus}" é recusado antes da OpenAI/cycle_events`, async () => {
+    const fake = useAdmin([
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('sales_cycles', { ...ACTIVE_CYCLE, status: closedStatus }),
+    ])
+    const fetchQueue = useFetchQueue([])
+    const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+    const response = await POST(postRequest({ token, body: validBody() }))
+    const payload = await readJson(response)
+
+    assert.equal(response.status, 400)
+    assert.equal(payload.ok, false)
+    assert.equal(fetchQueue.calls.length, 0, 'ciclo fechado nunca pode chamar a OpenAI')
+    assert.equal(
+      fake.calls.some((call) => call.table === 'cycle_events'),
+      false,
+      'ciclo fechado nunca pode ler/gravar cycle_events',
+    )
+  })
+}
+
+// ---------------------------------------------------------------------
 // Isolamento multiempresa da busca por fingerprint em cache
 // ---------------------------------------------------------------------
 
 test('transcribe-audio: busca de transcrição em cache é filtrada pelo company_id do token', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('sales_cycles', ACTIVE_CYCLE),
     selectStep('cycle_events', null),
     insertStep('cycle_events', null),

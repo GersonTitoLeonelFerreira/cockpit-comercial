@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
+import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
 
 type MessageAction = 'copied' | 'inserted' | 'sent'
 
@@ -351,6 +352,42 @@ export async function POST(request: Request) {
       )
     }
 
+    // Hardening (STEP 2A.4, "REVOGAÇÃO GLOBAL IMEDIATA"): membership
+    // ativa sozinha não basta — um usuário com
+    // profiles.is_active_global=false precisa perder a capacidade de
+    // registrar uso de mensagem sugerida IMEDIATAMENTE, mesmo com um
+    // Companion token ainda válido por horas.
+    const profileAccess = await verifyActiveCompanionProfile({
+      admin,
+      userId: tokenPayload.sub,
+    })
+
+    if (profileAccess.error) {
+      return NextResponse.json<RegisterMessageActionResponse>(
+        {
+          ok: false,
+          error: profileAccess.error,
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (!profileAccess.active) {
+      return NextResponse.json<RegisterMessageActionResponse>(
+        {
+          ok: false,
+          error: 'Usuário globalmente inativo ou sem perfil válido.',
+        },
+        {
+          status: 403,
+          headers: corsHeaders,
+        },
+      )
+    }
+
     const { data: cycle, error: cycleError } = await admin
       .from('sales_cycles')
       .select('id, company_id, status, owner_user_id')
@@ -385,7 +422,9 @@ export async function POST(request: Request) {
     }
 
     const ownerUserId = getNullableString(cycle.owner_user_id)
-    const isAdminOrManager = tokenPayload.role === 'admin' || tokenPayload.role === 'manager'
+    const isAdminOrManager =
+      membership.role === 'admin' ||
+      membership.role === 'manager'
 
     if (!isAdminOrManager && ownerUserId !== tokenPayload.sub) {
       return NextResponse.json<RegisterMessageActionResponse>(

@@ -51,6 +51,11 @@ const ACTIVE_MEMBERSHIP = {
   is_active: true,
 }
 
+const ACTIVE_PROFILE = {
+  id: IDS.userA,
+  is_active_global: true,
+}
+
 const LEAD_ROW = {
   id: IDS.lead,
   company_id: IDS.companyA,
@@ -138,8 +143,11 @@ test('resolve-lead: token expirado é rejeitado', async () => {
   assert.equal(fake.calls.length, 0)
 })
 
-test('resolve-lead: telefone não detectável responde NO_PHONE_DETECTED sem tocar o banco', async () => {
-  const fake = useAdmin([])
+test('resolve-lead: telefone não detectável responde NO_PHONE_DETECTED depois de validar membership/profile (nunca antes)', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
+  ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
 
   const response = await POST(postRequest({ token, body: { phone: '' } }))
@@ -147,7 +155,7 @@ test('resolve-lead: telefone não detectável responde NO_PHONE_DETECTED sem toc
 
   assert.equal(response.status, 200)
   assert.equal(payload.status, 'NO_PHONE_DETECTED')
-  assert.equal(fake.calls.length, 0)
+  assert.equal(fake.remaining.length, 0)
 })
 
 test('resolve-lead: usuário sem vínculo ativo é bloqueado', async () => {
@@ -161,12 +169,52 @@ test('resolve-lead: usuário sem vínculo ativo é bloqueado', async () => {
 })
 
 // ---------------------------------------------------------------------
+// REVOGAÇÃO GLOBAL IMEDIATA — token válido + membership ativa não
+// bastam: profiles.is_active_global=false precisa bloquear IMEDIATAMENTE,
+// mesmo com um Companion token ainda válido por horas.
+// ---------------------------------------------------------------------
+
+test('resolve-lead: token válido + membership ativa, mas profile.is_active_global=false — 403, ZERO lead/lead_profile/cpf_cnpj', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', { ...ACTIVE_PROFILE, is_active_global: false }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 403)
+  assert.equal(payload.status, 'PROFILE_INACTIVE')
+  assert.equal(
+    fake.calls.some((call) => call.table === 'leads'),
+    false,
+    'profile globalmente inativo nunca pode chegar a consultar leads',
+  )
+})
+
+test('resolve-lead: profile inexistente é tratado como globalmente inativo (fail closed)', async () => {
+  useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', null),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 403)
+  assert.equal(payload.status, 'PROFILE_INACTIVE')
+})
+
+// ---------------------------------------------------------------------
 // Ausência de lead / lead existente nos vários estados
 // ---------------------------------------------------------------------
 
 test('resolve-lead: lead inexistente responde NOT_FOUND', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', []),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -182,6 +230,7 @@ test('resolve-lead: lead inexistente responde NOT_FOUND', async () => {
 test('resolve-lead: lead existente com ciclo aberto de propriedade do solicitante responde OWNED_BY_ME e expõe cpf_cnpj/lead_profile', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', [LEAD_ROW]),
     selectStep('lead_profiles', LEAD_PROFILE_ROW),
     selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.userA })]),
@@ -203,6 +252,7 @@ test('resolve-lead: lead existente com ciclo aberto de propriedade do solicitant
 test('resolve-lead: lead de propriedade de OUTRO vendedor (member) mascara cpf_cnpj e lead_profile', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', [LEAD_ROW]),
     selectStep('lead_profiles', LEAD_PROFILE_ROW),
     selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.otherSeller })]),
@@ -223,6 +273,7 @@ test('resolve-lead: lead de propriedade de OUTRO vendedor (member) mascara cpf_c
 test('resolve-lead: manager vê cpf_cnpj e lead_profile mesmo sem ser dono do ciclo', async () => {
   useAdmin([
     selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', [LEAD_ROW]),
     selectStep('lead_profiles', LEAD_PROFILE_ROW),
     selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.otherSeller })]),
@@ -240,9 +291,64 @@ test('resolve-lead: manager vê cpf_cnpj e lead_profile mesmo sem ser dono do ci
   assert.equal(payload.flags.is_admin_or_manager, true)
 })
 
+// ---------------------------------------------------------------------
+// STALE COMPANION TOKEN ROLE — a role autorizativa é SEMPRE a membership
+// ATUAL do banco, nunca tokenPayload.role. O token dura até 6h e pode
+// ficar desatualizado se a role da pessoa mudar nesse meio-tempo.
+// ---------------------------------------------------------------------
+
+test('resolve-lead DOWNGRADE: token diz admin mas a membership ATUAL é member — nunca herda privilégio administrativo stale', async () => {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'member' }),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('leads', [LEAD_ROW]),
+    selectStep('lead_profiles', LEAD_PROFILE_ROW),
+    selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.otherSeller })]),
+    selectStep('profiles', { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' }),
+  ])
+  // Token assinado com role=admin — pode ter sido emitido ANTES do
+  // rebaixamento para member. A membership live (acima) já é member.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'admin' })
+
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'OWNED_BY_OTHER')
+  assert.equal(payload.lead.cpf_cnpj, null, 'downgrade: nunca vaza cpf_cnpj por role stale do token')
+  assert.equal(payload.lead_profile, null, 'downgrade: nunca vaza lead_profile por role stale do token')
+  assert.equal(payload.actions.can_analyze_conversation, false)
+  assert.equal(payload.flags.is_admin_or_manager, false)
+})
+
+test('resolve-lead UPGRADE: token diz member mas a membership ATUAL é admin — comportamento administrativo aplica imediatamente', async () => {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'admin' }),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('leads', [LEAD_ROW]),
+    selectStep('lead_profiles', LEAD_PROFILE_ROW),
+    selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.otherSeller })]),
+    selectStep('profiles', { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' }),
+  ])
+  // Token assinado com role=member — pode ter sido emitido ANTES da
+  // promoção a admin. A membership live (acima) já é admin.
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'OWNED_BY_OTHER')
+  assert.equal(payload.lead.cpf_cnpj, '52998224725', 'upgrade: role administrativa live libera cpf_cnpj imediatamente')
+  assert.ok(payload.lead_profile, 'upgrade: role administrativa live libera lead_profile imediatamente')
+  assert.equal(payload.actions.can_analyze_conversation, true)
+  assert.equal(payload.flags.is_admin_or_manager, true)
+})
+
 test('resolve-lead: lead no Pool (sem dono) responde IN_POOL', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', [LEAD_ROW]),
     selectStep('lead_profiles', LEAD_PROFILE_ROW),
     selectStep('sales_cycles', [openCycle({ owner_user_id: null })]),
@@ -260,6 +366,7 @@ test('resolve-lead: lead no Pool (sem dono) responde IN_POOL', async () => {
 test('resolve-lead: lead com apenas ciclo fechado responde CLOSED_CYCLE', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', [LEAD_ROW]),
     selectStep('lead_profiles', LEAD_PROFILE_ROW),
     selectStep('sales_cycles', [openCycle({ status: 'ganho', owner_user_id: IDS.userA })]),
@@ -278,6 +385,7 @@ test('resolve-lead: lead com apenas ciclo fechado responde CLOSED_CYCLE', async 
 test('resolve-lead: lead sem nenhum ciclo comercial responde LEAD_WITHOUT_CYCLE', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', [LEAD_ROW]),
     selectStep('lead_profiles', LEAD_PROFILE_ROW),
     selectStep('sales_cycles', []),
@@ -294,6 +402,7 @@ test('resolve-lead: lead sem nenhum ciclo comercial responde LEAD_WITHOUT_CYCLE'
 test('resolve-lead: lead excluído (soft delete) responde SOFT_DELETED', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', [{ ...LEAD_ROW, deleted_at: '2026-01-01T00:00:00.000Z' }]),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -308,6 +417,7 @@ test('resolve-lead: lead excluído (soft delete) responde SOFT_DELETED', async (
 test('resolve-lead: múltiplos leads ativos com o mesmo telefone responde MULTIPLE_MATCHES', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', [LEAD_ROW, { ...LEAD_ROW, id: IDS.otherLead }]),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -322,6 +432,7 @@ test('resolve-lead: múltiplos leads ativos com o mesmo telefone responde MULTIP
 test('resolve-lead: variação de telefone (com/sem nono dígito) ainda resolve o mesmo lead', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', [{ ...LEAD_ROW, phone: '1188887777' }]),
     selectStep('lead_profiles', LEAD_PROFILE_ROW),
     selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.userA })]),
@@ -343,6 +454,7 @@ test('resolve-lead: variação de telefone (com/sem nono dígito) ainda resolve 
 test('resolve-lead: consulta usa o company_id do token, mesmo se o corpo tentar injetar outro', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', []),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -364,6 +476,7 @@ test('resolve-lead: consulta usa o company_id do token, mesmo se o corpo tentar 
 test('resolve-lead: erro ao buscar leads por telefone é reportado como LEAD_SEARCH_ERROR', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('leads', null, { message: 'timeout no banco' }),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -385,6 +498,7 @@ const PLATFORM_CONTACT_KEY = `manychat:contact:v1:sha256:${'a'.repeat(64)}`
 test('resolve-lead: platform_contact_key sem telefone não responde NO_PHONE_DETECTED e checa membership', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('lead_external_identities', null),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -405,6 +519,7 @@ test('resolve-lead: platform_contact_key sem telefone não responde NO_PHONE_DET
 test('resolve-lead: contato ainda não vinculado responde CONTACT_NOT_LINKED sem consultar leads', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('lead_external_identities', null),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
@@ -429,6 +544,7 @@ test('resolve-lead: contato ainda não vinculado responde CONTACT_NOT_LINKED sem
 test('resolve-lead: contato vinculado a lead na carteira do vendedor responde OWNED_BY_ME e atualiza last_seen', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('lead_external_identities', { lead_id: IDS.lead }),
     selectStep('leads', LEAD_ROW),
     selectStep('lead_profiles', LEAD_PROFILE_ROW),
@@ -458,6 +574,7 @@ test('resolve-lead: contato vinculado a lead na carteira do vendedor responde OW
 test('resolve-lead: vínculo aponta para lead que não existe mais responde CONTACT_NOT_LINKED', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('lead_external_identities', { lead_id: IDS.otherLead }),
     selectStep('leads', null),
   ])
@@ -478,6 +595,7 @@ test('resolve-lead: vínculo aponta para lead que não existe mais responde CONT
 test('resolve-lead: vínculo para lead arquivado/excluído responde SOFT_DELETED', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('lead_external_identities', { lead_id: IDS.lead }),
     selectStep('leads', { ...LEAD_ROW, deleted_at: '2026-01-01T00:00:00.000Z' }),
   ])
@@ -498,6 +616,7 @@ test('resolve-lead: vínculo para lead arquivado/excluído responde SOFT_DELETED
 test('resolve-lead: erro ao buscar identidade externa é reportado como EXTERNAL_IDENTITY_SEARCH_ERROR', async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
     selectStep('lead_external_identities', null, { message: 'timeout no banco' }),
   ])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
