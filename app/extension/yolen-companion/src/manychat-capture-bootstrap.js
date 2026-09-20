@@ -59,8 +59,16 @@
     // texto de status — se o runtime não estiver disponível, ainda assim
     // não fingimos ter mais informação do que a resolução de lead.
     if (resolution.ready === true) {
-      if (!sellerPanelRuntimeApi) {
-        panelMountApi.setPanelContent('<div class="yolen-status">Yolen · lead identificado</div>')
+      if (
+        sellerPanelRuntime &&
+        typeof sellerPanelRuntime.renderPanel === 'function' &&
+        conversationKey
+      ) {
+        sellerPanelRuntime.renderPanel(conversationKey)
+      } else {
+        panelMountApi.setPanelContent(
+          '<div class="yolen-status">Yolen · lead identificado</div>',
+        )
       }
       return
     }
@@ -166,9 +174,35 @@
   // conversa que está sendo deixada para trás ANTES de deixar a nova
   // assumir o painel (STEP 2A.3, hardening final, item 1/2).
   function handleAuthoritativeConversationChange(newConversationKey) {
-    if (contactLinkRuntime && lastKnownConversationKey && lastKnownConversationKey !== newConversationKey) {
-      contactLinkRuntime.invalidateConversation(lastKnownConversationKey)
+    const previousConversationKey = lastKnownConversationKey
+
+    if (
+      previousConversationKey &&
+      previousConversationKey !== newConversationKey
+    ) {
+      const previousResolution =
+        runtime.getConversationState(previousConversationKey)?.resolution ?? null
+
+      // Hardening (auditoria STEP 2A.3, "AMBIGUOUS FIRST-LINK RETURN TO A"):
+      // um first-link cuja resposta HTTP se perdeu (sem LINKED/IDEMPOTENT
+      // para disparar onLinked) nunca pode deixar CONTACT_NOT_LINKED
+      // congelado em cache — ao abandonar essa conversa, força um
+      // RESOLVE_LEAD novo da próxima vez que o vendedor voltar, em vez de
+      // reutilizar um "ainda não vinculado" que já pode estar errado.
+      // Deliberadamente restrito a CONTACT_NOT_LINKED: nunca invalida uma
+      // resolução ready=true só por causa de uma troca de conversa comum.
+      if (
+        previousResolution?.reason === 'CONTACT_NOT_LINKED' &&
+        typeof runtime.invalidateLeadResolution === 'function'
+      ) {
+        runtime.invalidateLeadResolution(previousConversationKey)
+      }
+
+      if (contactLinkRuntime) {
+        contactLinkRuntime.invalidateConversation(previousConversationKey)
+      }
     }
+
     lastKnownConversationKey = newConversationKey
     syncPanel()
   }

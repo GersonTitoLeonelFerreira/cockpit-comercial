@@ -184,11 +184,37 @@
     // explícito depois de um first-link (refreshLeadResolution). Nunca
     // mexe em nenhum outro campo do estado da conversa (base_version por
     // mensagem, fingerprint, transcrições) — só resolution.
+    // Hardening (auditoria STEP 2A.3, "INITIAL SAME-CONVERSATION IDENTITY
+    // SWAP"): a resolução inicial usava só uma leitura de identidade antes
+    // do RESOLVE_LEAD — se o ManyChat trocar de contato NA MESMA
+    // conversation_key enquanto RESOLVE_LEAD ainda está em voo, o cycle
+    // devolvido pertence ao contato ANTIGO e nunca pode ser persistido (nem
+    // usado por captureNow para ingerir o conteúdo do contato NOVO). Usa a
+    // mesma dupla checagem de identidade (antes e depois do await) já
+    // aplicada em refreshLeadResolution — nunca um segundo algoritmo.
     async function resolveAndStoreResolution(conversationKey) {
       const state = getConversationState(conversationKey)
 
+      function abortStale() {
+        state.resolution = null
+        return Object.freeze({
+          ready: false,
+          reason: 'CONTACT_CHANGED',
+          cycle_id: null,
+        })
+      }
+
+      if (!isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
       const safeIdentity = await getSafeIdentity()
-      if (!safeIdentity) {
+
+      if (!isCurrentConversation(conversationKey)) {
+        return abortStale()
+      }
+
+      if (!safeIdentity?.platform || !safeIdentity?.platform_identity?.key) {
         state.resolution = Object.freeze({
           ready: false,
           reason: 'identity_not_ready',
@@ -197,12 +223,32 @@
         return state.resolution
       }
 
+      const expectedPlatform = safeIdentity.platform
+      const expectedIdentityKey = safeIdentity.platform_identity.key
+
       const resolution = await resolveLeadForIdentity(safeIdentity)
-      const eligible = captureBatchApi.isCaptureResolutionEligible(resolution)
+
+      const safeIdentityAfterResolve = await getSafeIdentity()
+
+      if (
+        !isCurrentConversation(conversationKey) ||
+        !matchesExpectedIdentity(
+          safeIdentityAfterResolve,
+          expectedPlatform,
+          expectedIdentityKey,
+        )
+      ) {
+        return abortStale()
+      }
+
+      const eligible =
+        captureBatchApi.isCaptureResolutionEligible(resolution)
 
       state.resolution = Object.freeze({
         ready: eligible,
-        reason: eligible ? null : (resolution?.status ?? 'resolution_unavailable'),
+        reason: eligible
+          ? null
+          : (resolution?.status ?? 'resolution_unavailable'),
         cycle_id: eligible ? resolution.cycle.id : null,
       })
 
@@ -216,6 +262,26 @@
       }
 
       return resolveAndStoreResolution(conversationKey)
+    }
+
+    // Hardening (auditoria STEP 2A.3, "CONTACT_NOT_LINKED INVALIDATED ON
+    // LEAVE"): um first-link cuja resposta HTTP se perde nunca dispara
+    // onLinked/refreshLeadResolution — sem isto, state.resolution
+    // continuaria CONTACT_NOT_LINKED para sempre mesmo depois do servidor
+    // já ter gravado o vínculo. Chamado pelo bootstrap só ao abandonar uma
+    // conversa cuja última resolução conhecida era CONTACT_NOT_LINKED,
+    // nunca em toda troca de conversa. Limpa SÓ resolution — nunca
+    // baseVersionsByMessageKey, lastContentFingerprint ou
+    // transcribedMessageKeys.
+    function invalidateLeadResolution(conversationKey) {
+      const state = stateByConversationKey.get(conversationKey)
+
+      if (!state) {
+        return false
+      }
+
+      state.resolution = null
+      return true
     }
 
     // Chamado depois de um first-link bem-sucedido (LINKED/IDEMPOTENT/
@@ -598,6 +664,7 @@
       getConversationState,
       getSafeIdentity,
       refreshLeadResolution,
+      invalidateLeadResolution,
       // Fonte autoritativa única de "qual conversa está aberta agora",
       // sempre derivada ao vivo do adapter/URL — nunca uma variável que um
       // callback assíncrono desatualizado poderia sobrescrever (STEP

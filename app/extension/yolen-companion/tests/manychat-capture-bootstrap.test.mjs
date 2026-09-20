@@ -392,7 +392,159 @@ test('A→B→A: voltar para uma conversa cuja assinatura não mudou ainda assim
   assert.ok(writesAfterReturningToA.some((html) => html.includes('não vinculado')))
 })
 
-test('bootstrap nunca chama sellerPanelRuntime.renderPanel diretamente — só handleCaptureResult, que decide sozinho quando renderizar', () => {
+// -----------------------------------------------------------------------
+// Auditoria terse "READY→READY IMMEDIATE PANEL SWITCH" / "A→B→A READY
+// PANEL RESTORE" / "STALE A SELLER PANEL OVER B": quando resolution.ready
+// === true, renderStatus() precisa pintar o painel seller-facing
+// (sellerPanelRuntime.renderPanel) usando o estado JÁ isolado por
+// conversation_key — nunca esperar por um novo capture_result para trocar
+// visualmente de conversa, e nunca deixar o snapshot de uma conversa
+// visível sobre outra. Substitui o teste antigo (premissa incorreta de que
+// bootstrap nunca chamaria renderPanel diretamente).
+// -----------------------------------------------------------------------
+
+test('A: READY→READY — conversation_changed troca IMEDIATAMENTE o painel para B (renderPanel(B) roda antes de qualquer capture_result novo)', () => {
+  const sellerCalls = []
+  let receivedOptions = null
+  const currentKeyRef = { value: null }
+  const resolutionByKey = {
+    'conv-a': { ready: true, reason: null, cycle_id: 'cycle-a' },
+    'conv-b': { ready: true, reason: null, cycle_id: 'cycle-b' },
+  }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState(key) {
+            return { resolution: resolutionByKey[key] }
+          },
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatSellerPanelRuntime: {
+      createManyChatSellerPanelRuntime() {
+        return {
+          renderPanel(conversationKey) {
+            sellerCalls.push(['renderPanel', conversationKey])
+          },
+          handleCaptureResult(result) {
+            sellerCalls.push(['handleCaptureResult', result])
+          },
+        }
+      },
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  // Seller A já tinha snapshot próprio (já visível antes da troca).
+  currentKeyRef.value = 'conv-a'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a' },
+  })
+  assert.deepEqual(sellerCalls.at(-1), ['renderPanel', 'conv-a'])
+
+  sellerCalls.length = 0
+
+  // Troca real para B: renderPanel('conv-b') precisa rodar JÁ na própria
+  // conversation_changed — nunca só depois de um capture_result futuro.
+  currentKeyRef.value = 'conv-b'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b' },
+  })
+
+  assert.deepEqual(
+    sellerCalls,
+    [['renderPanel', 'conv-b']],
+    'B assume o painel imediatamente na troca de conversa, antes de qualquer capture_result',
+  )
+})
+
+test('B: A→B→A com ambos ready e assinaturas inalteradas — renderPanel roda de novo na volta para A', () => {
+  const sellerCalls = []
+  let receivedOptions = null
+  const currentKeyRef = { value: null }
+  const resolutionByKey = {
+    'conv-a': { ready: true, reason: null, cycle_id: 'cycle-a' },
+    'conv-b': { ready: true, reason: null, cycle_id: 'cycle-b' },
+  }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState(key) {
+            return { resolution: resolutionByKey[key] }
+          },
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatSellerPanelRuntime: {
+      createManyChatSellerPanelRuntime() {
+        return {
+          renderPanel(conversationKey) {
+            sellerCalls.push(['renderPanel', conversationKey])
+          },
+          handleCaptureResult(result) {
+            sellerCalls.push(['handleCaptureResult', result])
+          },
+        }
+      },
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  currentKeyRef.value = 'conv-a'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a' },
+  })
+  assert.deepEqual(sellerCalls.at(-1), ['renderPanel', 'conv-a'])
+
+  currentKeyRef.value = 'conv-b'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b' },
+  })
+  assert.deepEqual(sellerCalls.at(-1), ['renderPanel', 'conv-b'])
+
+  sellerCalls.length = 0
+
+  // Volta para A: a resolução de A não mudou (mesma assinatura de antes) —
+  // mesmo assim renderPanel('conv-a') precisa rodar de novo, porque o
+  // painel visível é o de B.
+  currentKeyRef.value = 'conv-a'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a' },
+  })
+
+  assert.deepEqual(sellerCalls, [['renderPanel', 'conv-a']])
+})
+
+test('C: capture_result desatualizado de A enquanto B está aberto nunca chama renderPanel(A) nem handleCaptureResult(A)', () => {
   const sellerCalls = []
   let receivedOptions = null
   const currentKeyRef = { value: null }
@@ -404,28 +556,26 @@ test('bootstrap nunca chama sellerPanelRuntime.renderPanel diretamente — só h
         receivedOptions = options
         return {
           start() {},
-          getConversationState() {
-            return { resolution: { ready: true, reason: null, cycle_id: 'cycle-1' } }
+          getConversationState(conversationKey) {
+            return { resolution: { ready: true, reason: null, cycle_id: `cycle-${conversationKey}` } }
           },
           getCurrentConversationKey: () => currentKeyRef.value,
         }
       },
     },
     YolenManyChatPanelMount: {
-      isConversationOpen() {
-        return true
-      },
+      isConversationOpen: () => true,
       syncPanelVisibility() {},
       setPanelContent() {},
     },
     YolenManyChatSellerPanelRuntime: {
       createManyChatSellerPanelRuntime() {
         return {
-          renderPanel(...args) {
-            sellerCalls.push(['renderPanel', ...args])
+          renderPanel(conversationKey) {
+            sellerCalls.push(['renderPanel', conversationKey])
           },
-          handleCaptureResult(...args) {
-            sellerCalls.push(['handleCaptureResult', ...args])
+          handleCaptureResult(result) {
+            sellerCalls.push(['handleCaptureResult', result])
           },
         }
       },
@@ -434,24 +584,29 @@ test('bootstrap nunca chama sellerPanelRuntime.renderPanel diretamente — só h
     chrome: { runtime: { sendMessage() {} } },
   })
 
-  // Navegação real: a fonte autoritativa já reflete k1 quando o reader
-  // detecta e dispara conversation_changed.
-  currentKeyRef.value = 'k1'
+  // Navegação real para B.
+  currentKeyRef.value = 'conv-b'
   receivedOptions.onEvent({
     type: 'reader_event',
-    event: { type: 'conversation_changed', conversation_key: 'k1' },
+    event: { type: 'conversation_changed', conversation_key: 'conv-b' },
   })
-  receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'k1', ok: true } })
+
+  sellerCalls.length = 0
+
+  // capture_result de A (captura que estava em andamento antes da troca)
+  // chega só agora — syncPanel() sempre relê a conversa AUTORITATIVA (B),
+  // então renderPanel só pode ser chamado com 'conv-b', nunca 'conv-a'.
+  receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'conv-a', ok: true } })
 
   assert.equal(
-    sellerCalls.filter(([method]) => method === 'renderPanel').length,
-    0,
-    'bootstrap nunca chama renderPanel diretamente',
+    sellerCalls.some(([method, arg]) => method === 'renderPanel' && arg === 'conv-a'),
+    false,
+    'nunca repinta o painel com o snapshot de A enquanto B está aberto',
   )
   assert.equal(
-    sellerCalls.filter(([method]) => method === 'handleCaptureResult').length,
-    1,
-    'capture_result é repassado para o sellerPanelRuntime decidir sozinho',
+    sellerCalls.some(([method, result]) => method === 'handleCaptureResult' && result?.conversation_key === 'conv-a'),
+    false,
+    'capture_result de A nunca chega a sellerPanelRuntime enquanto B é a conversa atual',
   )
 })
 
@@ -1011,4 +1166,90 @@ test('H: capture_result(A) chegando depois da troca real para B nunca dispara re
   receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'conv-b', ok: true } })
   assert.equal(sellerCalls.length, 1)
   assert.equal(sellerCalls[0].conversation_key, 'conv-b')
+})
+
+// -----------------------------------------------------------------------
+// Auditoria terse "CONTACT_NOT_LINKED INVALIDATED ON LEAVE" /
+// "AMBIGUOUS FIRST-LINK RETURN TO A": um first-link cuja resposta HTTP se
+// perde nunca dispara onLinked/refreshLeadResolution — sem invalidar o
+// cache ao abandonar a conversa, CONTACT_NOT_LINKED ficaria congelado para
+// sempre mesmo que o servidor já tivesse gravado o vínculo. A invalidação
+// é deliberadamente restrita a CONTACT_NOT_LINKED: uma resolução ready=true
+// nunca é invalidada só por causa de uma troca de conversa comum.
+// -----------------------------------------------------------------------
+
+test('CONTACT_NOT_LINKED é invalidado ao abandonar a conversa (resposta ambígua de first-link) — mas resolução ready nunca é invalidada por uma troca comum', () => {
+  let receivedOptions = null
+  const currentKeyRef = { value: null }
+  const invalidateCalls = []
+  const resolutionByKey = {
+    'conv-a': { ready: false, reason: 'CONTACT_NOT_LINKED', cycle_id: null },
+    'conv-b': { ready: true, reason: null, cycle_id: 'cycle-b' },
+    'conv-c': { ready: true, reason: null, cycle_id: 'cycle-c' },
+  }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState(key) {
+            return { resolution: resolutionByKey[key] }
+          },
+          getCurrentConversationKey: () => currentKeyRef.value,
+          invalidateLeadResolution(key) {
+            invalidateCalls.push(key)
+            // Simula o efeito real: a próxima vez que essa conversa for
+            // vista, o cache de resolução já não existe mais.
+            resolutionByKey[key] = null
+            return true
+          },
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  // A: resolução ainda CONTACT_NOT_LINKED (o first-link ficou em voo e o
+  // vendedor trocou de conversa antes de qualquer resposta LINKED/erro
+  // chegar — não importa qual delas eventualmente teria chegado, o cache
+  // de A não pode ser confiável depois de abandonado).
+  currentKeyRef.value = 'conv-a'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a' },
+  })
+
+  // Troca real para B: A tinha CONTACT_NOT_LINKED — invalida.
+  currentKeyRef.value = 'conv-b'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b' },
+  })
+
+  assert.deepEqual(invalidateCalls, ['conv-a'])
+  assert.equal(
+    resolutionByKey['conv-a'],
+    null,
+    'ao voltar para A, o próximo ciclo normal fará RESOLVE_LEAD de novo — nunca reutiliza CONTACT_NOT_LINKED como verdade definitiva',
+  )
+
+  // Troca de B (ready=true) para C: nunca invalida uma resolução ready só
+  // por causa de uma troca de conversa comum.
+  currentKeyRef.value = 'conv-c'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-c' },
+  })
+
+  assert.deepEqual(invalidateCalls, ['conv-a'], 'B (ready=true) nunca é invalidado ao ser abandonado')
+  assert.equal(resolutionByKey['conv-b'].ready, true)
 })
