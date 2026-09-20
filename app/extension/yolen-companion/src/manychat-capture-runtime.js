@@ -193,18 +193,39 @@
       return match ? match[1] : null
     }
 
-    function buildIdentityScopedMessageKey(identityBinding, structuralMessageKey) {
-      const digest = extractContactDigest(identityBinding)
-      if (!digest || typeof structuralMessageKey !== 'string') {
+    function buildIdentityScopedMessageKey(
+      identityBinding,
+      structuralMessageKey,
+    ) {
+      const digest =
+        extractContactDigest(identityBinding)
+
+      if (
+        !digest ||
+        typeof structuralMessageKey !== 'string'
+      ) {
         return null
       }
 
       const prefix = `${PLATFORM}:`
+
       if (!structuralMessageKey.startsWith(prefix)) {
         return null
       }
 
-      return `${prefix}${digest}:${structuralMessageKey.slice(prefix.length)}`
+      const nativePart =
+        structuralMessageKey.slice(prefix.length)
+
+      if (!nativePart) {
+        return null
+      }
+
+      const scopedMessageKey =
+        `${prefix}${digest}:${nativePart}`
+
+      return scopedMessageKey.length <= 500
+        ? scopedMessageKey
+        : null
     }
 
     // Garante que o estado auxiliar de captura (base_version por mensagem,
@@ -480,18 +501,39 @@
     // IDENTITY CHECK" / "AUDIO POST-TRANSCRIPTION IDENTITY CHECK") — a
     // conversa E a identidade precisam continuar sendo exatamente o
     // binding esperado.
-    async function currentIdentityMatchesBinding(conversationKey, expectedBinding) {
-      if (!expectedBinding || !isCurrentConversation(conversationKey)) {
+    async function currentIdentityMatchesBinding(
+      conversationKey,
+      state,
+      resolution,
+      expectedBinding,
+    ) {
+      if (
+        !expectedBinding ||
+        !isCurrentConversation(conversationKey) ||
+        state.resolution !== resolution ||
+        state.resolutionIdentity?.platform !==
+          expectedBinding.platform ||
+        state.resolutionIdentity?.key !==
+          expectedBinding.key
+      ) {
         return false
       }
 
       const freshIdentity = await getSafeIdentity()
-      const freshBinding = normalizeIdentityBinding(freshIdentity)
+      const freshBinding =
+        normalizeIdentityBinding(freshIdentity)
 
       return Boolean(
-        freshBinding &&
-          freshBinding.platform === expectedBinding.platform &&
-          freshBinding.key === expectedBinding.key,
+        isCurrentConversation(conversationKey) &&
+          state.resolution === resolution &&
+          state.resolutionIdentity?.platform ===
+            expectedBinding.platform &&
+          state.resolutionIdentity?.key ===
+            expectedBinding.key &&
+          freshBinding?.platform ===
+            expectedBinding.platform &&
+          freshBinding?.key ===
+            expectedBinding.key
       )
     }
 
@@ -623,15 +665,51 @@
         // Pré-DOM: o contato pode ter mudado entre o snapshot já validado
         // por captureNow e este exato instante — nunca busca o node/fonte
         // de áudio no DOM sob uma identidade que já não é mais a atual.
-        if (!(await currentIdentityMatchesBinding(conversationKey, resolutionIdentity))) {
+        if (
+          !(await currentIdentityMatchesBinding(
+            conversationKey,
+            state,
+            resolution,
+            resolutionIdentity,
+          ))
+        ) {
           return
         }
 
-        const node = findNodeForMessageKey(message.message_key, resolutionIdentity)
+        const node =
+          findNodeForMessageKey(
+            message.message_key,
+            resolutionIdentity,
+          )
+
         if (!node) continue
 
-        const source = audioSourceApi.extractManyChatAudioSource(node)
-        if (source?.source_ready !== true || source.source_kind !== 'https') continue
+        const source =
+          audioSourceApi.extractManyChatAudioSource(
+            node,
+          )
+
+        if (
+          source?.source_ready !== true ||
+          source.source_kind !== 'https'
+        ) {
+          continue
+        }
+
+        // O primeiro GET de identidade pode ter retornado uma amostra X
+        // que ficou stale antes de o content script retomar. A fonte do
+        // DOM só é confiável se uma NOVA leitura, feita depois da própria
+        // consulta do DOM/source, ainda confirmar X.
+        if (
+          !(await currentIdentityMatchesBinding(
+            conversationKey,
+            state,
+            resolution,
+            resolutionIdentity,
+          ))
+        ) {
+          return
+        }
 
         let transcriptionResponse
         try {
@@ -659,7 +737,14 @@
         // Pós-transcrição: TRANSCRIBE_MANYCHAT_AUDIO é outro await — uma
         // resposta que retorna depois que o contato já mudou nunca pode
         // ser ingerida sob o cycle antigo.
-        if (!(await currentIdentityMatchesBinding(conversationKey, resolutionIdentity))) {
+        if (
+          !(await currentIdentityMatchesBinding(
+            conversationKey,
+            state,
+            resolution,
+            resolutionIdentity,
+          ))
+        ) {
           return
         }
 
@@ -794,18 +879,41 @@
       // namespaced pelo contato (manychat:<contact-sha256>:<data-mid>);
       // uma mensagem cuja chave não pode ser assim construída é excluída
       // da captura (fail closed), nunca enviada com uma chave ambígua.
-      const messagesWithVersion = built.conversation.messages.reduce((accumulator, message) => {
-        const scopedMessageKey = buildIdentityScopedMessageKey(resolutionIdentity, message.message_key)
-        if (!scopedMessageKey) return accumulator
+      const messagesWithVersion = []
 
-        accumulator.push({
+      for (
+        const message of
+        built.conversation.messages
+      ) {
+        const scopedMessageKey =
+          buildIdentityScopedMessageKey(
+            resolutionIdentity,
+            message.message_key,
+          )
+
+        if (!scopedMessageKey) {
+          return {
+            ok: false,
+            reason:
+              'message_identity_scope_invalid',
+            conversation_key:
+              conversationKey,
+          }
+        }
+
+        messagesWithVersion.push({
           ...message,
-          message_key: scopedMessageKey,
-          observed_at: observedAt,
-          base_version: state.baseVersionsByMessageKey[scopedMessageKey] ?? null,
+          message_key:
+            scopedMessageKey,
+          observed_at:
+            observedAt,
+          base_version:
+            state
+              .baseVersionsByMessageKey[
+                scopedMessageKey
+              ] ?? null,
         })
-        return accumulator
-      }, [])
+      }
 
       const plan = captureBatchApi.buildCaptureIngestionPlanFromMessages({
         cycleId: resolution.cycle_id,

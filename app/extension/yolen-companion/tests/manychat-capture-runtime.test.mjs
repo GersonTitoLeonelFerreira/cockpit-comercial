@@ -428,6 +428,10 @@ test('mensagem de áudio é transcrita com o cycle_id real e reenviada como nova
     // Hardening STEP 2A.4, "AUDIO PRE-DOM IDENTITY CHECK": revalida a
     // identidade antes de procurar o node/fonte de áudio no DOM.
     safeIdentityOk(),
+    // Hardening STEP 2A.4 (residual P1): a leitura do DOM/source fica
+    // BRACKETED por identidade — uma segunda checagem imediatamente
+    // depois de localizar o node/fonte, antes de disparar a transcrição.
+    safeIdentityOk(),
     transcribeOk('Quero saber o valor do plano.'),
     // Hardening STEP 2A.4, "AUDIO POST-TRANSCRIPTION IDENTITY CHECK":
     // revalida de novo depois do await de TRANSCRIBE_MANYCHAT_AUDIO.
@@ -439,20 +443,21 @@ test('mensagem de áudio é transcrita com o cycle_id real e reenviada como nova
   const result = await runtime.captureNow()
 
   assert.equal(result.ok, true)
-  assert.equal(fake.calls.length, 9)
+  assert.equal(fake.calls.length, 10)
 
   assert.equal(fake.calls[4].payload.messages[0].content_type, 'audio')
   assert.equal(fake.calls[4].payload.messages[0].audio_transcription, null)
 
   assert.equal(fake.calls[5].action, 'GET_MANYCHAT_SAFE_IDENTITY')
-  assert.equal(fake.calls[6].action, 'TRANSCRIBE_MANYCHAT_AUDIO')
-  assert.equal(fake.calls[6].payload.audio_url, 'https://manybot-files.manychat.io/audio.ogg')
-  assert.equal(fake.calls[6].payload.cycle_id, 'cycle-real-1')
-  assert.equal(fake.calls[6].payload.audio_target_key, scopedKey(DEFAULT_DIGEST, 'audio-1'))
+  assert.equal(fake.calls[6].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[7].action, 'TRANSCRIBE_MANYCHAT_AUDIO')
+  assert.equal(fake.calls[7].payload.audio_url, 'https://manybot-files.manychat.io/audio.ogg')
+  assert.equal(fake.calls[7].payload.cycle_id, 'cycle-real-1')
+  assert.equal(fake.calls[7].payload.audio_target_key, scopedKey(DEFAULT_DIGEST, 'audio-1'))
 
-  assert.equal(fake.calls[7].action, 'GET_MANYCHAT_SAFE_IDENTITY')
-  assert.equal(fake.calls[8].action, 'INGEST_CAPTURE_MESSAGES')
-  const resent = fake.calls[8].payload.messages[0]
+  assert.equal(fake.calls[8].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[9].action, 'INGEST_CAPTURE_MESSAGES')
+  const resent = fake.calls[9].payload.messages[0]
   assert.equal(resent.message_key, scopedKey(DEFAULT_DIGEST, 'audio-1'))
   assert.equal(resent.audio_transcription, 'Quero saber o valor do plano.')
   // Reenvia como NOVA VERSÃO da mesma mensagem (base_version = canonical
@@ -475,7 +480,8 @@ test('mensagem já transcrita nesta conversa nunca é reprocessada numa segunda 
     safeIdentityOk(),
     safeIdentityOk(),
     ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'audio-1'), synced: true, canonical_version: '1' }]),
-    // Pré-DOM e pós-transcrição (STEP 2A.4).
+    // Pré-DOM, pós-DOM/pré-transcrição e pós-transcrição (STEP 2A.4).
+    safeIdentityOk(),
     safeIdentityOk(),
     transcribeOk('Quero saber o valor do plano.'),
     safeIdentityOk(),
@@ -490,13 +496,13 @@ test('mensagem já transcrita nesta conversa nunca é reprocessada numa segunda 
 
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
   await runtime.captureNow()
-  assert.equal(fake.calls.length, 9)
+  assert.equal(fake.calls.length, 10)
 
   // O DOM continua mostrando a mesma mensagem de áudio sem transcrição
   // (a transcrição não altera o DOM — só o ledger no backend), mas o
   // dedupe local precisa impedir uma segunda tentativa de transcrição.
   await runtime.captureNow()
-  assert.equal(fake.calls.length, 11)
+  assert.equal(fake.calls.length, 12)
 })
 
 test('fonte de áudio não confiável (sem HTTPS) nunca dispara transcrição nem quebra a captura de texto', async () => {
@@ -932,7 +938,11 @@ function replaceDomMessages(dom, messages) {
             data-title-at="1"
             data-title-offset-bottom="1"
           >
-            <span data-mid="${message.mid}">${message.text ?? ''}</span>
+            <span data-mid="${message.mid}">${
+              message.audioUrl
+                ? `<audio><source src="${message.audioUrl}" type="audio/ogg"></audio>`
+                : (message.text ?? '')
+            }</span>
           </div>
         </div>
       `,
@@ -1876,6 +1886,90 @@ test('ÁUDIO: identidade muda para Y ENTRE o snapshot validado e a busca do node
   )
 })
 
+// -----------------------------------------------------------------------
+// Auditoria STEP 2A.4 (residual P1) — "SAFE IDENTITY PODE FICAR STALE
+// DURANTE O AWAIT": o teste acima já cobre a identidade mudando ANTES do
+// GET pré-DOM devolver a resposta. Mas isso não basta: a PRÓPRIA resposta
+// de identidade pode ser X (correta no instante em que a promise foi
+// criada) e o DOM já ter mudado para Y no instante em que o content
+// script retoma a execução — sem nenhuma nova leitura de identidade de
+// permeio, findNodeForMessageKey consultaria o DOM de Y como se ainda
+// fosse X (mesmo data-mid bruto). Só o gate pós-DOM/pré-transcrição
+// (novo, seção 5 do mandato) fecha essa janela.
+// -----------------------------------------------------------------------
+
+test('ÁUDIO: DOM já pertence a Y quando o content script retoma da resposta de identidade pré-DOM (resposta ainda diz X, mesmo data-mid) — gate pós-DOM/pré-transcrição bloqueia TRANSCRIBE_MANYCHAT_AUDIO sob cycle-X', async () => {
+  const sharedAudioMid = 'shared-audio'
+  const dom = buildDom([
+    { mid: sharedAudioMid, audioUrl: 'https://manybot-files.manychat.io/x-audio.ogg' },
+  ])
+
+  const calls = []
+  let identityCallCount = 0
+
+  const sendMessage = async (message) => {
+    calls.push(message)
+
+    if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
+      identityCallCount += 1
+
+      // 1-3: fluxo normal da 1ª captura (X) até o pós-snapshot.
+      if (identityCallCount <= 3) {
+        return identityWith(IDENTITY_KEY_X)
+      }
+
+      // 4: AUDIO PRE-DOM IDENTITY CHECK. A RESPOSTA em si ainda é X (ela
+      // já estava "em voo" quando a amostra foi tirada) — mas é
+      // exatamente enquanto essa promise está retornando que o ManyChat
+      // troca o contato exibido para Y, MESMA conversation_key, e Y
+      // também tem uma mensagem de áudio com o MESMO data-mid bruto. Sem
+      // o gate pós-DOM, o helper aprovaria essa checagem (identidade
+      // ainda bate) e o node de Y seria lido como se fosse de X.
+      if (identityCallCount === 4) {
+        replaceDomMessages(dom, [
+          { mid: sharedAudioMid, audioUrl: 'https://manybot-files.manychat.io/y-audio.ogg' },
+        ])
+        return identityWith(IDENTITY_KEY_X)
+      }
+
+      // 5: AUDIO POST-DOM/PRE-TRANSCRIBE IDENTITY CHECK (gate novo desta
+      // rodada) — por esta altura o DOM já foi consultado no estado de Y;
+      // uma releitura fresca da identidade já reflete a troca real.
+      return identityWith(IDENTITY_KEY_Y)
+    }
+
+    if (message.action === 'RESOLVE_LEAD') {
+      return resolveLeadOwnedByMe('cycle-X')
+    }
+
+    if (message.action === 'INGEST_CAPTURE_MESSAGES') {
+      return ingestOk(
+        message.payload.messages.map((m) => ({
+          message_key: m.message_key,
+          synced: true,
+          canonical_version: '1',
+        })),
+      )
+    }
+
+    throw new Error(`ação inesperada: ${message.action}`)
+  }
+
+  const runtime = createRuntime({ dom, sendMessage })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, true)
+
+  // Sem o gate pós-DOM/pré-transcrição, o node de Y (mesmo data-mid bruto)
+  // seria tratado como se fosse de X e sua fonte de áudio REAL seria
+  // enviada para transcrição sob cycle-X.
+  assert.equal(calls.filter((call) => call.action === 'TRANSCRIBE_MANYCHAT_AUDIO').length, 0)
+  assert.equal(
+    calls.some((call) => call.action === 'TRANSCRIBE_MANYCHAT_AUDIO' && call.payload?.cycle_id === 'cycle-X'),
+    false,
+  )
+})
+
 test('ÁUDIO: TRANSCRIBE_MANYCHAT_AUDIO em voo quando a identidade muda para Y — resposta tardia nunca gera INGEST sob cycle-X nem mexe no bookkeeping', async () => {
   const dom = buildDom([{ mid: 'audio-1', audioUrl: 'https://manybot-files.manychat.io/audio.ogg' }])
 
@@ -1891,11 +1985,13 @@ test('ÁUDIO: TRANSCRIBE_MANYCHAT_AUDIO em voo quando a identidade muda para Y �
 
     if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
       identityCallCount += 1
-      // 1-4: fluxo normal até o pré-DOM (identidade ainda X).
-      if (identityCallCount <= 4) {
+      // 1-5: fluxo normal até o pós-DOM/pré-transcrição (identidade ainda
+      // X): ensureCycleResolved, pós-resolve, pós-snapshot, pré-DOM,
+      // pós-DOM/pré-transcrição.
+      if (identityCallCount <= 5) {
         return identityWith(IDENTITY_KEY_X)
       }
-      // 5: AUDIO POST-TRANSCRIPTION IDENTITY CHECK — a identidade já é Y
+      // 6: AUDIO POST-TRANSCRIPTION IDENTITY CHECK — a identidade já é Y
       // aqui, depois do await de TRANSCRIBE_MANYCHAT_AUDIO ter resolvido.
       return identityWith(IDENTITY_KEY_Y)
     }
@@ -2039,4 +2135,40 @@ test('CALLBACK STALE DE INGEST: resposta de INGEST_CAPTURE_MESSAGES de X, em voo
   assert.equal(stateAfterStale.auxiliaryIdentity.key, IDENTITY_KEY_Y)
   assert.equal(stateAfterStale.baseVersionsByMessageKey[scopedKey(OTHER_DIGEST, 'native-y')], '9')
   assert.equal(stateAfterStale.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'native-x')], undefined)
+})
+
+// -----------------------------------------------------------------------
+// Auditoria STEP 2A.4 (residual P1) — "MESSAGE KEY — LIMITE DO CONTRATO":
+// message_key é uma coluna com limite de 500 caracteres no ledger.
+// buildIdentityScopedMessageKey precisa recusar (fail-closed) uma chave
+// escopada que ultrapassaria esse limite, e captureNow precisa recusar o
+// SNAPSHOT INTEIRO (nunca ingerir parcialmente só as mensagens cuja chave
+// deu certo) — mascarar a quebra de contrato com um reduce() que apenas
+// descarta a mensagem inválida esconderia o problema em vez de reportá-lo.
+// -----------------------------------------------------------------------
+
+test('MESSAGE KEY LENGTH: message_key escopado que ultrapassaria 500 caracteres do contrato do ledger fail-closed — nenhuma mensagem do MESMO snapshot é ingerida, nem as com chave válida', async () => {
+  const oversizedMid = 'm'.repeat(450)
+  const dom = buildDom([
+    { mid: 'native-1', text: 'Mensagem normal.' },
+    { mid: oversizedMid, text: 'Mensagem com data-mid enorme.' },
+  ])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadOwnedByMe(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+  ])
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'message_identity_scope_invalid')
+  assert.equal(
+    fake.calls.some((call) => call.action === 'INGEST_CAPTURE_MESSAGES'),
+    false,
+    'nenhuma mensagem do snapshot pode ser ingerida parcialmente — nem as com chave escopada válida',
+  )
 })
