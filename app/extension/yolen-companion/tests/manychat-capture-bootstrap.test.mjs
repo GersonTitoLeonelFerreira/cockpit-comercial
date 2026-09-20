@@ -472,6 +472,72 @@ test('A: READY→READY — conversation_changed troca IMEDIATAMENTE o painel par
   )
 })
 
+test('createManyChatSellerPanelRuntime recebe getCurrentConversationKey como fonte LIVE, nunca um snapshot capturado na criação', () => {
+  let sellerRuntimeOptions = null
+  let receivedCaptureOptions = null
+  const currentKeyRef = { value: null }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedCaptureOptions = options
+        return {
+          start() {},
+          getConversationState() {
+            return { resolution: null }
+          },
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatSellerPanelRuntime: {
+      createManyChatSellerPanelRuntime(options) {
+        sellerRuntimeOptions = options
+        return {
+          renderPanel() {},
+          handleCaptureResult() {},
+        }
+      },
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  assert.equal(
+    typeof sellerRuntimeOptions?.getCurrentConversationKey,
+    'function',
+    'o seller panel runtime precisa receber uma função getCurrentConversationKey',
+  )
+
+  currentKeyRef.value = 'conv-a'
+  receivedCaptureOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a' },
+  })
+  assert.equal(
+    sellerRuntimeOptions.getCurrentConversationKey(),
+    'conv-a',
+    'a MESMA função recebida na criação reflete a conversa atual, não um valor congelado',
+  )
+
+  currentKeyRef.value = 'conv-b'
+  receivedCaptureOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b' },
+  })
+  assert.equal(
+    sellerRuntimeOptions.getCurrentConversationKey(),
+    'conv-b',
+    'depois da troca real, a MESMA função (nunca uma nova) já retorna a nova conversa atual',
+  )
+})
+
 test('B: A→B→A com ambos ready e assinaturas inalteradas — renderPanel roda de novo na volta para A', () => {
   const sellerCalls = []
   let receivedOptions = null

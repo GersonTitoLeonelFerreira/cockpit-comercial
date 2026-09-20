@@ -294,6 +294,7 @@
         sendMessage,
         panelMountApi,
         composerApi,
+        getCurrentConversationKey,
         getCycleId(conversationKey) {
           return runtime.getConversationState(conversationKey)?.resolution?.cycle_id ?? null
         },

@@ -61,6 +61,38 @@ function createFakeScheduler() {
   }
 }
 
+function createDeferredSender(responderByAction) {
+  const calls = []
+  const pendingResolvers = []
+
+  return {
+    calls,
+    pendingResolvers,
+    sendMessage(message) {
+      calls.push(message)
+
+      const fixedResponder = responderByAction?.[message.action]
+      if (fixedResponder) {
+        return Promise.resolve(
+          typeof fixedResponder === 'function' ? fixedResponder(message) : fixedResponder,
+        )
+      }
+
+      return new Promise((resolve) => {
+        pendingResolvers.push(resolve)
+      })
+    },
+  }
+}
+
+async function waitUntil(conditionFn, { attempts = 50 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (conditionFn()) return
+    await Promise.resolve()
+  }
+  throw new Error('[teste] condição não satisfeita a tempo')
+}
+
 test('refreshViewModels chama os 5 view models em paralelo com {cycle_id, conversation_key} e renderiza', async () => {
   const fake = createQueuedSender([
     loadOk({ relationship: 'ok' }),
@@ -75,6 +107,7 @@ test('refreshViewModels chama os 5 view models em paralelo com {cycle_id, conver
   const runtime = runtimeApi.createManyChatSellerPanelRuntime({
     sendMessage: fake.sendMessage,
     panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
   })
 
   await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
@@ -183,6 +216,119 @@ test('polling de status refaz os view models quando a análise termina com suces
 
   const state = runtime.getConversationPanelState('conv-1')
   assert.equal(state.analyzing, false)
+})
+
+test('renderPanel bloqueia repaint stale quando refreshViewModels(A) conclui depois da troca real para B, e A repinta normalmente ao voltar', async () => {
+  const fake = createDeferredSender()
+  const panelMount = createFakePanelMount()
+  let currentConversationKey = 'conv-a'
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => currentConversationKey,
+  })
+
+  const refreshPromise = runtime.refreshViewModels({ cycleId: 'cycle-a', conversationKey: 'conv-a' })
+
+  await waitUntil(() => fake.pendingResolvers.length === 5)
+
+  // Vendedor troca de verdade para B ANTES das respostas de A chegarem.
+  currentConversationKey = 'conv-b'
+  runtime.renderPanel('conv-b')
+
+  assert.equal(panelMount.contents.length, 1, 'B ocupa o painel compartilhado')
+  const paintedForB = panelMount.contents[0]
+
+  // Libera as 5 respostas de A só DEPOIS da troca real para B.
+  fake.pendingResolvers.forEach((resolve) => resolve(loadOk({ relationship: 'ok' })))
+  await refreshPromise
+
+  assert.equal(
+    panelMount.contents.length,
+    1,
+    'refreshViewModels(A) concluindo depois da troca NUNCA repinta o painel compartilhado',
+  )
+  assert.equal(panelMount.contents[0], paintedForB, 'o último conteúdo visível continua sendo o de B')
+
+  const stateA = runtime.getConversationPanelState('conv-a')
+  assert.equal(stateA.clientContext.status, 'ready', 'state[A] recebe os dados normalmente mesmo invisível')
+
+  // Volta para A: o repaint bloqueado não destruiu o state[A] já carregado.
+  currentConversationKey = 'conv-a'
+  runtime.renderPanel('conv-a')
+
+  assert.equal(panelMount.contents.length, 2, 'A agora pode ser renderizado normalmente usando o state já carregado')
+  assert.equal(fake.calls.length, 5, 'renderizar A de volta não refaz nenhuma requisição de rede')
+})
+
+test('renderPanel bloqueia repaint stale quando pollJobStatus(A) conclui com sucesso depois da troca real para B', async () => {
+  const fake = createDeferredSender({
+    ANALYZE_CONVERSATION: { ok: true, payload: { data: { analysis_job_id: 'job-a' } } },
+    GET_ANALYSIS_JOB_STATUS: { ok: true, payload: { data: { status: 'succeeded' } } },
+  })
+  const scheduler = createFakeScheduler()
+  const panelMount = createFakePanelMount()
+  let currentConversationKey = 'conv-a'
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    panelMountApi: panelMount,
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+    getCurrentConversationKey: () => currentConversationKey,
+  })
+
+  await runtime.requestAnalysis({ cycleId: 'cycle-a', conversationKey: 'conv-a' })
+
+  // Dispara o poll (GET_ANALYSIS_JOB_STATUS -> succeeded -> refreshViewModels(A),
+  // cujas 5 requisições ficam pendentes). Não aguarda o flush inteiro aqui:
+  // ele só conclui depois que as 5 pendências forem liberadas mais abaixo.
+  const flushPromise = scheduler.flushOne()
+
+  await waitUntil(() => fake.pendingResolvers.length === 5)
+
+  // pollJobStatus já marcou analyzing=false ao ver 'succeeded' (antes de
+  // aguardar o refresh) — o que ainda está em voo é só o refreshViewModels
+  // disparado por esse sucesso, cujas 5 requisições seguem pendentes.
+
+  // Vendedor troca de verdade para B enquanto o refresh pós-análise de A ainda está em voo.
+  currentConversationKey = 'conv-b'
+  runtime.renderPanel('conv-b')
+
+  assert.equal(panelMount.contents.length, 1)
+  const paintedForB = panelMount.contents[0]
+
+  fake.pendingResolvers.forEach((resolve) => resolve(loadOk({ relationship: 'ok' })))
+  await flushPromise
+
+  assert.equal(
+    panelMount.contents.length,
+    1,
+    'refresh pós-análise de A concluindo depois da troca NUNCA repinta o painel compartilhado',
+  )
+  assert.equal(panelMount.contents[0], paintedForB)
+
+  const stateA = runtime.getConversationPanelState('conv-a')
+  assert.equal(stateA.analyzing, false, 'state[A].analyzing conclui normalmente mesmo sem pintar')
+  assert.equal(stateA.clientContext.status, 'ready', 'state[A] recebe os novos view models mesmo invisível')
+})
+
+test('renderPanel falha fechado quando nenhuma fonte autoritativa de conversa atual foi fornecida', () => {
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: async () => ({ ok: true, payload: {} }),
+    panelMountApi: panelMount,
+  })
+
+  runtime.renderPanel('conv-a')
+
+  assert.equal(
+    panelMount.contents.length,
+    0,
+    'sem getCurrentConversationKey, o módulo nunca assume que a conversa pedida é a atual',
+  )
 })
 
 test('handleCaptureResult: primeira captura carrega os view models; captura pulada não dispara análise', async () => {
