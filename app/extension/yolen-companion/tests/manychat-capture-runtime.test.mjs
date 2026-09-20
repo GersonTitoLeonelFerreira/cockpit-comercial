@@ -127,6 +127,18 @@ function ingestOk(results = []) {
   return { ok: true, payload: { message_results: results } }
 }
 
+// Hardening STEP 2A.4 — "LEDGER MESSAGE KEY IDENTITY-SCOPED": toda chave
+// persistida agora é manychat:<contact-sha256>:<data-mid>, nunca a chave
+// estrutural crua. DEFAULT_DIGEST é o mesmo hash usado por safeIdentityOk()
+// (identidade padrão destes testes); OTHER_DIGEST representa um segundo
+// contato (Y) para os cenários de troca de identidade.
+const DEFAULT_DIGEST = 'a'.repeat(64)
+const OTHER_DIGEST = 'b'.repeat(64)
+
+function scopedKey(digest, rawMid) {
+  return `manychat:${digest}:${rawMid}`
+}
+
 function transcribeOk(text) {
   return { ok: true, payload: { ok: true, data: { text } } }
 }
@@ -166,7 +178,7 @@ test('captura funciona mesmo sem NENHUMA evidência de canal ou atribuição (re
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ])
 
   const runtime = runtimeApi.createManyChatCaptureRuntime({
@@ -187,7 +199,7 @@ test('captura funciona mesmo sem NENHUMA evidência de canal ou atribuição (re
 
   assert.equal(result.ok, true)
   assert.equal(result.skipped, false)
-  assert.equal(fake.calls[4].payload.messages[0].message_key, 'manychat:native-1')
+  assert.equal(fake.calls[4].payload.messages[0].message_key, scopedKey(DEFAULT_DIGEST, 'native-1'))
 })
 
 test('captureNow resolve identidade, lead e envia o lote de captura', async () => {
@@ -200,7 +212,7 @@ test('captureNow resolve identidade, lead e envia o lote de captura', async () =
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ])
 
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
@@ -225,12 +237,12 @@ test('captureNow resolve identidade, lead e envia o lote de captura', async () =
   assert.equal(fake.calls[3].action, 'GET_MANYCHAT_SAFE_IDENTITY')
   assert.equal(fake.calls[4].action, 'INGEST_CAPTURE_MESSAGES')
   assert.equal(fake.calls[4].payload.cycle_id, 'cycle-1')
-  assert.equal(fake.calls[4].payload.messages[0].message_key, 'manychat:native-1')
+  assert.equal(fake.calls[4].payload.messages[0].message_key, scopedKey(DEFAULT_DIGEST, 'native-1'))
   assert.equal(fake.calls[4].payload.messages[0].author_kind, 'customer')
   assert.equal(fake.calls[4].payload.messages[0].base_version, null)
 
   const state = runtime.getConversationState(fake.calls[4].payload.conversation_key)
-  assert.equal(state.baseVersionsByMessageKey['manychat:native-1'], '1')
+  assert.equal(state.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'native-1')], '1')
 })
 
 test('segunda captura sem mudança nenhuma é no-op e reaproveita a resolução de ciclo em cache', async () => {
@@ -241,7 +253,7 @@ test('segunda captura sem mudança nenhuma é no-op e reaproveita a resolução 
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
     // Hardening (auditoria STEP 2A.4, "CACHED RESOLUTION IDENTITY
     // SAFETY" + "TOCTOU SNAPSHOT BOUNDARY"): toda captureNow — mesmo com
     // state.resolution já em cache — relê a safe identity duas vezes: uma
@@ -412,36 +424,44 @@ test('mensagem de áudio é transcrita com o cycle_id real e reenviada como nova
     resolveLeadOwnedByMe('cycle-real-1'),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'audio-1'), synced: true, canonical_version: '1' }]),
+    // Hardening STEP 2A.4, "AUDIO PRE-DOM IDENTITY CHECK": revalida a
+    // identidade antes de procurar o node/fonte de áudio no DOM.
+    safeIdentityOk(),
     transcribeOk('Quero saber o valor do plano.'),
-    ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '2' }]),
+    // Hardening STEP 2A.4, "AUDIO POST-TRANSCRIPTION IDENTITY CHECK":
+    // revalida de novo depois do await de TRANSCRIBE_MANYCHAT_AUDIO.
+    safeIdentityOk(),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'audio-1'), synced: true, canonical_version: '2' }]),
   ])
 
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
   const result = await runtime.captureNow()
 
   assert.equal(result.ok, true)
-  assert.equal(fake.calls.length, 7)
+  assert.equal(fake.calls.length, 9)
 
   assert.equal(fake.calls[4].payload.messages[0].content_type, 'audio')
   assert.equal(fake.calls[4].payload.messages[0].audio_transcription, null)
 
-  assert.equal(fake.calls[5].action, 'TRANSCRIBE_MANYCHAT_AUDIO')
-  assert.equal(fake.calls[5].payload.audio_url, 'https://manybot-files.manychat.io/audio.ogg')
-  assert.equal(fake.calls[5].payload.cycle_id, 'cycle-real-1')
-  assert.equal(fake.calls[5].payload.audio_target_key, 'manychat:audio-1')
+  assert.equal(fake.calls[5].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[6].action, 'TRANSCRIBE_MANYCHAT_AUDIO')
+  assert.equal(fake.calls[6].payload.audio_url, 'https://manybot-files.manychat.io/audio.ogg')
+  assert.equal(fake.calls[6].payload.cycle_id, 'cycle-real-1')
+  assert.equal(fake.calls[6].payload.audio_target_key, scopedKey(DEFAULT_DIGEST, 'audio-1'))
 
-  assert.equal(fake.calls[6].action, 'INGEST_CAPTURE_MESSAGES')
-  const resent = fake.calls[6].payload.messages[0]
-  assert.equal(resent.message_key, 'manychat:audio-1')
+  assert.equal(fake.calls[7].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[8].action, 'INGEST_CAPTURE_MESSAGES')
+  const resent = fake.calls[8].payload.messages[0]
+  assert.equal(resent.message_key, scopedKey(DEFAULT_DIGEST, 'audio-1'))
   assert.equal(resent.audio_transcription, 'Quero saber o valor do plano.')
   // Reenvia como NOVA VERSÃO da mesma mensagem (base_version = canonical
   // confirmado no envio anterior), nunca um registro paralelo.
   assert.equal(resent.base_version, '1')
 
   const state = runtime.getConversationState(fake.calls[4].payload.conversation_key)
-  assert.equal(state.baseVersionsByMessageKey['manychat:audio-1'], '2')
-  assert.equal(state.transcribedMessageKeys.has('manychat:audio-1'), true)
+  assert.equal(state.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'audio-1')], '2')
+  assert.equal(state.transcribedMessageKeys.has(scopedKey(DEFAULT_DIGEST, 'audio-1')), true)
 })
 
 test('mensagem já transcrita nesta conversa nunca é reprocessada numa segunda captura', async () => {
@@ -454,24 +474,29 @@ test('mensagem já transcrita nesta conversa nunca é reprocessada numa segunda 
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'audio-1'), synced: true, canonical_version: '1' }]),
+    // Pré-DOM e pós-transcrição (STEP 2A.4).
+    safeIdentityOk(),
     transcribeOk('Quero saber o valor do plano.'),
-    ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '2' }]),
+    safeIdentityOk(),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'audio-1'), synced: true, canonical_version: '2' }]),
     // Segunda captureNow: cache quente revalida a identidade duas vezes
     // (cache + boundary do snapshot) antes de reaproveitar state.resolution.
+    // A mensagem já está em transcribedMessageKeys — dispatchPendingAudio
+    // Transcriptions nunca chega a rodar o pré-DOM check para ela.
     safeIdentityOk(),
     safeIdentityOk(),
   ])
 
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
   await runtime.captureNow()
-  assert.equal(fake.calls.length, 7)
+  assert.equal(fake.calls.length, 9)
 
   // O DOM continua mostrando a mesma mensagem de áudio sem transcrição
   // (a transcrição não altera o DOM — só o ledger no backend), mas o
   // dedupe local precisa impedir uma segunda tentativa de transcrição.
   await runtime.captureNow()
-  assert.equal(fake.calls.length, 9)
+  assert.equal(fake.calls.length, 11)
 })
 
 test('fonte de áudio não confiável (sem HTTPS) nunca dispara transcrição nem quebra a captura de texto', async () => {
@@ -486,16 +511,17 @@ test('fonte de áudio não confiável (sem HTTPS) nunca dispara transcrição ne
     safeIdentityOk(),
     safeIdentityOk(),
     ingestOk([
-      { message_key: 'manychat:text-1', synced: true, canonical_version: '1' },
-      { message_key: 'manychat:audio-1', synced: true, canonical_version: '1' },
+      { message_key: scopedKey(DEFAULT_DIGEST, 'text-1'), synced: true, canonical_version: '1' },
+      { message_key: scopedKey(DEFAULT_DIGEST, 'audio-1'), synced: true, canonical_version: '1' },
     ]),
+    safeIdentityOk(),
   ])
 
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
   const result = await runtime.captureNow()
 
   assert.equal(result.ok, true)
-  assert.equal(fake.calls.length, 5)
+  assert.equal(fake.calls.length, 6)
   assert.equal(
     fake.calls.some((call) => call.action === 'TRANSCRIBE_MANYCHAT_AUDIO'),
     false,
@@ -694,7 +720,7 @@ test('invalidateLeadResolution limpa só resolution, preserva base_version/finge
     resolveLeadOwnedByMe('cycle-1'),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ])
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
 
@@ -705,14 +731,14 @@ test('invalidateLeadResolution limpa só resolution, preserva base_version/finge
 
   const stateBefore = runtime.getConversationState(conversationKey)
   assert.equal(stateBefore.resolution.cycle_id, 'cycle-1')
-  assert.equal(stateBefore.baseVersionsByMessageKey['manychat:native-1'], '1')
+  assert.equal(stateBefore.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'native-1')], '1')
 
   assert.equal(runtime.invalidateLeadResolution(conversationKey), true)
 
   const stateAfter = runtime.getConversationState(conversationKey)
   assert.equal(stateAfter.resolution, null)
   // Nunca toca nos outros campos do estado da conversa.
-  assert.equal(stateAfter.baseVersionsByMessageKey['manychat:native-1'], '1')
+  assert.equal(stateAfter.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'native-1')], '1')
 })
 
 // -----------------------------------------------------------------------
@@ -751,14 +777,14 @@ test('P1: mesma conversation_key com identidade trocada entre capturas — cache
     resolveLeadOwnedByMe('cycle-X'),
     identityWith(IDENTITY_KEY_X),
     identityWith(IDENTITY_KEY_X),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
     // Segunda captura: ensureCycleResolved relê a identidade e encontra Y —
     // precisa descartar o cache de X e resolver Y do zero.
     identityWith(IDENTITY_KEY_Y),
     resolveLeadOwnedByMe('cycle-Y'),
     identityWith(IDENTITY_KEY_Y),
     identityWith(IDENTITY_KEY_Y),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(OTHER_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ])
 
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
@@ -805,7 +831,7 @@ test('P1: identity_not_ready nunca fica preso em cache — identidade fica dispo
     resolveLeadOwnedByMe('cycle-X'),
     identityWith(IDENTITY_KEY_X),
     identityWith(IDENTITY_KEY_X),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ])
 
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
@@ -839,7 +865,7 @@ test('P1: mesma identidade entre capturas — cache quente é reaproveitado (ide
     resolveLeadOwnedByMe('cycle-X'),
     identityWith(IDENTITY_KEY_X),
     identityWith(IDENTITY_KEY_X),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
     // Segunda captura: mesma identidade X — releitura de identidade para
     // validar o cache E releitura para o boundary do snapshot.
     identityWith(IDENTITY_KEY_X),
@@ -1145,7 +1171,7 @@ test('refreshLeadResolution sempre busca de novo (nunca usa cache), sobrescreve 
     resolveLeadOwnedByMe('cycle-1'),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
 
@@ -1157,7 +1183,7 @@ test('refreshLeadResolution sempre busca de novo (nunca usa cache), sobrescreve 
 
   const stateBefore = runtime.getConversationState(conversationKey)
   assert.equal(stateBefore.resolution.cycle_id, 'cycle-1')
-  assert.equal(stateBefore.baseVersionsByMessageKey['manychat:native-1'], '1')
+  assert.equal(stateBefore.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'native-1')], '1')
 
   // Uma segunda captureNow, sem refresh, reaproveita o cycle cacheado
   // (mesma identidade — releitura de identidade para validar o cache E
@@ -1194,7 +1220,7 @@ test('refreshLeadResolution sempre busca de novo (nunca usa cache), sobrescreve 
   assert.equal(stateAfter.resolution.ready, true)
   assert.equal(stateAfter.resolution.cycle_id, 'cycle-after-link')
   // Nunca limpa os outros campos do estado da conversa — só resolution.
-  assert.equal(stateAfter.baseVersionsByMessageKey['manychat:native-1'], '1')
+  assert.equal(stateAfter.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'native-1')], '1')
 })
 
 test('refreshLeadResolution reflete um contato que deixou de ser capture-eligible (ex.: transferido para outro vendedor)', async () => {
@@ -1205,7 +1231,7 @@ test('refreshLeadResolution reflete um contato que deixou de ser capture-eligibl
     resolveLeadOwnedByMe('cycle-1'),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
@@ -1267,7 +1293,7 @@ test('D/E: refreshLeadResolution nunca grava a resolução de B em state[A] quan
     resolveLeadOwnedByMe('cycle-A'),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
 
@@ -1311,7 +1337,7 @@ test('D/E: refreshLeadResolution nunca grava a resolução quando a identidade s
     resolveLeadOwnedByMe('cycle-A'),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
@@ -1368,7 +1394,7 @@ test('POST-RESOLVE: refreshLeadResolution nunca grava a resolução quando a ide
     resolveLeadOwnedByMe('cycle-A'),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
@@ -1461,7 +1487,7 @@ test('INITIAL: resolução inicial (captureNow) nunca persiste nem ingere quando
       })
     }
     if (message.action === 'INGEST_CAPTURE_MESSAGES') {
-      return ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }])
+      return ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }])
     }
     throw new Error(`ação inesperada: ${message.action}`)
   }
@@ -1521,7 +1547,7 @@ test('F: depois de um refresh abortado por CONTACT_CHANGED, voltar para a conver
     resolveLeadOwnedByMe('cycle-A'),
     safeIdentityOk(),
     safeIdentityOk(),
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
 
@@ -1556,11 +1582,461 @@ test('F: depois de um refresh abortado por CONTACT_CHANGED, voltar para a conver
     // O cycle_id mudou (cycle-A -> cycle-A-de-verdade), então o
     // fingerprint de conteúdo muda mesmo com as mesmas mensagens — dispara
     // um novo envio de ingestão.
-    ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
   )
 
   const afterReturn = await runtime.captureNow()
 
   assert.equal(afterReturn.ok, true)
   assert.equal(runtime.getConversationState(conversationKey).resolution.cycle_id, 'cycle-A-de-verdade')
+})
+
+// -----------------------------------------------------------------------
+// Auditoria STEP 2A.4, "AUXILIARY CAPTURE STATE ISOLATION" — mandato de
+// implementação: identity-scope de toda chave de mensagem do ledger
+// (manychat:<contact-sha256>:<data-mid>), nunca conversation_key +
+// data-mid sozinhos. data-mid só foi validado como único DENTRO de uma
+// única conversa observada — nunca entre contatos diferentes que passam
+// pela MESMA conversation_key ao longo do tempo.
+// -----------------------------------------------------------------------
+
+test('TESTE MAIS IMPORTANTE: mesmo data-mid bruto sob identidades diferentes (mesma conversation_key, mesmo texto, mesmo timestamp) produz message_keys diferentes — Y nunca reaproveita base_version/canonical_version de X', async () => {
+  const sharedMid = 'shared-mid'
+  const sharedText = 'Mesmo texto'
+  const sharedTimestamp = '2026-09-14T20:30:00'
+
+  const dom = buildDom([{ mid: sharedMid, text: sharedText, title: sharedTimestamp }])
+
+  const responses = [
+    // Primeira captura: identidade X.
+    identityWith(IDENTITY_KEY_X),
+    resolveLeadOwnedByMe('cycle-X'),
+    identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, sharedMid), synced: true, canonical_version: '7' }]),
+  ]
+  const fake = createQueuedSender(responses)
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+
+  const first = await runtime.captureNow()
+  assert.equal(first.ok, true)
+  assert.equal(first.skipped, false)
+
+  const firstIngest = fake.calls.find((call) => call.action === 'INGEST_CAPTURE_MESSAGES')
+  const firstMessageKey = firstIngest.payload.messages[0].message_key
+  assert.equal(firstMessageKey, scopedKey(DEFAULT_DIGEST, sharedMid))
+  assert.equal(firstIngest.payload.messages[0].base_version, null)
+
+  // Segunda captura: identidade muda para Y — MESMO conversation_key,
+  // MESMO data-mid bruto, MESMO texto, MESMO timestamp. Só a identidade
+  // muda.
+  responses.push(
+    identityWith(IDENTITY_KEY_Y),
+    resolveLeadOwnedByMe('cycle-Y'),
+    identityWith(IDENTITY_KEY_Y),
+    identityWith(IDENTITY_KEY_Y),
+    ingestOk([{ message_key: scopedKey(OTHER_DIGEST, sharedMid), synced: true, canonical_version: '1' }]),
+  )
+
+  const callsBeforeSecond = fake.calls.length
+  const second = await runtime.captureNow()
+  assert.equal(second.ok, true)
+  assert.equal(second.skipped, false)
+
+  const secondIngest = fake.calls
+    .slice(callsBeforeSecond)
+    .find((call) => call.action === 'INGEST_CAPTURE_MESSAGES')
+  assert.ok(
+    secondIngest,
+    'sanity: a segunda captura (Y) precisa realmente ingerir, apesar de mesmo data-mid/texto/timestamp',
+  )
+  const secondMessageKey = secondIngest.payload.messages[0].message_key
+
+  // GATE CENTRAL: mesmo data-mid bruto — mas o message_key final PRECISA
+  // ser diferente entre X e Y, nunca colidindo na chave única do ledger
+  // (company_id, conversation_key, message_key, version).
+  assert.notEqual(secondMessageKey, firstMessageKey)
+  assert.equal(secondMessageKey, scopedKey(OTHER_DIGEST, sharedMid))
+
+  // Y nunca reaproveita nenhum version/canonical_version de X — o primeiro
+  // envio de Y sob a chave nova é sempre base_version: null.
+  assert.equal(secondIngest.payload.messages[0].base_version, null)
+  assert.notEqual(secondIngest.payload.messages[0].base_version, '7')
+})
+
+test('X/Y IDENTICAL MESSAGE ALIAS: mesmo texto e mesmo timestamp sob identidades diferentes (data-mid diferente) nunca colidem nem compartilham base_version', async () => {
+  const sharedText = 'Mesmo texto'
+  const sharedTimestamp = '2026-09-14T20:30:00'
+
+  const dom = buildDom([{ mid: 'native-x', text: sharedText, title: sharedTimestamp }])
+
+  const responses = [
+    identityWith(IDENTITY_KEY_X),
+    resolveLeadOwnedByMe('cycle-X'),
+    identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-x'), synced: true, canonical_version: '4' }]),
+  ]
+  const fake = createQueuedSender(responses)
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+
+  const first = await runtime.captureNow()
+  assert.equal(first.ok, true)
+
+  // Y aparece com uma mensagem de conteúdo e timestamp IDÊNTICOS (mesmo
+  // texto, mesmo instante) mas com seu próprio data-mid — dois contatos
+  // digitando a mesma frase padrão no mesmo horário.
+  replaceDomMessages(dom, [{ mid: 'native-y', text: sharedText, title: sharedTimestamp }])
+  responses.push(
+    identityWith(IDENTITY_KEY_Y),
+    resolveLeadOwnedByMe('cycle-Y'),
+    identityWith(IDENTITY_KEY_Y),
+    identityWith(IDENTITY_KEY_Y),
+    ingestOk([{ message_key: scopedKey(OTHER_DIGEST, 'native-y'), synced: true, canonical_version: '1' }]),
+  )
+
+  const second = await runtime.captureNow()
+  assert.equal(second.ok, true)
+  assert.equal(second.skipped, false)
+
+  const secondIngest = fake.calls
+    .slice()
+    .reverse()
+    .find((call) => call.action === 'INGEST_CAPTURE_MESSAGES')
+
+  const yMessage = secondIngest.payload.messages[0]
+  assert.equal(yMessage.message_key, scopedKey(OTHER_DIGEST, 'native-y'))
+  assert.notEqual(yMessage.message_key, scopedKey(DEFAULT_DIGEST, 'native-x'))
+  // Mesmo com texto e timestamp idênticos aos de X, Y nunca reaproveita o
+  // base_version de X — nunca é tratado como a mesma mensagem.
+  assert.equal(yMessage.base_version, null)
+})
+
+test('AUXILIARY IDENTITY BINDING: troca de identidade (mesma conversation_key) reseta baseVersionsByMessageKey, lastContentFingerprint e transcribedMessageKeys de X antes de qualquer leitura/gravação para Y', async () => {
+  const dom = buildDom([{ mid: 'native-x', text: 'Mensagem de X.' }])
+
+  const responses = [
+    identityWith(IDENTITY_KEY_X),
+    resolveLeadOwnedByMe('cycle-X'),
+    identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-x'), synced: true, canonical_version: '3' }]),
+  ]
+  const fake = createQueuedSender(responses)
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+  const first = await runtime.captureNow()
+  assert.equal(first.ok, true)
+
+  const conversationKey = runtime.getCurrentConversationKey()
+  const stateAfterFirst = runtime.getConversationState(conversationKey)
+  assert.equal(stateAfterFirst.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'native-x')], '3')
+  assert.equal(stateAfterFirst.auxiliaryIdentity.key, IDENTITY_KEY_X)
+  assert.notEqual(stateAfterFirst.lastContentFingerprint, null)
+
+  // Troca de contato: mesma conversation_key, identidade Y, mensagem
+  // diferente (native-y) — nunca a mesma chave estrutural de X.
+  replaceDomMessages(dom, [{ mid: 'native-y', text: 'Mensagem de Y.' }])
+  responses.push(
+    identityWith(IDENTITY_KEY_Y),
+    resolveLeadOwnedByMe('cycle-Y'),
+    identityWith(IDENTITY_KEY_Y),
+    identityWith(IDENTITY_KEY_Y),
+    ingestOk([{ message_key: scopedKey(OTHER_DIGEST, 'native-y'), synced: true, canonical_version: '1' }]),
+  )
+
+  const second = await runtime.captureNow()
+  assert.equal(second.ok, true)
+  assert.equal(second.skipped, false)
+
+  const stateAfterSecond = runtime.getConversationState(conversationKey)
+  assert.equal(stateAfterSecond.auxiliaryIdentity.key, IDENTITY_KEY_Y)
+
+  // O bookkeeping de X nunca sobrevive para dentro do estado auxiliar de Y.
+  assert.equal(stateAfterSecond.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'native-x')], undefined)
+  assert.equal(stateAfterSecond.transcribedMessageKeys.has(scopedKey(DEFAULT_DIGEST, 'native-x')), false)
+
+  // A própria gravação de Y (depois do reset) está presente normalmente.
+  assert.equal(stateAfterSecond.baseVersionsByMessageKey[scopedKey(OTHER_DIGEST, 'native-y')], '1')
+})
+
+test('SAME-IDENTITY CACHE: duas capturas seguidas com a MESMA identidade preservam baseVersionsByMessageKey (ensureAuxiliaryStateBound nunca reseta quando a identidade não muda)', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const responses = [
+    identityWith(IDENTITY_KEY_X),
+    resolveLeadOwnedByMe('cycle-X'),
+    identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '5' }]),
+  ]
+  const fake = createQueuedSender(responses)
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+  const first = await runtime.captureNow()
+  assert.equal(first.ok, true)
+
+  const conversationKey = runtime.getCurrentConversationKey()
+  const auxiliaryIdentityAfterFirst = runtime.getConversationState(conversationKey).auxiliaryIdentity
+
+  // Mesma identidade, mas o conteúdo mudou (mensagem nova adicionada) — a
+  // segunda captura precisa ingerir de novo, e o base_version de native-1
+  // tem que continuar vindo do cache (nunca resetado, já que a identidade
+  // não mudou).
+  replaceDomMessages(dom, [
+    { mid: 'native-1', text: 'Quero saber o preço.' },
+    { mid: 'native-2', text: 'Ainda está disponível?' },
+  ])
+  responses.push(
+    identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
+    ingestOk([
+      { message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '5' },
+      { message_key: scopedKey(DEFAULT_DIGEST, 'native-2'), synced: true, canonical_version: '1' },
+    ]),
+  )
+
+  const second = await runtime.captureNow()
+  assert.equal(second.ok, true)
+  assert.equal(second.skipped, false)
+
+  const secondIngest = fake.calls
+    .slice()
+    .reverse()
+    .find((call) => call.action === 'INGEST_CAPTURE_MESSAGES')
+
+  const nativeOneMessage = secondIngest.payload.messages.find(
+    (m) => m.message_key === scopedKey(DEFAULT_DIGEST, 'native-1'),
+  )
+  assert.equal(nativeOneMessage.base_version, '5')
+
+  const stateAfterSecond = runtime.getConversationState(conversationKey)
+  // Mesma identidade -> ensureAuxiliaryStateBound retorna cedo (mesmo
+  // objeto de binding), nunca reseta o estado auxiliar.
+  assert.equal(stateAfterSecond.auxiliaryIdentity, auxiliaryIdentityAfterFirst)
+})
+
+// -----------------------------------------------------------------------
+// Auditoria STEP 2A.4, "AUDIO PRE-DOM IDENTITY CHECK" / "AUDIO
+// POST-TRANSCRIPTION IDENTITY CHECK" / "STALE INGEST CALLBACK" — as duas
+// janelas de corrida do fluxo de áudio e o callback assíncrono tardio do
+// INGEST de texto nunca podem gravar bookkeeping ou disparar transcrição
+// sob uma identidade que já não é mais a atual.
+// -----------------------------------------------------------------------
+
+test('ÁUDIO: identidade muda para Y ENTRE o snapshot validado e a busca do node/fonte de áudio (mesma conversation_key, mesmo data-mid) — TRANSCRIBE_MANYCHAT_AUDIO sob cycle-X é ZERO', async () => {
+  const dom = buildDom([{ mid: 'audio-1', audioUrl: 'https://manybot-files.manychat.io/audio.ogg' }])
+
+  const calls = []
+  let identityCallCount = 0
+
+  const sendMessage = async (message) => {
+    calls.push(message)
+
+    if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
+      identityCallCount += 1
+      // 1: ensureCycleResolved. 2: pós-resolve. 3: pós-snapshot (captureNow).
+      if (identityCallCount <= 3) {
+        return identityWith(IDENTITY_KEY_X)
+      }
+      // 4: AUDIO PRE-DOM IDENTITY CHECK — a identidade já mudou para Y
+      // exatamente aqui, ANTES de qualquer busca de node/fonte no DOM.
+      return identityWith(IDENTITY_KEY_Y)
+    }
+
+    if (message.action === 'RESOLVE_LEAD') {
+      return resolveLeadOwnedByMe('cycle-X')
+    }
+
+    if (message.action === 'INGEST_CAPTURE_MESSAGES') {
+      return ingestOk(
+        message.payload.messages.map((m) => ({
+          message_key: m.message_key,
+          synced: true,
+          canonical_version: '1',
+        })),
+      )
+    }
+
+    throw new Error(`ação inesperada: ${message.action}`)
+  }
+
+  const runtime = createRuntime({ dom, sendMessage })
+  const result = await runtime.captureNow()
+
+  // A captura de texto continua funcionando normalmente — áudio nunca
+  // bloqueia nem quebra o texto — mas nenhuma transcrição pode ser
+  // disparada sob a identidade antiga (X).
+  assert.equal(result.ok, true)
+  assert.equal(calls.filter((call) => call.action === 'TRANSCRIBE_MANYCHAT_AUDIO').length, 0)
+  assert.equal(
+    calls.some((call) => call.action === 'TRANSCRIBE_MANYCHAT_AUDIO' && call.payload?.cycle_id === 'cycle-X'),
+    false,
+  )
+})
+
+test('ÁUDIO: TRANSCRIBE_MANYCHAT_AUDIO em voo quando a identidade muda para Y — resposta tardia nunca gera INGEST sob cycle-X nem mexe no bookkeeping', async () => {
+  const dom = buildDom([{ mid: 'audio-1', audioUrl: 'https://manybot-files.manychat.io/audio.ogg' }])
+
+  const calls = []
+  let identityCallCount = 0
+  let resolveTranscription
+  const transcriptionPromise = new Promise((resolve) => {
+    resolveTranscription = resolve
+  })
+
+  const sendMessage = async (message) => {
+    calls.push(message)
+
+    if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
+      identityCallCount += 1
+      // 1-4: fluxo normal até o pré-DOM (identidade ainda X).
+      if (identityCallCount <= 4) {
+        return identityWith(IDENTITY_KEY_X)
+      }
+      // 5: AUDIO POST-TRANSCRIPTION IDENTITY CHECK — a identidade já é Y
+      // aqui, depois do await de TRANSCRIBE_MANYCHAT_AUDIO ter resolvido.
+      return identityWith(IDENTITY_KEY_Y)
+    }
+
+    if (message.action === 'RESOLVE_LEAD') {
+      return resolveLeadOwnedByMe('cycle-X')
+    }
+
+    if (message.action === 'TRANSCRIBE_MANYCHAT_AUDIO') {
+      return transcriptionPromise
+    }
+
+    if (message.action === 'INGEST_CAPTURE_MESSAGES') {
+      return ingestOk(
+        message.payload.messages.map((m) => ({
+          message_key: m.message_key,
+          synced: true,
+          canonical_version: '1',
+        })),
+      )
+    }
+
+    throw new Error(`ação inesperada: ${message.action}`)
+  }
+
+  const runtime = createRuntime({ dom, sendMessage })
+  const capturePromise = runtime.captureNow()
+
+  for (let i = 0; i < 20 && !calls.some((call) => call.action === 'TRANSCRIBE_MANYCHAT_AUDIO'); i += 1) {
+    await Promise.resolve()
+  }
+  assert.ok(
+    calls.some((call) => call.action === 'TRANSCRIBE_MANYCHAT_AUDIO'),
+    'sanity: a transcrição já está em voo',
+  )
+
+  const ingestCallsBeforeResolve = calls.filter((call) => call.action === 'INGEST_CAPTURE_MESSAGES').length
+
+  resolveTranscription(transcribeOk('Texto transcrito depois que Y assumiu.'))
+  const result = await capturePromise
+  assert.equal(result.ok, true)
+
+  const ingestCallsAfterResolve = calls.filter((call) => call.action === 'INGEST_CAPTURE_MESSAGES').length
+  // A única ingestão que existe é a do texto original (áudio ainda sem
+  // transcrição) — a resposta tardia de TRANSCRIBE_MANYCHAT_AUDIO nunca
+  // gera uma segunda ingestão sob cycle-X.
+  assert.equal(ingestCallsAfterResolve, ingestCallsBeforeResolve)
+
+  const conversationKey = runtime.getCurrentConversationKey()
+  const state = runtime.getConversationState(conversationKey)
+  // O bookkeeping nunca é mutado por essa resposta tardia — a mensagem de
+  // áudio nunca é marcada como transcrita.
+  assert.equal(state.transcribedMessageKeys.has(scopedKey(DEFAULT_DIGEST, 'audio-1')), false)
+})
+
+test('CALLBACK STALE DE INGEST: resposta de INGEST_CAPTURE_MESSAGES de X, em voo quando Y assume state.resolution/resolutionIdentity/auxiliaryIdentity, nunca grava bookkeeping na conta de Y', async () => {
+  const dom = buildDom([{ mid: 'native-x', text: 'Mensagem de X.' }])
+
+  const calls = []
+  let identityCallCount = 0
+  let resolveStaleIngest
+  const staleIngestPromise = new Promise((resolve) => {
+    resolveStaleIngest = resolve
+  })
+
+  const sendMessage = async (message) => {
+    calls.push(message)
+
+    if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
+      identityCallCount += 1
+      // 1-3: 1ª captura (X) — ensureCycleResolved, pós-resolve, pós-snapshot.
+      if (identityCallCount <= 3) {
+        return identityWith(IDENTITY_KEY_X)
+      }
+      // 4+: 2ª captura (Y) roda inteira enquanto o INGEST de X ainda está
+      // pendente (ver abaixo).
+      return identityWith(IDENTITY_KEY_Y)
+    }
+
+    if (message.action === 'RESOLVE_LEAD') {
+      const cycleId = message.payload.platform_contact_key === IDENTITY_KEY_Y ? 'cycle-Y' : 'cycle-X'
+      return resolveLeadOwnedByMe(cycleId)
+    }
+
+    if (message.action === 'INGEST_CAPTURE_MESSAGES') {
+      // A PRIMEIRA chamada de INGEST (a de X) fica pendente de propósito.
+      if (message.payload.cycle_id === 'cycle-X') {
+        return staleIngestPromise
+      }
+
+      return ingestOk(
+        message.payload.messages.map((m) => ({
+          message_key: m.message_key,
+          synced: true,
+          canonical_version: '9',
+        })),
+      )
+    }
+
+    throw new Error(`ação inesperada: ${message.action}`)
+  }
+
+  const runtime = createRuntime({ dom, sendMessage })
+
+  // 1ª captura (X): fica presa esperando a resposta do INGEST.
+  const stalePromise = runtime.captureNow()
+
+  for (let i = 0; i < 20 && !calls.some((call) => call.action === 'INGEST_CAPTURE_MESSAGES'); i += 1) {
+    await Promise.resolve()
+  }
+  assert.ok(
+    calls.some((call) => call.action === 'INGEST_CAPTURE_MESSAGES'),
+    'sanity: o INGEST de X já está em voo',
+  )
+
+  const conversationKey = runtime.getCurrentConversationKey()
+
+  // Enquanto isso, o contato muda (mesma conversation_key) — a mensagem no
+  // DOM passa a ser a de Y — e uma nova captura roda inteira, assumindo
+  // state.resolution/resolutionIdentity/auxiliaryIdentity.
+  replaceDomMessages(dom, [{ mid: 'native-y', text: 'Mensagem de Y.' }])
+  const newCapture = await runtime.captureNow()
+  assert.equal(newCapture.ok, true)
+  assert.equal(newCapture.skipped, false)
+
+  const stateAfterY = runtime.getConversationState(conversationKey)
+  assert.equal(stateAfterY.resolution.cycle_id, 'cycle-Y')
+  assert.equal(stateAfterY.auxiliaryIdentity.key, IDENTITY_KEY_Y)
+  assert.equal(stateAfterY.baseVersionsByMessageKey[scopedKey(OTHER_DIGEST, 'native-y')], '9')
+
+  // Só agora a resposta atrasada de X finalmente retorna.
+  resolveStaleIngest(
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-x'), synced: true, canonical_version: '1' }]),
+  )
+  const stale = await stalePromise
+  assert.equal(stale.ok, true)
+
+  const stateAfterStale = runtime.getConversationState(conversationKey)
+
+  // A resposta tardia de X nunca grava em cima do bookkeeping de Y.
+  assert.equal(stateAfterStale.auxiliaryIdentity.key, IDENTITY_KEY_Y)
+  assert.equal(stateAfterStale.baseVersionsByMessageKey[scopedKey(OTHER_DIGEST, 'native-y')], '9')
+  assert.equal(stateAfterStale.baseVersionsByMessageKey[scopedKey(DEFAULT_DIGEST, 'native-x')], undefined)
 })

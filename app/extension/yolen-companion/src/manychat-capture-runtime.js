@@ -145,12 +145,101 @@
         stateByConversationKey.set(conversationKey, {
           resolution: null,
           resolutionIdentity: null,
+          // Hardening (auditoria STEP 2A.4, "AUXILIARY CAPTURE STATE
+          // ISOLATION"): identidade que atualmente "possui"
+          // baseVersionsByMessageKey/lastContentFingerprint/
+          // transcribedMessageKeys — nunca inferida do conversation_key
+          // sozinho. Ver ensureAuxiliaryStateBound.
+          auxiliaryIdentity: null,
           baseVersionsByMessageKey: {},
           lastContentFingerprint: null,
           transcribedMessageKeys: new Set(),
         })
       }
       return stateByConversationKey.get(conversationKey)
+    }
+
+    // Extrai SOMENTE o binding {platform, key} de uma safe identity bruta
+    // (nunca aceita subscriber_id cru) — usado para comparar/gravar
+    // bindings de forma uniforme em todo o módulo.
+    function normalizeIdentityBinding(identity) {
+      if (!identity?.platform || !identity?.platform_identity?.key) {
+        return null
+      }
+      return Object.freeze({
+        platform: identity.platform,
+        key: identity.platform_identity.key,
+      })
+    }
+
+    // Hardening (auditoria STEP 2A.4, "LEDGER MESSAGE KEY IDENTITY-SCOPED"):
+    // conversation_key + data-mid NUNCA é suficiente como identidade de
+    // mensagem entre contatos diferentes — data-mid só foi validado como
+    // único DENTRO de uma única conversa observada
+    // (MANYCHAT_NATIVE_MESSAGE_IDENTITY_GATE.md), nunca entre contatos
+    // diferentes que passam pela MESMA conversation_key ao longo do tempo.
+    // Toda chave persistida no ledger (message_key enviado a
+    // INGEST_CAPTURE_MESSAGES/TRANSCRIBE_MANYCHAT_AUDIO) é sempre
+    // namespaced pelo contato: manychat:<contact-sha256>:<data-mid
+    // codificado> — nunca o subscriber_id bruto (só o hash pseudônimo já
+    // validado pelo bridge, no formato manychat:contact:v1:sha256:<64
+    // hex>). Falha fechada (retorna null) se o binding não tiver esse
+    // formato exato, ou se a chave estrutural não vier no formato
+    // manychat:<...> já validado por manychat-message-profile.js.
+    const CONTACT_DIGEST_PATTERN = /^manychat:contact:v1:sha256:([a-f0-9]{64})$/
+
+    function extractContactDigest(identityBinding) {
+      const match = CONTACT_DIGEST_PATTERN.exec(identityBinding?.key ?? '')
+      return match ? match[1] : null
+    }
+
+    function buildIdentityScopedMessageKey(identityBinding, structuralMessageKey) {
+      const digest = extractContactDigest(identityBinding)
+      if (!digest || typeof structuralMessageKey !== 'string') {
+        return null
+      }
+
+      const prefix = `${PLATFORM}:`
+      if (!structuralMessageKey.startsWith(prefix)) {
+        return null
+      }
+
+      return `${prefix}${digest}:${structuralMessageKey.slice(prefix.length)}`
+    }
+
+    // Garante que o estado auxiliar de captura (base_version por mensagem,
+    // fingerprint do último snapshot enviado, mensagens já transcritas)
+    // pertence à identidade ATUAL — nunca ao contato anterior que só
+    // coincide na mesma conversation_key. Chamado sempre imediatamente
+    // antes de LER ou GRAVAR qualquer um desses três campos.
+    function ensureAuxiliaryStateBound(state, identityBinding) {
+      if (
+        state.auxiliaryIdentity &&
+        identityBinding &&
+        state.auxiliaryIdentity.platform === identityBinding.platform &&
+        state.auxiliaryIdentity.key === identityBinding.key
+      ) {
+        return
+      }
+
+      state.baseVersionsByMessageKey = {}
+      state.lastContentFingerprint = null
+      state.transcribedMessageKeys = new Set()
+      state.auxiliaryIdentity = identityBinding ?? null
+    }
+
+    // Hardening (auditoria STEP 2A.4, "STALE INGEST CALLBACK"): uma
+    // resposta de INGEST_CAPTURE_MESSAGES/TRANSCRIBE_MANYCHAT_AUDIO pode
+    // voltar depois que outra identidade (Y) já assumiu esta
+    // conversationKey — o servidor já ter concluído a gravação de X é
+    // aceitável e nunca é desfeito, mas essa resposta atrasada nunca pode
+    // gravar bookkeeping na conta de quem já é o dono corrente do estado.
+    function identityStillOwnsCapture(state, resolution, identityBinding) {
+      return (
+        state.resolution === resolution &&
+        state.auxiliaryIdentity?.platform === identityBinding?.platform &&
+        state.auxiliaryIdentity?.key === identityBinding?.key
+      )
     }
 
     async function getSafeIdentity() {
@@ -386,6 +475,26 @@
       )
     }
 
+    // Releitura de identidade ao vivo (nunca confia em cache) usada pelos
+    // pontos de checagem do fluxo de áudio (STEP 2A.4, "AUDIO PRE-DOM
+    // IDENTITY CHECK" / "AUDIO POST-TRANSCRIPTION IDENTITY CHECK") — a
+    // conversa E a identidade precisam continuar sendo exatamente o
+    // binding esperado.
+    async function currentIdentityMatchesBinding(conversationKey, expectedBinding) {
+      if (!expectedBinding || !isCurrentConversation(conversationKey)) {
+        return false
+      }
+
+      const freshIdentity = await getSafeIdentity()
+      const freshBinding = normalizeIdentityBinding(freshIdentity)
+
+      return Boolean(
+        freshBinding &&
+          freshBinding.platform === expectedBinding.platform &&
+          freshBinding.key === expectedBinding.key,
+      )
+    }
+
     async function refreshLeadResolution({ conversationKey, expectedPlatform, expectedIdentityKey }) {
       const state = getConversationState(conversationKey)
 
@@ -462,15 +571,20 @@
       }
     }
 
-    function findNodeForMessageKey(messageKey) {
+    // Compara a chave identity-scoped (nunca a estrutural crua): dois nós
+    // com o MESMO data-mid sob identidades diferentes nunca podem parecer
+    // a mesma mensagem (STEP 2A.4, "LEDGER MESSAGE KEY IDENTITY-SCOPED").
+    function findNodeForMessageKey(messageKey, identityBinding) {
       if (!audioIdentityApi) return null
 
       for (const node of queryMessageNodes()) {
         const identity = audioIdentityApi.extractManyChatMessageIdentity(node)
-        if (
-          identity?.ready === true &&
-          messageProfileApi.buildMessageKey(identity.native_message_id) === messageKey
-        ) {
+        if (identity?.ready !== true) continue
+
+        const structuralKey = messageProfileApi.buildMessageKey(identity.native_message_id)
+        const scopedKey = buildIdentityScopedMessageKey(identityBinding, structuralKey)
+
+        if (scopedKey && scopedKey === messageKey) {
           return node
         }
       }
@@ -485,8 +599,16 @@
     // captura assim que a transcrição chega, virando uma nova versão do
     // ledger em vez de um registro paralelo. Nunca bloqueia nem atrasa a
     // captura de texto: falhas aqui são sempre silenciosas por mensagem.
-    async function dispatchPendingAudioTranscriptions({ conversationKey, cycleId, channel, messages }) {
+    //
+    // Hardening (STEP 2A.4, "AUDIO PRE-DOM IDENTITY CHECK" / "AUDIO
+    // POST-TRANSCRIPTION IDENTITY CHECK"): recebe resolution +
+    // resolutionIdentity (nunca só cycleId) porque o contato pode mudar
+    // (mesma conversation_key) tanto ANTES de procurar o node/fonte de
+    // áudio no DOM quanto DEPOIS do await de TRANSCRIBE_MANYCHAT_AUDIO —
+    // os dois pontos são revalidados ao vivo, nunca só uma vez no início.
+    async function dispatchPendingAudioTranscriptions({ conversationKey, resolution, resolutionIdentity, channel, messages }) {
       if (!audioSourceApi || !audioIdentityApi) return
+      if (!resolutionIdentity) return
 
       const state = getConversationState(conversationKey)
 
@@ -498,7 +620,14 @@
       )
 
       for (const message of pending) {
-        const node = findNodeForMessageKey(message.message_key)
+        // Pré-DOM: o contato pode ter mudado entre o snapshot já validado
+        // por captureNow e este exato instante — nunca busca o node/fonte
+        // de áudio no DOM sob uma identidade que já não é mais a atual.
+        if (!(await currentIdentityMatchesBinding(conversationKey, resolutionIdentity))) {
+          return
+        }
+
+        const node = findNodeForMessageKey(message.message_key, resolutionIdentity)
         if (!node) continue
 
         const source = audioSourceApi.extractManyChatAudioSource(node)
@@ -511,7 +640,7 @@
             action: 'TRANSCRIBE_MANYCHAT_AUDIO',
             payload: {
               audio_url: source.source_url,
-              cycle_id: cycleId,
+              cycle_id: resolution.cycle_id,
               audio_target_key: message.message_key,
               channel,
               audio_index: 0,
@@ -527,10 +656,10 @@
         const normalizedText = typeof text === 'string' ? text.trim() : ''
         if (!normalizedText) continue
 
-        // Revalida a conversa antes de aplicar qualquer efeito: a
-        // transcrição é assíncrona e o usuário pode ter trocado de
-        // conversa enquanto ela estava em andamento.
-        if (adapter.getCurrentConversation(getConversationUrl())?.conversation_key !== conversationKey) {
+        // Pós-transcrição: TRANSCRIBE_MANYCHAT_AUDIO é outro await — uma
+        // resposta que retorna depois que o contato já mudou nunca pode
+        // ser ingerida sob o cycle antigo.
+        if (!(await currentIdentityMatchesBinding(conversationKey, resolutionIdentity))) {
           return
         }
 
@@ -542,7 +671,7 @@
         }
 
         const plan = captureBatchApi.buildCaptureIngestionPlanFromMessages({
-          cycleId,
+          cycleId: resolution.cycle_id,
           conversationKey,
           messages: [transcribedMessage],
         })
@@ -560,6 +689,13 @@
           }
 
           if (response?.ok !== true) continue
+
+          // Stale ingest callback: se outra identidade já assumiu esta
+          // conversationKey, esta resposta atrasada nunca grava bookkeeping
+          // na conta de quem já é o dono corrente.
+          if (!identityStillOwnsCapture(state, resolution, resolutionIdentity)) {
+            continue
+          }
 
           for (const result of response.payload?.message_results ?? []) {
             if (result?.synced === true && typeof result.message_key === 'string') {
@@ -640,13 +776,36 @@
         return abortSnapshotCorrelation()
       }
 
+      // Hardening (auditoria STEP 2A.4, "AUXILIARY CAPTURE STATE
+      // ISOLATION"): resolutionIdentity já foi confirmada como a
+      // identidade atual, imediatamente antes E depois do snapshot. Só
+      // agora garante que o bookkeeping auxiliar (base_version,
+      // fingerprint, transcrições) pertence a ESTA identidade — nunca
+      // reaproveita o de um contato anterior que só coincide na mesma
+      // conversation_key.
+      ensureAuxiliaryStateBound(state, resolutionIdentity)
+
       const observedAt = now()
 
-      const messagesWithVersion = built.conversation.messages.map((message) => ({
-        ...message,
-        observed_at: observedAt,
-        base_version: state.baseVersionsByMessageKey[message.message_key] ?? null,
-      }))
+      // Hardening (STEP 2A.4, "LEDGER MESSAGE KEY IDENTITY-SCOPED"): a
+      // chave estrutural (manychat:<data-mid>) nunca é persistida como
+      // veio do DOM — data-mid nunca foi validado como único fora de uma
+      // única conversa observada. Toda chave que chega ao ledger é sempre
+      // namespaced pelo contato (manychat:<contact-sha256>:<data-mid>);
+      // uma mensagem cuja chave não pode ser assim construída é excluída
+      // da captura (fail closed), nunca enviada com uma chave ambígua.
+      const messagesWithVersion = built.conversation.messages.reduce((accumulator, message) => {
+        const scopedMessageKey = buildIdentityScopedMessageKey(resolutionIdentity, message.message_key)
+        if (!scopedMessageKey) return accumulator
+
+        accumulator.push({
+          ...message,
+          message_key: scopedMessageKey,
+          observed_at: observedAt,
+          base_version: state.baseVersionsByMessageKey[scopedMessageKey] ?? null,
+        })
+        return accumulator
+      }, [])
 
       const plan = captureBatchApi.buildCaptureIngestionPlanFromMessages({
         cycleId: resolution.cycle_id,
@@ -694,19 +853,26 @@
             }
           }
 
-          for (const result of response.payload?.message_results ?? []) {
-            if (result?.synced === true && typeof result.message_key === 'string') {
-              state.baseVersionsByMessageKey[result.message_key] = result.canonical_version
+          // Stale ingest callback (STEP 2A.4): esta resposta pode voltar
+          // depois que outra identidade já assumiu esta conversationKey —
+          // o servidor já ter concluído a gravação é aceitável (nunca
+          // desfeito), mas nunca grava bookkeeping na conta de quem já é o
+          // dono corrente do estado.
+          if (identityStillOwnsCapture(state, resolution, resolutionIdentity)) {
+            for (const result of response.payload?.message_results ?? []) {
+              if (result?.synced === true && typeof result.message_key === 'string') {
+                state.baseVersionsByMessageKey[result.message_key] = result.canonical_version
+              }
             }
           }
         }
 
-        // A troca de conversa pode ter acontecido durante o despacho
-        // (assíncrono). O estado gravado é sempre o de `conversationKey`
-        // (nunca o da conversa atual no momento em que a resposta chega),
-        // então nunca contamina a conversa para a qual o usuário já
-        // navegou.
-        state.lastContentFingerprint = contentFingerprint
+        // A troca de conversa/identidade pode ter acontecido durante o
+        // despacho (assíncrono) — nunca grava o fingerprint na conta de
+        // quem já não é mais o dono corrente do estado.
+        if (identityStillOwnsCapture(state, resolution, resolutionIdentity)) {
+          state.lastContentFingerprint = contentFingerprint
+        }
       }
 
       // Independente de o texto ter mudado: sempre que houver mensagem de
@@ -716,7 +882,8 @@
       // mensagem repetidamente.
       await dispatchPendingAudioTranscriptions({
         conversationKey,
-        cycleId: resolution.cycle_id,
+        resolution,
+        resolutionIdentity,
         channel: built.conversation.channel,
         messages: messagesWithVersion,
       })
