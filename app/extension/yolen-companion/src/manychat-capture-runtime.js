@@ -588,15 +588,31 @@
         return { ok: false, reason: resolution.reason, conversation_key: conversationKey }
       }
 
-      // A conversa pode ter mudado enquanto a resolução de identidade/lead
-      // (assíncrona) estava em andamento — nunca captura para a conversa
-      // errada.
-      if (adapter.getCurrentConversation(getConversationUrl())?.conversation_key !== conversationKey) {
+      const state = getConversationState(conversationKey)
+      const resolutionIdentity = state.resolutionIdentity
+
+      function abortSnapshotCorrelation() {
+        // Só limpa se esta captura ainda estiver olhando para a mesma
+        // resolution. Uma captura concorrente pode já ter resolvido outra
+        // identidade corretamente; nunca apague o estado novo dela.
+        if (state.resolution === resolution) {
+          state.resolution = null
+          state.resolutionIdentity = null
+        }
+
         return {
           ok: false,
-          reason: 'conversation_changed_during_resolution',
+          reason: 'contact_changed_during_snapshot',
           conversation_key: conversationKey,
         }
+      }
+
+      if (
+        !isCurrentConversation(conversationKey) ||
+        state.resolution !== resolution ||
+        !resolutionIdentity
+      ) {
+        return abortSnapshotCorrelation()
       }
 
       const built = adapter.buildUniversalConversation(getConversationUrl())
@@ -604,7 +620,26 @@
         return { ok: false, reason: built.reason, conversation_key: conversationKey }
       }
 
-      const state = getConversationState(conversationKey)
+      // ensureCycleResolved já forneceu a amostra de identidade ANTES do
+      // snapshot. Agora relê a identidade DEPOIS que o DOM foi materializado.
+      // O snapshot só pode ser usado se continuar pertencendo ao mesmo
+      // binding que produziu `resolution`.
+      const safeIdentityAfterSnapshot = await getSafeIdentity()
+
+      if (
+        !isCurrentConversation(conversationKey) ||
+        state.resolution !== resolution ||
+        state.resolutionIdentity?.platform !== resolutionIdentity.platform ||
+        state.resolutionIdentity?.key !== resolutionIdentity.key ||
+        !matchesExpectedIdentity(
+          safeIdentityAfterSnapshot,
+          resolutionIdentity.platform,
+          resolutionIdentity.key,
+        )
+      ) {
+        return abortSnapshotCorrelation()
+      }
+
       const observedAt = now()
 
       const messagesWithVersion = built.conversation.messages.map((message) => ({

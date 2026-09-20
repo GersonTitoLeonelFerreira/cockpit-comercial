@@ -165,6 +165,7 @@ test('captura funciona mesmo sem NENHUMA evidência de canal ou atribuição (re
     safeIdentityOk(),
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ])
 
@@ -186,7 +187,7 @@ test('captura funciona mesmo sem NENHUMA evidência de canal ou atribuição (re
 
   assert.equal(result.ok, true)
   assert.equal(result.skipped, false)
-  assert.equal(fake.calls[3].payload.messages[0].message_key, 'manychat:native-1')
+  assert.equal(fake.calls[4].payload.messages[0].message_key, 'manychat:native-1')
 })
 
 test('captureNow resolve identidade, lead e envia o lote de captura', async () => {
@@ -198,6 +199,7 @@ test('captureNow resolve identidade, lead e envia o lote de captura', async () =
     safeIdentityOk(),
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ])
 
@@ -206,7 +208,7 @@ test('captureNow resolve identidade, lead e envia o lote de captura', async () =
 
   assert.equal(result.ok, true)
   assert.equal(result.skipped, false)
-  assert.equal(fake.calls.length, 4)
+  assert.equal(fake.calls.length, 5)
   assert.equal(fake.calls[0].action, 'GET_MANYCHAT_SAFE_IDENTITY')
   assert.equal(fake.calls[1].action, 'RESOLVE_LEAD')
   assert.equal(fake.calls[1].payload.platform, 'manychat')
@@ -215,13 +217,19 @@ test('captureNow resolve identidade, lead e envia o lote de captura', async () =
     `manychat:contact:v1:sha256:${'a'.repeat(64)}`,
   )
   assert.equal(fake.calls[2].action, 'GET_MANYCHAT_SAFE_IDENTITY')
-  assert.equal(fake.calls[3].action, 'INGEST_CAPTURE_MESSAGES')
-  assert.equal(fake.calls[3].payload.cycle_id, 'cycle-1')
-  assert.equal(fake.calls[3].payload.messages[0].message_key, 'manychat:native-1')
-  assert.equal(fake.calls[3].payload.messages[0].author_kind, 'customer')
-  assert.equal(fake.calls[3].payload.messages[0].base_version, null)
+  // Auditoria STEP 2A.4, "PRE/POST-SNAPSHOT IDENTITY": entre a resolução do
+  // cycle e a leitura do DOM (buildUniversalConversation), a identidade é
+  // relida mais uma vez — nunca usa um cycle validado antes do snapshot sem
+  // confirmar que ele ainda corresponde à identidade atual DEPOIS do
+  // snapshot.
+  assert.equal(fake.calls[3].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[4].action, 'INGEST_CAPTURE_MESSAGES')
+  assert.equal(fake.calls[4].payload.cycle_id, 'cycle-1')
+  assert.equal(fake.calls[4].payload.messages[0].message_key, 'manychat:native-1')
+  assert.equal(fake.calls[4].payload.messages[0].author_kind, 'customer')
+  assert.equal(fake.calls[4].payload.messages[0].base_version, null)
 
-  const state = runtime.getConversationState(fake.calls[3].payload.conversation_key)
+  const state = runtime.getConversationState(fake.calls[4].payload.conversation_key)
   assert.equal(state.baseVersionsByMessageKey['manychat:native-1'], '1')
 })
 
@@ -232,12 +240,16 @@ test('segunda captura sem mudança nenhuma é no-op e reaproveita a resolução 
     safeIdentityOk(),
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
     // Hardening (auditoria STEP 2A.4, "CACHED RESOLUTION IDENTITY
-    // SAFETY"): toda captureNow — mesmo com state.resolution já em cache —
-    // relê a safe identity para confirmar que o cache ainda pertence ao
-    // contato atual. Com a MESMA identidade, RESOLVE_LEAD nunca roda de
-    // novo (só a leitura de identidade).
+    // SAFETY" + "TOCTOU SNAPSHOT BOUNDARY"): toda captureNow — mesmo com
+    // state.resolution já em cache — relê a safe identity duas vezes: uma
+    // para validar o cache (ensureCycleResolved) e outra depois do DOM já
+    // ter sido lido (boundary do snapshot). Com a MESMA identidade,
+    // RESOLVE_LEAD nunca roda de novo.
+    safeIdentityOk(),
+    safeIdentityOk(),
     safeIdentityOk(),
     safeIdentityOk(),
   ])
@@ -252,17 +264,19 @@ test('segunda captura sem mudança nenhuma é no-op e reaproveita a resolução 
   assert.equal(second.skipped, true)
   assert.equal(second.reason, 'unchanged_snapshot')
 
-  // A identidade é relida (cache quente revalidado), mas nem RESOLVE_LEAD
-  // nem INGEST rodam de novo (mesma identidade, mesmo snapshot).
-  assert.equal(fake.calls.length, 5)
-  assert.equal(fake.calls[4].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  // A identidade é relida duas vezes (cache quente + boundary do
+  // snapshot), mas nem RESOLVE_LEAD nem INGEST rodam de novo (mesma
+  // identidade, mesmo snapshot).
+  assert.equal(fake.calls.length, 7)
+  assert.equal(fake.calls[5].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[6].action, 'GET_MANYCHAT_SAFE_IDENTITY')
 
   // Uma terceira chamada precisa CONVERGIR (continuar no-op), não reenviar
   // para sempre só porque base_version mudou depois do primeiro envio
   // bem-sucedido — base_version é bookkeeping, não conteúdo novo.
   const third = await runtime.captureNow()
   assert.equal(third.skipped, true)
-  assert.equal(fake.calls.length, 6)
+  assert.equal(fake.calls.length, 9)
 })
 
 test('contato não vinculado (CONTACT_NOT_LINKED) nunca chega a montar nem enviar captura', async () => {
@@ -299,7 +313,12 @@ test('conversa sem mensagem elegível (só automação) não dispara ingestão',
     { mid: 'bot-1', text: 'Como posso ajudar?', classes: '_typeOut_x _botMessage_x' },
   ])
 
-  const fake = createQueuedSender([safeIdentityOk(), resolveLeadOwnedByMe(), safeIdentityOk()])
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadOwnedByMe(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+  ])
 
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
   const result = await runtime.captureNow()
@@ -307,7 +326,7 @@ test('conversa sem mensagem elegível (só automação) não dispara ingestão',
   assert.equal(result.ok, true)
   assert.equal(result.skipped, true)
   assert.equal(result.reason, 'no_eligible_messages')
-  assert.equal(fake.calls.length, 3)
+  assert.equal(fake.calls.length, 4)
 })
 
 test('troca de conversa durante a resolução assíncrona de identidade/lead nunca captura para a conversa errada', async () => {
@@ -362,6 +381,7 @@ test('resposta de ingestão rejeitada não atualiza base_version nem o snapshot 
     safeIdentityOk(),
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
+    safeIdentityOk(),
     { ok: false, payload: { status: 'CAPTURE_INGESTION_REJECTED' } },
   ])
 
@@ -371,7 +391,7 @@ test('resposta de ingestão rejeitada não atualiza base_version nem o snapshot 
   assert.equal(result.ok, false)
   assert.equal(result.reason, 'ingestion_rejected')
 
-  const conversationKey = fake.calls[3].payload.conversation_key
+  const conversationKey = fake.calls[4].payload.conversation_key
   const state = runtime.getConversationState(conversationKey)
   assert.deepEqual(state.baseVersionsByMessageKey, {})
   assert.equal(state.lastContentFingerprint, null)
@@ -391,6 +411,7 @@ test('mensagem de áudio é transcrita com o cycle_id real e reenviada como nova
     safeIdentityOk(),
     resolveLeadOwnedByMe('cycle-real-1'),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '1' }]),
     transcribeOk('Quero saber o valor do plano.'),
     ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '2' }]),
@@ -400,25 +421,25 @@ test('mensagem de áudio é transcrita com o cycle_id real e reenviada como nova
   const result = await runtime.captureNow()
 
   assert.equal(result.ok, true)
-  assert.equal(fake.calls.length, 6)
+  assert.equal(fake.calls.length, 7)
 
-  assert.equal(fake.calls[3].payload.messages[0].content_type, 'audio')
-  assert.equal(fake.calls[3].payload.messages[0].audio_transcription, null)
+  assert.equal(fake.calls[4].payload.messages[0].content_type, 'audio')
+  assert.equal(fake.calls[4].payload.messages[0].audio_transcription, null)
 
-  assert.equal(fake.calls[4].action, 'TRANSCRIBE_MANYCHAT_AUDIO')
-  assert.equal(fake.calls[4].payload.audio_url, 'https://manybot-files.manychat.io/audio.ogg')
-  assert.equal(fake.calls[4].payload.cycle_id, 'cycle-real-1')
-  assert.equal(fake.calls[4].payload.audio_target_key, 'manychat:audio-1')
+  assert.equal(fake.calls[5].action, 'TRANSCRIBE_MANYCHAT_AUDIO')
+  assert.equal(fake.calls[5].payload.audio_url, 'https://manybot-files.manychat.io/audio.ogg')
+  assert.equal(fake.calls[5].payload.cycle_id, 'cycle-real-1')
+  assert.equal(fake.calls[5].payload.audio_target_key, 'manychat:audio-1')
 
-  assert.equal(fake.calls[5].action, 'INGEST_CAPTURE_MESSAGES')
-  const resent = fake.calls[5].payload.messages[0]
+  assert.equal(fake.calls[6].action, 'INGEST_CAPTURE_MESSAGES')
+  const resent = fake.calls[6].payload.messages[0]
   assert.equal(resent.message_key, 'manychat:audio-1')
   assert.equal(resent.audio_transcription, 'Quero saber o valor do plano.')
   // Reenvia como NOVA VERSÃO da mesma mensagem (base_version = canonical
   // confirmado no envio anterior), nunca um registro paralelo.
   assert.equal(resent.base_version, '1')
 
-  const state = runtime.getConversationState(fake.calls[3].payload.conversation_key)
+  const state = runtime.getConversationState(fake.calls[4].payload.conversation_key)
   assert.equal(state.baseVersionsByMessageKey['manychat:audio-1'], '2')
   assert.equal(state.transcribedMessageKeys.has('manychat:audio-1'), true)
 })
@@ -432,23 +453,25 @@ test('mensagem já transcrita nesta conversa nunca é reprocessada numa segunda 
     safeIdentityOk(),
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '1' }]),
     transcribeOk('Quero saber o valor do plano.'),
     ingestOk([{ message_key: 'manychat:audio-1', synced: true, canonical_version: '2' }]),
-    // Segunda captureNow: cache quente revalida a identidade (mesma
-    // identidade) antes de reaproveitar state.resolution.
+    // Segunda captureNow: cache quente revalida a identidade duas vezes
+    // (cache + boundary do snapshot) antes de reaproveitar state.resolution.
+    safeIdentityOk(),
     safeIdentityOk(),
   ])
 
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
   await runtime.captureNow()
-  assert.equal(fake.calls.length, 6)
+  assert.equal(fake.calls.length, 7)
 
   // O DOM continua mostrando a mesma mensagem de áudio sem transcrição
   // (a transcrição não altera o DOM — só o ledger no backend), mas o
   // dedupe local precisa impedir uma segunda tentativa de transcrição.
   await runtime.captureNow()
-  assert.equal(fake.calls.length, 7)
+  assert.equal(fake.calls.length, 9)
 })
 
 test('fonte de áudio não confiável (sem HTTPS) nunca dispara transcrição nem quebra a captura de texto', async () => {
@@ -461,6 +484,7 @@ test('fonte de áudio não confiável (sem HTTPS) nunca dispara transcrição ne
     safeIdentityOk(),
     resolveLeadOwnedByMe(),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([
       { message_key: 'manychat:text-1', synced: true, canonical_version: '1' },
       { message_key: 'manychat:audio-1', synced: true, canonical_version: '1' },
@@ -471,7 +495,7 @@ test('fonte de áudio não confiável (sem HTTPS) nunca dispara transcrição ne
   const result = await runtime.captureNow()
 
   assert.equal(result.ok, true)
-  assert.equal(fake.calls.length, 4)
+  assert.equal(fake.calls.length, 5)
   assert.equal(
     fake.calls.some((call) => call.action === 'TRANSCRIBE_MANYCHAT_AUDIO'),
     false,
@@ -669,6 +693,7 @@ test('invalidateLeadResolution limpa só resolution, preserva base_version/finge
     safeIdentityOk(),
     resolveLeadOwnedByMe('cycle-1'),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ])
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
@@ -676,7 +701,7 @@ test('invalidateLeadResolution limpa só resolution, preserva base_version/finge
   assert.equal(runtime.invalidateLeadResolution('conversa-desconhecida'), false)
 
   await runtime.captureNow()
-  const conversationKey = fake.calls[3].payload.conversation_key
+  const conversationKey = fake.calls[4].payload.conversation_key
 
   const stateBefore = runtime.getConversationState(conversationKey)
   assert.equal(stateBefore.resolution.cycle_id, 'cycle-1')
@@ -720,15 +745,18 @@ test('P1: mesma conversation_key com identidade trocada entre capturas — cache
   const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
 
   const fake = createQueuedSender([
-    // Primeira captura: identidade X do início ao fim.
+    // Primeira captura: identidade X do início ao fim (pré-resolve,
+    // pós-resolve e pós-snapshot).
     identityWith(IDENTITY_KEY_X),
     resolveLeadOwnedByMe('cycle-X'),
+    identityWith(IDENTITY_KEY_X),
     identityWith(IDENTITY_KEY_X),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
     // Segunda captura: ensureCycleResolved relê a identidade e encontra Y —
     // precisa descartar o cache de X e resolver Y do zero.
     identityWith(IDENTITY_KEY_Y),
     resolveLeadOwnedByMe('cycle-Y'),
+    identityWith(IDENTITY_KEY_Y),
     identityWith(IDENTITY_KEY_Y),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ])
@@ -776,6 +804,7 @@ test('P1: identity_not_ready nunca fica preso em cache — identidade fica dispo
     identityWith(IDENTITY_KEY_X),
     resolveLeadOwnedByMe('cycle-X'),
     identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ])
 
@@ -809,8 +838,11 @@ test('P1: mesma identidade entre capturas — cache quente é reaproveitado (ide
     identityWith(IDENTITY_KEY_X),
     resolveLeadOwnedByMe('cycle-X'),
     identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
-    // Segunda captura: mesma identidade X — só a releitura de identidade.
+    // Segunda captura: mesma identidade X — releitura de identidade para
+    // validar o cache E releitura para o boundary do snapshot.
+    identityWith(IDENTITY_KEY_X),
     identityWith(IDENTITY_KEY_X),
   ])
 
@@ -824,8 +856,9 @@ test('P1: mesma identidade entre capturas — cache quente é reaproveitado (ide
   const second = await runtime.captureNow()
   const callsDuringSecond = fake.calls.slice(callsBeforeSecond)
 
-  assert.equal(callsDuringSecond.length, 1)
+  assert.equal(callsDuringSecond.length, 2)
   assert.equal(callsDuringSecond[0].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(callsDuringSecond[1].action, 'GET_MANYCHAT_SAFE_IDENTITY')
   assert.equal(
     callsDuringSecond.some((call) => call.action === 'RESOLVE_LEAD'),
     false,
@@ -841,6 +874,245 @@ test('P1: mesma identidade entre capturas — cache quente é reaproveitado (ide
   assert.equal(second.skipped, true)
   assert.equal(second.reason, 'unchanged_snapshot')
   assert.equal(runtime.getConversationState(conversationKey).resolution.cycle_id, 'cycle-X')
+})
+
+// -----------------------------------------------------------------------
+// Auditoria STEP 2A.4 — "SNAPSHOT X→Y SAME conversation_key" / "TOCTOU
+// SNAPSHOT BOUNDARY": mesmo com o cache de resolution já revalidado contra
+// a identidade atual (ensureCycleResolved), a identidade pode mudar DEPOIS
+// dessa validação e ANTES de buildUniversalConversation ler o DOM — o
+// ManyChat pode trocar de contato bem nesse intervalo, sem
+// conversation_changed algum. O snapshot só pode ser usado se a identidade
+// relida DEPOIS do DOM materializado ainda bater com o binding que validou
+// o cache antes dele.
+// -----------------------------------------------------------------------
+
+function replaceDomMessages(dom, messages) {
+  const root = dom.window.document.querySelector(SELECTORS.conversationRoot)
+  for (const child of Array.from(root.children)) {
+    if (child.tagName === 'DIV') {
+      root.removeChild(child)
+    }
+  }
+
+  const wrapper = dom.window.document.createElement('div')
+  wrapper.innerHTML = messages
+    .map(
+      (message) => `
+        <div>
+          <div
+            class="_wrapper_x ${message.classes ?? '_typeIn_x'}"
+            data-title="${message.title ?? '2026-09-14T20:30:00'}"
+            data-title-at="1"
+            data-title-offset-bottom="1"
+          >
+            <span data-mid="${message.mid}">${message.text ?? ''}</span>
+          </div>
+        </div>
+      `,
+    )
+    .join('')
+
+  while (wrapper.firstElementChild) {
+    root.appendChild(wrapper.firstElementChild)
+  }
+}
+
+test('P1: identidade muda ENTRE a validação do cache e a leitura do DOM (mesma conversation_key) — snapshot de Y nunca é ingerido sob cycle-X', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Mensagem de X.' }])
+
+  let identityCallCount = 0
+  const calls = []
+
+  const sendMessage = async (message) => {
+    calls.push(message)
+
+    if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
+      identityCallCount += 1
+
+      // 1: ensureCycleResolved da 1ª captura (fria, estabelece cache X).
+      // 2: pós-resolve da 1ª captura (dentro de resolveAndStoreResolution).
+      // 3: pós-snapshot da 1ª captura (boundary novo) — completa normal.
+      if (identityCallCount <= 3) {
+        return identityWith(IDENTITY_KEY_X)
+      }
+
+      // 4: ensureCycleResolved da 2ª captura — a identidade AINDA é X aqui
+      // (o cache de X é validado corretamente). É exatamente NESTE
+      // instante — enquanto essa resposta está "retornando" — que o
+      // ManyChat troca o contato exibido para Y, sem nenhum
+      // conversation_changed.
+      if (identityCallCount === 4) {
+        replaceDomMessages(dom, [{ mid: 'native-y-1', text: 'Mensagem de Y.' }])
+        return identityWith(IDENTITY_KEY_X)
+      }
+
+      // 5: pós-snapshot da 2ª captura — por essa altura a identidade real
+      // já é Y (o DOM já foi lido nesse estado, no meio do caminho).
+      return identityWith(IDENTITY_KEY_Y)
+    }
+
+    if (message.action === 'RESOLVE_LEAD') {
+      return resolveLeadOwnedByMe('cycle-X')
+    }
+
+    if (message.action === 'INGEST_CAPTURE_MESSAGES') {
+      return ingestOk(
+        message.payload.messages.map((m) => ({
+          message_key: m.message_key,
+          synced: true,
+          canonical_version: '1',
+        })),
+      )
+    }
+
+    throw new Error(`ação inesperada: ${message.action}`)
+  }
+
+  const runtime = createRuntime({ dom, sendMessage })
+
+  const first = await runtime.captureNow()
+  assert.equal(first.ok, true)
+  assert.equal(first.skipped, false)
+
+  const conversationKey = runtime.getCurrentConversationKey()
+  assert.equal(runtime.getConversationState(conversationKey).resolution.cycle_id, 'cycle-X')
+
+  const ingestCallsBeforeSecond = calls.filter((call) => call.action === 'INGEST_CAPTURE_MESSAGES').length
+
+  const second = await runtime.captureNow()
+
+  assert.equal(second.ok, false)
+  assert.equal(second.reason, 'contact_changed_during_snapshot')
+
+  // A segunda captura NUNCA ingere — nem o conteúdo de Y sob cycle-X, nem
+  // qualquer outra coisa.
+  const ingestCallsAfterSecond = calls.filter((call) => call.action === 'INGEST_CAPTURE_MESSAGES').length
+  assert.equal(ingestCallsAfterSecond, ingestCallsBeforeSecond)
+  assert.equal(
+    calls.some((call) => call.action === 'INGEST_CAPTURE_MESSAGES' && call.payload.messages.some((m) => m.message_key === 'manychat:native-y-1')),
+    false,
+    'mensagem de Y nunca pode ser ingerida sob cycle-X',
+  )
+
+  // A própria resolution X (a mesma que esta captura leu) é limpa — nunca
+  // fica presa em cache depois de detectar a divergência.
+  assert.equal(runtime.getConversationState(conversationKey).resolution, null)
+})
+
+// -----------------------------------------------------------------------
+// Auditoria STEP 2A.4 — "CONCURRENT STALE RESOLUTION" / "NEW VALID
+// RESOLUTION CLEARED BY STALE CAPTURE": uma captura antiga que ainda
+// segura uma resolution local (X) nunca pode, ao finalmente retomar depois
+// de atrasada, nem enviar um batch com cycle-X, nem apagar uma resolution
+// Y válida que uma captura mais nova já produziu enquanto ela estava
+// pendente. A defesa é a checagem por IDENTIDADE DE OBJETO
+// (state.resolution === resolution), nunca por valor.
+// -----------------------------------------------------------------------
+
+test('P1: captura antiga (X) atrasada nunca sobrescreve nem descarta uma resolution Y mais nova já em state.resolution', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  let resolvePostSnapshotForStaleCapture
+  const staleCapturePostSnapshotPromise = new Promise((resolve) => {
+    resolvePostSnapshotForStaleCapture = resolve
+  })
+
+  let identityCallCount = 0
+  const calls = []
+
+  const sendMessage = async (message) => {
+    calls.push(message)
+
+    if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
+      identityCallCount += 1
+
+      // 1-3: 1ª captura (fria), estabelece cache X normalmente.
+      if (identityCallCount <= 3) {
+        return identityWith(IDENTITY_KEY_X)
+      }
+
+      // 4: ensureCycleResolved da 2ª captura (STALE) — identidade ainda X,
+      // cache válido, reaproveita a MESMA resolution X já em memória.
+      if (identityCallCount === 4) {
+        return identityWith(IDENTITY_KEY_X)
+      }
+
+      // 5: pós-snapshot da 2ª captura (STALE) — fica PENDENTE de propósito,
+      // simulando a captura antiga atrasada enquanto uma captura mais nova
+      // (Y) roda e conclui primeiro.
+      if (identityCallCount === 5) {
+        return staleCapturePostSnapshotPromise
+      }
+
+      // 6-8: 3ª captura (NOVA) — a identidade já mudou para Y; descarta o
+      // cache X e resolve Y do zero, do início ao fim, sem interferência.
+      return identityWith(IDENTITY_KEY_Y)
+    }
+
+    if (message.action === 'RESOLVE_LEAD') {
+      const cycleId = message.payload.platform_contact_key === IDENTITY_KEY_Y ? 'cycle-Y' : 'cycle-X'
+      return resolveLeadOwnedByMe(cycleId)
+    }
+
+    if (message.action === 'INGEST_CAPTURE_MESSAGES') {
+      return ingestOk(
+        message.payload.messages.map((m) => ({
+          message_key: m.message_key,
+          synced: true,
+          canonical_version: '1',
+        })),
+      )
+    }
+
+    throw new Error(`ação inesperada: ${message.action}`)
+  }
+
+  const runtime = createRuntime({ dom, sendMessage })
+
+  // 1ª captura: estabelece cache X normalmente.
+  const first = await runtime.captureNow()
+  assert.equal(first.ok, true)
+  const conversationKey = runtime.getCurrentConversationKey()
+  const resolutionXRef = runtime.getConversationState(conversationKey).resolution
+  assert.equal(resolutionXRef.cycle_id, 'cycle-X')
+
+  // 2ª captura (STALE): entra, valida o cache X (mesmo objeto), mas fica
+  // presa no boundary pós-snapshot (identidade #5, ainda pendente).
+  const staleCapturePromise = runtime.captureNow()
+
+  for (let i = 0; i < 20 && identityCallCount < 5; i += 1) {
+    await Promise.resolve()
+  }
+  assert.equal(identityCallCount, 5, 'sanity: a captura stale já está presa no boundary pós-snapshot')
+
+  // 3ª captura (NOVA, Y): roda e conclui INTEIRAMENTE antes da 2ª captura
+  // continuar — substitui state.resolution por uma resolution Y diferente
+  // (objeto novo, nunca o mesmo da 1ª captura).
+  const newCapture = await runtime.captureNow()
+  assert.equal(newCapture.ok, true)
+  const resolutionYRef = runtime.getConversationState(conversationKey).resolution
+  assert.equal(resolutionYRef.cycle_id, 'cycle-Y')
+  assert.notEqual(resolutionYRef, resolutionXRef)
+
+  // Só agora a 2ª captura (stale) recebe sua resposta pendente.
+  resolvePostSnapshotForStaleCapture(identityWith(IDENTITY_KEY_X))
+  const stale = await staleCapturePromise
+
+  assert.equal(stale.ok, false)
+  assert.equal(stale.reason, 'contact_changed_during_snapshot')
+
+  // A captura stale nunca envia um batch com cycle-X depois que Y já
+  // assumiu (só o INGEST legítimo da 1ª captura usa cycle-X).
+  const ingestCallsWithCycleX = calls.filter(
+    (call) => call.action === 'INGEST_CAPTURE_MESSAGES' && call.payload.cycle_id === 'cycle-X',
+  )
+  assert.equal(ingestCallsWithCycleX.length, 1)
+
+  // E a resolution Y válida, criada pela captura mais nova, nunca é limpa
+  // pela captura antiga que só agora terminou de esperar.
+  assert.equal(runtime.getConversationState(conversationKey).resolution, resolutionYRef)
+  assert.equal(runtime.getConversationState(conversationKey).resolution.cycle_id, 'cycle-Y')
 })
 
 // -----------------------------------------------------------------------
@@ -872,6 +1144,7 @@ test('refreshLeadResolution sempre busca de novo (nunca usa cache), sobrescreve 
     safeIdentityOk(),
     resolveLeadOwnedByMe('cycle-1'),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
@@ -880,22 +1153,23 @@ test('refreshLeadResolution sempre busca de novo (nunca usa cache), sobrescreve 
 
   const first = await runtime.captureNow()
   assert.equal(first.ok, true)
-  const conversationKey = fake.calls[3].payload.conversation_key
+  const conversationKey = fake.calls[4].payload.conversation_key
 
   const stateBefore = runtime.getConversationState(conversationKey)
   assert.equal(stateBefore.resolution.cycle_id, 'cycle-1')
   assert.equal(stateBefore.baseVersionsByMessageKey['manychat:native-1'], '1')
 
   // Uma segunda captureNow, sem refresh, reaproveita o cycle cacheado
-  // (mesma identidade — só uma releitura de identidade para revalidar o
-  // cache quente, nenhum RESOLVE_LEAD/INGEST novo) — prova que o próximo
-  // passo está de fato testando o refresh, não um efeito colateral de
-  // outra captura.
-  responses.push(safeIdentityOk())
+  // (mesma identidade — releitura de identidade para validar o cache E
+  // para o boundary do snapshot, nenhum RESOLVE_LEAD/INGEST novo) — prova
+  // que o próximo passo está de fato testando o refresh, não um efeito
+  // colateral de outra captura.
+  responses.push(safeIdentityOk(), safeIdentityOk())
   const second = await runtime.captureNow()
   assert.equal(second.skipped, true)
-  assert.equal(fake.calls.length, 5)
-  assert.equal(fake.calls[4].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls.length, 7)
+  assert.equal(fake.calls[5].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[6].action, 'GET_MANYCHAT_SAFE_IDENTITY')
 
   responses.push(safeIdentityOk(), resolveLeadOwnedByMe('cycle-after-link'), safeIdentityOk())
 
@@ -909,12 +1183,12 @@ test('refreshLeadResolution sempre busca de novo (nunca usa cache), sobrescreve 
   assert.equal(refreshed.cycle_id, 'cycle-after-link')
   assert.equal(
     fake.calls.length,
-    8,
+    10,
     'refreshLeadResolution sempre chama identidade + resolve-lead + identidade de novo (revalidação pós-resolve), nunca usa cache',
   )
-  assert.equal(fake.calls[5].action, 'GET_MANYCHAT_SAFE_IDENTITY')
-  assert.equal(fake.calls[6].action, 'RESOLVE_LEAD')
   assert.equal(fake.calls[7].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[8].action, 'RESOLVE_LEAD')
+  assert.equal(fake.calls[9].action, 'GET_MANYCHAT_SAFE_IDENTITY')
 
   const stateAfter = runtime.getConversationState(conversationKey)
   assert.equal(stateAfter.resolution.ready, true)
@@ -930,13 +1204,14 @@ test('refreshLeadResolution reflete um contato que deixou de ser capture-eligibl
     safeIdentityOk(),
     resolveLeadOwnedByMe('cycle-1'),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
 
   await runtime.captureNow()
-  const conversationKey = fake.calls[3].payload.conversation_key
+  const conversationKey = fake.calls[4].payload.conversation_key
 
   responses.push(
     safeIdentityOk(),
@@ -991,6 +1266,7 @@ test('D/E: refreshLeadResolution nunca grava a resolução de B em state[A] quan
     safeIdentityOk(),
     resolveLeadOwnedByMe('cycle-A'),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
@@ -999,7 +1275,7 @@ test('D/E: refreshLeadResolution nunca grava a resolução de B em state[A] quan
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage, getConversationUrl: () => currentUrl })
 
   await runtime.captureNow()
-  const conversationKeyA = fake.calls[3].payload.conversation_key
+  const conversationKeyA = fake.calls[4].payload.conversation_key
 
   const stateABefore = runtime.getConversationState(conversationKeyA)
   assert.equal(stateABefore.resolution.cycle_id, 'cycle-A')
@@ -1034,13 +1310,14 @@ test('D/E: refreshLeadResolution nunca grava a resolução quando a identidade s
     safeIdentityOk(),
     resolveLeadOwnedByMe('cycle-A'),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
 
   await runtime.captureNow()
-  const conversationKey = fake.calls[3].payload.conversation_key
+  const conversationKey = fake.calls[4].payload.conversation_key
 
   // A identidade segura atual, no momento do refresh, já é outra pessoa
   // (ex.: o próprio ManyChat trocou de contato sem trocar de URL/thread).
@@ -1090,13 +1367,14 @@ test('POST-RESOLVE: refreshLeadResolution nunca grava a resolução quando a ide
     safeIdentityOk(),
     resolveLeadOwnedByMe('cycle-A'),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
 
   await runtime.captureNow()
-  const conversationKey = fake.calls[3].payload.conversation_key
+  const conversationKey = fake.calls[4].payload.conversation_key
 
   const identityB = {
     ok: true,
@@ -1132,10 +1410,10 @@ test('POST-RESOLVE: refreshLeadResolution nunca grava a resolução quando a ide
 
   // Prova que a 2ª checagem de identidade realmente aconteceu (3 chamadas
   // de refresh: identidade, resolve-lead, identidade de novo).
-  assert.equal(fake.calls.length, 7)
-  assert.equal(fake.calls[4].action, 'GET_MANYCHAT_SAFE_IDENTITY')
-  assert.equal(fake.calls[5].action, 'RESOLVE_LEAD')
-  assert.equal(fake.calls[6].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls.length, 8)
+  assert.equal(fake.calls[5].action, 'GET_MANYCHAT_SAFE_IDENTITY')
+  assert.equal(fake.calls[6].action, 'RESOLVE_LEAD')
+  assert.equal(fake.calls[7].action, 'GET_MANYCHAT_SAFE_IDENTITY')
 })
 
 // -----------------------------------------------------------------------
@@ -1242,6 +1520,7 @@ test('F: depois de um refresh abortado por CONTACT_CHANGED, voltar para a conver
     safeIdentityOk(),
     resolveLeadOwnedByMe('cycle-A'),
     safeIdentityOk(),
+    safeIdentityOk(),
     ingestOk([{ message_key: 'manychat:native-1', synced: true, canonical_version: '1' }]),
   ]
   const fake = createQueuedSender(responses)
@@ -1250,7 +1529,7 @@ test('F: depois de um refresh abortado por CONTACT_CHANGED, voltar para a conver
   const runtime = createRuntime({ dom, sendMessage: fake.sendMessage, getConversationUrl: () => currentUrl })
 
   await runtime.captureNow()
-  const conversationKey = fake.calls[3].payload.conversation_key
+  const conversationKey = fake.calls[4].payload.conversation_key
 
   currentUrl = CONVERSATION_URL_B
 
@@ -1272,6 +1551,7 @@ test('F: depois de um refresh abortado por CONTACT_CHANGED, voltar para a conver
   responses.push(
     safeIdentityOk(),
     resolveLeadOwnedByMe('cycle-A-de-verdade'),
+    safeIdentityOk(),
     safeIdentityOk(),
     // O cycle_id mudou (cycle-A -> cycle-A-de-verdade), então o
     // fingerprint de conteúdo muda mesmo com as mesmas mensagens — dispara
