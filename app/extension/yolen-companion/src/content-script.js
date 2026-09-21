@@ -105,6 +105,14 @@
     globalThis
       .YolenCompanionLeadSummaryView
 
+  // STEP 2B.5-A — fonte canônica única das áreas seller-facing (Agora/
+  // Mensagem/Análise/Cliente), da navegação entre elas e do shell de abas.
+  // content-script.js consome este módulo em vez de manter sua própria
+  // lista/máquina de navegação — ver companion-workspace-runtime.js.
+  const workspaceRuntimeTools =
+    globalThis
+      .YolenCompanionWorkspaceRuntime
+
   if (!messageMutationTools) {
     throw new Error(
       'Módulo de integridade das mensagens do Companion não carregado.',
@@ -135,21 +143,21 @@
     )
   }
 
+  if (!workspaceRuntimeTools) {
+    throw new Error(
+      'Módulo do workspace compartilhado do Companion não carregado.',
+    )
+  }
+
   let panelCollapsed = false
   let activeSellerArea = 'now'
 
-  // UX8 FASE C: fonte canônica única das áreas seller-facing e sua ordem
-  // oficial (Agora, Mensagem, Análise, Cliente). setActiveSellerArea() e
-  // handleSellerAreaKeyboard() usavam cada um sua própria lista — se uma
-  // área nova fosse adicionada num lugar e esquecida no outro, a
-  // navegação por teclado e o valor aceito por setActiveSellerArea()
-  // divergiriam silenciosamente. Uma única lista, em ordem, evita isso.
-  const SELLER_AREAS = [
-    'now',
-    'message',
-    'analysis',
-    'client',
-  ]
+  // STEP 2B.5-A: a lista de áreas seller-facing (Agora/Mensagem/Análise/
+  // Cliente), sua validação e a navegação entre elas não vivem mais aqui —
+  // são consumidas via workspaceRuntimeTools (isValidSellerArea,
+  // getNextSellerAreaForKeydown, getSellerAreaPanelHtml,
+  // getSellerAreaTabsBarHtml), a fonte canônica única em
+  // companion-workspace-runtime.js. Nunca uma segunda lista/máquina local.
 
   // Rendering por região: renderPanel() costumava fazer panel.innerHTML =
   // <painel inteiro> a cada mudança de estado (ver histórico em
@@ -11322,50 +11330,6 @@
     `
   }
 
-  function getSellerAreaTabHtml(
-    area,
-    label,
-  ) {
-    const selected =
-      activeSellerArea === area
-
-    return `
-      <button
-        id="yolen-seller-tab-${escapeHtml(area)}"
-        class="yolen-seller-tab ${selected ? 'yolen-seller-tab--active' : ''}"
-        type="button"
-        role="tab"
-        data-yolen-seller-area="${escapeHtml(area)}"
-        aria-selected="${selected ? 'true' : 'false'}"
-        aria-controls="yolen-seller-panel-${escapeHtml(area)}"
-        tabindex="${selected ? '0' : '-1'}"
-      >
-        ${escapeHtml(label)}
-      </button>
-    `
-  }
-
-  function getSellerAreaPanelHtml(
-    area,
-    content,
-  ) {
-    const selected =
-      activeSellerArea === area
-
-    return `
-      <section
-        id="yolen-seller-panel-${escapeHtml(area)}"
-        class="yolen-seller-panel"
-        role="tabpanel"
-        aria-labelledby="yolen-seller-tab-${escapeHtml(area)}"
-        data-yolen-seller-panel="${escapeHtml(area)}"
-        ${selected ? '' : 'hidden'}
-      >
-        ${content}
-      </section>
-    `
-  }
-
   // AGORA é a única superfície de decisão: quando há um alerta relevante
   // (SLA, risco de atendimento, desvio de método, pergunta/objeção em
   // aberto), ele é o item de maior prioridade visual — o mesmo sinal que já
@@ -11407,25 +11371,6 @@
     return sellerInformationViewTools.renderAgoraViewModelSnapshot(
       state.agoraDecisionState.data,
     )
-  }
-
-  // UX8 (shell estável): a barra de abas precisa viver FORA da região
-  // rolável (workspace-body) para não fazer scroll junto com o conteúdo.
-  // Ver renderPanel()/getPanelRegionContainer() — a barra é sua própria
-  // região top-level, renderizada antes de 'seller-information-architecture'.
-  function getSellerAreaTabsBarHtml() {
-    return `
-      <div
-        class="yolen-seller-tabs"
-        role="tablist"
-        aria-label="Áreas do Yolen Companion"
-      >
-        ${getSellerAreaTabHtml('now', 'Agora')}
-        ${getSellerAreaTabHtml('message', 'Mensagem')}
-        ${getSellerAreaTabHtml('analysis', 'Análise')}
-        ${getSellerAreaTabHtml('client', 'Cliente')}
-      </div>
-    `
   }
 
   // Elegibilidade "dura": esta conversa TEM, em tese, um contexto
@@ -11555,24 +11500,28 @@
 
     return `
       <div class="yolen-seller-workspace yolen-seller-workspace--ux7" data-yolen-ux-build="UX7">
-        ${getSellerAreaPanelHtml(
+        ${workspaceRuntimeTools.getSellerAreaPanelHtml(
           'now',
           nowHtml,
+          activeSellerArea,
         )}
 
-        ${getSellerAreaPanelHtml(
+        ${workspaceRuntimeTools.getSellerAreaPanelHtml(
           'message',
           messageHtml,
+          activeSellerArea,
         )}
 
-        ${getSellerAreaPanelHtml(
+        ${workspaceRuntimeTools.getSellerAreaPanelHtml(
           'analysis',
           analysisHtml,
+          activeSellerArea,
         )}
 
-        ${getSellerAreaPanelHtml(
+        ${workspaceRuntimeTools.getSellerAreaPanelHtml(
           'client',
           clientHtml,
+          activeSellerArea,
         )}
       </div>
     `
@@ -11582,7 +11531,7 @@
     nextArea,
     options = {},
   ) {
-    if (!SELLER_AREAS.includes(nextArea)) {
+    if (!workspaceRuntimeTools.isValidSellerArea(nextArea)) {
       return
     }
 
@@ -11642,42 +11591,22 @@
           'data-yolen-seller-area',
         )
 
-    const currentIndex =
-      SELLER_AREAS.indexOf(currentArea)
+    // Computação pura ("qual é a próxima área para esta tecla") delegada
+    // ao workspace compartilhado — este handler só extrai as primitivas do
+    // evento DOM real (currentArea/key) e decide preventDefault()/foco.
+    const nextArea =
+      workspaceRuntimeTools.getNextSellerAreaForKeydown(
+        currentArea,
+        event.key,
+      )
 
-    if (currentIndex < 0) {
-      return
-    }
-
-    let nextIndex = null
-
-    if (
-      event.key === 'ArrowRight' ||
-      event.key === 'ArrowDown'
-    ) {
-      nextIndex =
-        (currentIndex + 1) %
-        SELLER_AREAS.length
-    } else if (
-      event.key === 'ArrowLeft' ||
-      event.key === 'ArrowUp'
-    ) {
-      nextIndex =
-        (currentIndex - 1 + SELLER_AREAS.length) %
-        SELLER_AREAS.length
-    } else if (event.key === 'Home') {
-      nextIndex = 0
-    } else if (event.key === 'End') {
-      nextIndex = SELLER_AREAS.length - 1
-    }
-
-    if (nextIndex === null) {
+    if (nextArea === null) {
       return
     }
 
     event.preventDefault()
     setActiveSellerArea(
-      SELLER_AREAS[nextIndex],
+      nextArea,
       { focus: true },
     )
   }
@@ -13551,7 +13480,7 @@
     renderPanelRegion(
       panel,
       'seller-area-tabs',
-      getSellerAreaTabsBarHtml(),
+      workspaceRuntimeTools.getSellerAreaTabsBarHtml(activeSellerArea),
     )
 
     renderPanelRegion(

@@ -6,6 +6,7 @@ import test from 'node:test'
 const require = createRequire(import.meta.url)
 const sellerView = require('../src/companion-seller-information-view.js')
 const contentScript = readFileSync(new URL('../src/content-script.js', import.meta.url), 'utf8')
+const workspaceRuntimeSource = readFileSync(new URL('../src/companion-workspace-runtime.js', import.meta.url), 'utf8')
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
 function fact(summary) {
@@ -95,9 +96,13 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
   assert.match(analysisHtml, /evolução comercial/i)
   assert.doesNotMatch(analysisHtml, /<details[^>]*open/)
 
-  assert.match(contentScript, /getSellerAreaTabHtml\('now', 'Agora'\)/)
-  assert.match(contentScript, /getSellerAreaTabHtml\('analysis', 'Análise'\)/)
-  assert.match(contentScript, /getSellerAreaTabHtml\('client', 'Cliente'\)/)
+  // STEP 2B.5-A: as abas seller-facing são geradas pelo módulo
+  // compartilhado (companion-workspace-runtime.js), não mais localmente em
+  // content-script.js.
+  assert.match(workspaceRuntimeSource, /now: 'Agora'/)
+  assert.match(workspaceRuntimeSource, /analysis: 'Análise'/)
+  assert.match(workspaceRuntimeSource, /client: 'Cliente'/)
+  assert.match(contentScript, /workspaceRuntimeTools\.getSellerAreaTabsBarHtml\(/)
 })
 
 test('B3.2 consome os campos seller-facing consolidados pelo contrato do cliente', () => {

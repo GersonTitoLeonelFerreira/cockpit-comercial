@@ -13,6 +13,15 @@ const contentScript =
     'utf8',
   )
 
+const workspaceRuntimeSource =
+  readFileSync(
+    new URL(
+      '../src/companion-workspace-runtime.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 const styles =
   readFileSync(
     new URL(
@@ -114,24 +123,31 @@ test(
       /yolen-connection-pill/,
     )
 
+    // STEP 2B.5-A: o shell de abas é o módulo compartilhado
+    // (companion-workspace-runtime.js) — content-script.js só delega.
     assert.match(
       contentScript,
+      /workspaceRuntimeTools\.getSellerAreaTabsBarHtml\(/,
+    )
+
+    assert.match(
+      workspaceRuntimeSource,
       /aria-label="Áreas do Yolen Companion"/,
     )
 
     assert.match(
-      contentScript,
-      /getSellerAreaTabHtml\('now', 'Agora'\)/,
+      workspaceRuntimeSource,
+      /now: 'Agora'/,
     )
 
     assert.match(
-      contentScript,
-      /getSellerAreaTabHtml\('analysis', 'Análise'\)/,
+      workspaceRuntimeSource,
+      /analysis: 'Análise'/,
     )
 
     assert.match(
-      contentScript,
-      /getSellerAreaTabHtml\('client', 'Cliente'\)/,
+      workspaceRuntimeSource,
+      /client: 'Cliente'/,
     )
   },
 )

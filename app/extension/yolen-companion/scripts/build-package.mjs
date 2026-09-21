@@ -106,6 +106,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/companion-lead-summary-view.js',
   'src/companion-reasoning-view.js',
   'src/companion-seller-information-view.js',
+  'src/companion-workspace-runtime.js',
   'src/content-script.js',
   'src/conversation-registration-tools.js',
   'src/editable-field-stability-runtime.js',

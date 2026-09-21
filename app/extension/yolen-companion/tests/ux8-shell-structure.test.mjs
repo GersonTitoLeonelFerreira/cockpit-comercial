@@ -9,8 +9,12 @@
 // tests/e3-dom/ux8-shell-dom-structure.test.mjs.
 
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+
+const require = createRequire(import.meta.url)
+const workspaceRuntime = require('../src/companion-workspace-runtime.js')
 
 const [contentScript, styles] = await Promise.all([
   readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
@@ -142,19 +146,26 @@ test('renderPanel() renderiza a barra de abas como região própria, antes do co
   assert.match(render, /getPreSendAssessmentCardHtml\(\)/)
 })
 
-test('a barra de abas é extraída para sua própria função, sem duplicar a composição now/analysis/client', () => {
-  const start = contentScript.indexOf('function getSellerAreaTabsBarHtml()')
-  const end = contentScript.indexOf(
-    'function getSellerInformationArchitectureHtml()',
-    start,
+test('a barra de abas é extraída para o módulo compartilhado, sem duplicar a composição now/analysis/client', () => {
+  // STEP 2B.5-A: getSellerAreaTabsBarHtml()/getSellerAreaTabHtml() não
+  // existem mais dentro de content-script.js — vivem em
+  // companion-workspace-runtime.js (fonte canônica única, platform-
+  // agnostic). content-script.js só delega, dentro de renderPanel().
+  assert.doesNotMatch(contentScript, /function getSellerAreaTabsBarHtml\(/)
+  assert.doesNotMatch(contentScript, /function getSellerAreaTabHtml\(/)
+  assert.match(
+    contentScript,
+    /workspaceRuntimeTools\.getSellerAreaTabsBarHtml\(\s*activeSellerArea,?\s*\)/,
   )
-  const block = contentScript.slice(start, end)
 
-  assert.notEqual(start, -1)
-  assert.match(block, /role="tablist"/)
-  assert.match(block, /getSellerAreaTabHtml\('now', 'Agora'\)/)
-  assert.match(block, /getSellerAreaTabHtml\('analysis', 'Análise'\)/)
-  assert.match(block, /getSellerAreaTabHtml\('client', 'Cliente'\)/)
+  // Execução real do módulo compartilhado: a barra de abas continua tendo
+  // role="tablist" e as 3 áreas fora de "message" (coberta em detalhe por
+  // ux8-message-tab-structure.test.mjs).
+  const tabsBarHtml = workspaceRuntime.getSellerAreaTabsBarHtml('now')
+  assert.match(tabsBarHtml, /role="tablist"/)
+  assert.match(tabsBarHtml, /data-yolen-seller-area="now"/)
+  assert.match(tabsBarHtml, /data-yolen-seller-area="analysis"/)
+  assert.match(tabsBarHtml, /data-yolen-seller-area="client"/)
 
   const architectureStart = contentScript.indexOf(
     'function getSellerInformationArchitectureHtml()',
