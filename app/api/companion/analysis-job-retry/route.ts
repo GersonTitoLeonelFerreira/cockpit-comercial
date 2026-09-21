@@ -15,6 +15,11 @@ import {
 } from '@/app/lib/server/stateful-copilot-background-worker'
 
 import {
+  STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
+  STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS,
+} from '@/app/lib/server/stateful-copilot-background-job'
+
+import {
   CompanionAnalysisJobReadError,
 } from '@/app/lib/server/companion-analysis-job-reader'
 
@@ -30,6 +35,71 @@ type RetryAnalysisJobBody = {
   analysis_job_id?: unknown
   device_key?: unknown
   allow_succeeded?: unknown
+}
+
+const LOCAL_INLINE_BUSY_INITIAL_DELAY_MS =
+  1_000
+
+const LOCAL_INLINE_BUSY_MAX_DELAY_MS =
+  5_000
+
+function getLocalInlineWorkerErrorCode(
+  error: unknown,
+) {
+  return error instanceof Error
+    ? error.message
+    : null
+}
+
+function isLocalInlineConversationBusy(
+  error: unknown,
+) {
+  const code =
+    getLocalInlineWorkerErrorCode(
+      error,
+    )
+
+  return (
+    code ===
+      'BACKGROUND_CONVERSATION_BUSY' ||
+    code ===
+      'BACKGROUND_JOB_ALREADY_RUNNING'
+  )
+}
+
+function sleepLocalInlineWorker(
+  delayMs: number,
+) {
+  return new Promise<void>(
+    (resolve) => {
+      setTimeout(
+        resolve,
+        delayMs,
+      )
+    },
+  )
+}
+
+function getLocalInlineAnalysisJobId(
+  message: unknown,
+) {
+  if (
+    !message ||
+    typeof message !== 'object' ||
+    Array.isArray(message)
+  ) {
+    return null
+  }
+
+  const analysisJobId =
+    (message as {
+      analysis_job_id?: unknown
+    }).analysis_job_id
+
+  return typeof analysisJobId === 'string' &&
+    analysisJobId.trim()
+    ? analysisJobId.trim()
+    : null
 }
 
 function getCorsHeaders(
@@ -198,21 +268,33 @@ export async function POST(
                 message,
                 _options,
               ) => {
+                const localAnalysisJobId =
+                  getLocalInlineAnalysisJobId(
+                    message,
+                  )
+
                 console.info(
                   'YOLEN_COMPANION_BACKGROUND_JOB',
                   JSON.stringify({
                     event:
                       'local_inline_retry_worker_started',
                     analysis_job_id:
-                      body.analysis_job_id ?? null,
+                      localAnalysisJobId,
                   }),
                 )
 
                 void (async () => {
-                  for (
-                    let deliveryCount = 1;
-                    deliveryCount <= 5;
-                    deliveryCount += 1
+                  let deliveryCount = 1
+                  let lastError: unknown = null
+                  let busyDelayMs =
+                    LOCAL_INLINE_BUSY_INITIAL_DELAY_MS
+                  const busyDeadlineMs =
+                    Date.now() +
+                    STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS
+
+                  while (
+                    deliveryCount <=
+                    STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS
                   ) {
                     try {
                       await processStatefulCopilotBackgroundMessage(
@@ -225,29 +307,125 @@ export async function POST(
 
                       return
                     } catch (error) {
+                      lastError = error
+
                       console.warn(
                         'YOLEN_COMPANION_BACKGROUND_JOB',
                         JSON.stringify({
                           event:
                             'local_inline_retry_worker_failed',
                           analysis_job_id:
-                            body.analysis_job_id ?? null,
+                            localAnalysisJobId,
                           delivery_count:
                             deliveryCount,
                           error:
-                            error instanceof Error
-                              ? error.message
-                              : 'unknown_error',
+                            getLocalInlineWorkerErrorCode(
+                              error,
+                            ) ||
+                            'unknown_error',
                         }),
                       )
 
+                      /*
+                       * No Queue real, BACKGROUND_CONVERSATION_BUSY não
+                       * consome cinco entregas em poucos milissegundos: a
+                       * redelivery acontece depois que o job anterior tem
+                       * chance de liberar o lock por conversa. O harness
+                       * local fazia exatamente o oposto e deixava o job
+                       * novo preso em queued para sempre. Enquanto a única
+                       * causa for contenção com outro worker da mesma
+                       * conversa, espera com backoff SEM consumir o budget
+                       * de delivery. Falhas reais do worker continuam
+                       * consumindo o limite durable normalmente.
+                       */
                       if (
-                        deliveryCount >= 5
+                        isLocalInlineConversationBusy(
+                          error,
+                        ) &&
+                        Date.now() <
+                          busyDeadlineMs
                       ) {
-                        return
+                        await sleepLocalInlineWorker(
+                          busyDelayMs,
+                        )
+
+                        busyDelayMs =
+                          Math.min(
+                            busyDelayMs * 2,
+                            LOCAL_INLINE_BUSY_MAX_DELAY_MS,
+                          )
+
+                        continue
                       }
+
+                      if (
+                        deliveryCount >=
+                        STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS
+                      ) {
+                        break
+                      }
+
+                      deliveryCount += 1
                     }
                   }
+
+                  /*
+                   * Se o harness local realmente esgotar a janela/budget,
+                   * nunca deixa o job órfão em queued. Produção continua
+                   * sem passar por este bloco — é apenas equivalência de
+                   * estado terminal para o smoke local.
+                   */
+                  if (localAnalysisJobId) {
+                    const completedAt =
+                      new Date()
+                        .toISOString()
+
+                    await admin
+                      .from(
+                        'companion_background_analysis_jobs',
+                      )
+                      .update({
+                        status:
+                          'failed',
+                        completed_at:
+                          completedAt,
+                        updated_at:
+                          completedAt,
+                        failure_code:
+                          'LOCAL_INLINE_WORKER_FAILED',
+                        automatic_crm_write:
+                          false,
+                        automatic_agenda_write:
+                          false,
+                      })
+                      .eq(
+                        'analysis_job_id',
+                        localAnalysisJobId,
+                      )
+                      .eq(
+                        'company_id',
+                        token.company_id,
+                      )
+                      .eq(
+                        'status',
+                        'queued',
+                      )
+                  }
+
+                  console.warn(
+                    'YOLEN_COMPANION_BACKGROUND_JOB',
+                    JSON.stringify({
+                      event:
+                        'local_inline_retry_worker_exhausted',
+                      analysis_job_id:
+                        localAnalysisJobId,
+                      error:
+                        getLocalInlineWorkerErrorCode(
+                          lastError,
+                        ) ||
+                        'unknown_error',
+                    }),
+                  )
                 })()
 
                 return null

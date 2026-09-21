@@ -63,6 +63,7 @@ function fixtures() {
       automatic_agenda_write: false,
     }],
     events: [],
+    diagnostics: [],
   }
 }
 
@@ -77,6 +78,7 @@ function createAdmin(data, hooks = {}) {
       this.filters = []
       this.mode = 'read'
       this.updateValues = null
+      this.insertValues = null
       this.maxRows = null
     }
 
@@ -100,16 +102,36 @@ function createAdmin(data, hooks = {}) {
       return this
     }
 
+    insert(values) {
+      this.mode = 'insert'
+      this.insertValues = {
+        ...values,
+      }
+      return this
+    }
+
     tableRows() {
       if (this.table === 'company_memberships') return data.memberships
       if (this.table === 'sales_cycles') return data.cycles
       if (this.table === 'companion_background_analysis_jobs') return data.jobs
       if (this.table === 'companion_commercial_state_events') return data.events
+      if (this.table === 'companion_runtime_path_diagnostics') return data.diagnostics
       return []
     }
 
     async resolveRows() {
       const rows = this.tableRows()
+
+      if (this.mode === 'insert') {
+        const inserted = {
+          ...this.insertValues,
+        }
+
+        rows.push(inserted)
+
+        return [inserted]
+      }
+
       const matching = rows.filter((row) => matches(row, this.filters))
 
       if (this.mode === 'update') {
@@ -142,6 +164,10 @@ function createAdmin(data, hooks = {}) {
           : null,
         error: null,
       }
+    }
+
+    async single() {
+      return this.maybeSingle()
     }
 
     then(resolve, reject) {
@@ -350,7 +376,92 @@ test('refresh manual reabre succeeded quando allow_succeeded=true', async () => 
   assert.equal(published.length, 1)
 })
 
-test('succeeded/superseded/queued/running nunca são reabertos', async () => {
+test('refresh manual de superseded cria novo job com corte causal atual e preserva o superseded antigo', async () => {
+  const data = fixtures()
+  const originalRequestedAt =
+    data.jobs[0].requested_at
+
+  data.jobs[0].status =
+    'superseded'
+
+  const published = []
+
+  const result =
+    await retryCompanionAnalysisJob({
+      ...retryArgs(
+        data,
+        async (...args) => {
+          published.push(args)
+        },
+      ),
+      allow_succeeded: true,
+    })
+
+  assert.equal(
+    data.jobs[0].status,
+    'superseded',
+  )
+  assert.equal(
+    data.jobs[0].requested_at,
+    originalRequestedAt,
+  )
+
+  assert.equal(
+    data.jobs.length,
+    2,
+  )
+
+  const freshJob =
+    data.jobs[1]
+
+  assert.equal(
+    result.status,
+    'queued',
+  )
+  assert.notEqual(
+    result.analysis_job_id,
+    JOB_ID,
+  )
+  assert.equal(
+    result.analysis_job_id,
+    freshJob.analysis_job_id,
+  )
+  assert.equal(
+    result.message_watermark,
+    freshJob.message_watermark,
+  )
+  assert.notEqual(
+    freshJob.message_watermark,
+    WATERMARK,
+  )
+  assert.equal(
+    freshJob.status,
+    'queued',
+  )
+  assert.ok(
+    Date.parse(freshJob.requested_at) >
+      Date.parse(originalRequestedAt),
+  )
+
+  assert.equal(
+    published.length,
+    1,
+  )
+  assert.equal(
+    published[0][1].analysis_job_id,
+    freshJob.analysis_job_id,
+  )
+  assert.equal(
+    published[0][1].requested_at,
+    freshJob.requested_at,
+  )
+  assert.equal(
+    published[0][1].message_watermark,
+    freshJob.message_watermark,
+  )
+})
+
+test('succeeded/superseded/queued/running nunca são reabertos sem autorização explícita', async () => {
   for (const status of ['succeeded', 'superseded', 'queued', 'running']) {
     const data = fixtures()
     data.jobs[0].status = status

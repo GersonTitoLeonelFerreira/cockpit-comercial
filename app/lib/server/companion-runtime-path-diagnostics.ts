@@ -8,6 +8,7 @@ import {
 
 export type CompanionRuntimeDiagnosticStage =
   'producer_retry' |
+  'producer_refresh_superseded' |
   'consumer_start'
 
 export async function recordCompanionRuntimePathDiagnostic({
