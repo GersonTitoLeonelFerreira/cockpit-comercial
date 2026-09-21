@@ -368,6 +368,29 @@
 
         domEvent.preventDefault()
         sellerPanelRuntime.setActiveArea(conversationKey, nextArea)
+
+        // Paridade com o WhatsApp (setActiveSellerArea(nextArea, {focus:
+        // true})): o painel inteiro é re-renderizado por setActiveArea
+        // acima, então o botão antigo já foi destruído — o foco só pode
+        // ser aplicado ao NOVO botão depois que o DOM novo existir.
+        root.setTimeout(() => {
+          const nextTab =
+            root.document?.getElementById?.(
+              `yolen-seller-tab-${nextArea}`,
+            )
+
+          if (!nextTab) {
+            return
+          }
+
+          try {
+            nextTab.focus({
+              preventScroll: true,
+            })
+          } catch {
+            nextTab.focus()
+          }
+        }, 0)
       })
     }
   }

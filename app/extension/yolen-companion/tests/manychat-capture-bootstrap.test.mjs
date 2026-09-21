@@ -708,6 +708,7 @@ function createFakeElement(matchers = {}, attributes = {}) {
 function createFakeDocument() {
   let clickHandler = null
   let keydownHandler = null
+  const focusCalls = []
   return {
     addEventListener(type, handler) {
       if (type === 'click') clickHandler = handler
@@ -721,7 +722,27 @@ function createFakeDocument() {
       keydownHandler?.(event)
       return event
     },
+    focusCalls,
+    // Paridade de foco (STEP 2B.5-B1): getElementById(`yolen-seller-tab-${area}`)
+    // é como o bootstrap encontra o NOVO botão depois do re-render para
+    // chamar .focus({preventScroll:true}) nele.
+    getElementById(id) {
+      return {
+        id,
+        focus(options) {
+          focusCalls.push({ id, options })
+        },
+      }
+    },
   }
+}
+
+// setTimeout síncrono determinístico: o bootstrap agenda o foco pós-render
+// com `root.setTimeout(fn, 0)` (mesmo padrão do WhatsApp) — nos testes,
+// executa a callback imediatamente, sem depender de temporizadores reais.
+function syncSetTimeout(fn) {
+  fn()
+  return 0
 }
 
 test('CONTACT_NOT_LINKED escreve diretamente o texto de status honesto — nunca abre um fluxo de busca/seleção manual de lead', () => {
@@ -1198,7 +1219,7 @@ test('clique numa aba seller-area chama sellerPanelRuntime.setActiveArea com a �
   assert.deepEqual(calls, [['conv-1', 'client']])
 })
 
-test('I: ArrowRight/ArrowLeft/Home/End no teclado usam workspaceRuntimeTools.getNextSellerAreaForKeydown de verdade (mesma função do WhatsApp)', () => {
+test('I: ArrowRight/ArrowLeft/Home/End no teclado usam workspaceRuntimeTools.getNextSellerAreaForKeydown de verdade e movem o foco para o novo tab (paridade com o WhatsApp)', () => {
   const calls = []
   let receivedOptions = null
   const fakeDocument = createFakeDocument()
@@ -1234,6 +1255,7 @@ test('I: ArrowRight/ArrowLeft/Home/End no teclado usam workspaceRuntimeTools.get
     YolenCompanionWorkspaceRuntime: workspaceRuntime,
     document: fakeDocument,
     chrome: { runtime: { sendMessage() {} } },
+    setTimeout: syncSetTimeout,
   })
 
   receivedOptions.onEvent({
@@ -1241,38 +1263,66 @@ test('I: ArrowRight/ArrowLeft/Home/End no teclado usam workspaceRuntimeTools.get
     event: { type: 'conversation_changed', conversation_key: 'conv-1' },
   })
 
+  // 5. ArrowRight: now -> message, e o NOVO botão message recebe foco.
   const nowTab = createFakeElement(
     { '[data-yolen-seller-area]': true },
     { 'data-yolen-seller-area': 'now' },
   )
 
+  // Comparação campo a campo: `options` é criado dentro do realm da sandbox
+  // (vm.createContext), então deepEqual entre realms falha por identidade
+  // de protótipo mesmo com estrutura idêntica (mesmo padrão já usado neste
+  // arquivo para receivedOptions.selectors).
+  function assertFocused(id) {
+    const lastFocus = fakeDocument.focusCalls.at(-1)
+    assert.equal(lastFocus?.id, id)
+    assert.equal(lastFocus?.options?.preventScroll, true)
+  }
+
   const rightEvent = fakeDocument.keydown(nowTab, 'ArrowRight')
   assert.equal(rightEvent.defaultPrevented, true)
+  assertFocused('yolen-seller-tab-message')
 
+  // 7. End também foca o tab resultante (client, a última área).
   const endTab = createFakeElement(
     { '[data-yolen-seller-area]': true },
     { 'data-yolen-seller-area': 'now' },
   )
   fakeDocument.keydown(endTab, 'End')
+  assertFocused('yolen-seller-tab-client')
 
+  // 6. ArrowLeft: client -> analysis, e o NOVO botão analysis recebe foco.
   const leftTab = createFakeElement(
     { '[data-yolen-seller-area]': true },
     { 'data-yolen-seller-area': 'client' },
   )
   fakeDocument.keydown(leftTab, 'ArrowLeft')
+  assertFocused('yolen-seller-tab-analysis')
 
-  // Tecla não reconhecida: workspaceRuntimeTools.getNextSellerAreaForKeydown
-  // devolve null — nunca chama setActiveArea nem previne o default.
+  // 7. Home também foca o tab resultante (now, a primeira área).
+  const homeTab = createFakeElement(
+    { '[data-yolen-seller-area]': true },
+    { 'data-yolen-seller-area': 'client' },
+  )
+  fakeDocument.keydown(homeTab, 'Home')
+  assertFocused('yolen-seller-tab-now')
+
+  // 8. Tecla não suportada: workspaceRuntimeTools.getNextSellerAreaForKeydown
+  // devolve null — nunca chama setActiveArea, nunca previne o default,
+  // nunca move o foco.
+  const focusCallsBeforeTab = fakeDocument.focusCalls.length
   const tabKeyEvent = fakeDocument.keydown(
     createFakeElement({ '[data-yolen-seller-area]': true }, { 'data-yolen-seller-area': 'now' }),
     'Tab',
   )
   assert.equal(tabKeyEvent.defaultPrevented, false)
+  assert.equal(fakeDocument.focusCalls.length, focusCallsBeforeTab, 'tecla não suportada nunca move o foco')
 
   assert.deepEqual(calls, [
     ['conv-1', 'message'], // ArrowRight a partir de 'now'
     ['conv-1', 'client'], // End
     ['conv-1', 'analysis'], // ArrowLeft a partir de 'client'
+    ['conv-1', 'now'], // Home
   ])
 })
 

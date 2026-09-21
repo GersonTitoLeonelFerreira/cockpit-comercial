@@ -158,8 +158,10 @@
       const suggestion = state.methodGuidance?.data?.suggested_message ?? null
       const messageHtml = suggestion
         ? `
-          <p data-yolen-suggested-message-text>${escapeHtml(suggestion)}</p>
-          <button type="button" data-yolen-apply-suggestion>Aplicar no composer</button>
+          <div class="yolen-suggested-message">
+            <p data-yolen-suggested-message-text>${escapeHtml(suggestion)}</p>
+            <button type="button" data-yolen-apply-suggestion>Aplicar no composer</button>
+          </div>
         `
         : ''
 

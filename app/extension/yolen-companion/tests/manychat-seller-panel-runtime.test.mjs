@@ -506,7 +506,7 @@ test('E/F/G/H: renderPanel produz exatamente 4 tabs, na ordem now/message/analys
   assert.equal(hiddenCount, 3)
 })
 
-test('L: suggested_message aparece dentro do tabpanel MESSAGE, nunca como região solta', async () => {
+test('1/2/4: suggested_message aparece dentro do tabpanel MESSAGE com o wrapper visual yolen-suggested-message, nunca como região solta', async () => {
   const fake = createQueuedSender([
     loadOk({ relationship: 'ok' }),
     loadOk({ primary: null, secondary: [] }),
@@ -529,9 +529,47 @@ test('L: suggested_message aparece dentro do tabpanel MESSAGE, nunca como regiã
   const analysisPanelStart = html.indexOf('data-yolen-seller-panel="analysis"')
   const messagePanelBlock = html.slice(messagePanelStart, analysisPanelStart)
 
+  // 1. a sugestão continua dentro de MESSAGE.
   assert.match(messagePanelBlock, /Posso te explicar as opções\./)
   assert.match(messagePanelBlock, /data-yolen-apply-suggestion/)
+
+  // 2. MESSAGE contém o wrapper visual real (styles.css tem uma regra
+  // para .yolen-suggested-message — perdê-lo é regressão visual).
+  assert.match(messagePanelBlock, /class="yolen-suggested-message"/)
+
+  // 4. o antigo shell externo (data-yolen-section="suggested-message")
+  // nunca reaparece em lugar nenhum do HTML — o wrapper agora vive DENTRO
+  // da área message, não como uma região solta fora do shell de abas.
   assert.doesNotMatch(html, /data-yolen-section="suggested-message"/)
+})
+
+test('3: não existe uma quinta área seller-facing — apenas as 4 áreas canônicas do módulo compartilhado são renderizadas', async () => {
+  const fake = createQueuedSender([
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ suggested_message: 'Posso te explicar as opções.' }),
+  ])
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+
+  const html = panelMount.contents.at(-1)
+
+  const panelMatches = [...html.matchAll(/data-yolen-seller-panel="(\w+)"/g)].map((match) => match[1])
+  assert.deepEqual(panelMatches, ['now', 'message', 'analysis', 'client'])
+
+  const tabMatches = [...html.matchAll(/role="tab"[^>]*data-yolen-seller-area="(\w+)"/g)].map(
+    (match) => match[1],
+  )
+  assert.deepEqual(tabMatches, ['now', 'message', 'analysis', 'client'])
 })
 
 test('active area por padrão é "now"; setActiveArea troca e re-renderiza; área inválida é ignorada (fail-closed)', async () => {
