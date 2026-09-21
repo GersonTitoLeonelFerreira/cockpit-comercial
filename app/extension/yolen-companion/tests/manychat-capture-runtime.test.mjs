@@ -123,6 +123,20 @@ function resolveLeadNotLinked() {
   }
 }
 
+// Formato real de background.js.requestYolenWithToken quando não há sessão
+// Companion capturada — nunca chega a chamar o backend de resolve-lead.
+function resolveLeadNoCompanionSession() {
+  return {
+    ok: false,
+    statusCode: 401,
+    payload: {
+      ok: false,
+      status: 'NO_COMPANION_SESSION',
+      error: 'Sessão do Companion não capturada. Clique em Conectar Yolen.',
+    },
+  }
+}
+
 function ingestOk(results = []) {
   return { ok: true, payload: { message_results: results } }
 }
@@ -859,6 +873,63 @@ test('P1: identity_not_ready nunca fica preso em cache — identidade fica dispo
     fake.calls.some((call) => call.action === 'RESOLVE_LEAD'),
     true,
     'RESOLVE_LEAD precisa rodar assim que a identidade ficar pronta',
+  )
+  assert.equal(runtime.getConversationState(conversationKey).resolution.cycle_id, 'cycle-X')
+})
+
+// Hardening (STEP 2B.5, "NO_COMPANION_SESSION CACHE RECOVERY") — live
+// finding: ManyChat abriu sem sessão, RESOLVE_LEAD respondeu
+// NO_COMPANION_SESSION, a sessão foi corretamente armazenada logo depois,
+// mas a MESMA conversa continuava mostrando NO_COMPANION_SESSION até um
+// reload de página. Causa: state.resolutionIdentity era amarrado mesmo
+// quando a razão era uma falha transitória de sessão/rede, então
+// ensureCycleResolved reutilizava esse cache indefinidamente por
+// identidade inalterada. Prova que, sem reload nenhum, a próxima
+// captureNow (ou qualquer leitura de ensureCycleResolved) já tenta
+// RESOLVE_LEAD de novo e resolve corretamente assim que a sessão volta.
+test('P1: NO_COMPANION_SESSION nunca fica preso em cache — sessão recuperada permite nova resolução sem reload de página', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    identityWith(IDENTITY_KEY_X),
+    resolveLeadNoCompanionSession(),
+    identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
+    resolveLeadOwnedByMe('cycle-X'),
+    identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
+  ])
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+
+  const first = await runtime.captureNow()
+  assert.equal(first.ok, false)
+  assert.equal(first.reason, 'NO_COMPANION_SESSION')
+
+  const conversationKey = runtime.getCurrentConversationKey()
+  assert.equal(
+    runtime.getConversationState(conversationKey).resolution.reason,
+    'NO_COMPANION_SESSION',
+  )
+  assert.equal(
+    runtime.getConversationState(conversationKey).resolutionIdentity,
+    null,
+    'uma falha transitória de sessão nunca pode amarrar a identidade ao cache',
+  )
+
+  // Sessão corrigida (fora desta chamada, ex.: SET_SESSION do background) —
+  // a MESMA conversa, MESMA identidade, precisa tentar RESOLVE_LEAD de novo
+  // sem qualquer reload simulado, só porque o cache anterior nunca foi
+  // amarrado à identidade.
+  const second = await runtime.captureNow()
+
+  assert.equal(second.ok, true, 'RESOLVE_LEAD precisa rodar de novo assim que a sessão volta, sem reload')
+  assert.equal(second.skipped, false)
+  assert.equal(
+    fake.calls.slice(3).some((call) => call.action === 'RESOLVE_LEAD'),
+    true,
+    'a segunda captureNow precisa ter chamado RESOLVE_LEAD de novo (cache não reaproveitado)',
   )
   assert.equal(runtime.getConversationState(conversationKey).resolution.cycle_id, 'cycle-X')
 })

@@ -5,6 +5,33 @@
   const SOURCE = 'YOLEN_COMPANION'
   const DEFAULT_DEBOUNCE_MS = 1200
 
+  // Hardening (STEP 2B.5, "NO_COMPANION_SESSION CACHE RECOVERY"): allowlist
+  // fail-closed dos únicos status de RESOLVE_LEAD que são, de fato, uma
+  // DECISÃO do backend sobre este contato/lead — os únicos que podem ficar
+  // amarrados a state.resolutionIdentity (o que faz ensureCycleResolved
+  // reutilizar o cache sem chamar RESOLVE_LEAD de novo). Falha de
+  // sessão/token/rede (NO_COMPANION_SESSION, INVALID_COMPANION_TOKEN,
+  // NETWORK_ERROR) e qualquer outro status não reconhecido aqui nunca são
+  // uma resposta sobre o contato — são um problema transitório do
+  // transporte, e cachear a identidade nesse caso travava o vendedor no
+  // mesmo erro indefinidamente mesmo depois da sessão ser corrigida (live
+  // finding: só um reload de página limpava o estado antes desta correção).
+  const DOMAIN_RESOLUTION_STATUSES = new Set([
+    'CONTACT_NOT_LINKED',
+    'NOT_FOUND',
+    'OWNED_BY_OTHER',
+    'IN_POOL',
+    'CLOSED_CYCLE',
+    'LEAD_WITHOUT_CYCLE',
+    'SOFT_DELETED',
+    'MULTIPLE_MATCHES',
+    'NO_PHONE_DETECTED',
+  ])
+
+  function isIdentityCacheableResolution(eligible, resolution) {
+    return eligible === true || DOMAIN_RESOLUTION_STATUSES.has(resolution?.status)
+  }
+
   function isObject(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
   }
@@ -369,10 +396,20 @@
         cycle_id: eligible ? resolution.cycle.id : null,
       })
 
-      state.resolutionIdentity = Object.freeze({
-        platform: expectedPlatform,
-        key: expectedIdentityKey,
-      })
+      // Só amarra a identidade ao cache quando o resultado é uma decisão de
+      // domínio real (ver DOMAIN_RESOLUTION_STATUSES acima) — uma falha
+      // transitória de sessão/rede nunca vira uma resolução "permanente"
+      // para esta identidade, então ensureCycleResolved sempre tenta de
+      // novo na próxima leitura (sem exigir reload de página).
+      state.resolutionIdentity = isIdentityCacheableResolution(
+        eligible,
+        resolution,
+      )
+        ? Object.freeze({
+            platform: expectedPlatform,
+            key: expectedIdentityKey,
+          })
+        : null
 
       return state.resolution
     }
@@ -588,10 +625,18 @@
         cycle_id: eligible ? resolution.cycle.id : null,
       })
 
-      state.resolutionIdentity = Object.freeze({
-        platform: expectedPlatform,
-        key: expectedIdentityKey,
-      })
+      // Mesma regra de resolveAndStoreResolution acima: só amarra a
+      // identidade ao cache quando o resultado é uma decisão de domínio
+      // real, nunca numa falha transitória de sessão/rede.
+      state.resolutionIdentity = isIdentityCacheableResolution(
+        eligible,
+        resolution,
+      )
+        ? Object.freeze({
+            platform: expectedPlatform,
+            key: expectedIdentityKey,
+          })
+        : null
 
       return state.resolution
     }

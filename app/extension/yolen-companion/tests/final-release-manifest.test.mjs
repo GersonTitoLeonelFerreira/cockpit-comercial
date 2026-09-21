@@ -207,7 +207,6 @@ test(
       'src/manychat-composer.js',
       'src/manychat-panel-mount.js',
       'src/manychat-seller-panel-runtime.js',
-      'src/manychat-contact-link-runtime.js',
       'src/manychat-capture-bootstrap.js',
       'src/manychat-audio-source.js',
       'src/manychat-audio-dispatch-runtime.js',
