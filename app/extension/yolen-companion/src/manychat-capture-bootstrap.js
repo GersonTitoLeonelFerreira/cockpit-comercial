@@ -20,6 +20,11 @@
   const sellerPanelRuntimeApi = root.YolenManyChatSellerPanelRuntime
   const composerApi = root.YolenManyChatComposer
 
+  // STEP 2B.5-B: o glue de teclado das abas seller-facing (ver o listener
+  // de 'keydown' mais abaixo) precisa da MESMA função pura de navegação
+  // que o WhatsApp usa — nunca uma segunda lista/indexação local.
+  const workspaceRuntimeApi = root.YolenCompanionWorkspaceRuntime ?? null
+
   // Hardening (STEP 2B.5, "MANUAL LEAD PICKER REMOVAL"): o vendedor nunca é
   // reconciliador de identidade — o fluxo CONTACT_NOT_LINKED -> buscar ->
   // selecionar -> confirmar (antigo manychat-contact-link-runtime.js) foi
@@ -195,6 +200,21 @@
       }
     }
 
+    // STEP 2B.5-B: toda troca real de conversa volta a área seller-facing
+    // ativa para a primeira área canônica ('now'/AGORA) — mesma semântica
+    // do WhatsApp (hardResetConversationWorkspace() força
+    // activeSellerArea = 'now' a cada boundary real). Nunca deixa a área
+    // que o vendedor tinha aberto em A (ex.: CLIENTE) vazar como estado
+    // inicial de B.
+    if (
+      newConversationKey &&
+      newConversationKey !== previousConversationKey &&
+      sellerPanelRuntime &&
+      typeof sellerPanelRuntime.resetActiveArea === 'function'
+    ) {
+      sellerPanelRuntime.resetActiveArea(newConversationKey)
+    }
+
     lastKnownConversationKey = newConversationKey
     syncPanel()
   }
@@ -290,9 +310,12 @@
     : null
 
   // Delegação de clique única no documento: aplicar a sugestão no composer
-  // é sempre uma ação explícita do vendedor (nunca automática, nunca em
-  // resposta a um evento de captura ou de análise). Não existe mais nenhum
-  // fluxo de vínculo manual de lead nesta camada (ver hardening acima).
+  // e trocar de aba seller-facing são sempre ações explícitas do vendedor
+  // (nunca automáticas, nunca em resposta a um evento de captura ou de
+  // análise). Não existe mais nenhum fluxo de vínculo manual de lead nesta
+  // camada (ver hardening acima). A troca de aba em si (validação/estado)
+  // é sempre delegada a sellerPanelRuntime.setActiveArea — nunca decidida
+  // aqui.
   if (sellerPanelRuntime && typeof root.document?.addEventListener === 'function') {
     root.document.addEventListener('click', (domEvent) => {
       const target = domEvent.target
@@ -306,8 +329,47 @@
 
       if (target.closest('[data-yolen-apply-suggestion]')) {
         sellerPanelRuntime.applySuggestedMessage(conversationKey)
+        return
+      }
+
+      const tabButton = target.closest('[data-yolen-seller-area]')
+      if (tabButton) {
+        sellerPanelRuntime.setActiveArea(
+          conversationKey,
+          tabButton.getAttribute('data-yolen-seller-area'),
+        )
       }
     })
+
+    // STEP 2B.5-B: navegação por teclado das abas — a computação de "qual
+    // é a próxima área para esta tecla" é SEMPRE a mesma função pura do
+    // módulo compartilhado (workspaceRuntimeApi.getNextSellerAreaForKeydown),
+    // nunca uma segunda lista/indexação local. Delegação no documento pelo
+    // mesmo motivo do clique: o conteúdo do painel é substituído por
+    // inteiro a cada render, então um listener por botão se perderia.
+    if (workspaceRuntimeApi && typeof root.document?.addEventListener === 'function') {
+      root.document.addEventListener('keydown', (domEvent) => {
+        const target = domEvent.target
+        if (typeof target?.closest !== 'function') return
+
+        const tabButton = target.closest('[data-yolen-seller-area]')
+        if (!tabButton) return
+
+        const conversationKey = getCurrentConversationKey()
+        if (!conversationKey) return
+
+        const currentArea = tabButton.getAttribute('data-yolen-seller-area')
+        const nextArea = workspaceRuntimeApi.getNextSellerAreaForKeydown(
+          currentArea,
+          domEvent.key,
+        )
+
+        if (nextArea === null) return
+
+        domEvent.preventDefault()
+        sellerPanelRuntime.setActiveArea(conversationKey, nextArea)
+      })
+    }
   }
 
   runtime.start()

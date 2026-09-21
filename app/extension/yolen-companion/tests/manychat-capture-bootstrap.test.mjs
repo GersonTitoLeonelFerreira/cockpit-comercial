@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
+
+const require = createRequire(import.meta.url)
+// Módulo REAL (não um stub) — os testes de navegação por teclado (STEP
+// 2B.5-B) precisam provar que o bootstrap delega para a MESMA função pura
+// que o WhatsApp usa, não apenas que "chama algo".
+const workspaceRuntime = require('../src/companion-workspace-runtime.js')
 
 const SOURCE = readFileSync(
   new URL('../src/manychat-capture-bootstrap.js', import.meta.url),
@@ -686,23 +693,33 @@ test('C: capture_result desatualizado de A enquanto B está aberto nunca chama r
 // sellerPanelRuntime.
 // -----------------------------------------------------------------------
 
-function createFakeElement(matchers = {}) {
+function createFakeElement(matchers = {}, attributes = {}) {
   return {
     dataset: {},
     closest(selector) {
       return matchers[selector] ? this : null
+    },
+    getAttribute(name) {
+      return attributes[name] ?? null
     },
   }
 }
 
 function createFakeDocument() {
   let clickHandler = null
+  let keydownHandler = null
   return {
     addEventListener(type, handler) {
       if (type === 'click') clickHandler = handler
+      if (type === 'keydown') keydownHandler = handler
     },
     click(target) {
       clickHandler?.({ target })
+    },
+    keydown(target, key) {
+      const event = { target, key, defaultPrevented: false, preventDefault() { this.defaultPrevented = true } }
+      keydownHandler?.(event)
+      return event
     },
   }
 }
@@ -1119,4 +1136,188 @@ test('fallback: sem previous_conversation_key no evento (mock/compatibilidade), 
   })
 
   assert.deepEqual(invalidateLeadCalls, ['conv-a'])
+})
+
+// -----------------------------------------------------------------------
+// STEP 2B.5-B — ManyChat consome o workspace compartilhado: clique/teclado
+// nas abas delega para sellerPanelRuntime.setActiveArea /
+// workspaceRuntimeTools.getNextSellerAreaForKeydown (o MESMO módulo do
+// WhatsApp), nunca uma segunda lista/indexação local.
+// -----------------------------------------------------------------------
+
+test('clique numa aba seller-area chama sellerPanelRuntime.setActiveArea com a área clicada e a conversation_key atual', () => {
+  const calls = []
+  let receivedOptions = null
+  const fakeDocument = createFakeDocument()
+  const currentKeyRef = { value: null }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState: () => ({ resolution: { ready: true, reason: null, cycle_id: 'cycle-1' } }),
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatSellerPanelRuntime: {
+      createManyChatSellerPanelRuntime() {
+        return {
+          renderPanel() {},
+          setActiveArea(conversationKey, area) {
+            calls.push([conversationKey, area])
+          },
+        }
+      },
+    },
+    YolenCompanionWorkspaceRuntime: workspaceRuntime,
+    document: fakeDocument,
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  currentKeyRef.value = 'conv-1'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-1' },
+  })
+
+  const tabButton = createFakeElement(
+    { '[data-yolen-seller-area]': true },
+    { 'data-yolen-seller-area': 'client' },
+  )
+  fakeDocument.click(tabButton)
+
+  assert.deepEqual(calls, [['conv-1', 'client']])
+})
+
+test('I: ArrowRight/ArrowLeft/Home/End no teclado usam workspaceRuntimeTools.getNextSellerAreaForKeydown de verdade (mesma função do WhatsApp)', () => {
+  const calls = []
+  let receivedOptions = null
+  const fakeDocument = createFakeDocument()
+  const currentKeyRef = { value: 'conv-1' }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState: () => ({ resolution: { ready: true, reason: null, cycle_id: 'cycle-1' } }),
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatSellerPanelRuntime: {
+      createManyChatSellerPanelRuntime() {
+        return {
+          renderPanel() {},
+          setActiveArea(conversationKey, area) {
+            calls.push([conversationKey, area])
+          },
+        }
+      },
+    },
+    YolenCompanionWorkspaceRuntime: workspaceRuntime,
+    document: fakeDocument,
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-1' },
+  })
+
+  const nowTab = createFakeElement(
+    { '[data-yolen-seller-area]': true },
+    { 'data-yolen-seller-area': 'now' },
+  )
+
+  const rightEvent = fakeDocument.keydown(nowTab, 'ArrowRight')
+  assert.equal(rightEvent.defaultPrevented, true)
+
+  const endTab = createFakeElement(
+    { '[data-yolen-seller-area]': true },
+    { 'data-yolen-seller-area': 'now' },
+  )
+  fakeDocument.keydown(endTab, 'End')
+
+  const leftTab = createFakeElement(
+    { '[data-yolen-seller-area]': true },
+    { 'data-yolen-seller-area': 'client' },
+  )
+  fakeDocument.keydown(leftTab, 'ArrowLeft')
+
+  // Tecla não reconhecida: workspaceRuntimeTools.getNextSellerAreaForKeydown
+  // devolve null — nunca chama setActiveArea nem previne o default.
+  const tabKeyEvent = fakeDocument.keydown(
+    createFakeElement({ '[data-yolen-seller-area]': true }, { 'data-yolen-seller-area': 'now' }),
+    'Tab',
+  )
+  assert.equal(tabKeyEvent.defaultPrevented, false)
+
+  assert.deepEqual(calls, [
+    ['conv-1', 'message'], // ArrowRight a partir de 'now'
+    ['conv-1', 'client'], // End
+    ['conv-1', 'analysis'], // ArrowLeft a partir de 'client'
+  ])
+})
+
+test('J (bootstrap): troca real de conversa chama sellerPanelRuntime.resetActiveArea(novaConversa), nunca da conversa anterior', () => {
+  const resetCalls = []
+  let receivedOptions = null
+  const currentKeyRef = { value: 'conv-a' }
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState: () => ({ resolution: null }),
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatSellerPanelRuntime: {
+      createManyChatSellerPanelRuntime() {
+        return {
+          renderPanel() {},
+          resetActiveArea(conversationKey) {
+            resetCalls.push(conversationKey)
+          },
+        }
+      },
+    },
+    YolenCompanionWorkspaceRuntime: workspaceRuntime,
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  currentKeyRef.value = 'conv-b'
+  receivedOptions.onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b', previous_conversation_key: 'conv-a' },
+  })
+
+  assert.deepEqual(resetCalls, ['conv-b'])
 })

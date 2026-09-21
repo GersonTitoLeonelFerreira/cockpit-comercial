@@ -23,10 +23,22 @@
   // conversation_key}) e ANALYZE_CONVERSATION/GET_ANALYSIS_JOB_STATUS.
   // Nunca cria um segundo motor de reasoning nem uma segunda lógica de
   // permissão — tudo já vem resolvido/autorizado pelo backend.
+  //
+  // STEP 2B.5-B: o shell seller-facing (abas AGORA/MENSAGEM/ANÁLISE/
+  // CLIENTE, sua ordem, labels, ARIA e navegação por teclado) não é mais
+  // desenhado aqui — vem do MESMO módulo compartilhado que o WhatsApp já
+  // consome (companion-workspace-runtime.js). Este arquivo continua dono
+  // apenas dos dados/ações: carregar view models, poll de análise, estado
+  // por conversation_key e aplicação da sugestão no composer.
   function createManyChatSellerPanelRuntime(options = {}) {
     const sendMessage = options.sendMessage
     if (typeof sendMessage !== 'function') {
       throw new Error('options.sendMessage é obrigatório.')
+    }
+
+    const workspaceRuntimeApi = options.workspaceRuntime ?? root.YolenCompanionWorkspaceRuntime ?? null
+    if (!workspaceRuntimeApi) {
+      throw new Error('Módulo do workspace compartilhado do Companion não carregado.')
     }
 
     const panelMountApi = options.panelMountApi ?? root.YolenManyChatPanelMount ?? null
@@ -60,9 +72,39 @@
           methodGuidance: null,
           analyzing: false,
           pollTimerId: null,
+          // Área seller-facing ativa desta conversa — sempre começa na
+          // primeira área canônica ('now'/AGORA), a mesma semântica do
+          // WhatsApp (hardResetConversationWorkspace() também força
+          // activeSellerArea = 'now' a cada troca real de conversa).
+          activeArea: workspaceRuntimeApi.SELLER_AREAS[0],
         })
       }
       return stateByConversationKey.get(conversationKey)
+    }
+
+    function getActiveArea(conversationKey) {
+      return getState(conversationKey).activeArea
+    }
+
+    // Ação explícita do vendedor (clique numa aba ou navegação por
+    // teclado, decidida por quem chama via
+    // workspaceRuntimeApi.getNextSellerAreaForKeydown): nunca uma segunda
+    // lista/validação própria — sempre a mesma allowlist do módulo
+    // compartilhado.
+    function setActiveArea(conversationKey, nextArea) {
+      if (!workspaceRuntimeApi.isValidSellerArea(nextArea)) return
+
+      const state = getState(conversationKey)
+      state.activeArea = nextArea
+      renderPanel(conversationKey)
+    }
+
+    // Chamado pelo bootstrap numa troca real de conversa (evento
+    // conversation_changed autoritativo) — nunca deixa a área ativa de A
+    // vazar como "última área vista" para B: toda troca real volta para a
+    // primeira área canônica, mesmo que B já tivesse sido visitada antes.
+    function resetActiveArea(conversationKey) {
+      getState(conversationKey).activeArea = workspaceRuntimeApi.SELLER_AREAS[0]
     }
 
     function clientContextApi() {
@@ -108,21 +150,27 @@
         ? sellerApi.renderCustomerViewModel(state.customerViewModel?.data ?? null)
         : ''
 
+      // A sugestão de mensagem (STEP 2B.5-B) entra dentro da área MESSAGE
+      // compartilhada — nunca mais como uma quinta região solta fora do
+      // shell de abas. Paridade funcional completa dessa aba (o que o
+      // WhatsApp mostra em MENSAGEM) é subfase posterior; aqui só o
+      // conteúdo que o runtime ManyChat já produz muda de lugar.
       const suggestion = state.methodGuidance?.data?.suggested_message ?? null
-      const suggestionHtml = suggestion
+      const messageHtml = suggestion
         ? `
-          <section class="yolen-suggested-message" data-yolen-section="suggested-message">
-            <p data-yolen-suggested-message-text>${escapeHtml(suggestion)}</p>
-            <button type="button" data-yolen-apply-suggestion>Aplicar no composer</button>
-          </section>
+          <p data-yolen-suggested-message-text>${escapeHtml(suggestion)}</p>
+          <button type="button" data-yolen-apply-suggestion>Aplicar no composer</button>
         `
         : ''
 
+      const activeArea = getActiveArea(conversationKey)
+
       panelMountApi.setPanelContent(`
-        <section data-yolen-section="agora"><h3>AGORA</h3>${agoraHtml}</section>
-        <section data-yolen-section="analise"><h3>ANÁLISE</h3>${analysisHtml}</section>
-        <section data-yolen-section="cliente"><h3>CLIENTE</h3>${clientHtml}${customerHtml}</section>
-        ${suggestionHtml}
+        ${workspaceRuntimeApi.getSellerAreaTabsBarHtml(activeArea)}
+        ${workspaceRuntimeApi.getSellerAreaPanelHtml('now', agoraHtml, activeArea)}
+        ${workspaceRuntimeApi.getSellerAreaPanelHtml('message', messageHtml, activeArea)}
+        ${workspaceRuntimeApi.getSellerAreaPanelHtml('analysis', analysisHtml, activeArea)}
+        ${workspaceRuntimeApi.getSellerAreaPanelHtml('client', `${clientHtml}${customerHtml}`, activeArea)}
       `)
     }
 
@@ -332,6 +380,9 @@
       applySuggestedMessage,
       renderPanel,
       getConversationPanelState,
+      getActiveArea,
+      setActiveArea,
+      resetActiveArea,
     })
   }
 

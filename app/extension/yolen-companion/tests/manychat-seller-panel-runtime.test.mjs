@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import test from 'node:test'
 
 const require = createRequire(import.meta.url)
+require('../src/companion-workspace-runtime.js')
 const runtimeApi = require('../src/manychat-seller-panel-runtime.js')
 
 function createQueuedSender(responders) {
@@ -436,4 +437,166 @@ test('applySuggestedMessage sem composerApi disponível falha fechado', () => {
   const result = runtime.applySuggestedMessage('conv-1')
   assert.equal(result.applied, false)
   assert.equal(result.reason, 'composer_unavailable')
+})
+
+// -----------------------------------------------------------------------
+// STEP 2B.5-B — ManyChat passa a consumir o workspace compartilhado
+// (companion-workspace-runtime.js): mesmas 4 áreas/tabs/panels/ARIA que o
+// WhatsApp, nunca uma segunda implementação visual.
+// -----------------------------------------------------------------------
+
+test('sem workspaceRuntime disponível (nem via options, nem em root), createManyChatSellerPanelRuntime falha fechado', () => {
+  const realWorkspaceRuntime = globalThis.YolenCompanionWorkspaceRuntime
+  delete globalThis.YolenCompanionWorkspaceRuntime
+
+  try {
+    assert.throws(
+      () =>
+        runtimeApi.createManyChatSellerPanelRuntime({
+          sendMessage: async () => ({ ok: true, payload: {} }),
+        }),
+      /workspace compartilhado/,
+    )
+  } finally {
+    globalThis.YolenCompanionWorkspaceRuntime = realWorkspaceRuntime
+  }
+})
+
+test('E/F/G/H: renderPanel produz exatamente 4 tabs, na ordem now/message/analysis/client, com apenas uma selecionada e um tabpanel visível', async () => {
+  const fake = createQueuedSender([
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ suggested_message: null }),
+  ])
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+
+  const html = panelMount.contents.at(-1)
+
+  const tabMatches = [...html.matchAll(/role="tab"[^>]*data-yolen-seller-area="(\w+)"/g)]
+  assert.equal(tabMatches.length, 4)
+  assert.deepEqual(tabMatches.map((match) => match[1]), ['now', 'message', 'analysis', 'client'])
+
+  const selectedCount = (html.match(/aria-selected="true"/g) || []).length
+  assert.equal(selectedCount, 1, 'exatamente uma tab selecionada')
+
+  const nowIndex = html.indexOf('data-yolen-seller-panel="now"')
+  const messageIndex = html.indexOf('data-yolen-seller-panel="message"')
+  const analysisIndex = html.indexOf('data-yolen-seller-panel="analysis"')
+  const clientIndex = html.indexOf('data-yolen-seller-panel="client"')
+  for (const index of [nowIndex, messageIndex, analysisIndex, clientIndex]) {
+    assert.notEqual(index, -1)
+  }
+  assert.ok(nowIndex < messageIndex)
+  assert.ok(messageIndex < analysisIndex)
+  assert.ok(analysisIndex < clientIndex)
+
+  // 'now' é a área ativa por padrão: seu tabpanel não tem `hidden`, os
+  // outros três têm.
+  const hiddenCount = (html.match(/\bhidden\b/g) || []).length
+  assert.equal(hiddenCount, 3)
+})
+
+test('L: suggested_message aparece dentro do tabpanel MESSAGE, nunca como região solta', async () => {
+  const fake = createQueuedSender([
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ suggested_message: 'Posso te explicar as opções.' }),
+  ])
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+
+  const html = panelMount.contents.at(-1)
+  const messagePanelStart = html.indexOf('data-yolen-seller-panel="message"')
+  const analysisPanelStart = html.indexOf('data-yolen-seller-panel="analysis"')
+  const messagePanelBlock = html.slice(messagePanelStart, analysisPanelStart)
+
+  assert.match(messagePanelBlock, /Posso te explicar as opções\./)
+  assert.match(messagePanelBlock, /data-yolen-apply-suggestion/)
+  assert.doesNotMatch(html, /data-yolen-section="suggested-message"/)
+})
+
+test('active area por padrão é "now"; setActiveArea troca e re-renderiza; área inválida é ignorada (fail-closed)', async () => {
+  const panelMount = createFakePanelMount()
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: async () => ({ ok: true, payload: {} }),
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  assert.equal(runtime.getActiveArea('conv-1'), 'now')
+
+  runtime.renderPanel('conv-1')
+  assert.equal(panelMount.contents.length, 1)
+
+  runtime.setActiveArea('conv-1', 'client')
+  assert.equal(runtime.getActiveArea('conv-1'), 'client')
+  assert.equal(panelMount.contents.length, 2)
+  assert.match(panelMount.contents.at(-1), /data-yolen-seller-area="client"[^>]*aria-selected="true"/)
+
+  // Área desconhecida: nunca aceita, nunca re-renderiza.
+  runtime.setActiveArea('conv-1', 'nao-existe')
+  assert.equal(runtime.getActiveArea('conv-1'), 'client')
+  assert.equal(panelMount.contents.length, 2)
+})
+
+test('J: resetActiveArea sempre volta para "now", mesmo que a conversa já tivesse outra área ativa (nunca vaza o estado de A para B)', () => {
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: async () => ({ ok: true, payload: {} }),
+  })
+
+  runtime.setActiveArea('conv-a', 'client')
+  assert.equal(runtime.getActiveArea('conv-a'), 'client')
+
+  // B é uma conversa nova — já nasce em 'now'.
+  assert.equal(runtime.getActiveArea('conv-b'), 'now')
+
+  // Se o vendedor visita B, muda para 'analysis', volta para A e depois
+  // volta de novo para B: B precisa ser resetado para 'now' no boundary,
+  // nunca reaproveitar 'analysis' como se fosse "lembrança" de B.
+  runtime.setActiveArea('conv-b', 'analysis')
+  assert.equal(runtime.getActiveArea('conv-b'), 'analysis')
+
+  runtime.resetActiveArea('conv-b')
+  assert.equal(runtime.getActiveArea('conv-b'), 'now')
+
+  // A nunca é afetado por um reset de B.
+  assert.equal(runtime.getActiveArea('conv-a'), 'client')
+})
+
+test('K: setActiveArea para uma conversa que não é mais a atual nunca repinta o painel (isolamento A/B)', () => {
+  const panelMount = createFakePanelMount()
+  let currentConversationKey = 'conv-b'
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: async () => ({ ok: true, payload: {} }),
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => currentConversationKey,
+  })
+
+  // Uma resposta/ação atrasada relativa a A (que já não é mais a conversa
+  // aberta) tenta trocar a área ativa de A — nunca pode pintar por cima do
+  // painel de B, que é quem está realmente na tela.
+  runtime.setActiveArea('conv-a', 'client')
+
+  assert.equal(runtime.getActiveArea('conv-a'), 'client', 'o estado interno de A ainda pode ser atualizado')
+  assert.equal(panelMount.contents.length, 0, 'nunca escreve no DOM por uma conversa que não é a atual')
 })
