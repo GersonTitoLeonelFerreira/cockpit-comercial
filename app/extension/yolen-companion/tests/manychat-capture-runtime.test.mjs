@@ -2243,3 +2243,426 @@ test('MESSAGE KEY LENGTH: message_key escopado que ultrapassaria 500 caracteres 
     'nenhuma mensagem do snapshot pode ser ingerida parcialmente — nem as com chave escopada válida',
   )
 })
+
+// -----------------------------------------------------------------------
+// STEP 2B.5-C1 — "RESOLVE MANYCHAT LEADS BY TRUSTED DOM PHONE": fallback de
+// telefone SOMENTE quando a identidade externa retornou CONTACT_NOT_LINKED,
+// reaproveitando o MESMO endpoint/ação RESOLVE_LEAD em "phone mode" ({phone},
+// sem platform/platform_contact_key). Nunca implementa busca de lead no
+// browser. Sem telefone confiável (0 ou >1 candidatos), fica fail-closed com
+// um status transiente (PHONE_EVIDENCE_UNAVAILABLE/PHONE_EVIDENCE_AMBIGUOUS)
+// — nunca mostra picker manual, nunca escolhe "o primeiro". Guardas de
+// correlação de identidade (isCurrentConversation + matchesExpectedIdentity)
+// são reaplicadas em CADA novo ponto de espera desta etapa, exatamente como
+// já acontecia para a resolução por identidade externa.
+// -----------------------------------------------------------------------
+
+const TRUSTED_PHONE = '5547999990001'
+
+function phoneEvidenceTrusted(phone = TRUSTED_PHONE) {
+  return Object.freeze({
+    ready: true,
+    phone,
+    evidence: Object.freeze({ source: 'manychat_dom_whatsapp_context_v1', candidate_count: 1 }),
+  })
+}
+
+function phoneEvidenceUnavailable() {
+  return Object.freeze({ ready: false, reason: 'phone_unavailable' })
+}
+
+function phoneEvidenceAmbiguous() {
+  return Object.freeze({ ready: false, reason: 'phone_ambiguous' })
+}
+
+// Fake determinístico: cada chamada consome a PRÓXIMA entrada da fila (nunca
+// reaproveita a última), do mesmo jeito que createQueuedSender já faz para
+// sendMessage — detecta imediatamente uma chamada a mais ou a menos do que
+// o cenário previu.
+function createQueuedPhoneEvidenceApi(results) {
+  const calls = []
+  return {
+    calls,
+    resolveTrustedPhone(documentRef) {
+      calls.push(documentRef)
+      const next = results[calls.length - 1]
+      if (next === undefined) {
+        throw new Error(`[fake-phone-evidence] fila vazia na chamada ${calls.length}`)
+      }
+      return next
+    },
+  }
+}
+
+function resolveLeadNotFound() {
+  return {
+    ok: true,
+    payload: {
+      status: 'NOT_FOUND',
+      cycle: null,
+      actions: { can_analyze_conversation: false },
+      flags: {},
+    },
+  }
+}
+
+function resolveLeadMultipleMatches() {
+  return {
+    ok: true,
+    payload: {
+      status: 'MULTIPLE_MATCHES',
+      cycle: null,
+      actions: { can_analyze_conversation: false },
+      flags: {},
+    },
+  }
+}
+
+function createRuntimeWithPhone({ dom, sendMessage, phoneEvidenceApi, getConversationUrl, now }) {
+  return runtimeApi.createManyChatCaptureRuntime({
+    document: dom.window.document,
+    selectors: SELECTORS,
+    readChannel,
+    readAssignment,
+    sendMessage,
+    phoneEvidenceApi,
+    getConversationUrl: getConversationUrl ?? (() => CONVERSATION_URL_A),
+    now: now ?? (() => '2026-09-14T20:35:00.000Z'),
+  })
+}
+
+test('STEP 2B.5-C1 — 1: identidade externa resolve direto (status != CONTACT_NOT_LINKED) — telefone NUNCA é lido', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadOwnedByMe('cycle-1'),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, true)
+  assert.equal(result.skipped, false)
+  assert.equal(phoneEvidenceApi.calls.length, 0, 'lead já resolvido pela identidade externa — telefone nunca é consultado')
+  assert.equal(fake.calls.length, 5)
+})
+
+test('STEP 2B.5-C1 — 2: CONTACT_NOT_LINKED + telefone confiável único → resolve em phone mode, sem platform/platform_contact_key', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    resolveLeadOwnedByMe('cycle-phone-1'),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceTrusted()])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, true)
+  assert.equal(result.skipped, false)
+  assert.equal(phoneEvidenceApi.calls.length, 1)
+
+  assert.equal(fake.calls.length, 8)
+  assert.equal(fake.calls[1].action, 'RESOLVE_LEAD')
+  assert.equal(fake.calls[1].payload.platform, 'manychat')
+  assert.equal(fake.calls[4].action, 'RESOLVE_LEAD')
+  assert.equal(fake.calls[4].payload.phone, TRUSTED_PHONE)
+  assert.equal(fake.calls[4].payload.platform, undefined)
+  assert.equal(fake.calls[4].payload.platform_contact_key, undefined)
+  assert.equal(fake.calls[7].action, 'INGEST_CAPTURE_MESSAGES')
+  assert.equal(fake.calls[7].payload.cycle_id, 'cycle-phone-1')
+
+  const conversationKey = fake.calls[7].payload.conversation_key
+  assert.equal(runtime.getConversationState(conversationKey).resolution.cycle_id, 'cycle-phone-1')
+})
+
+test('STEP 2B.5-C1 — 3: CONTACT_NOT_LINKED + telefone confiável, mas phone mode retorna NOT_FOUND — nunca captura', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    resolveLeadNotFound(),
+    safeIdentityOk(),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceTrusted()])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'NOT_FOUND')
+  assert.equal(fake.calls.length, 6)
+  assert.equal(
+    fake.calls.some((call) => call.action === 'INGEST_CAPTURE_MESSAGES'),
+    false,
+  )
+})
+
+test('STEP 2B.5-C1 — 4: CONTACT_NOT_LINKED + telefone confiável, mas phone mode retorna MULTIPLE_MATCHES — nunca mostra candidatos, nunca captura', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    resolveLeadMultipleMatches(),
+    safeIdentityOk(),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceTrusted()])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'MULTIPLE_MATCHES')
+  assert.equal(fake.calls.length, 6)
+  assert.equal(
+    fake.calls.some((call) => call.action === 'INGEST_CAPTURE_MESSAGES'),
+    false,
+  )
+})
+
+test('STEP 2B.5-C1 — 5: evidência de telefone indisponível (0 candidatos) é fail-closed — NUNCA chama RESOLVE_LEAD em phone mode', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceUnavailable()])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'PHONE_EVIDENCE_UNAVAILABLE')
+  assert.equal(fake.calls.length, 4, 'sem telefone confiável, RESOLVE_LEAD em phone mode nunca roda')
+  assert.equal(
+    fake.calls.filter((call) => call.action === 'RESOLVE_LEAD').length,
+    1,
+    'só a tentativa por identidade externa — nunca uma segunda por telefone',
+  )
+})
+
+test('STEP 2B.5-C1 — 6: evidência de telefone ambígua (>1 candidato) é fail-closed — NUNCA chama RESOLVE_LEAD em phone mode, NUNCA escolhe "o primeiro"', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceAmbiguous()])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'PHONE_EVIDENCE_AMBIGUOUS')
+  assert.equal(fake.calls.length, 4)
+  assert.equal(
+    fake.calls.filter((call) => call.action === 'RESOLVE_LEAD').length,
+    1,
+  )
+})
+
+test('STEP 2B.5-C1 — 7: telefone bruto NUNCA aparece em state.resolution', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    resolveLeadOwnedByMe('cycle-phone-2'),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceTrusted()])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  await runtime.captureNow()
+
+  const conversationKey = fake.calls[7].payload.conversation_key
+  const resolution = runtime.getConversationState(conversationKey).resolution
+
+  assert.equal('phone' in resolution, false)
+  assert.equal(JSON.stringify(resolution).includes(TRUSTED_PHONE), false)
+})
+
+test('STEP 2B.5-C1 — 8: telefone bruto NUNCA aparece em nenhum evento emitido (capture_result)', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    resolveLeadOwnedByMe('cycle-phone-3'),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceTrusted()])
+
+  const emittedEvents = []
+  const runtime = runtimeApi.createManyChatCaptureRuntime({
+    document: dom.window.document,
+    selectors: SELECTORS,
+    readChannel,
+    readAssignment,
+    sendMessage: fake.sendMessage,
+    phoneEvidenceApi,
+    getConversationUrl: () => CONVERSATION_URL_A,
+    now: () => '2026-09-14T20:35:00.000Z',
+    onEvent: (event) => emittedEvents.push(event),
+  })
+
+  const result = await runtime.captureNow()
+  emittedEvents.push({ type: 'capture_result', result })
+
+  assert.equal(result.ok, true)
+  assert.equal(JSON.stringify(emittedEvents).includes(TRUSTED_PHONE), false)
+})
+
+test('STEP 2B.5-C1 — 9: troca de identidade (A->B) durante a coleta da evidência de telefone descarta A — NUNCA chama RESOLVE_LEAD em phone mode com o telefone de A para B', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    identityWith(IDENTITY_KEY_X),
+    resolveLeadNotLinked(),
+    identityWith(IDENTITY_KEY_X),
+    // Ponto de correlação pós-evidência: a identidade já mudou para Y aqui.
+    identityWith(IDENTITY_KEY_Y),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceTrusted()])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'CONTACT_CHANGED')
+  assert.equal(
+    fake.calls.filter((call) => call.action === 'RESOLVE_LEAD').length,
+    1,
+    'nunca chega a chamar RESOLVE_LEAD em phone mode depois que a identidade mudou',
+  )
+
+  const conversationKey = runtime.getCurrentConversationKey()
+  const state = runtime.getConversationState(conversationKey)
+  assert.equal(state.resolution, null)
+  assert.equal(state.resolutionIdentity, null)
+})
+
+test('STEP 2B.5-C1 — 10: troca de identidade (A->B) durante a chamada de resolve-lead em phone mode descarta o resultado — NUNCA persiste a resolução de A para B', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    identityWith(IDENTITY_KEY_X),
+    resolveLeadNotLinked(),
+    identityWith(IDENTITY_KEY_X),
+    identityWith(IDENTITY_KEY_X),
+    resolveLeadOwnedByMe('cycle-phone-stale'),
+    // Ponto de correlação pós-phone-resolve: a identidade já mudou para Y.
+    identityWith(IDENTITY_KEY_Y),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceTrusted()])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'CONTACT_CHANGED')
+  assert.equal(
+    fake.calls.some((call) => call.action === 'INGEST_CAPTURE_MESSAGES'),
+    false,
+    'a resolução de phone mode obtida sob A nunca pode ser usada para ingerir nada',
+  )
+
+  const conversationKey = runtime.getCurrentConversationKey()
+  const state = runtime.getConversationState(conversationKey)
+  assert.equal(state.resolution, null, 'cycle-phone-stale nunca pode ficar em cache')
+  assert.equal(state.resolutionIdentity, null)
+})
+
+test('STEP 2B.5-C1 — 11: PHONE_EVIDENCE_UNAVAILABLE é transiente — sessão/telefone recuperados na próxima captura resolvem sem reload', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([
+    // 1ª captura: identidade externa não vinculada, telefone ainda
+    // indisponível (ex.: DOM do ManyChat ainda não terminou de montar).
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    // 2ª captura: mesma identidade, mas agora o telefone já está disponível
+    // e resolve com sucesso — sem qualquer reload de página simulado.
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    resolveLeadOwnedByMe('cycle-phone-recovered'),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([
+    phoneEvidenceUnavailable(),
+    phoneEvidenceTrusted(),
+  ])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+
+  const first = await runtime.captureNow()
+  assert.equal(first.ok, false)
+  assert.equal(first.reason, 'PHONE_EVIDENCE_UNAVAILABLE')
+
+  const conversationKey = runtime.getCurrentConversationKey()
+  assert.equal(
+    runtime.getConversationState(conversationKey).resolutionIdentity,
+    null,
+    'um status transiente de evidência de telefone nunca amarra a identidade ao cache',
+  )
+
+  const second = await runtime.captureNow()
+  assert.equal(second.ok, true, 'sem reload nenhum, a segunda captura já tenta de novo e resolve assim que o telefone fica disponível')
+  assert.equal(second.skipped, false)
+  assert.equal(phoneEvidenceApi.calls.length, 2)
+  assert.equal(
+    runtime.getConversationState(conversationKey).resolution.cycle_id,
+    'cycle-phone-recovered',
+  )
+})
+
+test('STEP 2B.5-C1 — sem phoneEvidenceApi (dependência opcional ausente), CONTACT_NOT_LINKED continua exatamente como antes desta etapa', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  const fake = createQueuedSender([safeIdentityOk(), resolveLeadNotLinked(), safeIdentityOk()])
+
+  const runtime = createRuntime({ dom, sendMessage: fake.sendMessage })
+  const result = await runtime.captureNow()
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'CONTACT_NOT_LINKED')
+  assert.equal(fake.calls.length, 3)
+})

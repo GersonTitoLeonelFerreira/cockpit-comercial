@@ -48,6 +48,13 @@
     LEAD_WITHOUT_CYCLE: 'Yolen · lead sem ciclo comercial ativo',
     SOFT_DELETED: 'Yolen · lead arquivado ou excluído',
     MULTIPLE_MATCHES: 'Yolen · mais de um lead encontrado',
+    // STEP 2B.5-C1: fallback de telefone por evidência de DOM (só tentado
+    // quando a identidade externa retornou CONTACT_NOT_LINKED) fail-closed
+    // nesses dois casos — zero candidato confiável ou mais de um. Nunca
+    // oferece busca/seleção manual: a mensagem é deliberadamente a mesma
+    // para os dois motivos, honesta sobre o limite real da identificação.
+    PHONE_EVIDENCE_UNAVAILABLE: 'A Yolen não conseguiu identificar este contato com segurança',
+    PHONE_EVIDENCE_AMBIGUOUS: 'A Yolen não conseguiu identificar este contato com segurança',
     NO_COMPANION_SESSION: 'Yolen · sessão não capturada. Clique em Conectar Yolen.',
     INVALID_COMPANION_TOKEN: 'Yolen · sessão expirada. Reconecte a extensão.',
     NETWORK_ERROR: 'Yolen · falha de rede ao consultar a Yolen. Tentando de novo…',

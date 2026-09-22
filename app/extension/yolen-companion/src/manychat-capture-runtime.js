@@ -91,6 +91,12 @@
     const audioSourceApi = options.audioSourceApi ?? root.YolenManyChatAudioSource ?? null
     const audioIdentityApi = options.audioIdentityApi ?? root.YolenManyChatMessageIdentity ?? null
 
+    // STEP 2B.5-C1: extrator de telefone por evidência de DOM também é
+    // opcional — sem ele, o fallback de telefone simplesmente nunca roda
+    // (permanece só a resolução por identidade externa, comportamento
+    // idêntico ao de antes desta etapa), nunca quebra o resto do runtime.
+    const phoneEvidenceApi = options.phoneEvidenceApi ?? root.YolenManyChatPhoneEvidence ?? null
+
     const sendMessage = options.sendMessage
     if (typeof sendMessage !== 'function') {
       throw new Error('options.sendMessage é obrigatório.')
@@ -290,6 +296,31 @@
       )
     }
 
+    // Hardening (STEP 2B.5-C1, "SANITIZED LEAD RESOLUTION PAYLOAD"): a
+    // resposta crua de resolve-lead sempre inclui phone/phone_variants/
+    // lead.phone/lead_profile.phone_mobile (ver buildResolutionPayload no
+    // backend, app/api/companion/resolve-lead/route.ts) — nenhum desses
+    // campos pode alcançar state.resolution, um log ou qualquer evento
+    // emitido por este runtime. Allowlist explícita: só os quatro campos
+    // que captureBatchApi.isCaptureResolutionEligible/o restante deste
+    // runtime realmente usam (status, cycle.id, actions, flags)
+    // atravessam esta função; qualquer outro campo do payload (telefone
+    // incluso) é descartado aqui, na fronteira, e nunca chega ao resto do
+    // runtime.
+    function sanitizeLeadResolutionPayload(payload) {
+      if (!isObject(payload)) return null
+
+      return Object.freeze({
+        status: typeof payload.status === 'string' ? payload.status : null,
+        cycle:
+          isObject(payload.cycle) && payload.cycle.id != null
+            ? Object.freeze({ id: payload.cycle.id })
+            : null,
+        actions: isObject(payload.actions) ? Object.freeze({ ...payload.actions }) : null,
+        flags: isObject(payload.flags) ? Object.freeze({ ...payload.flags }) : null,
+      })
+    }
+
     async function getSafeIdentity() {
       const response = await sendMessage({
         source: SOURCE,
@@ -313,7 +344,27 @@
         },
       })
 
-      return response?.payload ?? null
+      return sanitizeLeadResolutionPayload(response?.payload)
+    }
+
+    // STEP 2B.5-C1: reaproveita EXATAMENTE o mesmo endpoint/ação
+    // RESOLVE_LEAD, desta vez em "phone mode" — sem platform/
+    // platform_contact_key, só {phone} — que o backend já roteia
+    // automaticamente para o mesmo findLeadsByPhone usado pelo WhatsApp
+    // (isExternalIdentityMode = Boolean(platform && platformContactKey)
+    // é false aqui). Nunca implementa busca de lead no browser, nunca
+    // consulta Supabase diretamente. `phone` só vive no argumento desta
+    // chamada e no corpo da mensagem enviada ao background — o retorno já
+    // passa por sanitizeLeadResolutionPayload, então nenhum dado de
+    // telefone volta ao chamador.
+    async function resolveLeadByTrustedPhone(phone) {
+      const response = await sendMessage({
+        source: SOURCE,
+        action: 'RESOLVE_LEAD',
+        payload: { phone },
+      })
+
+      return sanitizeLeadResolutionPayload(response?.payload)
     }
 
     // Resolve de verdade (sempre chama a identidade + RESOLVE_LEAD, nunca
@@ -370,7 +421,7 @@
       const expectedPlatform = safeIdentity.platform
       const expectedIdentityKey = safeIdentity.platform_identity.key
 
-      const resolution = await resolveLeadForIdentity(safeIdentity)
+      let resolution = await resolveLeadForIdentity(safeIdentity)
 
       const safeIdentityAfterResolve = await getSafeIdentity()
 
@@ -383,6 +434,68 @@
         )
       ) {
         return abortStale()
+      }
+
+      // STEP 2B.5-C1: fallback de telefone SOMENTE quando a identidade
+      // externa não achou vínculo nenhum (CONTACT_NOT_LINKED) — qualquer
+      // outro status (NOT_FOUND, OWNED_BY_OTHER, IN_POOL, CLOSED_CYCLE,
+      // MULTIPLE_MATCHES etc.) já é uma decisão de domínio da identidade
+      // externa e nunca é substituída por telefone. Sem phoneEvidenceApi
+      // (dependência opcional ausente), o comportamento fica idêntico ao
+      // de antes desta etapa.
+      if (resolution?.status === 'CONTACT_NOT_LINKED' && phoneEvidenceApi) {
+        const phoneEvidence = phoneEvidenceApi.resolveTrustedPhone(documentRef)
+
+        // Reconfirma identidade/conversa depois de coletar a evidência de
+        // telefone no DOM — mesmo síncrona, é um novo ponto de correlação
+        // exigido pelo desenho desta etapa (nunca reaproveita uma leitura
+        // de identidade antiga aqui).
+        const identityAfterEvidence = await getSafeIdentity()
+
+        if (
+          !isCurrentConversation(conversationKey) ||
+          !matchesExpectedIdentity(
+            identityAfterEvidence,
+            expectedPlatform,
+            expectedIdentityKey,
+          )
+        ) {
+          return abortStale()
+        }
+
+        if (phoneEvidence?.ready === true && typeof phoneEvidence.phone === 'string') {
+          const phoneResolution = await resolveLeadByTrustedPhone(phoneEvidence.phone)
+
+          const identityAfterPhoneResolve = await getSafeIdentity()
+
+          if (
+            !isCurrentConversation(conversationKey) ||
+            !matchesExpectedIdentity(
+              identityAfterPhoneResolve,
+              expectedPlatform,
+              expectedIdentityKey,
+            )
+          ) {
+            return abortStale()
+          }
+
+          resolution = phoneResolution
+        } else {
+          // Fail-closed: sem telefone confiável (zero ou mais de um
+          // candidato), nunca mostra picker manual nem escolhe "o
+          // primeiro" — vira um status transiente e honesto, tratado pelo
+          // bootstrap com a mesma mensagem de "não foi possível
+          // identificar este contato com segurança".
+          resolution = Object.freeze({
+            status:
+              phoneEvidence?.reason === 'phone_ambiguous'
+                ? 'PHONE_EVIDENCE_AMBIGUOUS'
+                : 'PHONE_EVIDENCE_UNAVAILABLE',
+            cycle: null,
+            actions: null,
+            flags: null,
+          })
+        }
       }
 
       const eligible =
