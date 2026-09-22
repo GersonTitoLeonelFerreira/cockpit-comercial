@@ -485,6 +485,60 @@ async function handleManyChatAudioTranscription(message) {
   }
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+// STEP 2B.5-C1.1 — allowlist campo por campo, NUNCA spread: a resposta
+// crua de /api/companion/resolve-lead em phone mode pode conter o
+// telefone bruto em vários lugares (payload.phone, phone_variants,
+// lead.phone, lead_profile.phone_mobile, e também dentro de
+// actions.create_lead_url, que o backend monta com
+// buildCreateLeadUrl(phone, displayName) embutindo o telefone na própria
+// URL). Nenhum desses campos pode sair do background — só os quatro
+// valores que o content runtime do ManyChat realmente usa (status,
+// cycle.id, actions.can_analyze_conversation, flags.is_closed)
+// atravessam esta função.
+function sanitizeManyChatPhoneResolutionPayload(payload) {
+  if (!isPlainObject(payload)) return null
+
+  return {
+    status: typeof payload.status === 'string' ? payload.status : null,
+    cycle:
+      isPlainObject(payload.cycle) && payload.cycle.id != null
+        ? { id: payload.cycle.id }
+        : null,
+    actions: isPlainObject(payload.actions)
+      ? { can_analyze_conversation: payload.actions.can_analyze_conversation === true }
+      : null,
+    flags: isPlainObject(payload.flags)
+      ? { is_closed: payload.flags.is_closed === true }
+      : null,
+  }
+}
+
+// STEP 2B.5-C1.1 — action PRIVILEGIADA própria para o fallback de
+// telefone do ManyChat: envia ao backend SOMENTE {phone} (nunca
+// message.payload inteiro) e sanitiza a resposta AQUI, antes de
+// qualquer coisa voltar ao content script — o número bruto do ManyChat
+// nunca precisa atravessar essa fronteira de volta. RESOLVE_LEAD
+// (identidade externa, usado pelo WhatsApp e pelo ManyChat quando a
+// identidade já resolve) continua exatamente como está, sem nenhuma
+// mudança — reaproveita o MESMO endpoint /api/companion/resolve-lead,
+// nunca implementa busca de lead aqui.
+async function handleManyChatLeadResolutionByPhone(message) {
+  const phone =
+    typeof message.payload?.phone === 'string' ? message.payload.phone : null
+
+  const result = await requestYolenWithToken(message, '/api/companion/resolve-lead', { phone })
+
+  return {
+    ok: result.ok,
+    statusCode: result.statusCode,
+    payload: sanitizeManyChatPhoneResolutionPayload(result.payload),
+  }
+}
+
 async function handleCompanionMessage(message, sender) {
   if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
     return manyChatSafeIdentityTools.handleIdentityRequest(
@@ -540,6 +594,15 @@ async function handleCompanionMessage(message, sender) {
 
   if (message.action === 'RESOLVE_LEAD') {
     return requestYolenWithToken(message, '/api/companion/resolve-lead', message.payload)
+  }
+
+  // STEP 2B.5-C1.1 — fallback de telefone do ManyChat: NUNCA reaproveita
+  // RESOLVE_LEAD (que devolveria o payload cru do backend, com o telefone
+  // ainda dentro de actions.create_lead_url e demais campos). Esta action
+  // sanitiza a resposta no próprio background antes de qualquer retorno
+  // ao content script.
+  if (message.action === 'RESOLVE_MANYCHAT_LEAD_BY_PHONE') {
+    return handleManyChatLeadResolutionByPhone(message)
   }
 
   // STEP 2A.3 — busca e first-link de identidade externa (ManyChat). Só

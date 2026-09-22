@@ -296,17 +296,20 @@
       )
     }
 
-    // Hardening (STEP 2B.5-C1, "SANITIZED LEAD RESOLUTION PAYLOAD"): a
-    // resposta crua de resolve-lead sempre inclui phone/phone_variants/
-    // lead.phone/lead_profile.phone_mobile (ver buildResolutionPayload no
-    // backend, app/api/companion/resolve-lead/route.ts) — nenhum desses
-    // campos pode alcançar state.resolution, um log ou qualquer evento
-    // emitido por este runtime. Allowlist explícita: só os quatro campos
-    // que captureBatchApi.isCaptureResolutionEligible/o restante deste
-    // runtime realmente usam (status, cycle.id, actions, flags)
-    // atravessam esta função; qualquer outro campo do payload (telefone
-    // incluso) é descartado aqui, na fronteira, e nunca chega ao resto do
-    // runtime.
+    // Hardening (STEP 2B.5-C1.1, "SANITIZED LEAD RESOLUTION PAYLOAD — FIELD
+    // ALLOWLIST"): a resposta crua de resolve-lead sempre inclui
+    // phone/phone_variants/lead.phone/lead_profile.phone_mobile — e também
+    // actions.create_lead_url, que o backend monta com
+    // buildCreateLeadUrl(phone, displayName), embutindo o telefone bruto
+    // na própria URL (ver buildResolutionPayload em
+    // app/api/companion/resolve-lead/route.ts). Um `{ ...payload.actions }`
+    // (spread) copiaria create_lead_url junto — por isso esta função nunca
+    // usa spread: cada campo do retorno é escolhido individualmente. Só os
+    // quatro valores que captureBatchApi.isCaptureResolutionEligible/o
+    // resto deste runtime realmente usam (status, cycle.id,
+    // actions.can_analyze_conversation, flags.is_closed) atravessam esta
+    // função; qualquer outro campo (telefone incluso, em qualquer forma)
+    // é descartado aqui, na fronteira, e nunca chega ao resto do runtime.
     function sanitizeLeadResolutionPayload(payload) {
       if (!isObject(payload)) return null
 
@@ -316,8 +319,14 @@
           isObject(payload.cycle) && payload.cycle.id != null
             ? Object.freeze({ id: payload.cycle.id })
             : null,
-        actions: isObject(payload.actions) ? Object.freeze({ ...payload.actions }) : null,
-        flags: isObject(payload.flags) ? Object.freeze({ ...payload.flags }) : null,
+        actions: isObject(payload.actions)
+          ? Object.freeze({
+              can_analyze_conversation: payload.actions.can_analyze_conversation === true,
+            })
+          : null,
+        flags: isObject(payload.flags)
+          ? Object.freeze({ is_closed: payload.flags.is_closed === true })
+          : null,
       })
     }
 
@@ -347,20 +356,24 @@
       return sanitizeLeadResolutionPayload(response?.payload)
     }
 
-    // STEP 2B.5-C1: reaproveita EXATAMENTE o mesmo endpoint/ação
-    // RESOLVE_LEAD, desta vez em "phone mode" — sem platform/
-    // platform_contact_key, só {phone} — que o backend já roteia
-    // automaticamente para o mesmo findLeadsByPhone usado pelo WhatsApp
-    // (isExternalIdentityMode = Boolean(platform && platformContactKey)
-    // é false aqui). Nunca implementa busca de lead no browser, nunca
-    // consulta Supabase diretamente. `phone` só vive no argumento desta
-    // chamada e no corpo da mensagem enviada ao background — o retorno já
-    // passa por sanitizeLeadResolutionPayload, então nenhum dado de
-    // telefone volta ao chamador.
+    // Hardening (STEP 2B.5-C1.1, "PRIVILEGED PHONE RESOLUTION ACTION"):
+    // NUNCA usa a action RESOLVE_LEAD para o modo telefone — RESOLVE_LEAD
+    // devolve o payload cru do backend (com o telefone ainda dentro de
+    // actions.create_lead_url e demais campos) direto para o content
+    // script, e sanitizar só depois de chegar aqui seria defesa tardia
+    // demais. RESOLVE_MANYCHAT_LEAD_BY_PHONE é uma action PRIVILEGIADA
+    // própria (background.js) que chama o MESMO endpoint
+    // /api/companion/resolve-lead — nunca implementa busca de lead no
+    // browser, nunca consulta Supabase diretamente — mas sanitiza a
+    // resposta NO PRÓPRIO BACKGROUND antes de responder ao content
+    // script. `phone` só vive no argumento desta chamada e no corpo da
+    // mensagem enviada ao background; sanitizeLeadResolutionPayload aqui é
+    // defesa em profundidade (o payload que chega já deveria estar
+    // sanitizado), nunca a única barreira.
     async function resolveLeadByTrustedPhone(phone) {
       const response = await sendMessage({
         source: SOURCE,
-        action: 'RESOLVE_LEAD',
+        action: 'RESOLVE_MANYCHAT_LEAD_BY_PHONE',
         payload: { phone },
       })
 

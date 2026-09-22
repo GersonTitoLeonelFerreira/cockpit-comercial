@@ -2245,12 +2245,16 @@ test('MESSAGE KEY LENGTH: message_key escopado que ultrapassaria 500 caracteres 
 })
 
 // -----------------------------------------------------------------------
-// STEP 2B.5-C1 — "RESOLVE MANYCHAT LEADS BY TRUSTED DOM PHONE": fallback de
-// telefone SOMENTE quando a identidade externa retornou CONTACT_NOT_LINKED,
-// reaproveitando o MESMO endpoint/ação RESOLVE_LEAD em "phone mode" ({phone},
-// sem platform/platform_contact_key). Nunca implementa busca de lead no
-// browser. Sem telefone confiável (0 ou >1 candidatos), fica fail-closed com
-// um status transiente (PHONE_EVIDENCE_UNAVAILABLE/PHONE_EVIDENCE_AMBIGUOUS)
+// STEP 2B.5-C1 / 2B.5-C1.1 — "RESOLVE MANYCHAT LEADS BY TRUSTED DOM PHONE":
+// fallback de telefone SOMENTE quando a identidade externa retornou
+// CONTACT_NOT_LINKED, usando a action PRIVILEGIADA própria
+// RESOLVE_MANYCHAT_LEAD_BY_PHONE (nunca RESOLVE_LEAD, que devolveria o
+// payload cru — com o telefone ainda dentro de actions.create_lead_url —
+// direto para o content script). O background chama o MESMO endpoint
+// /api/companion/resolve-lead com {phone} e sanitiza a resposta ANTES de
+// devolver ao content runtime; nunca implementa busca de lead no browser.
+// Sem telefone confiável (0 ou >1 candidatos), fica fail-closed com um
+// status transiente (PHONE_EVIDENCE_UNAVAILABLE/PHONE_EVIDENCE_AMBIGUOUS)
 // — nunca mostra picker manual, nunca escolhe "o primeiro". Guardas de
 // correlação de identidade (isCurrentConversation + matchesExpectedIdentity)
 // são reaplicadas em CADA novo ponto de espera desta etapa, exatamente como
@@ -2377,7 +2381,7 @@ test('STEP 2B.5-C1 — 2: CONTACT_NOT_LINKED + telefone confiável único → re
   assert.equal(fake.calls.length, 8)
   assert.equal(fake.calls[1].action, 'RESOLVE_LEAD')
   assert.equal(fake.calls[1].payload.platform, 'manychat')
-  assert.equal(fake.calls[4].action, 'RESOLVE_LEAD')
+  assert.equal(fake.calls[4].action, 'RESOLVE_MANYCHAT_LEAD_BY_PHONE')
   assert.equal(fake.calls[4].payload.phone, TRUSTED_PHONE)
   assert.equal(fake.calls[4].payload.platform, undefined)
   assert.equal(fake.calls[4].payload.platform_contact_key, undefined)
@@ -2438,7 +2442,7 @@ test('STEP 2B.5-C1 — 4: CONTACT_NOT_LINKED + telefone confiável, mas phone mo
   )
 })
 
-test('STEP 2B.5-C1 — 5: evidência de telefone indisponível (0 candidatos) é fail-closed — NUNCA chama RESOLVE_LEAD em phone mode', async () => {
+test('STEP 2B.5-C1 — 5: evidência de telefone indisponível (0 candidatos) é fail-closed — NUNCA chama RESOLVE_MANYCHAT_LEAD_BY_PHONE', async () => {
   const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
 
   const fake = createQueuedSender([
@@ -2454,15 +2458,20 @@ test('STEP 2B.5-C1 — 5: evidência de telefone indisponível (0 candidatos) é
 
   assert.equal(result.ok, false)
   assert.equal(result.reason, 'PHONE_EVIDENCE_UNAVAILABLE')
-  assert.equal(fake.calls.length, 4, 'sem telefone confiável, RESOLVE_LEAD em phone mode nunca roda')
+  assert.equal(fake.calls.length, 4, 'sem telefone confiável, RESOLVE_MANYCHAT_LEAD_BY_PHONE nunca roda')
   assert.equal(
     fake.calls.filter((call) => call.action === 'RESOLVE_LEAD').length,
     1,
-    'só a tentativa por identidade externa — nunca uma segunda por telefone',
+    'só a tentativa por identidade externa',
+  )
+  assert.equal(
+    fake.calls.some((call) => call.action === 'RESOLVE_MANYCHAT_LEAD_BY_PHONE'),
+    false,
+    'nunca uma segunda tentativa por telefone',
   )
 })
 
-test('STEP 2B.5-C1 — 6: evidência de telefone ambígua (>1 candidato) é fail-closed — NUNCA chama RESOLVE_LEAD em phone mode, NUNCA escolhe "o primeiro"', async () => {
+test('STEP 2B.5-C1 — 6: evidência de telefone ambígua (>1 candidato) é fail-closed — NUNCA chama RESOLVE_MANYCHAT_LEAD_BY_PHONE, NUNCA escolhe "o primeiro"', async () => {
   const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
 
   const fake = createQueuedSender([
@@ -2482,6 +2491,10 @@ test('STEP 2B.5-C1 — 6: evidência de telefone ambígua (>1 candidato) é fail
   assert.equal(
     fake.calls.filter((call) => call.action === 'RESOLVE_LEAD').length,
     1,
+  )
+  assert.equal(
+    fake.calls.some((call) => call.action === 'RESOLVE_MANYCHAT_LEAD_BY_PHONE'),
+    false,
   )
 })
 
@@ -2545,7 +2558,7 @@ test('STEP 2B.5-C1 — 8: telefone bruto NUNCA aparece em nenhum evento emitido 
   assert.equal(JSON.stringify(emittedEvents).includes(TRUSTED_PHONE), false)
 })
 
-test('STEP 2B.5-C1 — 9: troca de identidade (A->B) durante a coleta da evidência de telefone descarta A — NUNCA chama RESOLVE_LEAD em phone mode com o telefone de A para B', async () => {
+test('STEP 2B.5-C1 — 9: troca de identidade (A->B) durante a coleta da evidência de telefone descarta A — NUNCA chama RESOLVE_MANYCHAT_LEAD_BY_PHONE com o telefone de A para B', async () => {
   const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
 
   const fake = createQueuedSender([
@@ -2563,9 +2576,9 @@ test('STEP 2B.5-C1 — 9: troca de identidade (A->B) durante a coleta da evidên
   assert.equal(result.ok, false)
   assert.equal(result.reason, 'CONTACT_CHANGED')
   assert.equal(
-    fake.calls.filter((call) => call.action === 'RESOLVE_LEAD').length,
-    1,
-    'nunca chega a chamar RESOLVE_LEAD em phone mode depois que a identidade mudou',
+    fake.calls.some((call) => call.action === 'RESOLVE_MANYCHAT_LEAD_BY_PHONE'),
+    false,
+    'nunca chega a chamar RESOLVE_MANYCHAT_LEAD_BY_PHONE depois que a identidade mudou',
   )
 
   const conversationKey = runtime.getCurrentConversationKey()
@@ -2574,7 +2587,7 @@ test('STEP 2B.5-C1 — 9: troca de identidade (A->B) durante a coleta da evidên
   assert.equal(state.resolutionIdentity, null)
 })
 
-test('STEP 2B.5-C1 — 10: troca de identidade (A->B) durante a chamada de resolve-lead em phone mode descarta o resultado — NUNCA persiste a resolução de A para B', async () => {
+test('STEP 2B.5-C1 — 10: troca de identidade (A->B) durante a chamada de RESOLVE_MANYCHAT_LEAD_BY_PHONE descarta o resultado — NUNCA persiste a resolução de A para B', async () => {
   const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
 
   const fake = createQueuedSender([
@@ -2652,6 +2665,66 @@ test('STEP 2B.5-C1 — 11: PHONE_EVIDENCE_UNAVAILABLE é transiente — sessão/
     runtime.getConversationState(conversationKey).resolution.cycle_id,
     'cycle-phone-recovered',
   )
+})
+
+test('STEP 2B.5-C1.1 — defesa em profundidade: mesmo se uma resposta com o shape CRU do backend (actions.create_lead_url embutindo o telefone) chegasse ao content runtime, sanitizeLeadResolutionPayload nunca deixa o telefone passar', async () => {
+  const dom = buildDom([{ mid: 'native-1', text: 'Quero saber o preço.' }])
+
+  // Simula o pior cenário: como se o sanitizador do background tivesse um
+  // bug (ou fosse contornado) e o payload CRU real do backend (com
+  // create_lead_url embutindo o telefone, exatamente como
+  // buildResolutionPayload monta em app/api/companion/resolve-lead/route.ts)
+  // chegasse inteiro ao content runtime pela resposta de
+  // RESOLVE_MANYCHAT_LEAD_BY_PHONE. sanitizeLeadResolutionPayload é a
+  // segunda barreira — nunca a única — e precisa segurar isso sozinha.
+  const rawBackendShapedResponse = {
+    ok: true,
+    payload: {
+      status: 'OWNED_BY_ME',
+      user_message: 'Lead identificado.',
+      phone: TRUSTED_PHONE,
+      phone_variants: [TRUSTED_PHONE],
+      display_name: 'Maria Cliente',
+      lead: { id: 'lead-1', name: 'Maria Cliente', phone: TRUSTED_PHONE },
+      lead_profile: { phone_mobile: TRUSTED_PHONE },
+      cycle: { id: 'cycle-phone-4', status: 'ACTIVE' },
+      actions: {
+        can_analyze_conversation: true,
+        can_link_lead: false,
+        open_yolen_url: '/sales-cycles/cycle-phone-4',
+        create_lead_url: `/leads?source=companion&phone=${TRUSTED_PHONE}`,
+        pool_url: '/pool',
+      },
+      flags: {
+        is_admin_or_manager: true,
+        is_owned_by_me: true,
+        is_closed: false,
+      },
+    },
+  }
+
+  const fake = createQueuedSender([
+    safeIdentityOk(),
+    resolveLeadNotLinked(),
+    safeIdentityOk(),
+    safeIdentityOk(),
+    rawBackendShapedResponse,
+    safeIdentityOk(),
+    safeIdentityOk(),
+    ingestOk([{ message_key: scopedKey(DEFAULT_DIGEST, 'native-1'), synced: true, canonical_version: '1' }]),
+  ])
+  const phoneEvidenceApi = createQueuedPhoneEvidenceApi([phoneEvidenceTrusted()])
+
+  const runtime = createRuntimeWithPhone({ dom, sendMessage: fake.sendMessage, phoneEvidenceApi })
+  await runtime.captureNow()
+
+  assert.equal(fake.calls[4].action, 'RESOLVE_MANYCHAT_LEAD_BY_PHONE')
+
+  const conversationKey = fake.calls[7].payload.conversation_key
+  const resolution = runtime.getConversationState(conversationKey).resolution
+
+  assert.equal(resolution.cycle_id, 'cycle-phone-4')
+  assert.equal(JSON.stringify(resolution).includes(TRUSTED_PHONE), false)
 })
 
 test('STEP 2B.5-C1 — sem phoneEvidenceApi (dependência opcional ausente), CONTACT_NOT_LINKED continua exatamente como antes desta etapa', async () => {
