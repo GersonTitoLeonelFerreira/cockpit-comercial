@@ -129,7 +129,7 @@ export default function SellerMicroKPIs({
       style={{
         background: DS.panelBg,
         borderBottom: `1px solid ${DS.border}`,
-        padding: '6px 16px',
+        padding: '6px 24px',
         display: 'flex',
         alignItems: 'center',
         gap: 10,

@@ -2035,9 +2035,8 @@ function VirtualizedStatusColumn({
       <div
         style={{
           position: 'relative',
-          minWidth: 272,
-          maxWidth: 272,
-          flex: '0 0 272px',
+          minWidth: 260,
+          flex: '0 0 calc((100% - 16px) / 3)',
           height: 'calc(100vh - 200px)',
           minHeight: 460,
           display: 'flex',
@@ -3237,7 +3236,7 @@ export default function SalesCyclesKanban({
           background: 'rgba(13,15,20,0.92)',
           backdropFilter: 'blur(10px)',
           borderBottom: `1px solid ${DS.border}`,
-          padding: '8px 16px',
+          padding: '8px 24px',
           display: 'flex',
           gap: 6,
           alignItems: 'center',
@@ -3442,7 +3441,7 @@ export default function SalesCyclesKanban({
       />
 
       {insightsExpanded && (
-        <div style={{ background: DS.contentBg, borderBottom: `1px solid ${DS.border}`, padding: '10px 16px 14px', maxHeight: 320, overflowY: 'auto' }}>
+        <div style={{ background: DS.contentBg, borderBottom: `1px solid ${DS.border}`, padding: '10px 24px 14px', maxHeight: 320, overflowY: 'auto' }}>
           {(() => {
             const overdueItems = operationalItems.filter((c) => getAgendaState(c.next_action_date) === 'overdue')
             const dangerItems = allItems.filter((c) => {
@@ -3517,7 +3516,7 @@ export default function SalesCyclesKanban({
       >
 
         <div style={{ position: 'relative', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: `3px solid #ef4444`, fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
+          {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 24px', borderLeft: `3px solid #ef4444`, fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
 
           {loading ? (
             <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
@@ -3541,7 +3540,7 @@ export default function SalesCyclesKanban({
                 flex: 1,
                 overflowX: 'auto',
                 overflowY: 'hidden',
-                padding: '12px 16px 16px',
+                padding: '12px 24px 16px',
                 display: 'flex',
                 gap: 8,
                 alignItems: 'flex-start',
