@@ -7324,95 +7324,20 @@
     renderPanel()
   }
 
+  // STEP 2B.5-D1 (Blocker D): elegibilidade continua sendo decisão do
+  // WhatsApp (mesmo cycle/conversation-key resolvidos, mesma regra de
+  // antes) — o CONTEÚDO por status delega ao renderer compartilhado
+  // (companion-seller-workspace-view.js#renderConversationRegistrationCardHtml),
+  // o MESMO que o ManyChat consome, para a MESMA capability nunca ter duas
+  // implementações.
   function getConversationRegistrationCardHtml() {
     if (!canRegisterCurrentConversation()) {
       return ''
     }
 
-    const entry = getCurrentConversationRegistrationEntry()
-    const status = entry?.status || 'idle'
-
-    const body = (() => {
-      if (status === 'previewing') {
-        return `
-          <div class="yolen-card-description">Gerando resumo…</div>
-          <button class="yolen-secondary-button" type="button" disabled>Gerando resumo…</button>
-        `
-      }
-
-      if (status === 'preview_ready') {
-        return `
-          <div class="yolen-card-description yolen-conversation-registration-preview">
-            ${escapeHtml(entry?.summary_text || '')}
-          </div>
-          <div class="yolen-inline-actions">
-            <button class="yolen-primary-button" type="button" data-yolen-action="confirm-conversation-registration">
-              Confirmar registro
-            </button>
-            <button class="yolen-tertiary-button" type="button" data-yolen-action="cancel-conversation-registration">
-              Cancelar
-            </button>
-          </div>
-        `
-      }
-
-      if (status === 'saving') {
-        return `
-          <div class="yolen-card-description">Registrando no histórico…</div>
-          <button class="yolen-primary-button" type="button" disabled>Registrando no histórico…</button>
-        `
-      }
-
-      if (status === 'success') {
-        return `
-          <div class="yolen-card-description yolen-conversation-registration-preview">
-            ${escapeHtml(entry?.summary_text || '')}
-          </div>
-          <div class="yolen-decision-kicker">Conversa registrada no histórico</div>
-          <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
-            Registrar novamente
-          </button>
-        `
-      }
-
-      if (status === 'stale') {
-        return `
-          <div class="yolen-card-description">
-            ${escapeHtml(
-              entry?.error_message ||
-                'A conversa mudou desde a geração do resumo. Gere novamente.',
-            )}
-          </div>
-          <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
-            Gerar novamente
-          </button>
-        `
-      }
-
-      if (status === 'error') {
-        return `
-          <div class="yolen-card-description yolen-status-warning">
-            ${escapeHtml(entry?.error_message || 'Não foi possível registrar. Tentar novamente.')}
-          </div>
-          <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
-            Tentar novamente
-          </button>
-        `
-      }
-
-      return `
-        <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
-          Registrar conversa
-        </button>
-      `
-    })()
-
-    return `
-      <div class="yolen-card yolen-conversation-registration-card">
-        <div class="yolen-section-label">Histórico do lead</div>
-        ${body}
-      </div>
-    `
+    return sellerWorkspaceViewTools.renderConversationRegistrationCardHtml(
+      getCurrentConversationRegistrationEntry(),
+    )
   }
 
   function canAnalyzeCurrentConversation() {
@@ -11222,6 +11147,8 @@
     return sellerWorkspaceViewTools.renderClientAreaHtml({
       commercialHtml,
       relationshipHtml,
+      registrationHtml: getConversationRegistrationCardHtml(),
+      enrichmentHtml: getLeadEnrichmentCandidatesHtml(),
     })
   }
 
@@ -11337,35 +11264,9 @@
   // o mount simplesmente não existe no DOM para um contexto inelegível —
   // não há superfície para um composer antigo reaparecer.
   function getSellerMessageAreaHtml() {
-    if (!isSellerMessageMountEligible()) {
-      return `
-        <div
-          class="yolen-seller-message-workspace"
-          data-yolen-seller-message-workspace
-        >
-          <div
-            class="yolen-card yolen-seller-area-card yolen-status-neutral"
-          >
-            <div class="yolen-section-label">
-              Mensagem
-            </div>
-
-            <div class="yolen-seller-empty-state">
-              A geração de mensagem fica disponível quando esta conversa possui um contexto comercial válido na Yolen.
-            </div>
-          </div>
-        </div>
-      `
-    }
-
-    return `
-      <div
-        class="yolen-seller-message-workspace"
-        data-yolen-seller-message-workspace
-      >
-        <div data-yolen-seller-message-mount></div>
-      </div>
-    `
+    return sellerWorkspaceViewTools.renderMessageAreaHtml({
+      eligible: isSellerMessageMountEligible(),
+    })
   }
 
   function getSellerInformationArchitectureHtml() {
@@ -11385,11 +11286,14 @@
     const analysisHtml =
       getDetailedAnalysisAreaHtml()
 
-    const clientHtml = [
-      getClientInformationAreaHtml(),
-      getConversationRegistrationCardHtml(),
-      getLeadEnrichmentCandidatesHtml(),
-    ].filter(Boolean).join('')
+    // STEP 2B.5-D1 (Blocker D): registro de conversa e candidatos de
+    // enriquecimento agora são composição do PRÓPRIO
+    // renderClientAreaHtml (via getClientInformationAreaHtml, que já os
+    // passa como registrationHtml/enrichmentHtml) — nunca mais
+    // concatenados por fora dele. Quem decide ordem/composição da área
+    // CLIENTE é sempre o Companion compartilhado, nunca este ponto de
+    // chamada.
+    const clientHtml = getClientInformationAreaHtml()
 
     return `
       <div class="yolen-seller-workspace yolen-seller-workspace--ux7" data-yolen-ux-build="UX7">
@@ -11776,27 +11680,6 @@
     )
   }
 
-  function getLeadEnrichmentFieldLabel(
-    field,
-  ) {
-    const labels = {
-      email: 'E-mail',
-      cpf: 'CPF',
-      cnpj: 'CNPJ',
-      birth_date: 'Data de nascimento',
-      profession: 'Profissão',
-      cep: 'CEP',
-      address_raw: 'Endereço',
-      phone_mobile:
-        'Telefone adicional',
-    }
-
-    return (
-      labels[field] ||
-      'Dado cadastral'
-    )
-  }
-
   function getLeadEnrichmentCandidateKey(
     candidate,
   ) {
@@ -12022,93 +11905,14 @@
     }
   }
 
-  function getLeadEnrichmentCandidateActionsHtml(
-    candidate,
-  ) {
-    const candidateKey =
-      getLeadEnrichmentCandidateKey(
-        candidate,
-      )
-
-    const isApplying =
-      state
-        .leadEnrichmentApplyLoadingKey ===
-      candidateKey
-
-    const isApplied =
-      state
-        .leadEnrichmentApplySuccessKey ===
-      candidateKey
-
-    const actionsLocked =
-      Boolean(
-        state
-          .leadEnrichmentApplyLoadingKey,
-      ) ||
-      isApplied
-
-    const ignoreButton = [
-      '<button',
-        ' class="yolen-secondary-button"',
-        ' type="button"',
-        ' data-yolen-action="ignore-lead-enrichment"',
-        ' data-yolen-enrichment-key="' +
-          escapeHtml(candidateKey) +
-          '"',
-        actionsLocked
-          ? ' disabled'
-          : '',
-      '>',
-        'Ignorar',
-      '</button>',
-    ].join('')
-
-    if (
-      !isConfirmableLeadEnrichmentCandidate(
-        candidate,
-      ) ||
-      candidate
-        .requires_human_confirmation !==
-        true
-    ) {
-      return [
-        '<div class="yolen-inline-actions">',
-          ignoreButton,
-        '</div>',
-        '<div class="yolen-operational-note">',
-          'Este campo exige revisão manual.',
-        '</div>',
-      ].join('')
-    }
-
-    const confirmButton = [
-      '<button',
-        ' class="yolen-primary-button"',
-        ' type="button"',
-        ' data-yolen-action="confirm-lead-enrichment"',
-        ' data-yolen-enrichment-key="' +
-          escapeHtml(candidateKey) +
-          '"',
-        actionsLocked
-          ? ' disabled'
-          : '',
-      '>',
-        isApplied
-          ? 'Atualizado'
-          : isApplying
-            ? 'Salvando...'
-            : 'Confirmar',
-      '</button>',
-    ].join('')
-
-    return [
-      '<div class="yolen-inline-actions yolen-enrichment-actions">',
-        confirmButton,
-        ignoreButton,
-      '</div>',
-    ].join('')
-  }
-
+  // STEP 2B.5-D1 (Blocker D): a decisão de QUAIS candidatos existem e
+  // COMO cada campo se compara ao cadastro atual continua 100% aqui
+  // (getVisibleLeadEnrichmentCandidates/getLeadEnrichmentCandidates, já
+  // provados e sem necessidade de reescrita) — só a APRESENTAÇÃO
+  // (markup/labels/estado de loading/erro) foi extraída para o mesmo
+  // renderer compartilhado que o ManyChat usa
+  // (companion-seller-workspace-view.js#renderLeadEnrichmentCandidatesHtml),
+  // nunca uma segunda composição visual duplicada entre os dois canais.
   function getLeadEnrichmentCandidatesHtml() {
     if (
       state.leadResolution?.status ===
@@ -12119,103 +11923,22 @@
 
     const candidates =
       getVisibleLeadEnrichmentCandidates()
+        .map((candidate) => ({
+          ...candidate,
+          key: getLeadEnrichmentCandidateKey(
+            candidate,
+          ),
+        }))
 
-    if (candidates.length === 0) {
-      return ''
-    }
-
-    const items =
-      candidates
-        .map((candidate) => {
-          const evidenceCount =
-            candidate
-              .evidence_message_ids
-              .length
-
-          const evidenceLabel =
-            evidenceCount === 1
-              ? '1 mensagem de evidência'
-              : `${evidenceCount} mensagens de evidência`
-
-          const confidenceLabel =
-            candidate.confidence ===
-            'high'
-              ? 'Alta confiança'
-              : 'Média confiança'
-
-          const comparisonLabel =
-            candidate.current_value
-              ? (
-                  'Atual: ' +
-                  candidate.current_value
-                )
-              : 'Ainda não consta no cadastro'
-
-          return [
-            '<div class="yolen-decision-list-item">',
-              '<div class="yolen-decision-kicker">',
-                escapeHtml(
-                  getLeadEnrichmentFieldLabel(
-                    candidate.field,
-                  ),
-                ),
-              '</div>',
-              '<div class="yolen-decision-copy">',
-                escapeHtml(
-                  candidate.value,
-                ),
-              '</div>',
-              '<div class="yolen-card-description">',
-                escapeHtml(
-                  confidenceLabel +
-                  ' · ' +
-                  evidenceLabel +
-                  ' · ' +
-                  comparisonLabel,
-                ),
-              '</div>',
-              getLeadEnrichmentCandidateActionsHtml(
-                candidate,
-              ),
-            '</div>',
-          ].join('')
-        })
-        .join('')
-
-    return [
-      '<div class="yolen-card yolen-lead-enrichment-card">',
-        '<div class="yolen-section-label">',
-          'Cadastro',
-        '</div>',
-
-        '<div class="yolen-card-title">',
-          'Dados encontrados na conversa',
-        '</div>',
-
-        '<div class="yolen-card-description">',
-          'A Yolen identificou informações que podem complementar o cadastro deste lead.',
-        '</div>',
-
-        '<div class="yolen-decision-list">',
-          items,
-        '</div>',
-
-        state.leadEnrichmentApplyError
-          ? [
-              '<div class="yolen-operational-note">',
-                escapeHtml(
-                  state
-                    .leadEnrichmentApplyError,
-                ),
-              '</div>',
-            ].join('')
-          : '',
-
-        '<div class="yolen-operational-note">',
-          'O cadastro só muda depois que você confirmar.',
-        '</div>',
-      '</div>',
-    ].join('')
+    return sellerWorkspaceViewTools.renderLeadEnrichmentCandidatesHtml({
+      candidates,
+      applyLoadingKey:
+        state.leadEnrichmentApplyLoadingKey,
+      applySuccessKey:
+        state.leadEnrichmentApplySuccessKey,
+      applyError:
+        state.leadEnrichmentApplyError,
+    })
   }
 
   globalThis

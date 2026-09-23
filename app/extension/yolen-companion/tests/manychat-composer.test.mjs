@@ -40,6 +40,26 @@ test('mais de um textarea elegível: composer ambíguo, nunca escolhe um por aci
   assert.equal(result.reason, 'composer_ambiguous')
 })
 
+// STEP 2B.5-D1 (Blocker B): o seller message engine compartilhado
+// (companion-seller-message-engine.js) renderiza seu próprio campo de
+// intenção como <textarea data-yolen-seller-message-intent> DENTRO do
+// painel da Yolen (#yolen-companion-panel) — achado real ao escrever o
+// teste de integração cross-channel (tests/companion-cross-channel-
+// integration.test.mjs), que expôs este bug ANTES desta correção: com o
+// composer da MENSAGEM aberto, o documento tinha 2 <textarea> (o da
+// conversa real + o do próprio Companion) e resolveManyChatComposer()
+// devolvia composer_ambiguous, quebrando "Inserir no ManyChat" sempre
+// que o painel estivesse aberto.
+test('textarea do próprio painel da Yolen (#yolen-companion-panel) nunca conta como candidato ao composer real', () => {
+  const dom = buildDom(
+    `${CONVERSATION_ANCHOR}<textarea></textarea><aside id="yolen-companion-panel"><textarea data-yolen-seller-message-intent></textarea></aside>`,
+  )
+  const result = composer.resolveManyChatComposer({ document: dom.window.document })
+
+  assert.equal(result.ready, true)
+  assert.equal(result.node.hasAttribute('data-yolen-seller-message-intent'), false)
+})
+
 test('textarea desabilitado não conta como candidato elegível', () => {
   const dom = buildDom(`${CONVERSATION_ANCHOR}<textarea disabled></textarea>`)
   const result = composer.resolveManyChatComposer({ document: dom.window.document })

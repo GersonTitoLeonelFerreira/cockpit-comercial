@@ -146,14 +146,29 @@ const styles =
     'utf8',
   )
 
+// STEP 2B.5-D1 (Blocker D): a APRESENTAÇÃO dos candidatos (markup dos
+// botões/labels) foi extraída para o renderer compartilhado com o
+// ManyChat (companion-seller-workspace-view.js#renderLeadEnrichmentCandidatesHtml)
+// — o WhatsApp continua dono de QUAIS candidatos existem e da regra de
+// confirmação humana (applyLeadEnrichmentCandidate, ainda em
+// content-script.js), só a composição visual mudou de arquivo.
+const sellerWorkspaceView =
+  readFileSync(
+    new URL(
+      '../src/companion-seller-workspace-view.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 test('B2 painel exige clique humano antes de atualizar cadastro', () => {
   assert.match(
-    contentScript,
+    sellerWorkspaceView,
     /confirm-lead-enrichment/,
   )
 
   assert.match(
-    contentScript,
+    sellerWorkspaceView,
     /ignore-lead-enrichment/,
   )
 
@@ -173,7 +188,7 @@ test('B2 painel exige clique humano antes de atualizar cadastro', () => {
   )
 
   assert.match(
-    contentScript,
+    sellerWorkspaceView,
     /O cadastro só muda depois que você confirmar/,
   )
 })
@@ -197,12 +212,12 @@ test('B2 ignorar candidato não chama API de atualização', () => {
 
 test('B2 confirmação possui estado visual de salvamento', () => {
   assert.match(
-    contentScript,
+    sellerWorkspaceView,
     /Salvando\.\.\./,
   )
 
   assert.match(
-    contentScript,
+    sellerWorkspaceView,
     /Atualizado/,
   )
 

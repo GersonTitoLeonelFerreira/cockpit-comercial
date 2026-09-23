@@ -12,13 +12,22 @@
 // tests/ux8-message-tab-structure.test.mjs (FASE C) — não duplicados
 // aqui; a mudança de classes/CSS desta fase não altera esse contrato,
 // confirmado pela própria suíte continuar verde.
+//
+// STEP 2B.5-D1: a lógica de estado/geração/render (getPresets, o HTML do
+// composer, o event delegation) foi extraída de seller-message-runtime.js
+// para o engine compartilhado companion-seller-message-engine.js (usado
+// tanto por WhatsApp quanto por ManyChat) — seller-message-runtime.js hoje
+// só contém o composer adapter WhatsApp-specific e a criação do engine.
+// As asserções abaixo passaram a checar o arquivo onde cada trecho
+// realmente mora agora, preservando a MESMA garantia semântica de antes.
 
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const [sellerRuntime, styles] = await Promise.all([
+const [sellerRuntime, sellerMessageEngine, styles] = await Promise.all([
   readFile('app/extension/yolen-companion/src/seller-message-runtime.js', 'utf8'),
+  readFile('app/extension/yolen-companion/src/companion-seller-message-engine.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/styles.css', 'utf8'),
 ])
 
@@ -53,18 +62,19 @@ test('4+5+6) ações ficam lado a lado (grid), Incluir é a ação primária e C
   assert.match(block, /display:\s*grid/)
   assert.match(block, /grid-template-columns:\s*1fr 1fr/)
 
-  const resultBlockStart = sellerRuntime.indexOf(
+  const resultBlockStart = sellerMessageEngine.indexOf(
     "'<div class=\"yolen-message-actions\">'",
   )
-  const resultBlockEnd = sellerRuntime.indexOf(
+  const resultBlockEnd = sellerMessageEngine.indexOf(
     "'</div>',",
     resultBlockStart,
   )
-  const resultBlock = sellerRuntime.slice(
+  const resultBlock = sellerMessageEngine.slice(
     resultBlockStart,
     resultBlockEnd,
   )
 
+  assert.notEqual(resultBlockStart, -1)
   assert.match(
     resultBlock,
     /yolen-primary-button.*data-yolen-seller-message-action="insert"/,
@@ -76,11 +86,11 @@ test('4+5+6) ações ficam lado a lado (grid), Incluir é a ação primária e C
 })
 
 test('7) o botão Gerar mensagem usa a mesma classe/estrutura em idle e loading — só o conteúdo interno muda', () => {
-  const start = sellerRuntime.indexOf(
+  const start = sellerMessageEngine.indexOf(
     "'<button type=\"button\" class=\"yolen-primary-button yolen-message-generate\"",
   )
-  const end = sellerRuntime.indexOf("'</button>',", start)
-  const block = sellerRuntime.slice(start, end)
+  const end = sellerMessageEngine.indexOf("'</button>',", start)
+  const block = sellerMessageEngine.slice(start, end)
 
   assert.notEqual(start, -1)
   // Uma única declaração de botão (não dois branches de HTML
@@ -101,8 +111,11 @@ test('17) nenhum auto-send foi introduzido pelo redesign', () => {
   assert.doesNotMatch(sellerRuntime, /sendButton\.click\(/)
   assert.doesNotMatch(sellerRuntime, /composer\.dispatchEvent\([^)]*submit/)
   assert.doesNotMatch(sellerRuntime, /\.submit\(\)/)
+  assert.doesNotMatch(sellerMessageEngine, /sendButton\.click\(/)
+  assert.doesNotMatch(sellerMessageEngine, /composer\.dispatchEvent\([^)]*submit/)
+  assert.doesNotMatch(sellerMessageEngine, /\.submit\(\)/)
   assert.match(
-    sellerRuntime,
+    sellerMessageEngine,
     /A Yolen não envia mensagens automaticamente\. Revise antes de enviar\./,
   )
 })
@@ -111,6 +124,9 @@ test('ensureStyles() foi removido — CSS estrutural da UX8 vive só em styles.c
   assert.doesNotMatch(sellerRuntime, /function ensureStyles/)
   assert.doesNotMatch(sellerRuntime, /ensureStyles\(\)/)
   assert.doesNotMatch(sellerRuntime, /document\.createElement\('style'\)/)
+  assert.doesNotMatch(sellerMessageEngine, /function ensureStyles/)
+  assert.doesNotMatch(sellerMessageEngine, /ensureStyles\(\)/)
+  assert.doesNotMatch(sellerMessageEngine, /documentRef\.createElement\('style'\)/)
 })
 
 test('classes UX8 novas existem e as antigas yolen-seller-message-* (CSS, não data-attributes) não sobraram', () => {
@@ -146,31 +162,30 @@ test('classes UX8 novas existem e as antigas yolen-seller-message-* (CSS, não d
     sellerRuntime,
     /class="yolen-seller-message-/,
   )
+  assert.doesNotMatch(
+    sellerMessageEngine,
+    /class="yolen-seller-message-/,
+  )
 })
 
 test('contador de caracteres existe e é atualizado fora do ciclo de re-render (preserva foco/cursor)', () => {
   assert.match(
-    sellerRuntime,
+    sellerMessageEngine,
     /data-yolen-seller-message-counter/,
   )
   assert.match(
-    sellerRuntime,
+    sellerMessageEngine,
     /INTENT_MAX_LENGTH/,
   )
 
-  const inputListenerStart = sellerRuntime.indexOf(
-    "document.addEventListener(\n    'input',",
-  )
-  const inputListenerEnd = sellerRuntime.indexOf(
-    "document.addEventListener(\n    'click',",
-    inputListenerStart,
-  )
-  const inputListenerBlock = sellerRuntime.slice(
-    inputListenerStart,
-    inputListenerEnd,
+  const inputListenerMatch = sellerMessageEngine.match(
+    /documentRef\.addEventListener\(\s*'input',[\s\S]*?(?=documentRef\.addEventListener\(\s*'click',)/,
   )
 
-  assert.notEqual(inputListenerStart, -1)
+  assert.ok(inputListenerMatch, 'listener de input não encontrado no engine')
+
+  const inputListenerBlock = inputListenerMatch[0]
+
   assert.match(
     inputListenerBlock,
     /data-yolen-seller-message-counter/,
@@ -199,17 +214,17 @@ test('a barra de abas usa grid de 4 colunas — achado da inspeção visual dest
 
 test('presets continuam vindo da orientação contextual (getPresets), com estado ativo calculado, não strings fixas', () => {
   assert.doesNotMatch(
-    sellerRuntime,
+    sellerMessageEngine,
     /'Responder ao ponto principal'|'Confirmar próximos passos'|'Pedir mais contexto'/,
   )
-  assert.match(sellerRuntime, /function getPresets\(/)
-  assert.match(sellerRuntime, /shortPresetLabel\(/)
+  assert.match(sellerMessageEngine, /function getPresets\(/)
+  assert.match(sellerMessageEngine, /shortPresetLabel\(/)
   assert.match(
-    sellerRuntime,
+    sellerMessageEngine,
     /yolen-message-preset--active/,
   )
   assert.match(
-    sellerRuntime,
+    sellerMessageEngine,
     /preset\.trim\(\) === trimmedIntent/,
   )
 })

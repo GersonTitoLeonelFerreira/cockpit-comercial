@@ -95,24 +95,6 @@ function buildAgoraViewModel(overrides = {}) {
   }
 }
 
-function readyGuidance(nextStep, overrides = {}) {
-  return {
-    status: 'ready',
-    method_name: 'Consultivo',
-    method_config_version_id: 'method-1',
-    stage_key: 'discovery',
-    stage_name: 'Descoberta',
-    stage_reason: null,
-    next_step: nextStep,
-    seller_intents: [],
-    error: null,
-    error_code: null,
-    status_code: null,
-    retryable: null,
-    ...overrides,
-  }
-}
-
 const readyAnalysisViewModel = sellerInfoView.buildAnalysisViewModelFromReading(buildReading())
 const readyCustomerViewModel = sellerInfoView.buildCustomerViewModelFromReading(buildReading())
 
@@ -124,7 +106,7 @@ test('1) lead resolvido + view models carregando: nenhuma área fica vazia', () 
   const agora = workspaceView.renderAgoraAreaHtml({ snapshotHtml: '', leadSummary: null })
   const analysis = workspaceView.renderAnalysisAreaHtml({})
   const client = workspaceView.renderClientAreaHtml({ commercialHtml: '', relationshipHtml: '' })
-  const message = workspaceView.renderMessageAreaHtml({ methodGuidance: null })
+  const message = workspaceView.renderMessageAreaHtml({ eligible: false })
 
   for (const html of [agora, analysis, client, message]) {
     assert.ok(html && html.trim().length > 0, 'nenhuma área pode devolver string vazia')
@@ -180,28 +162,30 @@ test('4) AGORA com sinal: snapshot aparece; sem lead summary na plataforma, most
 })
 
 // -----------------------------------------------------------------------
-// 5) MENSAGEM disponível.
+// 5) MENSAGEM elegível: MENSAGEM não é o "próximo passo"/methodGuidance
+//    (isso pertence ao card de resumo do lead, em AGORA) — é o MOUNT do
+//    seller message engine (companion-seller-message-engine.js), que
+//    renderiza o composer real dentro dele depois. Esta função só decide
+//    se o mount aparece.
 // -----------------------------------------------------------------------
-test('5) MENSAGEM disponível: mostra o próximo passo dentro do card canônico', () => {
-  const html = workspaceView.renderMessageAreaHtml({
-    methodGuidance: readyGuidance('Pergunte sobre o orçamento disponível.'),
-  })
+test('5) MENSAGEM elegível: expõe o mount do seller message engine, nunca methodGuidance/próximo passo', () => {
+  const html = workspaceView.renderMessageAreaHtml({ eligible: true })
 
-  assert.match(html, /yolen-card yolen-seller-area-card/)
-  assert.match(html, /Pergunte sobre o orçamento disponível\./)
+  assert.match(html, /data-yolen-seller-message-workspace/)
+  assert.match(html, /data-yolen-seller-message-mount/)
+  assert.doesNotMatch(html, /yolen-seller-empty-state/)
 })
 
 // -----------------------------------------------------------------------
-// 6) MENSAGEM indisponível.
+// 6) MENSAGEM inelegível.
 // -----------------------------------------------------------------------
-test('6) MENSAGEM indisponível: mostra o estado vazio honesto, nunca um retângulo preto', () => {
-  const withoutGuidance = workspaceView.renderMessageAreaHtml({ methodGuidance: null })
-  const noSummaryYet = workspaceView.renderMessageAreaHtml({ methodGuidance: { status: 'no_summary' } })
+test('6) MENSAGEM inelegível: mostra o estado vazio honesto, nunca um retângulo preto nem o mount', () => {
+  const html = workspaceView.renderMessageAreaHtml({ eligible: false })
 
-  for (const html of [withoutGuidance, noSummaryYet]) {
-    assert.match(html, /data-yolen-message-empty/)
-    assert.ok(html.trim().length > 0)
-  }
+  assert.match(html, /data-yolen-seller-message-workspace/)
+  assert.match(html, /A geração de mensagem fica disponível quando esta conversa possui um contexto comercial válido na Yolen\./)
+  assert.doesNotMatch(html, /data-yolen-seller-message-mount/)
+  assert.ok(html.trim().length > 0)
 })
 
 // -----------------------------------------------------------------------
@@ -368,4 +352,14 @@ test('paridade cross-platform: CLIENTE sem dados produz o MESMO estado vazio par
   const manychatHtml = workspaceView.renderClientAreaHtml({ commercialHtml: '', relationshipHtml: '' })
 
   assert.equal(whatsappHtml, manychatHtml)
+})
+
+test('paridade cross-platform: MENSAGEM elegível/inelegível produz o MESMO mount/estado vazio para os dois presenters', () => {
+  const whatsappEligible = workspaceView.renderMessageAreaHtml({ eligible: true })
+  const manychatEligible = workspaceView.renderMessageAreaHtml({ eligible: true })
+  assert.equal(whatsappEligible, manychatEligible)
+
+  const whatsappIneligible = workspaceView.renderMessageAreaHtml({ eligible: false })
+  const manychatIneligible = workspaceView.renderMessageAreaHtml({ eligible: false })
+  assert.equal(whatsappIneligible, manychatIneligible)
 })

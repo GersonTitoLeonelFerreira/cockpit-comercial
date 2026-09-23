@@ -333,6 +333,12 @@
         getCycleId(conversationKey) {
           return runtime.getConversationState(conversationKey)?.resolution?.cycle_id ?? null
         },
+        // STEP 2B.5-D1 (Blocker D, Lead Enrichment): ledger de mensagens
+        // já observadas nesta conversa (ver manychat-capture-runtime.js)
+        // — a ÚNICA fonte de texto que
+        // companion-lead-enrichment-controller.js#extractCandidatesFromMessages
+        // usa no ManyChat, nunca uma segunda leitura de DOM.
+        getEnrichmentLedgerMessages: runtime.getEnrichmentLedgerMessages,
       })
     : null
 
@@ -354,10 +360,99 @@
       const conversationKey = getCurrentConversationKey()
       if (!conversationKey) return
 
-      if (target.closest('[data-yolen-apply-suggestion]')) {
-        sellerPanelRuntime.applySuggestedMessage(conversationKey)
+      // STEP 2B.5-D1 (Blocker A): "Tentar novamente" do card de resumo do
+      // lead (companion-lead-summary-view.js#renderErrorState,
+      // data-yolen-action="refresh") — recarrega o resumo (e, com ele, a
+      // orientação de método e o contexto do composer da MENSAGEM).
+      if (
+        target.closest('[data-yolen-action="refresh"]') &&
+        typeof sellerPanelRuntime.retryLeadSummary === 'function'
+      ) {
+        void sellerPanelRuntime.retryLeadSummary(conversationKey)
         return
       }
+
+      // STEP 2B.5-D1 (Blocker A): "Salvar resumo na Yolen"
+      // (companion-lead-summary-view.js#renderReadyState,
+      // data-yolen-action="save-lead-summary") — lê o mesmo hidden input
+      // que o WhatsApp usa ([data-yolen-textarea="lead-summary"]) e
+      // delega o compare-and-set ao runtime, nunca decidido aqui.
+      if (
+        target.closest('[data-yolen-action="save-lead-summary"]') &&
+        typeof sellerPanelRuntime.saveLeadSummary === 'function'
+      ) {
+        const summaryInput = root.document.querySelector('[data-yolen-textarea="lead-summary"]')
+        const summaryText = summaryInput ? summaryInput.value : ''
+        void sellerPanelRuntime.saveLeadSummary(conversationKey, summaryText)
+        return
+      }
+
+      // STEP 2B.5-D1 (Blocker D): registro de conversa (histórico do
+      // lead) — as MESMAS três ações que o card compartilhado
+      // (companion-seller-workspace-view.js#renderConversationRegistrationCardHtml)
+      // já produz para o WhatsApp, delegadas ao runtime (que usa o MESMO
+      // controlador compartilhado — companion-conversation-registration-
+      // controller.js).
+      if (
+        target.closest('[data-yolen-action="register-conversation"]') &&
+        typeof sellerPanelRuntime.registerConversation === 'function'
+      ) {
+        void sellerPanelRuntime.registerConversation(conversationKey)
+        return
+      }
+
+      if (
+        target.closest('[data-yolen-action="confirm-conversation-registration"]') &&
+        typeof sellerPanelRuntime.confirmConversationRegistration === 'function'
+      ) {
+        void sellerPanelRuntime.confirmConversationRegistration(conversationKey)
+        return
+      }
+
+      if (
+        target.closest('[data-yolen-action="cancel-conversation-registration"]') &&
+        typeof sellerPanelRuntime.cancelConversationRegistration === 'function'
+      ) {
+        sellerPanelRuntime.cancelConversationRegistration(conversationKey)
+        return
+      }
+
+      // STEP 2B.5-D1 (Blocker D, Lead Enrichment): confirmar/ignorar um
+      // candidato de cadastro — MESMOS data-attributes que o card
+      // compartilhado (companion-seller-workspace-view.js#
+      // renderLeadEnrichmentCandidatesHtml) já produz para o WhatsApp,
+      // delegados ao runtime (que usa o MESMO controlador compartilhado
+      // — companion-lead-enrichment-controller.js).
+      const enrichmentActionTarget = target.closest('[data-yolen-enrichment-key]')
+      if (enrichmentActionTarget) {
+        const candidateKey = enrichmentActionTarget.getAttribute('data-yolen-enrichment-key')
+
+        if (
+          target.closest('[data-yolen-action="confirm-lead-enrichment"]') &&
+          typeof sellerPanelRuntime.confirmLeadEnrichment === 'function'
+        ) {
+          void sellerPanelRuntime.confirmLeadEnrichment(conversationKey, candidateKey)
+          return
+        }
+
+        if (
+          target.closest('[data-yolen-action="ignore-lead-enrichment"]') &&
+          typeof sellerPanelRuntime.ignoreLeadEnrichment === 'function'
+        ) {
+          sellerPanelRuntime.ignoreLeadEnrichment(conversationKey, candidateKey)
+          return
+        }
+      }
+
+      // STEP 2B.5-D1 — "FECHAR PARIDADE REAL DO COMPANION" (Blocker B):
+      // o antigo caminho de suggested_message/applySuggestedMessage foi
+      // removido — a aba MENSAGEM agora é o seller message engine
+      // compartilhado (companion-seller-message-engine.js), cujo próprio
+      // event delegation (attachEventDelegation, anexado uma única vez na
+      // criação do engine) já trata os cliques em
+      // [data-yolen-seller-message-action="generate"/"insert"/"copy"] e
+      // [data-yolen-seller-message-preset] — nunca um segundo listener
+      // aqui para essas ações.
 
       // STEP 2B.5-D — "ANÁLISE — PARIDADE OBRIGATÓRIA": ação explícita de
       // reanálise, reaproveitando a MESMA action já usada pela análise

@@ -1021,7 +1021,7 @@ test('CONTACT_NOT_LINKED escreve diretamente o texto de status honesto — nunca
   )
 })
 
-test('clique em elemento sem nenhum data-attribute reconhecido não chama sellerPanelRuntime.applySuggestedMessage', () => {
+test('clique em elemento sem nenhum data-attribute reconhecido não chama sellerPanelRuntime.retryMethodGuidance', () => {
   const calls = []
   let receivedOptions = null
   const fakeDocument = createFakeDocument()
@@ -1047,8 +1047,8 @@ test('clique em elemento sem nenhum data-attribute reconhecido não chama seller
     YolenManyChatSellerPanelRuntime: {
       createManyChatSellerPanelRuntime() {
         return {
-          applySuggestedMessage(conversationKey) {
-            calls.push(['applySuggestedMessage', conversationKey])
+          retryMethodGuidance(conversationKey) {
+            calls.push(['retryMethodGuidance', conversationKey])
           },
         }
       },
@@ -1102,8 +1102,8 @@ test('G: um capture_result desatualizado de A nunca muda qual conversa a delega�
       createManyChatSellerPanelRuntime() {
         return {
           renderPanel() {},
-          applySuggestedMessage(conversationKey) {
-            calls.push(['applySuggestedMessage', conversationKey])
+          retryMethodGuidance(conversationKey) {
+            calls.push(['retryMethodGuidance', conversationKey])
           },
         }
       },
@@ -1123,9 +1123,9 @@ test('G: um capture_result desatualizado de A nunca muda qual conversa a delega�
   // conseguir mudar o que a UI considera "a conversa atual".
   receivedOptions.onEvent({ type: 'capture_result', result: { conversation_key: 'conv-a' } })
 
-  fakeDocument.click(createFakeElement({ '[data-yolen-apply-suggestion]': true }))
+  fakeDocument.click(createFakeElement({ '[data-yolen-action="retry-method-guidance"]': true }))
 
-  assert.deepEqual(calls, [['applySuggestedMessage', 'conv-b']])
+  assert.deepEqual(calls, [['retryMethodGuidance', 'conv-b']])
 })
 
 test('H: capture_result(A) chegando depois da troca real para B nunca dispara render seller-facing de A sobre B', () => {

@@ -30,10 +30,29 @@ test('UX7 dá responsabilidade única para AGORA ANÁLISE CLIENTE', () => {
   )
   assert.match(block, /const analysisHtml =\s*getDetailedAnalysisAreaHtml\(\)/)
   assert.match(block, /getClientInformationAreaHtml\(\)/)
-  assert.match(block, /getConversationRegistrationCardHtml\(\)/)
-  assert.match(block, /getLeadEnrichmentCandidatesHtml\(\)/)
   assert.doesNotMatch(block, /getAnalysisCardHtml\(\)/)
   assert.match(block, /data-yolen-ux-build="UX7"/)
+
+  // STEP 2B.5-D1 (Blocker D): registro de conversa e candidatos de
+  // enriquecimento não são mais concatenados aqui (fora do shared
+  // renderer) — viraram composição do PRÓPRIO renderClientAreaHtml, via
+  // getClientInformationAreaHtml(). Quem decide ordem/composição da área
+  // CLIENTE é sempre o Companion compartilhado, nunca este ponto de
+  // chamada.
+  assert.doesNotMatch(block, /getConversationRegistrationCardHtml\(\)/)
+  assert.doesNotMatch(block, /getLeadEnrichmentCandidatesHtml\(\)/)
+
+  const clientAreaStart = contentScript.indexOf(
+    'function getClientInformationAreaHtml()',
+  )
+  const clientAreaEnd = contentScript.indexOf(
+    'function getNowAttentionSnapshotHtml',
+    clientAreaStart,
+  )
+  const clientAreaBlock = contentScript.slice(clientAreaStart, clientAreaEnd)
+
+  assert.match(clientAreaBlock, /registrationHtml: getConversationRegistrationCardHtml\(\)/)
+  assert.match(clientAreaBlock, /enrichmentHtml: getLeadEnrichmentCandidatesHtml\(\)/)
 })
 
 // FASE 16.5 (recalibração seller-facing do AGORA): getNowAttentionSnapshotHtml
@@ -543,8 +562,10 @@ test('AGORA não é escondido, e o composer contextual pertence exclusivamente �
   assert.doesNotMatch(summaryView, /data-yolen-seller-message-mount/)
   assert.match(summaryView, /data-yolen-textarea="lead-summary"/)
 
-  // O único mount agora nasce em getSellerMessageAreaHtml()
-  // (content-script.js), dentro da 4ª superfície ('message').
+  // STEP 2B.5-D1: getSellerMessageAreaHtml() (content-script.js) delega ao
+  // renderer compartilhado (companion-seller-workspace-view.js#renderMessageAreaHtml)
+  // — o MESMO que o ManyChat usa, nunca uma segunda composição local. O
+  // mount em si nasce lá, dentro da 4ª superfície ('message').
   assert.match(
     contentScript,
     /function getSellerMessageAreaHtml\(\)/,
@@ -564,6 +585,11 @@ test('AGORA não é escondido, e o composer contextual pertence exclusivamente �
 
   assert.match(
     messageAreaBlock,
+    /sellerWorkspaceViewTools\.renderMessageAreaHtml/,
+  )
+
+  assert.match(
+    sharedWorkspaceView,
     /data-yolen-seller-message-mount/,
   )
 

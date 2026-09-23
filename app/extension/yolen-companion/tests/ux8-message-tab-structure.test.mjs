@@ -15,10 +15,11 @@ import test from 'node:test'
 const require = createRequire(import.meta.url)
 const workspaceRuntime = require('../src/companion-workspace-runtime.js')
 
-const [contentScript, workspaceRuntimeSource, summaryView] = await Promise.all([
+const [contentScript, workspaceRuntimeSource, summaryView, sharedWorkspaceView] = await Promise.all([
   readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/companion-workspace-runtime.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/companion-lead-summary-view.js', 'utf8'),
+  readFile('app/extension/yolen-companion/src/companion-seller-workspace-view.js', 'utf8'),
 ])
 
 // STEP 2B.5-A: SELLER_AREAS/setActiveSellerArea/handleSellerAreaKeyboard/
@@ -157,15 +158,25 @@ test('existe a superfície message (tabpanel próprio) dentro de getSellerInform
   }
 })
 
-test('existe exatamente um mount seller-facing em todo o content-script.js, dentro de getSellerMessageAreaHtml()', () => {
-  const allMountOccurrences = contentScript.match(
+test('existe exatamente um mount seller-facing em todo o Companion, dentro do renderer compartilhado', () => {
+  // STEP 2B.5-D1: getSellerMessageAreaHtml() (content-script.js) delega ao
+  // renderer compartilhado (companion-seller-workspace-view.js#renderMessageAreaHtml,
+  // usado também pelo ManyChat) — nunca uma segunda declaração local do
+  // mount em content-script.js.
+  assert.equal(
+    (contentScript.match(/data-yolen-seller-message-mount/g) ?? []).length,
+    0,
+    'content-script.js não declara mais o mount localmente — delega ao renderer compartilhado',
+  )
+
+  const allMountOccurrences = sharedWorkspaceView.match(
     /data-yolen-seller-message-mount/g,
   )
 
   assert.equal(
     allMountOccurrences?.length,
     1,
-    'content-script.js só pode declarar o mount uma única vez',
+    'companion-seller-workspace-view.js só pode declarar o mount uma única vez',
   )
 
   const messageAreaStart = contentScript.indexOf(
@@ -182,7 +193,7 @@ test('existe exatamente um mount seller-facing em todo o content-script.js, dent
 
   assert.match(
     messageAreaBlock,
-    /data-yolen-seller-message-mount/,
+    /sellerWorkspaceViewTools\.renderMessageAreaHtml/,
   )
 })
 

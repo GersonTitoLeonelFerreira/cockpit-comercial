@@ -2,9 +2,14 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-const sellerRuntime = readFileSync(
+// STEP 2B.5-D1: getPresets() foi extraído de seller-message-runtime.js
+// para o engine compartilhado companion-seller-message-engine.js (usado
+// tanto por WhatsApp quanto por ManyChat) — a asserção passou a checar o
+// arquivo onde a função realmente mora agora, preservando a MESMA
+// garantia semântica de antes.
+const sellerMessageEngine = readFileSync(
   new URL(
-    '../src/seller-message-runtime.js',
+    '../src/companion-seller-message-engine.js',
     import.meta.url,
   ),
   'utf8',
@@ -19,14 +24,14 @@ const guidanceRuntime = readFileSync(
 )
 
 test('atalhos priorizam seller_intents contextuais e limitam a três opções', () => {
-  const start = sellerRuntime.indexOf(
+  const start = sellerMessageEngine.indexOf(
     'function getPresets(guidance)',
   )
-  const end = sellerRuntime.indexOf(
+  const end = sellerMessageEngine.indexOf(
     'function shortPresetLabel',
     start,
   )
-  const block = sellerRuntime.slice(start, end)
+  const block = sellerMessageEngine.slice(start, end)
 
   assert.notEqual(start, -1)
   assert.match(block, /guidance\?\.seller_intents/)

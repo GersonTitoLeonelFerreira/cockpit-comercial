@@ -13,6 +13,20 @@ const contentScript =
     'utf8',
   )
 
+// STEP 2B.5-D1 (Blocker D): a APRESENTAÇÃO dos candidatos (markup dos
+// botões/labels/nota final) foi extraída para o renderer compartilhado
+// com o ManyChat (companion-seller-workspace-view.js) — o WhatsApp
+// continua dono de QUAIS candidatos existem e da regra de confirmação
+// humana, em content-script.js.
+const sellerWorkspaceView =
+  readFileSync(
+    new URL(
+      '../src/companion-seller-workspace-view.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 const {
   CONTRACT_VERSION,
   extractLeadEnrichmentCandidates,
@@ -649,17 +663,17 @@ test('B2 integra candidatos reais no painel com confirmação humana explícita'
   )
 
   assert.match(
-    integrationBlock,
+    sellerWorkspaceView,
     /O cadastro só muda depois que você confirmar\./,
   )
 
   assert.match(
-    integrationBlock,
+    sellerWorkspaceView,
     /data-yolen-action="confirm-lead-enrichment"/,
   )
 
   assert.match(
-    integrationBlock,
+    sellerWorkspaceView,
     /data-yolen-action="ignore-lead-enrichment"/,
   )
 
@@ -736,7 +750,7 @@ test('B2 enriquecimento usa ledger completo e não a janela comercial', () => {
 
   const end =
     contentScript.indexOf(
-      'function getLeadEnrichmentFieldLabel',
+      'function getLeadEnrichmentCandidateKey',
       start,
     )
 

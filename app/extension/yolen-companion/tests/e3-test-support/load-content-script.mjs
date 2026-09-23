@@ -211,7 +211,13 @@ export function defaultAgoraDecisionState(overrides = {}) {
   }
 }
 
-function createFakeBackground({
+// STEP 2B.5-D1 — exportado para os testes de integração cross-channel
+// (tests/companion-cross-channel-integration.test.mjs): a MESMA fábrica de
+// backend fake usada aqui para WhatsApp alimenta também o harness do
+// ManyChat, garantindo que os dois canais recebem exatamente o MESMO
+// fixture/contrato de rede — nunca dois fakes de backend divergentes por
+// plataforma.
+export function createFakeBackground({
   resolutionsByPhone = {},
   clientContextResult,
   decisionStateResult,
@@ -225,11 +231,17 @@ function createFakeBackground({
   getMeResult,
   methodGuidanceResult,
   messageGenerationResult,
+  previewConversationRegistrationResult,
+  confirmConversationRegistrationResult,
+  leadEnrichmentContextResult,
+  applyLeadEnrichmentResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
   let loadDecisionStateCallCount = 0
   let loadLeadSummaryCallCount = 0
+  let previewConversationRegistrationCallCount = 0
+  let loadLeadEnrichmentContextCallCount = 0
 
   let getMeCallCount = 0
 
@@ -487,6 +499,85 @@ function createFakeBackground({
         payload,
       }
     },
+    // STEP 2B.5-D1 (Blocker D) — mesmo padrão function-per-call de
+    // clientContextResult/decisionStateResult: usado pelos testes de
+    // integração cross-channel para simular a prévia mudando entre
+    // chamadas (ex.: "Gerar novamente" depois de um erro).
+    PREVIEW_CONVERSATION_REGISTRATION: async (requestPayload) => {
+      previewConversationRegistrationCallCount += 1
+
+      const payload = await (
+        typeof previewConversationRegistrationResult === 'function'
+          ? previewConversationRegistrationResult(previewConversationRegistrationCallCount, requestPayload)
+          : (previewConversationRegistrationResult ?? {
+              ok: false,
+              error: 'Prévia de registro de conversa não configurada neste cenário de teste.',
+            })
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 500 : 200,
+        payload,
+      }
+    },
+    CONFIRM_CONVERSATION_REGISTRATION: async (requestPayload) => {
+      const payload = await (
+        typeof confirmConversationRegistrationResult === 'function'
+          ? confirmConversationRegistrationResult(requestPayload)
+          : (confirmConversationRegistrationResult ?? {
+              ok: false,
+              error: 'Confirmação de registro de conversa não configurada neste cenário de teste.',
+            })
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 409 : 200,
+        payload,
+      }
+    },
+    // STEP 2B.5-D1 (Blocker D, Lead Enrichment) — MESMO padrão
+    // function-per-call de previewConversationRegistrationResult: usado
+    // pelos testes de integração cross-channel para simular o contexto de
+    // cadastro (lead_id/current_values/phone_registered/phone_matches)
+    // que só o ManyChat consulta via companion-lead-enrichment-controller.js
+    // (o WhatsApp deriva tudo em memória a partir de resolutionsByPhone,
+    // nunca chama esta action).
+    LOAD_LEAD_ENRICHMENT_CONTEXT: async (requestPayload) => {
+      loadLeadEnrichmentContextCallCount += 1
+
+      const payload = await (
+        typeof leadEnrichmentContextResult === 'function'
+          ? leadEnrichmentContextResult(loadLeadEnrichmentContextCallCount, requestPayload)
+          : (leadEnrichmentContextResult ?? {
+              ok: false,
+              error: 'Contexto de cadastro não configurado neste cenário de teste.',
+            })
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 500 : 200,
+        payload,
+      }
+    },
+    APPLY_LEAD_ENRICHMENT: async (requestPayload) => {
+      const payload = await (
+        typeof applyLeadEnrichmentResult === 'function'
+          ? applyLeadEnrichmentResult(requestPayload)
+          : (applyLeadEnrichmentResult ?? {
+              ok: false,
+              error: 'Aplicação de cadastro não configurada neste cenário de teste.',
+            })
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 409 : 200,
+        payload,
+      }
+    },
   }
 
   const sendMessage = async (message) => {
@@ -520,6 +611,7 @@ const STABILITY_RUNTIME_FILES = [
 // estática do painel seria exercitada.
 const SELLER_MESSAGE_RUNTIME_FILES = [
   'lead-method-guidance-runtime.js',
+  'companion-seller-message-engine.js',
   'seller-message-runtime.js',
 ]
 
@@ -640,6 +732,10 @@ export function loadContentScript({
   getMeResult,
   methodGuidanceResult,
   messageGenerationResult,
+  previewConversationRegistrationResult,
+  confirmConversationRegistrationResult,
+  leadEnrichmentContextResult,
+  applyLeadEnrichmentResult,
   withStabilityRuntimes = false,
   withSellerMessageRuntime = false,
   withLeadResolutionCache = false,
@@ -660,6 +756,10 @@ export function loadContentScript({
     getMeResult,
     methodGuidanceResult,
     messageGenerationResult,
+    previewConversationRegistrationResult,
+    confirmConversationRegistrationResult,
+    leadEnrichmentContextResult,
+    applyLeadEnrichmentResult,
   })
 
   const fakeChrome = {
@@ -816,6 +916,22 @@ export function leadSummaryCalls(calls) {
 
 export function saveLeadSummaryCalls(calls) {
   return calls.filter((call) => call.action === 'SAVE_LEAD_SUMMARY')
+}
+
+export function previewConversationRegistrationCalls(calls) {
+  return calls.filter((call) => call.action === 'PREVIEW_CONVERSATION_REGISTRATION')
+}
+
+export function confirmConversationRegistrationCalls(calls) {
+  return calls.filter((call) => call.action === 'CONFIRM_CONVERSATION_REGISTRATION')
+}
+
+export function leadEnrichmentContextCalls(calls) {
+  return calls.filter((call) => call.action === 'LOAD_LEAD_ENRICHMENT_CONTEXT')
+}
+
+export function applyLeadEnrichmentCalls(calls) {
+  return calls.filter((call) => call.action === 'APPLY_LEAD_ENRICHMENT')
 }
 
 export function analysisCalls(calls) {

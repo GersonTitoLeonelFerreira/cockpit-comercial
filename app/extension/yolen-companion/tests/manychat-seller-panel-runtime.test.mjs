@@ -8,6 +8,11 @@ require('../src/companion-client-context-view.js')
 require('../src/companion-lead-summary-view.js')
 require('../src/companion-seller-information-view.js')
 require('../src/companion-seller-workspace-view.js')
+require('../src/companion-lead-summary-controller.js')
+require('../src/companion-seller-message-engine.js')
+require('../src/companion-conversation-registration-controller.js')
+require('../src/lead-enrichment.js')
+require('../src/companion-lead-enrichment-controller.js')
 const runtimeApi = require('../src/manychat-seller-panel-runtime.js')
 
 function createQueuedSender(responders) {
@@ -62,17 +67,6 @@ function createFakePanelMount() {
   }
 }
 
-function createFakeComposer(applyResult = { applied: true, reason: null }) {
-  const calls = []
-  return {
-    calls,
-    applyManyChatComposerSuggestion(options) {
-      calls.push(options)
-      return applyResult
-    },
-  }
-}
-
 function createFakeScheduler() {
   const pending = []
   return {
@@ -121,12 +115,17 @@ async function waitUntil(conditionFn, { attempts = 50 } = {}) {
   throw new Error('[teste] condição não satisfeita a tempo')
 }
 
-test('refreshViewModels chama os 5 view models em paralelo com {cycle_id, conversation_key} e renderiza', async () => {
+test('refreshViewModels chama os 6 view models (incluindo LOAD_LEAD_SUMMARY + LOAD_METHOD_GUIDANCE) e renderiza', async () => {
   const fake = createQueuedSender([
     loadOk({ relationship: 'ok' }),
     loadOk({ primary: null, secondary: [] }),
     loadOk({ available: false }),
     loadOk({ available: false }),
+    // STEP 2B.5-D1 (Blocker A): LOAD_LEAD_SUMMARY devolve o MESMO shape
+    // que o WhatsApp já consome (working_summary/summary) — a orientação
+    // de método (LOAD_METHOD_GUIDANCE) só é buscada DEPOIS, com o
+    // working_summary já resolvido.
+    loadOk({ working_summary: 'Cliente perguntou sobre horários.', summary: null }),
     // STEP 2B.5-D: LOAD_METHOD_GUIDANCE devolve o MESMO shape que
     // app/api/companion/method-guidance/route.ts sempre produziu
     // (status/method_name/stage_name/next_step/error) — nunca um
@@ -145,7 +144,7 @@ test('refreshViewModels chama os 5 view models em paralelo com {cycle_id, conver
 
   await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
 
-  assert.equal(fake.calls.length, 5)
+  assert.equal(fake.calls.length, 6)
   const actions = fake.calls.map((call) => call.action)
   assert.deepEqual(
     [...actions].sort(),
@@ -154,6 +153,7 @@ test('refreshViewModels chama os 5 view models em paralelo com {cycle_id, conver
       'LOAD_CLIENT_CONTEXT',
       'LOAD_CUSTOMER_VIEW_MODEL',
       'LOAD_DECISION_STATE',
+      'LOAD_LEAD_SUMMARY',
       'LOAD_METHOD_GUIDANCE',
     ].sort(),
   )
@@ -163,12 +163,13 @@ test('refreshViewModels chama os 5 view models em paralelo com {cycle_id, conver
     assert.equal(call.payload.conversation_key, 'conv-1')
   }
 
-  assert.equal(panelMount.contents.length, 1)
-  assert.ok(panelMount.contents[0].includes('Posso te explicar as opções.'))
+  const html = panelMount.contents.at(-1)
+  assert.ok(html.includes('Posso te explicar as opções.'), 'a orientação aparece dentro do card de resumo (AGORA)')
 
   const state = runtime.getConversationPanelState('conv-1')
   assert.equal(state.clientContext.status, 'ready')
-  assert.equal(state.methodGuidance.data.next_step, 'Posso te explicar as opções.')
+  assert.equal(state.leadSummary.status, 'ready')
+  assert.equal(state.leadSummary.data.method_guidance.next_step, 'Posso te explicar as opções.')
 })
 
 test('refreshViewModels sem cycle_id/conversation_key não chama nada', async () => {
@@ -251,6 +252,150 @@ test('polling de status refaz os view models quando a análise termina com suces
   assert.equal(state.analyzing, false)
 })
 
+// -----------------------------------------------------------------------
+// STEP 2B.5-D1 — "FECHAR PARIDADE REAL DO COMPANION" (Blocker C): failed,
+// superseded, timeout e falha ao disparar a análise nunca podem colapsar
+// silenciosamente em "vazio progressivo" — cada um vira um analysisError
+// visível (com retry), e cada terminal chama renderPanel() (o código
+// anterior a esta correção deixava failed/superseded sem nenhum render).
+// -----------------------------------------------------------------------
+
+test('polling de status: failed vira analysisError visível com retry, e chama renderPanel', async () => {
+  const fake = createQueuedSender([
+    { ok: true, payload: { data: { analysis_job_id: 'job-1' } } },
+    { ok: true, payload: { data: { status: 'failed' } } },
+  ])
+  const scheduler = createFakeScheduler()
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  await runtime.requestAnalysis({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+  await scheduler.flushOne() // poll: failed
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.analyzing, false)
+  assert.equal(state.analysisError, 'Não foi possível concluir a leitura comercial da Yolen. Tente novamente.')
+
+  const html = panelMount.contents.at(-1)
+  assert.match(html, /data-yolen-analysis-error/)
+  assert.match(html, /Não foi possível concluir a leitura comercial da Yolen\. Tente novamente\./)
+  assert.match(html, /Tentar novamente/)
+})
+
+test('polling de status: superseded vira analysisError visível (texto próprio, distinto de failed)', async () => {
+  const fake = createQueuedSender([
+    { ok: true, payload: { data: { analysis_job_id: 'job-1' } } },
+    { ok: true, payload: { data: { status: 'superseded' } } },
+  ])
+  const scheduler = createFakeScheduler()
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  await runtime.requestAnalysis({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+  await scheduler.flushOne() // poll: superseded
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.analysisError, 'A conversa mudou durante a análise. Tente novamente.')
+
+  const html = panelMount.contents.at(-1)
+  assert.match(html, /A conversa mudou durante a análise\. Tente novamente\./)
+})
+
+test('polling de status: timeout total vira analysisError visível e para de tentar', async () => {
+  let currentTime = 0
+  const fake = createQueuedSender([
+    { ok: true, payload: { data: { analysis_job_id: 'job-1' } } },
+  ])
+  const scheduler = createFakeScheduler()
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+    now: () => currentTime,
+  })
+
+  await runtime.requestAnalysis({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+
+  // Avança o relógio além do timeout total antes do próximo tick do poll.
+  currentTime = runtimeApi.ANALYSIS_POLL_TIMEOUT_MS + 1
+  await scheduler.flushOne()
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.analyzing, false)
+  assert.equal(state.analysisError, 'A análise demorou mais que o esperado. Tente novamente.')
+  assert.equal(fake.calls.length, 1, 'timeout nunca chega a consultar GET_ANALYSIS_JOB_STATUS de novo')
+
+  const html = panelMount.contents.at(-1)
+  assert.match(html, /A análise demorou mais que o esperado\. Tente novamente\./)
+})
+
+test('requestAnalysis: falha ao disparar ANALYZE_CONVERSATION (rede/servidor) vira analysisError visível', async () => {
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: async () => {
+      throw new Error('falha de rede')
+    },
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  await runtime.requestAnalysis({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.analyzing, false)
+  assert.equal(state.analysisError, 'Não foi possível iniciar a análise agora. Tente novamente.')
+
+  const html = panelMount.contents.at(-1)
+  assert.match(html, /Não foi possível iniciar a análise agora\. Tente novamente\./)
+})
+
+test('requestAnalysis: sucesso limpa um analysisError anterior', async () => {
+  const fake = createQueuedSender([
+    { ok: true, payload: { data: { analysis_job_id: 'job-1' } } },
+    { ok: true, payload: { data: { status: 'succeeded' } } },
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ working_summary: '', summary: null }),
+  ])
+  const scheduler = createFakeScheduler()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancel,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  const state = runtime.getConversationPanelState('conv-1')
+  state.analysisError = 'erro de uma tentativa anterior'
+
+  await runtime.requestAnalysis({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+  await scheduler.flushOne()
+
+  assert.equal(state.analysisError, null)
+})
+
 test('renderPanel bloqueia repaint stale quando refreshViewModels(A) conclui depois da troca real para B, e A repinta normalmente ao voltar', async () => {
   const fake = createDeferredSender()
   const panelMount = createFakePanelMount()
@@ -270,8 +415,13 @@ test('renderPanel bloqueia repaint stale quando refreshViewModels(A) conclui dep
   currentConversationKey = 'conv-b'
   runtime.renderPanel('conv-b')
 
-  assert.equal(panelMount.contents.length, 1, 'B ocupa o painel compartilhado')
-  const paintedForB = panelMount.contents[0]
+  // STEP 2B.5-D1: loadLeadSummary agora pinta imediatamente o estado
+  // "carregando" do resumo (paridade com o WhatsApp), então A pode já ter
+  // pintado 1x antes da troca — o que importa aqui é o DELTA a partir do
+  // momento em que B assume o painel, nunca um total absoluto.
+  const countAfterB = panelMount.contents.length
+  const paintedForB = panelMount.contents.at(-1)
+  assert.ok(countAfterB >= 1, 'B ocupa o painel compartilhado')
 
   // Libera as 5 respostas de A só DEPOIS da troca real para B.
   fake.pendingResolvers.forEach((resolve) => resolve(loadOk({ relationship: 'ok' })))
@@ -279,10 +429,10 @@ test('renderPanel bloqueia repaint stale quando refreshViewModels(A) conclui dep
 
   assert.equal(
     panelMount.contents.length,
-    1,
+    countAfterB,
     'refreshViewModels(A) concluindo depois da troca NUNCA repinta o painel compartilhado',
   )
-  assert.equal(panelMount.contents[0], paintedForB, 'o último conteúdo visível continua sendo o de B')
+  assert.equal(panelMount.contents.at(-1), paintedForB, 'o último conteúdo visível continua sendo o de B')
 
   const stateA = runtime.getConversationPanelState('conv-a')
   assert.equal(stateA.clientContext.status, 'ready', 'state[A] recebe os dados normalmente mesmo invisível')
@@ -291,7 +441,11 @@ test('renderPanel bloqueia repaint stale quando refreshViewModels(A) conclui dep
   currentConversationKey = 'conv-a'
   runtime.renderPanel('conv-a')
 
-  assert.equal(panelMount.contents.length, 2, 'A agora pode ser renderizado normalmente usando o state já carregado')
+  assert.equal(
+    panelMount.contents.length,
+    countAfterB + 1,
+    'A agora pode ser renderizado normalmente usando o state já carregado',
+  )
   assert.equal(fake.calls.length, 5, 'renderizar A de volta não refaz nenhuma requisição de rede')
 })
 
@@ -329,18 +483,21 @@ test('renderPanel bloqueia repaint stale quando pollJobStatus(A) conclui com suc
   currentConversationKey = 'conv-b'
   runtime.renderPanel('conv-b')
 
-  assert.equal(panelMount.contents.length, 1)
-  const paintedForB = panelMount.contents[0]
+  // STEP 2B.5-D1: loadLeadSummary já pode ter pintado o estado
+  // "carregando" de A antes da troca (paridade com o WhatsApp) — o delta
+  // a partir daqui é o que importa, nunca um total absoluto.
+  const countAfterB = panelMount.contents.length
+  const paintedForB = panelMount.contents.at(-1)
 
   fake.pendingResolvers.forEach((resolve) => resolve(loadOk({ relationship: 'ok' })))
   await flushPromise
 
   assert.equal(
     panelMount.contents.length,
-    1,
+    countAfterB,
     'refresh pós-análise de A concluindo depois da troca NUNCA repinta o painel compartilhado',
   )
-  assert.equal(panelMount.contents[0], paintedForB)
+  assert.equal(panelMount.contents.at(-1), paintedForB)
 
   const stateA = runtime.getConversationPanelState('conv-a')
   assert.equal(stateA.analyzing, false, 'state[A].analyzing conclui normalmente mesmo sem pintar')
@@ -545,51 +702,120 @@ test('STEP 2B.5-C2 — depois que a hydration já terminou, um novo capture_resu
   assert.equal(fake.calls.length, 5, 'nenhuma chamada nova — capture_result não repete a primeira carga')
 })
 
-test('applySuggestedMessage: sem sugestão carregada, recusa sem chamar o composer', async () => {
-  const composer = createFakeComposer()
-  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
-    sendMessage: async () => ({ ok: true, payload: {} }),
-    composerApi: composer,
-  })
+// -----------------------------------------------------------------------
+// STEP 2B.5-D1 — "FECHAR PARIDADE REAL DO COMPANION" (Blocker A/B): o
+// antigo suggested_message/applySuggestedMessage foi removido (era um
+// campo que LOAD_METHOD_GUIDANCE nunca teve de verdade). MENSAGEM agora é
+// o seller message engine compartilhado (companion-seller-message-
+// engine.js) — a interação de clique real (gerar/inserir/copiar) é
+// coberta pelos testes de integração cross-channel com jsdom (Blocker
+// B), que exercitam o DOM de verdade nos dois canais com o MESMO fixture.
+// Aqui (sem jsdom) cobrimos a camada de dados: resumo do lead
+// (retry/save) que alimenta o engine via syncContext.
+// -----------------------------------------------------------------------
 
-  const result = runtime.applySuggestedMessage('conv-sem-dados')
-
-  assert.equal(result.applied, false)
-  assert.equal(result.reason, 'no_suggestion_available')
-  assert.equal(composer.calls.length, 0)
-})
-
-test('applySuggestedMessage: com sugestão carregada, aplica o texto real no composer (ação explícita)', async () => {
+test('retryLeadSummary recarrega o resumo do lead usando o MESMO controlador compartilhado', async () => {
   const fake = createQueuedSender([
-    loadOk({ relationship: 'ok' }),
-    loadOk({ primary: null, secondary: [] }),
-    loadOk({ available: false }),
-    loadOk({ available: false }),
-    loadOk({ suggested_message: 'Posso te ajudar com isso agora.' }),
+    loadOk({ working_summary: '', summary: null }),
   ])
-  const composer = createFakeComposer({ applied: true, reason: null })
 
   const runtime = runtimeApi.createManyChatSellerPanelRuntime({
     sendMessage: fake.sendMessage,
-    composerApi: composer,
+    getCycleId: () => 'cycle-1',
   })
 
-  await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
-  const result = runtime.applySuggestedMessage('conv-1')
+  await runtime.retryLeadSummary('conv-1')
 
-  assert.equal(result.applied, true)
-  assert.equal(composer.calls.length, 1)
-  assert.equal(composer.calls[0].text, 'Posso te ajudar com isso agora.')
+  assert.equal(fake.calls.length, 1)
+  assert.equal(fake.calls[0].action, 'LOAD_LEAD_SUMMARY')
+  assert.equal(fake.calls[0].payload.cycle_id, 'cycle-1')
+  assert.equal(fake.calls[0].payload.conversation_key, 'conv-1')
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.leadSummary.status, 'ready')
 })
 
-test('applySuggestedMessage sem composerApi disponível falha fechado', () => {
+test('retryLeadSummary sem cycle_id resolvido não faz nada', async () => {
+  const fake = createQueuedSender([])
   const runtime = runtimeApi.createManyChatSellerPanelRuntime({
-    sendMessage: async () => ({ ok: true, payload: {} }),
+    sendMessage: fake.sendMessage,
+    getCycleId: () => null,
   })
 
-  const result = runtime.applySuggestedMessage('conv-1')
-  assert.equal(result.applied, false)
-  assert.equal(result.reason, 'composer_unavailable')
+  await runtime.retryLeadSummary('conv-1')
+  assert.equal(fake.calls.length, 0)
+})
+
+test('saveLeadSummary: sucesso persiste o resumo e limpa o estado de salvamento', async () => {
+  const fake = createQueuedSender([
+    { ok: true, payload: { ok: true, data: { summary: { summary: 'Resumo salvo.', version: 2, updated_at: null, last_message_watermark: null } } } },
+  ])
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    getCycleId: () => 'cycle-1',
+  })
+
+  await runtime.saveLeadSummary('conv-1', 'Resumo salvo.')
+
+  assert.equal(fake.calls.length, 1)
+  assert.equal(fake.calls[0].action, 'SAVE_LEAD_SUMMARY')
+  assert.equal(fake.calls[0].payload.summary, 'Resumo salvo.')
+  assert.equal(fake.calls[0].payload.expected_version, null)
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.leadSummary.status, 'ready')
+  assert.equal(state.leadSummary.data.working_summary, 'Resumo salvo.')
+  assert.equal(state.leadSummarySaveStatus, null)
+  assert.equal(state.leadSummarySaveError, null)
+  assert.equal(state.leadSummaryDraftValue, null)
+})
+
+test('saveLeadSummary: 409 vira saveStatus conflict, nunca sobrescreve com o rascunho', async () => {
+  const fake = createQueuedSender([
+    { ok: false, payload: { ok: false, code: 'LEAD_SUMMARY_VERSION_CONFLICT' } },
+  ])
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    getCycleId: () => 'cycle-1',
+  })
+
+  await runtime.saveLeadSummary('conv-1', 'Tentativa de salvar.')
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.leadSummarySaveStatus, 'conflict')
+  assert.equal(state.leadSummary.status, 'idle', 'o resumo em cache nunca é sobrescrito num conflito')
+})
+
+test('saveLeadSummary usa o expected_version já carregado (compare-and-set)', async () => {
+  const saveCalls = []
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: async (message) => {
+      if (message.action === 'LOAD_LEAD_SUMMARY') {
+        return loadOk({ working_summary: 'Resumo atual.', summary: { summary: 'Resumo atual.', version: 5, updated_at: null } })
+      }
+
+      if (message.action === 'LOAD_METHOD_GUIDANCE') {
+        return loadOk(readyGuidance('Posso te explicar as opções.'))
+      }
+
+      saveCalls.push(message)
+      return { ok: true, payload: { ok: true, data: { summary: { summary: 'Resumo atual.', version: 6, updated_at: null } } } }
+    },
+    getCycleId: () => 'cycle-1',
+  })
+
+  await runtime.retryLeadSummary('conv-1')
+  await runtime.saveLeadSummary('conv-1', 'Resumo atual.')
+
+  assert.equal(saveCalls.length, 1)
+  assert.equal(saveCalls[0].action, 'SAVE_LEAD_SUMMARY')
+  assert.equal(saveCalls[0].payload.expected_version, 5)
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.leadSummary.data.summary.version, 6, 'o resumo em cache reflete a nova versão persistida')
 })
 
 // -----------------------------------------------------------------------
@@ -654,23 +880,30 @@ test('E/F/G/H: renderPanel produz exatamente 4 tabs, na ordem now/message/analys
   assert.ok(analysisIndex < clientIndex)
 
   // 'now' é a área ativa por padrão: seu tabpanel não tem `hidden`, os
-  // outros três têm.
-  const hiddenCount = (html.match(/\bhidden\b/g) || []).length
-  assert.equal(hiddenCount, 3)
+  // outros três têm. Escopado às tags <section> (nunca casa
+  // "overflow:hidden" do CSS embutido no card de resumo do lead).
+  const hiddenSectionCount = (html.match(/<section\b[^>]*\bhidden\b[^>]*>/g) || []).length
+  assert.equal(hiddenSectionCount, 3)
 })
 
-// STEP 2B.5-D — "UNIFICAÇÃO REAL DO SELLER WORKSPACE": MENSAGEM passou a
-// reaproveitar o MESMO renderer puro que o WhatsApp já usa para o
-// "próximo passo" (companion-lead-summary-view.js#renderMethodGuidance,
-// chamado via companion-seller-workspace-view.js#renderMessageAreaHtml)
-// — nunca mais uma composição local de "suggested_message" (campo que a
-// resposta real de LOAD_METHOD_GUIDANCE nunca teve).
-test('a orientação de método (renderMethodGuidance) aparece dentro do tabpanel MESSAGE, dentro de um card canônico', async () => {
+// STEP 2B.5-D1 — "FECHAR PARIDADE REAL DO COMPANION" (Blocker B): a
+// orientação de método (renderMethodGuidance) NUNCA foi o conteúdo real
+// da aba MENSAGEM — ela pertence ao card de resumo do lead, em AGORA
+// (companion-lead-summary-view.js#renderReadyState). MENSAGEM é o MOUNT
+// do seller message engine compartilhado
+// (companion-seller-message-engine.js) — o composer de verdade
+// (objetivo/presets/textarea/Gerar mensagem) é pintado dentro dele por
+// fora do HTML estático do painel, via messageEngine.render() logo após
+// setPanelContent(). A prova de que WhatsApp e ManyChat chegam ao MESMO
+// composer com o mesmo estado é o teste de integração cross-channel
+// (Blocker B, com jsdom).
+test('a orientação de método (renderMethodGuidance) aparece dentro de AGORA, nunca em MESSAGE — MESSAGE expõe o mount do composer', async () => {
   const fake = createQueuedSender([
     loadOk({ relationship: 'ok' }),
     loadOk({ primary: null, secondary: [] }),
     loadOk({ available: false }),
     loadOk({ available: false }),
+    loadOk({ working_summary: 'Cliente perguntou sobre horários.', summary: null }),
     loadOk(readyGuidance('Posso te explicar as opções.')),
   ])
   const panelMount = createFakePanelMount()
@@ -684,36 +917,37 @@ test('a orientação de método (renderMethodGuidance) aparece dentro do tabpane
   await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
 
   const html = panelMount.contents.at(-1)
+  const nowPanelStart = html.indexOf('data-yolen-seller-panel="now"')
   const messagePanelStart = html.indexOf('data-yolen-seller-panel="message"')
   const analysisPanelStart = html.indexOf('data-yolen-seller-panel="analysis"')
+  const nowPanelBlock = html.slice(nowPanelStart, messagePanelStart)
   const messagePanelBlock = html.slice(messagePanelStart, analysisPanelStart)
 
-  // 1. a orientação continua dentro de MESSAGE, nunca fora do shell.
-  assert.match(messagePanelBlock, /Posso te explicar as opções\./)
+  // 1. a orientação vive dentro de AGORA (card de resumo do lead), usando
+  // o MESMO renderer/classes que o WhatsApp já usa — nunca uma segunda
+  // composição visual local.
+  assert.match(nowPanelBlock, /Posso te explicar as opções\./)
+  assert.match(nowPanelBlock, /class="yolen-method-guidance"/)
+  assert.match(nowPanelBlock, /class="yolen-method-guidance-next-step"/)
 
-  // 2. usa o MESMO renderer/classes que o WhatsApp — nunca uma segunda
-  // composição visual local (mandato §6: "NÃO copiar... a regra deve
-  // sair do WhatsApp e virar compartilhada").
-  assert.match(messagePanelBlock, /class="yolen-method-guidance"/)
-  assert.match(messagePanelBlock, /class="yolen-method-guidance-next-step"/)
+  // 2. MESSAGE nunca mais contém a orientação de método — é o mount do
+  // composer (elegível assim que o resumo do lead está pronto).
+  assert.doesNotMatch(messagePanelBlock, /Posso te explicar as opções\./)
+  assert.doesNotMatch(messagePanelBlock, /yolen-method-guidance/)
+  assert.match(messagePanelBlock, /data-yolen-seller-message-mount/)
 
-  // 3. dentro do card canônico da área (mesma linguagem visual de
-  // AGORA/ANÁLISE — nunca um retângulo solto).
-  assert.match(messagePanelBlock, /class="yolen-card yolen-seller-area-card"/)
-
-  // 4. o antigo shell externo (data-yolen-section="suggested-message")
-  // nunca reaparece em lugar nenhum do HTML — o conteúdo vive DENTRO da
-  // área message, não como uma região solta fora do shell de abas.
+  // 3. o antigo shell externo (data-yolen-section="suggested-message")
+  // nunca reaparece em lugar nenhum do HTML.
   assert.doesNotMatch(html, /data-yolen-section="suggested-message"/)
 })
 
-test('sem orientação de método ainda carregada, MENSAGEM mostra o estado vazio honesto — nunca um retângulo preto', async () => {
+test('sem resumo do lead ainda carregado, MENSAGEM mostra o estado vazio honesto — nunca um mount morto nem um retângulo preto', async () => {
   const fake = createQueuedSender([
     loadOk({ relationship: 'ok' }),
     loadOk({ primary: null, secondary: [] }),
     loadOk({ available: false }),
     loadOk({ available: false }),
-    loadOk({ status: 'missing_method' }),
+    { ok: false, payload: { ok: false, error: 'Não foi possível carregar o resumo salvo na Yolen.' } },
   ])
   const panelMount = createFakePanelMount()
 
@@ -730,8 +964,42 @@ test('sem orientação de método ainda carregada, MENSAGEM mostra o estado vazi
   const analysisPanelStart = html.indexOf('data-yolen-seller-panel="analysis"')
   const messagePanelBlock = html.slice(messagePanelStart, analysisPanelStart)
 
-  assert.match(messagePanelBlock, /yolen-method-guidance-note/)
-  assert.match(messagePanelBlock, /Método comercial ainda não publicado na Yolen\./)
+  assert.doesNotMatch(messagePanelBlock, /data-yolen-seller-message-mount/)
+  assert.match(
+    messagePanelBlock,
+    /A geração de mensagem fica disponível quando esta conversa possui um contexto comercial válido na Yolen\./,
+  )
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.leadSummary.status, 'error')
+})
+
+test('a orientação "método ainda não publicado" aparece dentro de AGORA quando o resumo já está pronto', async () => {
+  const fake = createQueuedSender([
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ working_summary: 'Cliente perguntou sobre horários.', summary: null }),
+    loadOk({ status: 'missing_method' }),
+  ])
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+
+  const html = panelMount.contents.at(-1)
+  const nowPanelStart = html.indexOf('data-yolen-seller-panel="now"')
+  const messagePanelStart = html.indexOf('data-yolen-seller-panel="message"')
+  const nowPanelBlock = html.slice(nowPanelStart, messagePanelStart)
+
+  assert.match(nowPanelBlock, /yolen-method-guidance-note/)
+  assert.match(nowPanelBlock, /Método comercial ainda não publicado na Yolen\./)
 })
 
 test('3: não existe uma quinta área seller-facing — apenas as 4 áreas canônicas do módulo compartilhado são renderizadas', async () => {

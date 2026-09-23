@@ -5,6 +5,11 @@
   const SOURCE = 'YOLEN_COMPANION'
   const DEFAULT_DEBOUNCE_MS = 1200
 
+  // STEP 2B.5-D1 (Blocker D, Lead Enrichment): MESMO limite de retenção
+  // que MAX_MESSAGE_LEDGER_SIZE usa no WhatsApp (content-script.js) —
+  // nunca uma segunda política de retenção inventada aqui.
+  const MAX_ENRICHMENT_LEDGER_SIZE = 300
+
   // Hardening (STEP 2B.5, "NO_COMPANION_SESSION CACHE RECOVERY"): allowlist
   // fail-closed dos únicos status de RESOLVE_LEAD que são, de fato, uma
   // DECISÃO do backend sobre este contato/lead — os únicos que podem ficar
@@ -187,6 +192,19 @@
           baseVersionsByMessageKey: {},
           lastContentFingerprint: null,
           transcribedMessageKeys: new Set(),
+          // STEP 2B.5-D1 (Blocker D, Lead Enrichment): ledger ACUMULADO de
+          // mensagens já observadas nesta conversa, para extração de
+          // candidatos de cadastro (companion-lead-enrichment-
+          // controller.js) — MESMO papel que getSortedLedgerMessages()
+          // tem no WhatsApp. Nunca uma segunda forma de ler o DOM: só
+          // acumula o que captureNow() já lê via
+          // adapter.buildUniversalConversation() (ver
+          // ingestEnrichmentLedgerMessages abaixo). Bookkeeping auxiliar
+          // (ver ensureAuxiliaryStateBound): reseta junto com
+          // baseVersionsByMessageKey/lastContentFingerprint/
+          // transcribedMessageKeys sempre que a identidade do contato
+          // muda sob a MESMA conversation_key.
+          enrichmentLedgerByMessageKey: {},
         })
       }
       return stateByConversationKey.get(conversationKey)
@@ -279,7 +297,60 @@
       state.baseVersionsByMessageKey = {}
       state.lastContentFingerprint = null
       state.transcribedMessageKeys = new Set()
+      state.enrichmentLedgerByMessageKey = {}
       state.auxiliaryIdentity = identityBinding ?? null
+    }
+
+    // STEP 2B.5-D1 (Blocker D, Lead Enrichment): acumula no ledger as
+    // mensagens que captureNow() JÁ leu do DOM visível nesta rodada
+    // (messagesWithVersion, com message_key namespaced pelo contato) —
+    // nunca uma segunda leitura/interpretação do ManyChat. Dedupe por
+    // message_key (chave do objeto); mensagens excluídas
+    // (is_deleted) nunca entram (nunca extrai PII de conteúdo apagado).
+    // Ordena por occurred_at só na LEITURA (getEnrichmentLedgerMessages),
+    // nunca aqui — inserção pode chegar fora de ordem entre capturas.
+    function ingestEnrichmentLedgerMessages(state, messages) {
+      for (const message of messages) {
+        if (message.is_deleted) continue
+
+        state.enrichmentLedgerByMessageKey[message.message_key] = {
+          id: message.message_key,
+          direction: message.direction,
+          text: message.text_content,
+          audio_transcription: message.audio_transcription,
+          timestamp_ms: Date.parse(message.occurred_at) || 0,
+        }
+      }
+
+      const keys = Object.keys(state.enrichmentLedgerByMessageKey)
+      const overflow = keys.length - MAX_ENRICHMENT_LEDGER_SIZE
+
+      if (overflow > 0) {
+        const oldestFirst = keys
+          .map((key) => state.enrichmentLedgerByMessageKey[key])
+          .sort((a, b) => a.timestamp_ms - b.timestamp_ms)
+
+        for (let index = 0; index < overflow; index += 1) {
+          delete state.enrichmentLedgerByMessageKey[oldestFirst[index].id]
+        }
+      }
+    }
+
+    // Único ponto de LEITURA do ledger — usado pelo seller-panel-runtime
+    // (via bootstrap) para alimentar companion-lead-enrichment-
+    // controller.js#extractCandidatesFromMessages. Isolado por
+    // conversation_key (Map), nunca vaza de uma conversa para outra;
+    // ausência de mensagens aqui nunca é tratada como "este dado nunca
+    // apareceu" — só como "não observado no histórico visível desta
+    // conversa até agora" (mesma limitação inerente que o próprio
+    // WhatsApp tem: só acumula o que já esteve visível em algum
+    // momento).
+    function getEnrichmentLedgerMessages(conversationKey) {
+      const state = getConversationState(conversationKey)
+
+      return Object.values(state.enrichmentLedgerByMessageKey).sort(
+        (a, b) => a.timestamp_ms - b.timestamp_ms,
+      )
     }
 
     // Hardening (auditoria STEP 2A.4, "STALE INGEST CALLBACK"): uma
@@ -1086,6 +1157,14 @@
         })
       }
 
+      // STEP 2B.5-D1 (Blocker D, Lead Enrichment): acumula TODA mensagem
+      // observada nesta rodada no ledger de enrichment, ANTES do filtro
+      // de elegibilidade de ingestão abaixo (buildCaptureIngestionPlanFromMessages
+      // decide o que vai para INGEST_CAPTURE_MESSAGES por motivos de
+      // dedupe de transcrição/canonicalização — nunca o mesmo critério de
+      // "já vi esta mensagem alguma vez" que o enrichment precisa).
+      ingestEnrichmentLedgerMessages(state, messagesWithVersion)
+
       const plan = captureBatchApi.buildCaptureIngestionPlanFromMessages({
         cycleId: resolution.cycle_id,
         conversationKey,
@@ -1225,6 +1304,7 @@
       getSafeIdentity,
       refreshLeadResolution,
       invalidateLeadResolution,
+      getEnrichmentLedgerMessages,
       // Fonte autoritativa única de "qual conversa está aberta agora",
       // sempre derivada ao vivo do adapter/URL — nunca uma variável que um
       // callback assíncrono desatualizado poderia sobrescrever (STEP

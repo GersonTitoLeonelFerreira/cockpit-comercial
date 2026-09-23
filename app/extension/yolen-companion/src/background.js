@@ -638,6 +638,25 @@ async function handleCompanionMessage(message, sender) {
     )
   }
 
+  // STEP 2B.5-D1 (Blocker D, Lead Enrichment): action privilegiada
+  // própria do ManyChat — nunca reaproveita RESOLVE_LEAD/
+  // RESOLVE_MANYCHAT_LEAD_BY_PHONE como transporte de dado cadastral
+  // (sanitizeLeadResolutionPayload continua removendo lead/lead_profile
+  // de propósito). Entrada é só cycle_id (+ candidatos de telefone já
+  // normalizados); o servidor deriva lead_id do próprio ciclo e nunca
+  // devolve o telefone atual — ver
+  // app/api/companion/lead-enrichment-context/route.ts.
+  if (
+    message.action ===
+    'LOAD_LEAD_ENRICHMENT_CONTEXT'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/lead-enrichment-context',
+      message.payload,
+    )
+  }
+
   if (message.action === 'ANALYZE_CONVERSATION') {
     return handleConversationAnalysis(
       message,

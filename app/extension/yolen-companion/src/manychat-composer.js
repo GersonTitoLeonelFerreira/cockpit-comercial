@@ -39,10 +39,20 @@
     return true
   }
 
+  // STEP 2B.5-D1 (Blocker B): desde que o seller message engine
+  // compartilhado passou a renderizar seu próprio campo de intenção como
+  // <textarea data-yolen-seller-message-intent> dentro do painel da
+  // Yolen (#yolen-companion-panel), o documento real pode conter DOIS
+  // <textarea> ao mesmo tempo — o composer de verdade do ManyChat e o
+  // campo de intenção do próprio Companion. Nunca pode contar como
+  // candidato ao composer real: mesma exclusão que
+  // seller-message-runtime.js#getWhatsAppComposer já usa no WhatsApp
+  // (`!candidate.closest('#yolen-companion-panel')`).
   function isEligibleTextarea(node, documentRef) {
     if (!node || node.tagName !== 'TEXTAREA') return false
     if (node.disabled === true) return false
     if (node.readOnly === true) return false
+    if (typeof node.closest === 'function' && node.closest('#yolen-companion-panel')) return false
     return isVisible(node, documentRef)
   }
 

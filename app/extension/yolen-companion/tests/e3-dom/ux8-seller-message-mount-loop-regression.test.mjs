@@ -20,6 +20,10 @@ import vm from 'node:vm'
 import { JSDOM } from 'jsdom'
 
 const SRC_DIR = fileURLToPath(new URL('../../src/', import.meta.url))
+const SELLER_MESSAGE_ENGINE_SOURCE = readFileSync(
+  `${SRC_DIR}companion-seller-message-engine.js`,
+  'utf8',
+)
 const SELLER_MESSAGE_RUNTIME_SOURCE = readFileSync(
   `${SRC_DIR}seller-message-runtime.js`,
   'utf8',
@@ -109,8 +113,12 @@ function buildHarness() {
     Boolean,
   }
   sandbox.globalThis = sandbox
+  sandbox.window = sandbox
 
   vm.createContext(sandbox)
+  vm.runInContext(SELLER_MESSAGE_ENGINE_SOURCE, sandbox, {
+    filename: 'companion-seller-message-engine.js',
+  })
   vm.runInContext(SELLER_MESSAGE_RUNTIME_SOURCE, sandbox, {
     filename: 'seller-message-runtime.js',
   })

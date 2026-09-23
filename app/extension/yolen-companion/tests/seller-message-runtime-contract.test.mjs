@@ -15,20 +15,37 @@ const source = readFileSync(
   'utf8',
 )
 
+// STEP 2B.5-D1: a lógica de estado/geração/render (antes toda em
+// seller-message-runtime.js) foi extraída para o engine compartilhado
+// companion-seller-message-engine.js — seller-message-runtime.js hoje só
+// contém o composer adapter do WhatsApp e a criação do engine com as
+// opções WhatsApp-specific. As asserções abaixo passaram a checar o
+// arquivo onde cada trecho realmente mora agora, preservando a MESMA
+// garantia semântica de antes.
+const engineSource = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../src/companion-seller-message-engine.js',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+)
+
 test('mensagem só é gerada por ação explícita depois de uma intenção', () => {
   assert.match(
-    source,
+    engineSource,
     /data-yolen-seller-message-action=\\?"generate\\?"/,
   )
-  assert.match(source, /seller_intent:/)
-  assert.match(source, /operation: 'generate_message'/)
-  assert.match(source, /!state\.intent\.trim\(\)/)
+  assert.match(engineSource, /seller_intent:/)
+  assert.match(engineSource, /operation: 'generate_message'/)
+  assert.match(engineSource, /!state\.intent\.trim\(\)/)
 })
 
 test('atalhos apenas preenchem intenção e não disparam geração automática', () => {
-  const presetBlock = source.slice(
-    source.indexOf("if (presetButton)"),
-    source.indexOf("const actionButton =", source.indexOf("if (presetButton)")),
+  const presetBlock = engineSource.slice(
+    engineSource.indexOf("if (presetButton)"),
+    engineSource.indexOf("const actionButton =", engineSource.indexOf("if (presetButton)")),
   )
 
   assert.match(presetBlock, /state\.intent = presets\[index\]/)
@@ -37,9 +54,11 @@ test('atalhos apenas preenchem intenção e não disparam geração automática'
 
 test('resultado oferece incluir e copiar sem envio automático', () => {
   assert.match(source, /Incluir no WhatsApp/)
-  assert.match(source, />Copiar</)
-  assert.match(source, /navigator\.clipboard\.writeText/)
+  assert.match(engineSource, />Copiar</)
+  assert.match(engineSource, /clipboard\.writeText/)
+  assert.match(engineSource, /navigator\?\.clipboard/)
   assert.doesNotMatch(source, /sendButton\.click\(/)
+  assert.doesNotMatch(engineSource, /sendButton\.click\(/)
   assert.doesNotMatch(source, /composer\.dispatchEvent\([^)]*submit/)
 })
 
@@ -177,8 +196,12 @@ function createRuntimeHarness({
     String,
   }
   sandbox.globalThis = sandbox
+  sandbox.window = sandbox
 
   vm.createContext(sandbox)
+  vm.runInContext(engineSource, sandbox, {
+    filename: 'companion-seller-message-engine.js',
+  })
   vm.runInContext(source, sandbox, {
     filename: 'seller-message-runtime.js',
   })

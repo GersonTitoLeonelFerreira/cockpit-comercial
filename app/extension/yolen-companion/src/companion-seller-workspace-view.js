@@ -277,65 +277,345 @@
       </div>
     `
 
+  // STEP 2B.5-D1 (Blocker D): registro de conversa (histórico do lead) —
+  // capability Companion-core (PREVIEW_CONVERSATION_REGISTRATION/
+  // CONFIRM_CONVERSATION_REGISTRATION, via companion-conversation-
+  // registration-controller.js) que qualquer plataforma com um
+  // cycle_id/conversation_key resolvidos pode oferecer — nunca DOM do
+  // WhatsApp. `entry` é o MESMO shape que content-script.js já mantinha
+  // internamente por conversationRegistrations[key] (status idle/
+  // previewing/preview_ready/saving/success/stale/error +
+  // summary_text/error_message/confirmation_token/occurred_at) — quem
+  // decide SE mostra o card (elegibilidade: cycle/conversation resolvidos,
+  // não é grupo/self) continua sendo a plataforma; quem decide O QUE
+  // mostrar para cada status é este renderer único, nunca duplicado.
+  // `entry` null/undefined (plataforma decidiu inelegível) nunca renderiza
+  // nada — nunca um card morto oferecendo uma ação que falharia.
+  function renderConversationRegistrationCardHtml(entry) {
+    const status = entry?.status || 'idle'
+
+    const body = (() => {
+      if (status === 'previewing') {
+        return `
+          <div class="yolen-card-description">Gerando resumo…</div>
+          <button class="yolen-secondary-button" type="button" disabled>Gerando resumo…</button>
+        `
+      }
+
+      if (status === 'preview_ready') {
+        return `
+          <div class="yolen-card-description yolen-conversation-registration-preview">
+            ${escapeHtml(entry?.summary_text || '')}
+          </div>
+          <div class="yolen-inline-actions">
+            <button class="yolen-primary-button" type="button" data-yolen-action="confirm-conversation-registration">
+              Confirmar registro
+            </button>
+            <button class="yolen-tertiary-button" type="button" data-yolen-action="cancel-conversation-registration">
+              Cancelar
+            </button>
+          </div>
+        `
+      }
+
+      if (status === 'saving') {
+        return `
+          <div class="yolen-card-description">Registrando no histórico…</div>
+          <button class="yolen-primary-button" type="button" disabled>Registrando no histórico…</button>
+        `
+      }
+
+      if (status === 'success') {
+        return `
+          <div class="yolen-card-description yolen-conversation-registration-preview">
+            ${escapeHtml(entry?.summary_text || '')}
+          </div>
+          <div class="yolen-decision-kicker">Conversa registrada no histórico</div>
+          <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
+            Registrar novamente
+          </button>
+        `
+      }
+
+      if (status === 'stale') {
+        return `
+          <div class="yolen-card-description">
+            ${escapeHtml(
+              entry?.error_message ||
+                'A conversa mudou desde a geração do resumo. Gere novamente.',
+            )}
+          </div>
+          <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
+            Gerar novamente
+          </button>
+        `
+      }
+
+      if (status === 'error') {
+        return `
+          <div class="yolen-card-description yolen-status-warning">
+            ${escapeHtml(entry?.error_message || 'Não foi possível registrar. Tentar novamente.')}
+          </div>
+          <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
+            Tentar novamente
+          </button>
+        `
+      }
+
+      return `
+        <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
+          Registrar conversa
+        </button>
+      `
+    })()
+
+    return `
+      <div class="yolen-card yolen-conversation-registration-card">
+        <div class="yolen-section-label">Histórico do lead</div>
+        ${body}
+      </div>
+    `
+  }
+
+  const LEAD_ENRICHMENT_FIELD_LABELS = Object.freeze({
+    email: 'E-mail',
+    cpf: 'CPF',
+    cnpj: 'CNPJ',
+    birth_date: 'Data de nascimento',
+    profession: 'Profissão',
+    cep: 'CEP',
+    address_raw: 'Endereço',
+    phone_mobile: 'Telefone adicional',
+  })
+
+  function getLeadEnrichmentFieldLabel(field) {
+    return LEAD_ENRICHMENT_FIELD_LABELS[field] || 'Dado cadastral'
+  }
+
+  const LEAD_ENRICHMENT_CONFIRMABLE_FIELDS = Object.freeze([
+    'email',
+    'cpf',
+    'cnpj',
+    'birth_date',
+    'profession',
+    'cep',
+    'phone_mobile',
+  ])
+
+  // Um candidato só é confirmável por ação explícita do vendedor quando:
+  // campo confirmável + exige confirmação humana (o próprio candidato já
+  // carrega isso) + não é 'different_locked' (telefone diferente de um
+  // já cadastrado — nunca confirmável sem expor o valor atual; ver
+  // companion-lead-enrichment-controller.js#isCandidateConfirmableNow,
+  // MESMA regra duplicada aqui só porque a view nunca importa o
+  // controller — WhatsApp nunca produz 'different_locked').
+  function isLeadEnrichmentCandidateConfirmableNow(candidate) {
+    return (
+      LEAD_ENRICHMENT_CONFIRMABLE_FIELDS.includes(candidate?.field) &&
+      candidate?.requires_human_confirmation === true &&
+      candidate?.comparison !== 'different_locked'
+    )
+  }
+
+  function renderLeadEnrichmentCandidateActionsHtml(candidate, entry) {
+    const isApplying = entry?.applyLoadingKey === candidate.key
+    const isApplied = entry?.applySuccessKey === candidate.key
+    const actionsLocked = Boolean(entry?.applyLoadingKey) || isApplied
+
+    const ignoreButton = `
+      <button
+        class="yolen-secondary-button"
+        type="button"
+        data-yolen-action="ignore-lead-enrichment"
+        data-yolen-enrichment-key="${escapeHtml(candidate.key)}"
+        ${actionsLocked ? 'disabled' : ''}
+      >Ignorar</button>
+    `
+
+    if (candidate.comparison === 'different_locked') {
+      return `
+        <div class="yolen-inline-actions">${ignoreButton}</div>
+        <div class="yolen-operational-note">
+          Este telefone já está cadastrado com um valor diferente. Atualize pela Yolen.
+        </div>
+      `
+    }
+
+    if (!isLeadEnrichmentCandidateConfirmableNow(candidate)) {
+      return `
+        <div class="yolen-inline-actions">${ignoreButton}</div>
+        <div class="yolen-operational-note">Este campo exige revisão manual.</div>
+      `
+    }
+
+    const confirmButton = `
+      <button
+        class="yolen-primary-button"
+        type="button"
+        data-yolen-action="confirm-lead-enrichment"
+        data-yolen-enrichment-key="${escapeHtml(candidate.key)}"
+        ${actionsLocked ? 'disabled' : ''}
+      >${isApplied ? 'Atualizado' : isApplying ? 'Salvando...' : 'Confirmar'}</button>
+    `
+
+    return `
+      <div class="yolen-inline-actions yolen-enrichment-actions">
+        ${confirmButton}
+        ${ignoreButton}
+      </div>
+    `
+  }
+
+  // STEP 2B.5-D1 (Blocker D): candidatos de cadastro (Cadastro) —
+  // capability Companion-core (lead-enrichment.js para extração +
+  // companion-lead-enrichment-controller.js para contexto/aplicação) que
+  // qualquer plataforma com um ledger de mensagens observadas e um
+  // cycle/lead resolvidos pode oferecer. `entry.candidates` já vem
+  // FILTRADO/ANOTADO pelo controller compartilhado (current_value/
+  // comparison/key) — esta view nunca decide QUAIS candidatos existem,
+  // só COMO apresentá-los. `entry` null/vazio nunca renderiza nada
+  // (nenhum card morto).
+  function renderLeadEnrichmentCandidatesHtml(entry) {
+    // loadError: só existe em plataformas cuja extração de candidatos
+    // depende de uma consulta de rede própria (ManyChat, via
+    // LOAD_LEAD_ENRICHMENT_CONTEXT) — o WhatsApp deriva os candidatos
+    // 100% em memória a partir do resumo já carregado e nunca preenche
+    // este campo, então nunca produz este card (zero mudança de
+    // comportamento para o WhatsApp). Nunca apaga o resto da aba
+    // CLIENTE: é só mais um card, igual ao de candidatos.
+    if (entry?.loadError) {
+      return `
+        <div class="yolen-card yolen-lead-enrichment-card yolen-status-warning">
+          <div class="yolen-section-label">Cadastro</div>
+          <div class="yolen-card-description">${escapeHtml(entry.loadError)}</div>
+        </div>
+      `
+    }
+
+    const candidates = Array.isArray(entry?.candidates) ? entry.candidates : []
+
+    if (candidates.length === 0) {
+      return ''
+    }
+
+    const items = candidates
+      .map((candidate) => {
+        const evidenceCount = Array.isArray(candidate.evidence_message_ids)
+          ? candidate.evidence_message_ids.length
+          : 0
+
+        const evidenceLabel =
+          evidenceCount === 1 ? '1 mensagem de evidência' : `${evidenceCount} mensagens de evidência`
+
+        const confidenceLabel = candidate.confidence === 'high' ? 'Alta confiança' : 'Média confiança'
+
+        const comparisonLabel = candidate.current_value
+          ? `Atual: ${candidate.current_value}`
+          : 'Ainda não consta no cadastro'
+
+        return `
+          <div class="yolen-decision-list-item">
+            <div class="yolen-decision-kicker">${escapeHtml(getLeadEnrichmentFieldLabel(candidate.field))}</div>
+            <div class="yolen-decision-copy">${escapeHtml(candidate.value)}</div>
+            <div class="yolen-card-description">
+              ${escapeHtml(`${confidenceLabel} · ${evidenceLabel} · ${comparisonLabel}`)}
+            </div>
+            ${renderLeadEnrichmentCandidateActionsHtml(candidate, entry)}
+          </div>
+        `
+      })
+      .join('')
+
+    return `
+      <div class="yolen-card yolen-lead-enrichment-card">
+        <div class="yolen-section-label">Cadastro</div>
+        <div class="yolen-card-title">Dados encontrados na conversa</div>
+        <div class="yolen-card-description">
+          A Yolen identificou informações que podem complementar o cadastro deste lead.
+        </div>
+        <div class="yolen-decision-list">${items}</div>
+        ${
+          entry?.applyError
+            ? `<div class="yolen-operational-note">${escapeHtml(entry.applyError)}</div>`
+            : ''
+        }
+        <div class="yolen-operational-note">O cadastro só muda depois que você confirmar.</div>
+      </div>
+    `
+  }
+
   // commercialHtml/relationshipHtml: HTML JÁ RESOLVIDO pela plataforma
   // (customerViewModel pronto ou fallback de leitura local — quando a
   // plataforma tiver essa camada — e renderClientRelationshipCardHtml
-  // acima). Conteúdo extra específico de uma plataforma (ex.: cartão de
-  // registro de conversa e candidatos de enriquecimento do WhatsApp)
-  // continua sendo concatenado por FORA desta função, exatamente como
-  // antes da extração — nunca soma aqui, para nunca aparecer numa
-  // plataforma que não tiver nada assim (ex.: ManyChat).
-  function renderClientAreaHtml({ commercialHtml = '', relationshipHtml = '' } = {}) {
-    if (!commercialHtml && !relationshipHtml) {
-      return CLIENT_EMPTY_STATE_HTML
-    }
+  // acima). registrationHtml/enrichmentHtml: HTML JÁ RESOLVIDO por esta
+  // MESMA view (renderConversationRegistrationCardHtml/
+  // renderLeadEnrichmentCandidatesHtml acima) ou '' — decidido pela
+  // plataforma apenas quanto à elegibilidade (dados resolvidos/não é
+  // grupo), nunca quanto ao CONTEÚDO/ordem, que sempre vive aqui. Uma
+  // plataforma sem nenhuma dessas duas capabilities simplesmente passa ''
+  // e elas somem, sem afetar o estado vazio do restante da área
+  // (registro/enrichment não contam para decidir "cliente vazio": mesmo
+  // sem view model comercial/relacionamento, um lead com cycle resolvido
+  // já pode ter o card de registro).
+  function renderClientAreaHtml({
+    commercialHtml = '',
+    relationshipHtml = '',
+    registrationHtml = '',
+    enrichmentHtml = '',
+  } = {}) {
+    const primaryHtml =
+      !commercialHtml && !relationshipHtml
+        ? CLIENT_EMPTY_STATE_HTML
+        : `${commercialHtml}${relationshipHtml}`
 
-    return `
-      ${commercialHtml}
-      ${relationshipHtml}
-    `
+    return `${primaryHtml}${registrationHtml}${enrichmentHtml}`
   }
 
   // -----------------------------------------------------------------------
   // MENSAGEM
   // -----------------------------------------------------------------------
 
-  // Reaproveita o MESMO renderer puro que a Yolen já usa para o "próximo
-  // passo" dentro do resumo do lead no WhatsApp
-  // (companion-lead-summary-view.js#renderMethodGuidance — cobre
-  // loading/ready/not_applicable/missing_method/invalid_method/error,
-  // já com o botão de retry embutido no estado de erro). Nunca uma
-  // segunda leitura/composição de "próxima mensagem" por plataforma: o
-  // método comercial e a orientação pertencem ao Companion compartilhado
-  // (LOAD_METHOD_GUIDANCE), nunca a uma regra local desta view. Quando
-  // não há orientação nenhuma ainda (methodGuidance ausente ou
-  // renderMethodGuidance devolve '' — ex.: status 'no_summary'), mostra
-  // o mesmo estado vazio honesto das outras áreas — nunca um retângulo
-  // preto.
-  const MESSAGE_EMPTY_STATE_HTML = `
-      <div class="yolen-card yolen-seller-area-card yolen-status-neutral">
-        <div class="yolen-section-label">Mensagem</div>
-        <div class="yolen-seller-empty-state" data-yolen-message-empty>
-          A Yolen ainda não tem uma orientação de próximo passo para esta conversa.
+  // STEP 2B.5-D1 — correção do Blocker B: MENSAGEM não é o "próximo
+  // passo"/methodGuidance (esse conteúdo já pertence ao card de resumo do
+  // lead, em AGORA, via renderMethodGuidance — companion-lead-summary-
+  // view.js). A aba MENSAGEM real é o COMPOSER de mensagem do vendedor
+  // (seller message engine, companion-seller-message-engine.js): esta
+  // função só decide o MOUNT — o mesmo contrato eligible/ineligible que
+  // getSellerMessageAreaHtml() já usava no WhatsApp antes desta extração
+  // — nunca o conteúdo do composer em si (isso é o engine quem renderiza,
+  // dentro do mount, depois que esta função devolve o HTML). eligible:
+  // true quando a conversa tem contexto comercial válido para gerar
+  // mensagem (mesma regra usada por cada plataforma para decidir isso —
+  // ex.: isSellerMessageMountEligible() no WhatsApp); false mostra o
+  // mesmo estado vazio honesto de antes, nunca um mount morto.
+  function renderMessageAreaHtml({ eligible = false } = {}) {
+    if (!eligible) {
+      return `
+        <div
+          class="yolen-seller-message-workspace"
+          data-yolen-seller-message-workspace
+        >
+          <div
+            class="yolen-card yolen-seller-area-card yolen-status-neutral"
+          >
+            <div class="yolen-section-label">
+              Mensagem
+            </div>
+
+            <div class="yolen-seller-empty-state">
+              A geração de mensagem fica disponível quando esta conversa possui um contexto comercial válido na Yolen.
+            </div>
+          </div>
         </div>
-      </div>
-    `
-
-  function renderMessageAreaHtml({ methodGuidance = null } = {}) {
-    const api = leadSummaryApi()
-    const guidanceHtml =
-      api && typeof api.renderMethodGuidance === 'function'
-        ? api.renderMethodGuidance(methodGuidance)
-        : ''
-
-    if (!guidanceHtml) {
-      return MESSAGE_EMPTY_STATE_HTML
+      `
     }
 
     return `
-      <div class="yolen-card yolen-seller-area-card">
-        <div class="yolen-section-label">Mensagem</div>
-        ${guidanceHtml}
+      <div
+        class="yolen-seller-message-workspace"
+        data-yolen-seller-message-workspace
+      >
+        <div data-yolen-seller-message-mount></div>
       </div>
     `
   }
@@ -344,6 +624,8 @@
     renderAgoraAreaHtml,
     renderAnalysisAreaHtml,
     renderClientRelationshipCardHtml,
+    renderConversationRegistrationCardHtml,
+    renderLeadEnrichmentCandidatesHtml,
     renderClientAreaHtml,
     renderMessageAreaHtml,
   })
