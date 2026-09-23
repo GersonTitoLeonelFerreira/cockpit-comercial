@@ -24,8 +24,8 @@
 
 | Campo | Valor |
 |---|---|
-| Versão | 1.0.0 |
-| Fase | FASE 2 — Contrato arquitetural definitivo |
+| Versão | 1.1.0 (FASE 2.1 — hardening: resolução sem telefone, migration baseline, decision schedule, Q5) |
+| Fase | FASE 2 / 2.1 — Contrato arquitetural definitivo |
 | Data de início da reconstrução | 2026-09-23 |
 | Branch de reconstrução | `claude/companion-core-rebuild` |
 | Base | `b5d877a18843b5653c79adc2c5396447d2a99310` (main oficial no momento da auditoria) |
@@ -111,9 +111,13 @@ Shared seller-facing view
 Platform mount
 ```
 
-**INV-5 — Sem telefone confiável não há lead.** Não se cria lead, não se
-infere telefone, não se usa `subscriber_id` nem `wa_id` como telefone,
-não se inventa dado (Decisão do Controle — ver §9, §10, §11).
+**INV-5 — Sem telefone confiável não há criação de lead.** A ausência de
+telefone não impede, por si só, a resolução de um lead já vinculado por
+identidade externa segura. Identificadores opacos de plataforma
+(`subscriber_id`, `wa_id`, JID, `platform_contact_key`,
+`conversation_key`) nunca são tratados como telefone. Não se infere
+telefone e não se inventa dado (Decisão do Controle — ver §9, §10.4,
+§11).
 
 **INV-6 — Privacidade ManyChat.** Nenhuma parte da arquitetura pode exigir
 que o content script ManyChat receba payload bruto de lead (Decisão do
@@ -351,12 +355,18 @@ definida nesta fase. Nomes são conceituais.
 | Responsável | Adapter |
 | PII | **Sim** (telefone, nome, identidade) |
 | Duração do dado | Somente o ciclo de resolução da conversa atual; nunca persistido no browser por conveniência |
-| Indisponível | `phoneStatus: 'unavailable' \| 'ambiguous' \| 'pending'` → Core entra em `NO_CONTACT_EVIDENCE` |
+| Indisponível | `phoneStatus: 'unavailable' \| 'ambiguous' \| 'pending'` significa apenas que não há telefone confiável. **Não** leva automaticamente a `NO_CONTACT_EVIDENCE`: o Core segue a ordem canônica de resolução (§10.4). `NO_CONTACT_EVIDENCE` só ocorre quando a evidência disponível não produz resolução comercial segura **e** não existe `trustedPhone` para fallback/criação. |
 | Obrigatoriedade | Obrigatório (o telefone confiável em si é capability `canProvideTrustedPhone`) |
 
-Regras: `trustedPhone` NUNCA deriva de `subscriber_id`, `wa_id` ou
-qualquer identificador opaco de plataforma. `platformIdentity` é opaca
-para o Core (só transportada ao backend).
+Regras:
+
+- `trustedPhone` NUNCA deriva de `subscriber_id`, `wa_id` ou qualquer
+  identificador opaco de plataforma.
+- `platformIdentity` segura é evidência válida para **resolução de vínculo
+  existente**; nunca é evidência para **criação** de lead.
+- `platformIdentity` é opaca para o Core (só transportada ao
+  backend/transporte autorizado) e nunca é exibida.
+- A evidência pode conter `platformIdentity`, `trustedPhone` ou ambos.
 
 #### `getMessages()`
 | Aspecto | Contrato |
@@ -587,9 +597,9 @@ contrato fixa a lista e as transições.
 | 2 | `NO_SESSION` | Sem sessão válida do Companion (inclui token ausente/expirado — `AUTH_ERROR`) |
 | 3 | `CONNECTED_NO_CONVERSATION` | Sessão válida, nenhuma conversa aberta |
 | 4 | `NON_LEAD_CONVERSATION` | Conversa classificada pelo adapter como grupo ou self (só quando `canClassifyGroupOrSelf`) |
-| 5 | `NO_CONTACT_EVIDENCE` | Conversa aberta sem telefone confiável (inclui `phone_unavailable`, `phone_ambiguous`, `pending`, `CONTACT_NOT_LINKED` sem telefone) |
-| 6 | `RESOLVING` | Resolução em voo |
-| 7 | `NOT_FOUND` | Backend: nenhum lead para o telefone confiável |
+| 5 | `NO_CONTACT_EVIDENCE` | A evidência disponível não produz resolução comercial segura **e** não existe `trustedPhone` (ex.: `platformIdentity` ausente ou `CONTACT_NOT_LINKED`/sem resolução, combinada com `phone_unavailable`/`phone_ambiguous`/`pending`) — ver §10.4 caso C |
+| 6 | `RESOLVING` | Resolução em voo (por `platformIdentity`, por `trustedPhone` ou fallback) |
+| 7 | `NOT_FOUND` | Backend: nenhum lead para o `trustedPhone` usado na resolução (§10.4 caso D). Resultado sem lead obtido **sem** `trustedPhone` não é `NOT_FOUND` seller-facing: é `NO_CONTACT_EVIDENCE` (caso C) |
 | 8 | `LEAD_CREATE_READY` | Formulário de criação disponível |
 | 9 | `CREATING_LEAD` | CREATE em voo |
 | 10 | `CREATED_RESOLVING` | CREATE confirmado (ou conflito de criação), re-resolve em curso |
@@ -610,10 +620,11 @@ BOOT_LOADING ──sessão ok──▶ CONNECTED_NO_CONVERSATION
 BOOT_LOADING ──sem sessão──▶ NO_SESSION
 NO_SESSION ──conectar/sessão capturada──▶ CONNECTED_NO_CONVERSATION
 CONNECTED_NO_CONVERSATION ──conversation_changed──▶ (grupo/self) NON_LEAD_CONVERSATION
-                                                  ▶ (sem trusted phone) NO_CONTACT_EVIDENCE
-                                                  ▶ (trusted phone) RESOLVING
-NO_CONTACT_EVIDENCE ──trusted phone disponível──▶ RESOLVING
-RESOLVING ──NOT_FOUND──▶ NOT_FOUND ──(can_create_lead)──▶ LEAD_CREATE_READY
+                                                  ▶ (platformIdentity e/ou trustedPhone) RESOLVING
+                                                  ▶ (nenhuma evidência) NO_CONTACT_EVIDENCE
+RESOLVING ──caso C (identidade não resolve, sem trustedPhone)──▶ NO_CONTACT_EVIDENCE
+NO_CONTACT_EVIDENCE ──nova evidência (platformIdentity ou trustedPhone)──▶ RESOLVING
+RESOLVING ──caso D: NOT_FOUND por trustedPhone──▶ NOT_FOUND ──(can_create_lead)──▶ LEAD_CREATE_READY
 RESOLVING ──OWNED_BY_ME / IN_POOL / OWNED_BY_OTHER / CLOSED_CYCLE──▶ estado correspondente
 RESOLVING ──DOMAIN_ERROR──▶ RESOLUTION_ERROR
 RESOLVING ──transporte──▶ NETWORK_ERROR
@@ -640,22 +651,66 @@ A branch congelada exibe rótulos para `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`,
 **UNKNOWN / TO BE VERIFIED** (§31, Q1). Até decisão, o Core os trata de
 forma única em todos os canais e nunca por rótulo definido em adapter.
 
+### 10.4 Ordem canônica de resolução
+
+Regra definitiva do Controle:
+
+> TELEFONE CONFIÁVEL É OBRIGATÓRIO PARA CRIAÇÃO DE LEAD.
+>
+> TELEFONE CONFIÁVEL NÃO É OBRIGATÓRIO PARA RESOLVER UM LEAD EXISTENTE
+> QUANDO EXISTE OUTRA IDENTIDADE SEGURA E AUTORIZADA.
+
+```
+conversation
+  ↓
+adapter entrega contact evidence
+  (platformIdentity segura, trustedPhone, ou ambos)
+  ↓
+Core / transporte autorizado tenta resolver com a evidência disponível,
+segundo contrato seguro (Domain Resolution ViewModel sanitizado — §9)
+```
+
+| Caso | Condição | Resultado |
+|---|---|---|
+| **A** | `platformIdentity` resolve um lead/ciclo existente | Usa essa resolução. **Não** exige telefone apenas para abrir o Companion. Segue para o estado comercial correspondente (`OWNED_BY_ME`, `IN_POOL`, `OWNED_BY_OTHER`, `CLOSED_CYCLE`, …). |
+| **B** | `platformIdentity` retorna `CONTACT_NOT_LINKED` ou não produz resolução comercial **e** existe `trustedPhone` | Fallback de resolução por telefone (hardening preservado: ex. `RESOLVE_MANYCHAT_LEAD_BY_PHONE` sanitizado). O resultado segue os casos A (lead existente) ou D (`NOT_FOUND`). |
+| **C** | `platformIdentity` não resolve (ou está ausente) **e** não existe `trustedPhone` | `NO_CONTACT_EVIDENCE`. **Não** criar lead; **não** inferir telefone; **não** usar `subscriber_id`; **não** usar `wa_id` como telefone. |
+| **D** | Resolução por `trustedPhone` retorna `NOT_FOUND` | `NOT_FOUND` → `LEAD_CREATE_READY` (criação disponível, sujeita a `can_create_lead`). |
+
+Notas:
+
+- Quando só existe `trustedPhone` (sem `platformIdentity`, como hoje no
+  WhatsApp), a resolução é por telefone e segue A ou D.
+- Quando existem ambos, a `platformIdentity` é tentada primeiro; o
+  telefone é fallback (caso B). A ordem é do Core/transporte, nunca do
+  adapter.
+- Resolução por `platformIdentity` nunca habilita criação: um resultado
+  sem lead sem `trustedPhone` é sempre caso C.
+- Esta regra não enfraquece nenhum item de privacidade do §9/§23: a
+  `platformIdentity` só trafega até o transporte/backend autorizado e a
+  resposta continua sanitizada por allowlist.
+
 ---
 
 ## 11. Lead creation contract
 
 ### 11.1 Pré-condições (Decisão do Controle — telefone)
 
-SEM TELEFONE CONFIÁVEL: não criar lead; não inferir telefone; não usar
-`subscriber_id`; não usar `wa_id` como telefone; não inventar dado. Estado
-`NO_CONTACT_EVIDENCE`, seller-facing conceitual "Identificando contato..."
-(ou equivalente definido pela view canônica).
+**CREATE exige `trustedPhone`.** Nunca criar lead apenas com:
+`platformIdentity`, `subscriber_id`, `wa_id`, `conversation_key` ou nome.
 
-Com telefone confiável: o Core pode resolver. Se a resolução retornar
-`NOT_FOUND`, o Core oferece criação de lead:
+Sem telefone confiável: não criar lead; não inferir telefone; não usar
+`subscriber_id`; não usar `wa_id` como telefone; não inventar dado. Se,
+além disso, nenhuma identidade segura resolver um lead existente, o estado
+é `NO_CONTACT_EVIDENCE`, seller-facing conceitual "Identificando
+contato..." (ou equivalente definido pela view canônica). Se uma
+identidade segura resolver um lead existente, a resolução comercial
+continua normalmente (§10.4 caso A) — apenas a criação fica indisponível.
+
+Fluxo de criação:
 
 ```
-trusted phone → resolve → NOT_FOUND → Novo contato → CREATE → re-resolve → workspace
+trustedPhone → resolution → NOT_FOUND → LEAD_CREATE_READY → CREATE → re-resolve → workspace
 ```
 
 ### 11.2 Máquina de estados
@@ -888,7 +943,15 @@ Evidência: a extração (`lead-enrichment.js`) detecta os 8 (endereço como
 `address_raw`); a lista confirmável/gravável atual
 (`LEAD_ENRICHMENT_CONFIRMABLE_FIELDS` e
 `LEAD_ENRICHMENT_UPDATE_FIELDS` @24f25c7) contém 7 — **sem** `address`.
-Política de escrita de `address`: **UNKNOWN / TO BE VERIFIED** (§31, Q5).
+**Q5 — DECIDED (Controle, FASE 2.1).**
+`address` continua detectável como informação/contexto, mas **não** é
+promovido a campo de escrita confirmável nesta reconstrução. Os campos
+confirmáveis/graváveis permanecem os 7 atualmente suportados (`email`,
+`cpf`, `cnpj`, `birth_date`, `profession`, `cep`, `phone_mobile`).
+Comportamento funcional atual preservado; nenhuma feature nova.
+
+**ADDRESS WRITE POLICY: OUT OF SCOPE FOR THIS REBUILD.** Uma futura
+feature de endereço será outra missão.
 
 ### 19.2 Regras canônicas
 
@@ -1178,6 +1241,92 @@ executadas no gate do projeto):
 
 Total: **18 gates**.
 
+Os gates descrevem o **estado final** correto e não são enfraquecidos:
+A2 continua significando "adapter não contém decisão seller-facing por
+status comercial"; A10 "nenhum runtime seller-facing paralelo ManyChat";
+A11 "nenhum runtime seller-facing paralelo WhatsApp". Durante a migração,
+apenas as ocorrências já catalogadas em `b5d877` ficam no baseline
+regressivo do §30.1.
+
+### 30.1 ARCHITECTURE MIGRATION BASELINE
+
+A base `b5d877a18843b5653c79adc2c5396447d2a99310` ainda contém violações
+históricas que a reconstrução vai remover (ex.: seller-facing ManyChat
+paralelo em `manychat-seller-panel-runtime.js`;
+`STATUS_LABELS`/`renderStatus` em `manychat-capture-bootstrap.js`;
+`manychat-contact-link-runtime.js`; `content-script.js` misturando Core e
+plataforma; controllers ainda não extraídos; monkey-patches de
+`YolenCompanionApi`; divergências manifest × harness). Um gate absoluto
+tornaria a branch inutilizável antes da migração. Por isso a FASE 3 DEVE
+implementar:
+
+1. detecção das violações arquiteturais (os 18 gates);
+2. baseline explícito das violações **LEGADAS** já existentes em `b5d877`;
+3. baseline por **ocorrência concreta**, nunca wildcard amplo;
+4. qualquer **NOVA** violação: **FAIL** imediato;
+5. qualquer violação legada **alterada/aumentada**: **FAIL**;
+6. conforme uma fase remove uma violação, sua entrada **sai** do baseline;
+7. entrada removida do baseline **nunca pode voltar**;
+8. ao final da reconstrução o baseline deve estar **VAZIO**;
+9. a Definition of Done exige **ZERO architecture debt allowlisted**.
+
+#### Baseline não é permissão
+
+A allowlist de migração **NÃO** torna a arquitetura legada correta. Ela
+apenas permite **detectar → congelar → reduzir** a dívida existente
+durante a reconstrução.
+
+É proibido usar a allowlist para:
+
+- adicionar nova regra seller-facing;
+- adicionar novo status em adapter;
+- adicionar novo renderer paralelo;
+- ampliar arquivo legado;
+- justificar nova dívida.
+
+#### Forma da allowlist
+
+Não implementada nesta fase. A FASE 3 deve preferir entradas específicas
+com os campos:
+
+| Campo | Significado |
+|---|---|
+| `gate_id` | Gate violado (A1–A18) |
+| `file` | Caminho exato do arquivo |
+| `symbol/region` | Símbolo, função ou região concreta (ex.: `STATUS_LABELS`, `renderStatus`) |
+| `reason` | Motivo da dívida legada |
+| `introduced_before_rebuild` | `true` (obrigatório para toda entrada) |
+| `removal_phase` | Fase prevista de remoção |
+
+Exemplo conceitual:
+
+```
+{
+  gate: "A10",
+  file: "manychat-seller-panel-runtime.js",
+  reason: "legacy parallel seller runtime",
+  removal_phase: "7"
+}
+```
+
+**Proibido:** entradas como "`manychat-*.js` permitido" ou qualquer
+wildcard que esconda violações novas. Uma entrada com
+`introduced_before_rebuild: false` é inválida por definição.
+
+#### Resultado esperado dos gates
+
+Cada execução reporta dois números:
+
+```
+NEW_VIOLATIONS = <n>
+LEGACY_VIOLATIONS_REMAINING = <N>
+```
+
+| Momento | PASS significa |
+|---|---|
+| Durante as Fases 3–7 (migração) | `NEW_VIOLATIONS = 0` **e** `LEGACY_VIOLATIONS_REMAINING <= baseline anterior` (nunca maior) |
+| Gate final da reconstrução | `NEW_VIOLATIONS = 0` **e** `LEGACY_VIOLATIONS_REMAINING = 0` |
+
 ---
 
 ## 31. Stop conditions
@@ -1191,27 +1340,25 @@ Qualquer fase posterior DEVE parar e reportar BLOCKED quando:
 - precisar inferir telefone de identificador de plataforma;
 - precisar alterar arquivos fora do escopo autorizado da fase;
 - encontrar contradição entre este contrato e a matriz de paridade;
-- depender de uma das questões abaixo ainda não decididas.
+- introduzir uma NOVA violação arquitetural, ou aumentar uma violação
+  legada do baseline (§30.1);
+- depender de uma questão Q ainda aberta **somente** se a fase atual for a
+  fase que, segundo o DECISION SCHEDULE abaixo, depende dela.
 
-Questões abertas (**UNKNOWN / TO BE VERIFIED** — decisão do Controle ou
-verificação em fase própria):
+Uma questão Q aberta **bloqueia somente a fase que depende dela** segundo
+o DECISION SCHEDULE. É proibido usar uma questão aberta para bloquear
+outra fase (ex.: "Q4 ainda está UNKNOWN" **não** bloqueia a FASE 3).
 
-- **Q1.** Mapeamento canônico de `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`,
-  `MULTIPLE_MATCHES` (hoje: genérico no WhatsApp, rótulos próprios no
-  ManyChat congelado).
-- **Q2.** Quais estados comerciais abrem `WORKSPACE_READY`
-  (`OWNED_BY_OTHER`, `IN_POOL`, `CLOSED_CYCLE`) — deve derivar de
-  `capabilities`/`flags` do Domain Resolution ViewModel; matriz exata não
-  comprovada.
-- **Q3.** Lista exata de campos de display autorizados no Domain Resolution
-  ViewModel por canal (lead name, owner_name, cycle status no ManyChat).
-- **Q4.** Capabilities ManyChat UNKNOWN: display name confiável,
-  interceptação de envio, pedir detalhes de contato, classificação
-  grupo/self, deleção/edição, última mensagem enviada.
-- **Q5.** Política de escrita de `address` no enrichment (detectado, não
-  confirmável hoje).
-- **Q6.** Alternativa sem escrita no DOM da plataforma para mensagens de
-  anexo (`phase16-9-runtime-guard.js`).
+### DECISION SCHEDULE
+
+| Questão | Tema | Status | Resolver antes de | Bloqueia FASE 3? |
+|---|---|---|---|---|
+| **Q1** | Mapeamento canônico de `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`, `MULTIPLE_MATCHES` (hoje: genérico no WhatsApp, rótulos próprios no ManyChat congelado) | SCHEDULED | Implementação do `companion-lead-resolution-controller` na **FASE 4** | Não |
+| **Q2** | Estados comerciais que abrem `WORKSPACE_READY` (`OWNED_BY_OTHER`, `IN_POOL`, `CLOSED_CYCLE`) — deve derivar de `capabilities`/`flags` do Domain Resolution ViewModel | SCHEDULED | Implementação da composição resolution → workspace na **FASE 4** | Não |
+| **Q3** | Campos de display autorizados no Domain Resolution ViewModel por canal (lead name, owner_name, cycle status no ManyChat) | SCHEDULED | Implementação do contrato de resolução sanitizado na **FASE 4** | Não |
+| **Q4** | Capabilities ManyChat UNKNOWN (display name confiável, interceptação de envio, pedir detalhes de contato, grupo/self, deleção/edição, última mensagem enviada) | SCHEDULED | Resolvida **por evidência técnica** na **FASE 6** (ManyChatAdapter); não inventar antes | Não |
+| **Q5** | Política de escrita de `address` no enrichment | **DECIDED** (FASE 2.1) — DECIDED / OUT OF SCOPE FOR WRITE: `address` detectável como contexto, não confirmável/gravável; 7 campos graváveis preservados (§19.1) | — | Não |
+| **Q6** | Alternativa à escrita sintética no DOM do WhatsApp para mensagens de anexo (`phase16-9-runtime-guard.js`) | SCHEDULED | Conclusão da **FASE 5** (WhatsAppAdapter sobre o Core) | Não |
 
 ---
 
@@ -1225,7 +1372,9 @@ A reconstrução cumpre este contrato quando:
 3. Nenhum código seller-facing paralelo existe em arquivo de canal
    (`manychat-seller-panel-runtime.js`, `renderStatus`/`STATUS_LABELS` e
    equivalentes foram removidos ou esvaziados de decisão de produto).
-4. Os 18 gates do §30 estão implementados e verdes.
+4. Os 18 gates do §30 estão implementados e verdes com
+   `NEW_VIOLATIONS = 0` e `LEGACY_VIOLATIONS_REMAINING = 0` — **ZERO
+   architecture debt allowlisted** (baseline de migração do §30.1 vazio).
 5. Todos os cenários de `COMPANION_STATE_PARITY_MATRIX.md` têm cobertura
    automatizada conforme exigido e aceite ao vivo nos cenários marcados.
 6. O hardening listado na auditoria (sanitização, evidência de telefone,
@@ -1233,5 +1382,8 @@ A reconstrução cumpre este contrato quando:
    kill switch) está preservado.
 7. Manifest e harness têm a mesma composição efetiva.
 8. Nenhum controller do Core é composto por monkey-patch.
-9. As questões Q1–Q6 do §31 foram decididas ou explicitamente mantidas
-   fora de escopo pelo Controle.
+9. As questões Q1–Q4 e Q6 do DECISION SCHEDULE (§31) foram decididas nas
+   fases indicadas; Q5 permanece DECIDED / OUT OF SCOPE FOR WRITE.
+10. Resolução sem telefone confiável funciona por identidade externa
+    segura (§10.4 caso A) e criação de lead exige `trustedPhone` em todos
+    os canais (§11.1).

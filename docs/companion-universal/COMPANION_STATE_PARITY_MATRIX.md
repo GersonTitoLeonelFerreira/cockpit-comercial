@@ -2,8 +2,8 @@
 
 | Campo | Valor |
 |---|---|
-| Versão | 1.0.0 |
-| Fase | FASE 2 — Contrato arquitetural definitivo |
+| Versão | 1.1.0 (FASE 2.1 — hardening) |
+| Fase | FASE 2 / 2.1 — Contrato arquitetural definitivo |
 | Branch | `claude/companion-core-rebuild` |
 | Base | `b5d877a18843b5653c79adc2c5396447d2a99310` |
 | Contrato irmão (autoritativo) | `COMPANION_CORE_ARCHITECTURE_CONTRACT.md` |
@@ -67,6 +67,10 @@ Nenhuma célula de CORE AUTHORITY aponta para adapter.
    estado canônico de indisponibilidade que apresentaria em qualquer canal
    sem essa capability.
 4. Capability diferente NÃO significa produto diferente.
+5. Resolução e criação seguem a ordem canônica do §10.4 do contrato:
+   `trustedPhone` é obrigatório para **criação**; não é obrigatório para
+   **resolver** um lead existente por identidade externa segura (casos
+   A–D, cenários #4a–#4d).
 
 ---
 
@@ -99,9 +103,12 @@ evidência (TO BE VERIFIED). Evidências no §8 do contrato.
 | 1 | boot/loading (`BOOT_LOADING`) | state | Indicador "Conectando com a Yolen..." único; nenhum dado comercial | `getMountPoint`, plataforma pronta | `getMountPoint`, plataforma pronta | Momento em que a plataforma fica pronta | Texto/estado de boot diferente; painel comercial antes da sessão | CORE, DOM | WA+MC |
 | 2 | no session (`NO_SESSION`) | state (session) | Mesma copy + CTA "Conectar Yolen"; nenhum dado comercial | nenhum | nenhum | Nenhuma | Status textual sem CTA em um canal (ex.: rótulo `NO_COMPANION_SESSION` do bootstrap ManyChat) | CORE, DOM | WA+MC |
 | 3 | conversation absent (`CONNECTED_NO_CONVERSATION`) | state | Painel conectado sem conversa: "Nenhuma conversa detectada" ou equivalente canônico | `getCurrentConversation()` = null | `getCurrentConversation()` = null | Nenhuma | Workspace parcial visível | CORE, DOM | WA+MC |
-| 4 | trusted phone unavailable (`NO_CONTACT_EVIDENCE`) | resolution | "Identificando contato..." (ou equivalente canônico); sem criação de lead; sem telefone inferido | `getContactEvidence` → `unavailable/pending`; pode usar `requestVisibleContactDetails` | `getContactEvidence` → `unavailable/ambiguous` (phone evidence fail-closed) | Método de busca do telefone; WA pode tentar abrir "Dados do contato" | Criar lead sem telefone; usar `subscriber_id`/`wa_id`; mensagem diferente entre canais | CORE, ADP, DOM | WA+MC |
-| 5 | resolving (`RESOLVING`) | resolution | "Localizando este contato na Yolen..."; ações bloqueadas | `trustedPhone` | `platformIdentity` + `trustedPhone` quando disponível | Identificador opaco enviado ao backend | Spinner/texto distinto; UI comercial antes do resultado | CORE, DOM | WA+MC |
-| 6 | `NOT_FOUND` | resolution | Card "Este contato ainda não existe na Yolen" + oferta "Novo contato" (quando `can_create_lead`) + sinal de atenção | `trustedPhone` | `trustedPhone` | Nenhuma | Um canal só texto e outro com formulário (padrão atual ManyChat) | CORE, DOM | WA+MC |
+| 4a | trusted phone unavailable, `platformIdentity` resolve lead existente (§10.4 caso A) | resolution | Resolução comercial continua normalmente: estado comercial correspondente (#15–#18) e workspace conforme Q2; criação indisponível (não necessária) | `trustedPhone` ausente; WA hoje não fornece `platformIdentity` (resolve por telefone) | `platformIdentity` segura (`platform_contact_key`) | Qual evidência resolveu | Exigir telefone para abrir o Companion; bloquear workspace por falta de telefone | CORE, ADP, DOM | MC |
+| 4b | trusted phone unavailable + identidade não resolve (§10.4 caso C) → `NO_CONTACT_EVIDENCE` | resolution | "Identificando contato..." (ou equivalente canônico); sem criação de lead; sem telefone inferido | `getContactEvidence` → `unavailable/pending`; pode usar `requestVisibleContactDetails` | `getContactEvidence` → `unavailable/ambiguous` (phone evidence fail-closed) + `CONTACT_NOT_LINKED` | Método de busca do telefone; WA pode tentar abrir "Dados do contato" | Criar lead sem telefone; usar `subscriber_id`/`wa_id`/`platformIdentity` como telefone; mensagem diferente entre canais | CORE, ADP, DOM | WA+MC |
+| 4c | NOT_FOUND sem trustedPhone (resultado sem lead obtido só por identidade) | resolution + creation | Tratado como caso C: `NO_CONTACT_EVIDENCE`; criação **não** disponível; nenhum formulário | sem `trustedPhone` | `platformIdentity` sem vínculo, sem `trustedPhone` | Nenhuma | Oferecer formulário/CREATE sem telefone confiável | CORE, DOM | MC |
+| 4d | NOT_FOUND com trustedPhone (§10.4 caso D) | resolution + creation | `NOT_FOUND` → `LEAD_CREATE_READY`; criação disponível (ver #6, #7) | `trustedPhone` | `trustedPhone` (fallback do caso B) | Método de obtenção do telefone | Um canal oferecer criação e o outro não com `trustedPhone` disponível | CORE, DOM | WA+MC |
+| 5 | resolving (`RESOLVING`) | resolution | "Localizando este contato na Yolen..."; ações bloqueadas; ordem de tentativa identidade → telefone decidida pelo Core/transporte (§10.4) | `trustedPhone` | `platformIdentity`, com fallback por `trustedPhone` quando disponível (caso B) | Identificador opaco enviado ao backend | Spinner/texto distinto; UI comercial antes do resultado | CORE, DOM | WA+MC |
+| 6 | `NOT_FOUND` (por `trustedPhone`) | resolution | Card "Este contato ainda não existe na Yolen" + oferta "Novo contato" (quando `can_create_lead`) + sinal de atenção; exige `trustedPhone` (sem ele ver #4c) | `trustedPhone` | `trustedPhone` | Nenhuma | Um canal só texto e outro com formulário (padrão atual ManyChat) | CORE, DOM | WA+MC |
 | 7 | create form ready (`LEAD_CREATE_READY`) | creation | Formulário Nome (obrigatório, sugerido por display name confiável), Telefone (readonly, trusted), E-mail e CPF/CNPJ (opcionais, sugeridos por enrichment) | `trustedPhone`, `displayName` | `trustedPhone`, `displayName` (UNKNOWN) | Presença de sugestão de nome conforme `canProvideDisplayName` | Formulário diferente; telefone editável; nome sugerido de display name não confiável/que parece telefone | CORE, DOM | WA+MC |
 | 8 | creating (`CREATING_LEAD`) | creation | "Criando lead na Yolen..."; submit desabilitado | nenhum (payload já no Core) | nenhum | Nenhuma | Estado ausente em um canal | CORE, DOM | WA+MC |
 | 9 | duplicate create click | creation | Um único CREATE por `conversation_key`; cliques extras são no-op | nenhum | nenhum | Nenhuma | Segundo CREATE; tratamento distinto | CORE, DOM | WA |
@@ -170,7 +177,7 @@ evidência (TO BE VERIFIED). Evidências no §8 do contrato.
 | 67 | pré-envio (gate) | message (pre-send) | Avaliação e gate de pré-envio canônicos | `interceptSendAttempt` | UNKNOWN (Q4) | Capability `canInterceptSend` | Regra de avaliação distinta | CORE, ADP | WA |
 | 68 | painel recolhido com atenção | workspace | Ponto de atenção por sinal canônico; reconhecimento ao abrir | nenhum | nenhum | Nenhuma | Atenção só em um canal | CORE, DOM | — |
 
-Total documentado: **68 cenários** (64 obrigatórios + 4 complementares).
+Total documentado: **71 linhas de cenário** — os 64 cenários obrigatórios, com o cenário 4 dividido em 4a/4b/4c/4d (67 linhas), + 4 complementares (#65–#68).
 
 ---
 
@@ -202,7 +209,7 @@ Total documentado: **68 cenários** (64 obrigatórios + 4 complementares).
 | `lead_id` | UNKNOWN / TO BE VERIFIED se permanece necessário (hoje usado em enrichment) | Não recebe | Deriva por `cycle_id` | Não cruza apenas para ser devolvido |
 | Lead name / owner name | Recebe hoje | Não recebe hoje | Mantém | Somente quando autorizado (Q3) |
 | Payload de resolução | Hoje bruto | Allowlist | Allowlist | Alvo: Domain Resolution ViewModel sanitizado para ambos |
-| Identidade de plataforma | JID (opaco) | `platform_contact_key` (opaco) | Recebe | Nunca exibida; nunca telefone |
+| Identidade de plataforma | JID (opaco) | `platform_contact_key` (opaco) | Recebe | Nunca exibida; nunca telefone; válida para resolver vínculo existente, nunca para criação |
 | Mensagens/áudio | Memória | Memória | Persistência server-side | Nunca storage do browser |
 | Storage do browser | Sessão + preferências de UI | Sessão + preferências de UI | — | Sem PII por conveniência |
 
@@ -237,7 +244,7 @@ Total documentado: **68 cenários** (64 obrigatórios + 4 complementares).
    dados/capabilities (gates A2, A12).
 4. Todo cenário com `BE` tem teste de rota/core server-side
    (autorização, CAS, allowlist).
-5. Cenários 1–31 e 59–64 são executados com os DOIS adapters fake
+5. Cenários 1–31 (incluindo 4a–4d) e 59–64 são executados com os DOIS adapters fake
    (WhatsApp e ManyChat) produzindo o mesmo resultado do Core.
 6. Os 18 gates do §30 do contrato são pré-requisito de toda cobertura.
 
@@ -281,12 +288,13 @@ reproduzi-los):
 
 Paridade está completa quando:
 
-1. Todos os 68 cenários (64 obrigatórios + 4 complementares) têm CORE
+1. Todas as 71 linhas de cenário (64 obrigatórios, com #4 dividido em 4a–4d, + 4 complementares) têm CORE
    AUTHORITY implementada no Core e nenhuma decisão em adapter.
 2. Toda cobertura AUTO exigida existe e passa.
 3. Todo aceite LIVE exigido foi registrado.
 4. Toda diferença observada entre canais está listada em ALLOWED DIFF.
 5. Nenhum exemplo do §11 se reproduz.
-6. As questões Q1–Q6 do §31 do contrato estão decididas ou mantidas fora
-   de escopo pelo Controle, e os cenários #15–#17, #65–#67 foram
-   atualizados em nova versão desta matriz.
+6. As questões Q1–Q4 e Q6 do DECISION SCHEDULE (§31 do contrato) foram
+   decididas nas fases indicadas (Q5 já DECIDED / OUT OF SCOPE FOR WRITE),
+   e os cenários #4a, #15–#17, #65–#67 foram atualizados em nova versão
+   desta matriz.
