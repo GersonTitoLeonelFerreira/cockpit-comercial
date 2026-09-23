@@ -485,25 +485,62 @@ export function detectA2(tree) {
   return found
 }
 
+// Definição ÚNICA do monólito WhatsApp (plataforma + Core seller-facing no
+// mesmo arquivo). A11 usa este helper para acusar a mistura; A3–A8 usam o
+// MESMO helper para a exceção transitória de migração de owner abaixo —
+// nunca duas definições diferentes de "monólito".
+const WHATSAPP_PLATFORM_MARKERS = /web\.whatsapp\.com|['"`]#main\b|\[data-pre-plain-text\]|conversation-compose-box|__reactFiber|@[cg]\.us\b/
+const SELLER_CORE_MARKERS = /\bleadCreationStatus\b|\bSELLER_AREAS\b|data-yolen-seller-area|\brenderAgoraViewModelSnapshot\b|data-yolen-seller-message-(?:box|mount)|\bgetSellerMessageAreaHtml\b/
+
+export function hasMixedCorePlatformRuntime(code) {
+  return WHATSAPP_PLATFORM_MARKERS.test(code) && SELLER_CORE_MARKERS.test(code)
+}
+
+export function isLegacyWhatsappMonolithActive(tree) {
+  const code = strippedSources(tree).get('content-script.js')
+  return code !== undefined && hasMixedCorePlatformRuntime(code)
+}
+
 // Gates de AUTORIDADE ÚNICA (A3–A8): um único arquivo pode ser dono da
-// responsabilidade. O dono permitido é o módulo Core correspondente quando
-// ele existir; enquanto não existir, o dono legado é content-script.js
-// (cuja mistura com plataforma é dívida própria, catalogada em A11). Todo
-// OUTRO arquivo com os marcadores é violação.
+// responsabilidade.
+//
+// CASO 1 — Core correspondente NÃO existe: o dono legado é
+//   content-script.js (ou, na ausência dele, o primeiro dono encontrado).
+//   Comportamento original preservado.
+// CASO 2 — Core existe: o Core é o dono canônico. content-script.js pode
+//   COEXISTIR temporariamente (migração incremental) SOMENTE enquanto ele
+//   ainda for objetivamente o monólito A11 — a dívida já está representada
+//   por A11:content-script:monolithic-core-platform-runtime, então não é
+//   dívida nova nem precisa de baseline própria.
+// CASO 3 — Core existe e content-script.js já não é monólito A11: a
+//   exceção expira sozinha; autoridade duplicada ali volta a ser violação.
+// CASO 4 — qualquer outro arquivo com a mesma autoridade (ManyChat,
+//   arquivo aleatório, segundo legado): sempre violação.
+function resolveOwnerViolations(tree, owners, { gate, symbol, coreOwnerPrefix }) {
+  const allowed = new Set()
+  const coreOwner = owners.find((owner) => owner.name.startsWith(coreOwnerPrefix))
+  const legacyOwner = owners.find((owner) => owner.name === 'content-script.js')
+
+  if (coreOwner) {
+    allowed.add(coreOwner)
+    if (legacyOwner && isLegacyWhatsappMonolithActive(tree)) allowed.add(legacyOwner)
+  } else {
+    const fallback = legacyOwner ?? owners[0]
+    if (fallback) allowed.add(fallback)
+  }
+
+  return owners
+    .filter((owner) => !allowed.has(owner))
+    .map((owner) => violation({ gate, file: owner.name, symbol, evidence: owner.evidence }))
+}
+
 function detectSingleOwner(tree, { gate, symbol, markers, coreOwnerPrefix }) {
   const owners = []
   for (const [name, code] of strippedSources(tree)) {
     const marker = markers.find((regex) => regex.test(code))
     if (marker) owners.push({ name, evidence: firstMatchEvidence(code, marker) })
   }
-
-  const coreOwner = owners.find((owner) => owner.name.startsWith(coreOwnerPrefix))
-  const legacyOwner = owners.find((owner) => owner.name === 'content-script.js')
-  const allowed = coreOwner ?? legacyOwner ?? owners[0] ?? null
-
-  return owners
-    .filter((owner) => owner !== allowed)
-    .map((owner) => violation({ gate, file: owner.name, symbol, evidence: owner.evidence }))
+  return resolveOwnerViolations(tree, owners, { gate, symbol, coreOwnerPrefix })
 }
 
 const SELLER_AREA_IDS = Object.freeze(['now', 'message', 'analysis', 'client'])
@@ -532,14 +569,11 @@ export function detectA3(tree) {
     const marker = hasSellerAreaAuthority(code)
     if (marker) owners.push({ name, evidence: firstMatchEvidence(code, marker) })
   }
-  const allowed =
-    owners.find((owner) => owner.name.startsWith('companion-workspace')) ??
-    owners.find((owner) => owner.name === 'content-script.js') ??
-    owners[0] ??
-    null
-  return owners
-    .filter((owner) => owner !== allowed)
-    .map((owner) => violation({ gate: 'A3', file: owner.name, symbol: 'seller-area-authority', evidence: owner.evidence }))
+  return resolveOwnerViolations(tree, owners, {
+    gate: 'A3',
+    symbol: 'seller-area-authority',
+    coreOwnerPrefix: 'companion-workspace',
+  })
 }
 
 export function detectA4(tree) {
@@ -711,14 +745,12 @@ export function detectA10(tree) {
 // A11 — nenhum runtime seller-facing paralelo WhatsApp: arquivo fora do
 // Core que mistura acesso à plataforma WhatsApp com responsabilidade
 // seller-facing do Core.
-const WHATSAPP_PLATFORM_MARKERS = /web\.whatsapp\.com|['"`]#main\b|\[data-pre-plain-text\]|conversation-compose-box|__reactFiber|@[cg]\.us\b/
-const SELLER_CORE_MARKERS = /\bleadCreationStatus\b|\bSELLER_AREAS\b|data-yolen-seller-area|\brenderAgoraViewModelSnapshot\b|data-yolen-seller-message-(?:box|mount)|\bgetSellerMessageAreaHtml\b/
-
+// Usa a definição única hasMixedCorePlatformRuntime() (ver A3–A8).
 export function detectA11(tree) {
   const found = []
   for (const [name, code] of strippedSources(tree)) {
     if (isManyChatFile(name) || isCoreFile(name)) continue
-    if (WHATSAPP_PLATFORM_MARKERS.test(code) && SELLER_CORE_MARKERS.test(code)) {
+    if (hasMixedCorePlatformRuntime(code)) {
       found.push(violation({
         gate: 'A11',
         file: name,
@@ -1390,4 +1422,168 @@ test('self-test baseline: violação nova vira NEW_VIOLATIONS e violação remov
   const swapped = compareWithBaseline([baseline[0], novel], baseline)
   assert.deepEqual(swapped.newViolations.map((entry) => entry.id), [novel.id], 'troca de dívida não passa silenciosamente')
   assert.deepEqual(swapped.staleBaseline.map((entry) => entry.id), ['A2:manychat-x:status-copy-map:LABELS'])
+})
+
+// ---------------------------------------------------------------------------
+// FASE 3.1 — self-tests da migração controlada de owner (A3–A8).
+// ---------------------------------------------------------------------------
+
+// content-script.js ainda monólito A11: acesso à plataforma WhatsApp (#main)
+// + responsabilidade seller-facing (SELLER_AREAS / leadCreationStatus).
+const MONOLITH_PLATFORM_LINE = "const main = document.querySelector('#main')"
+
+const OWNER_MIGRATION_CASES = Object.freeze([
+  {
+    gate: 'A3',
+    detect: detectA3,
+    coreFile: 'companion-workspace.js',
+    authority: "const SELLER_AREAS = ['now', 'message', 'analysis', 'client']",
+    symbol: 'seller-area-authority',
+  },
+  {
+    gate: 'A4',
+    detect: detectA4,
+    coreFile: 'companion-lead-creation-controller.js',
+    authority: "state.leadCreationStatus = 'created_resolving'",
+    symbol: 'lead-creation-state-machine',
+  },
+  {
+    gate: 'A5',
+    detect: detectA5,
+    coreFile: 'companion-analysis-controller.js',
+    authority: 'const AUTOMATIC_ANALYSIS_DELAY_MS = 8000',
+    symbol: 'analysis-policy',
+  },
+  {
+    gate: 'A6',
+    detect: detectA6,
+    coreFile: 'companion-lead-summary-controller.js',
+    authority: "state.companionLeadSummarySaveStatus = 'conflict'",
+    symbol: 'lead-summary-controller',
+  },
+  {
+    gate: 'A7',
+    detect: detectA7,
+    coreFile: 'companion-conversation-registration-controller.js',
+    authority: "entry = { status: 'previewing' }",
+    symbol: 'conversation-registration-controller',
+  },
+  {
+    gate: 'A8',
+    detect: detectA8,
+    coreFile: 'companion-lead-enrichment-controller.js',
+    authority: 'state.leadEnrichmentApplyLoadingKey = key',
+    symbol: 'lead-enrichment-controller',
+  },
+])
+
+function monolithContentScript(authority) {
+  // SELLER_AREAS como marcador seller-facing garante a mistura A11 mesmo
+  // quando a autoridade testada é de outro gate.
+  return [MONOLITH_PLATFORM_LINE, 'const SELLER_AREAS_HINT = SELLER_AREAS', authority].join('\n')
+}
+
+function coreOnlyContentScript(authority) {
+  // Sem nenhum sinal de plataforma WhatsApp: não é mais monólito A11.
+  return ['const SELLER_AREAS_HINT = SELLER_AREAS', authority].join('\n')
+}
+
+test('self-test A3 (migração): Core workspace + content-script monólito A11 não gera violação A3; A11 continua acusando', () => {
+  const tree = createSyntheticTree({
+    src: {
+      'companion-workspace.js': "const SELLER_AREAS = Object.freeze(['now', 'message', 'analysis', 'client'])",
+      'content-script.js': [MONOLITH_PLATFORM_LINE, "const SELLER_AREAS = ['now', 'message', 'analysis', 'client']"].join('\n'),
+    },
+  })
+  assert.equal(isLegacyWhatsappMonolithActive(tree), true)
+  assert.deepEqual(detectA3(tree), [])
+  assert.deepEqual(ids(detectA11(tree)), ['A11:content-script:monolithic-core-platform-runtime'])
+})
+
+test('self-test A3 (exceção expira): content-script sem plataforma WhatsApp volta a ser owner duplicado', () => {
+  const tree = createSyntheticTree({
+    src: {
+      'companion-workspace.js': "const SELLER_AREAS = Object.freeze(['now', 'message', 'analysis', 'client'])",
+      'content-script.js': "const SELLER_AREAS = ['now', 'message', 'analysis', 'client']",
+    },
+  })
+  assert.equal(isLegacyWhatsappMonolithActive(tree), false)
+  assert.deepEqual(detectA11(tree), [])
+  assert.deepEqual(ids(detectA3(tree)), ['A3:content-script:seller-area-authority'])
+})
+
+test('self-test A3 (terceiro owner): Core + monólito transitório + outro arquivo → só o terceiro é acusado', () => {
+  const tree = createSyntheticTree({
+    src: {
+      'companion-workspace.js': "const SELLER_AREAS = Object.freeze(['now', 'message', 'analysis', 'client'])",
+      'content-script.js': [MONOLITH_PLATFORM_LINE, "const SELLER_AREAS = ['now', 'message', 'analysis', 'client']"].join('\n'),
+      'some-other-workspace.js': "const SELLER_AREAS = ['now', 'message', 'analysis', 'client']",
+    },
+  })
+  assert.deepEqual(ids(detectA3(tree)), ['A3:some-other-workspace:seller-area-authority'])
+})
+
+for (const migration of OWNER_MIGRATION_CASES) {
+  test(`self-test ${migration.gate} (migração): Core novo + content-script monólito é transitório; sem plataforma a duplicação é acusada`, () => {
+    const transitional = createSyntheticTree({
+      src: {
+        [migration.coreFile]: migration.authority,
+        'content-script.js': monolithContentScript(migration.authority),
+      },
+    })
+    assert.equal(isLegacyWhatsappMonolithActive(transitional), true)
+    assert.deepEqual(migration.detect(transitional), [], `${migration.gate}: coexistência transitória não pode virar violação nova`)
+
+    const expired = createSyntheticTree({
+      src: {
+        [migration.coreFile]: migration.authority,
+        'content-script.js': coreOnlyContentScript(migration.authority),
+      },
+    })
+    assert.equal(isLegacyWhatsappMonolithActive(expired), false)
+    assert.deepEqual(ids(migration.detect(expired)), [`${migration.gate}:content-script:${migration.symbol}`])
+  })
+
+  test(`self-test ${migration.gate} (ManyChat paralelo): Core + content-script transitório + owner ManyChat → ManyChat acusado`, () => {
+    const tree = createSyntheticTree({
+      src: {
+        [migration.coreFile]: migration.authority,
+        'content-script.js': monolithContentScript(migration.authority),
+        'manychat-fake-seller-runtime.js': migration.authority,
+      },
+    })
+    assert.deepEqual(ids(migration.detect(tree)), [`${migration.gate}:manychat-fake-seller-runtime:${migration.symbol}`])
+  })
+}
+
+test('self-test simulação FASE 4: todos os controllers Core + content-script monólito não geram A3–A8; owner ManyChat paralelo é acusado', () => {
+  const coreSources = Object.fromEntries(
+    OWNER_MIGRATION_CASES.map((migration) => [migration.coreFile, migration.authority]),
+  )
+  const monolith = [
+    MONOLITH_PLATFORM_LINE,
+    ...OWNER_MIGRATION_CASES.map((migration) => migration.authority),
+  ].join('\n')
+
+  const phase4 = createSyntheticTree({ src: { ...coreSources, 'content-script.js': monolith } })
+  assert.equal(isLegacyWhatsappMonolithActive(phase4), true)
+  const ownerGates = OWNER_MIGRATION_CASES.map((migration) => migration.gate)
+  const phase4Violations = scanArchitectureViolations(phase4).filter((entry) => ownerGates.includes(entry.gate))
+  assert.deepEqual(phase4Violations, [], 'coexistência transitória Core + monólito A11 não pode gerar A3–A8')
+  assert.deepEqual(ids(detectA11(phase4)), ['A11:content-script:monolithic-core-platform-runtime'])
+
+  const withParallel = createSyntheticTree({
+    src: {
+      ...coreSources,
+      'content-script.js': monolith,
+      'manychat-fake-seller-runtime.js': OWNER_MIGRATION_CASES.map((migration) => migration.authority).join('\n'),
+    },
+  })
+  const parallelViolations = scanArchitectureViolations(withParallel)
+    .filter((entry) => ownerGates.includes(entry.gate))
+    .map((entry) => entry.id)
+  assert.deepEqual(
+    parallelViolations,
+    OWNER_MIGRATION_CASES.map((migration) => `${migration.gate}:manychat-fake-seller-runtime:${migration.symbol}`),
+  )
 })
