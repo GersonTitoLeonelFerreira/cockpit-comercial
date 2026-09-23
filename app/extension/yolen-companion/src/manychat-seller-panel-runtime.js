@@ -70,6 +70,7 @@
           analysisViewModel: null,
           customerViewModel: null,
           methodGuidance: null,
+          viewModelsLoadPromise: null,
           analyzing: false,
           pollTimerId: null,
           // Área seller-facing ativa desta conversa — sempre começa na
@@ -225,21 +226,37 @@
 
       const state = getState(conversationKey)
 
-      const [, decisionState, analysisViewModel, customerViewModel, methodGuidance] =
-        await Promise.all([
-          loadClientContext(cycleId, conversationKey),
-          loadSimpleViewModel('LOAD_DECISION_STATE', cycleId, conversationKey),
-          loadSimpleViewModel('LOAD_ANALYSIS_VIEW_MODEL', cycleId, conversationKey),
-          loadSimpleViewModel('LOAD_CUSTOMER_VIEW_MODEL', cycleId, conversationKey),
-          loadSimpleViewModel('LOAD_METHOD_GUIDANCE', cycleId, conversationKey),
-        ])
+      if (state.viewModelsLoadPromise) {
+        return state.viewModelsLoadPromise
+      }
 
-      state.decisionState = decisionState
-      state.analysisViewModel = analysisViewModel
-      state.customerViewModel = customerViewModel
-      state.methodGuidance = methodGuidance
+      const loadPromise = (async () => {
+        const [, decisionState, analysisViewModel, customerViewModel, methodGuidance] =
+          await Promise.all([
+            loadClientContext(cycleId, conversationKey),
+            loadSimpleViewModel('LOAD_DECISION_STATE', cycleId, conversationKey),
+            loadSimpleViewModel('LOAD_ANALYSIS_VIEW_MODEL', cycleId, conversationKey),
+            loadSimpleViewModel('LOAD_CUSTOMER_VIEW_MODEL', cycleId, conversationKey),
+            loadSimpleViewModel('LOAD_METHOD_GUIDANCE', cycleId, conversationKey),
+          ])
 
-      renderPanel(conversationKey)
+        state.decisionState = decisionState
+        state.analysisViewModel = analysisViewModel
+        state.customerViewModel = customerViewModel
+        state.methodGuidance = methodGuidance
+
+        renderPanel(conversationKey)
+      })()
+
+      state.viewModelsLoadPromise = loadPromise
+
+      try {
+        return await loadPromise
+      } finally {
+        if (state.viewModelsLoadPromise === loadPromise) {
+          state.viewModelsLoadPromise = null
+        }
+      }
     }
 
     function stopPolling(state) {

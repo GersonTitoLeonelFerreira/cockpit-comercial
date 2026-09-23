@@ -684,6 +684,238 @@ test('C: capture_result desatualizado de A enquanto B está aberto nunca chama r
 })
 
 // -----------------------------------------------------------------------
+// STEP 2B.5-C2 — "HYDRATE SELLER WORKSPACE IMMEDIATELY AFTER LEAD
+// RESOLUTION": até aqui, renderStatus() só pintava o SHELL
+// (sellerPanelRuntime.renderPanel) quando resolution.ready === true — o
+// corpo das abas (AGORA/ANÁLISE/CLIENTE) ficava vazio até o primeiro
+// capture_result chamar handleCaptureResult(). O Companion não pode
+// depender da primeira captura de texto para mostrar dados de um lead que
+// o backend já resolveu. Agora, na mesma virada de renderStatus,
+// resolution.ready+cycle_id também dispara sellerPanelRuntime.
+// refreshViewModels() — mas só quando o painel desta conversa ainda está
+// 'idle' (nunca carregado nem em carregamento), para nunca duplicar a
+// hydration disparada por outro caminho concorrente (single-flight vive
+// dentro do próprio sellerPanelRuntime — ver
+// manychat-seller-panel-runtime.test.mjs). ANALYZE_CONVERSATION nunca é
+// disparado por este caminho.
+// -----------------------------------------------------------------------
+
+// Fake controlável: reproduz só o suficiente do estado real de
+// manychat-seller-panel-runtime.js (clientContext.status/decisionState)
+// para exercitar a checagem "só hidrata se ainda estiver idle" do
+// bootstrap — cada hydration fica PENDENTE até o teste resolvê-la
+// explicitamente via resolveHydration(conversationKey).
+function createHydrationAwareSellerPanelRuntime() {
+  const calls = []
+  const stateByKey = new Map()
+  const pendingResolvers = new Map()
+
+  function getState(conversationKey) {
+    if (!stateByKey.has(conversationKey)) {
+      stateByKey.set(conversationKey, {
+        decisionState: null,
+        clientContext: { status: 'idle', data: null, error: null },
+      })
+    }
+    return stateByKey.get(conversationKey)
+  }
+
+  return {
+    calls,
+    resolveHydration(conversationKey) {
+      const resolve = pendingResolvers.get(conversationKey)
+      if (!resolve) return
+      pendingResolvers.delete(conversationKey)
+      resolve()
+    },
+    renderPanel(conversationKey) {
+      calls.push(['renderPanel', conversationKey])
+    },
+    handleCaptureResult(result) {
+      calls.push(['handleCaptureResult', result])
+    },
+    getConversationPanelState(conversationKey) {
+      return getState(conversationKey)
+    },
+    refreshViewModels({ cycleId, conversationKey }) {
+      calls.push(['refreshViewModels', cycleId, conversationKey])
+      const state = getState(conversationKey)
+      state.clientContext = { status: 'loading', data: null, error: null }
+
+      return new Promise((resolve) => {
+        pendingResolvers.set(conversationKey, () => {
+          state.decisionState = { ready: true, data: null }
+          state.clientContext = { status: 'ready', data: null, error: null }
+          resolve()
+        })
+      })
+    },
+  }
+}
+
+function runHydrationBootstrap(seller, resolutionByKey, currentKeyRef) {
+  let receivedOptions = null
+
+  runBootstrap({
+    YolenManyChatFeatureFlags: { MANYCHAT_CAPTURE_ENABLED: true },
+    YolenManyChatCaptureRuntime: {
+      createManyChatCaptureRuntime(options) {
+        receivedOptions = options
+        return {
+          start() {},
+          getConversationState(key) {
+            return { resolution: resolutionByKey[key] }
+          },
+          getCurrentConversationKey: () => currentKeyRef.value,
+        }
+      },
+    },
+    YolenManyChatPanelMount: {
+      isConversationOpen: () => true,
+      syncPanelVisibility() {},
+      setPanelContent() {},
+    },
+    YolenManyChatSellerPanelRuntime: {
+      createManyChatSellerPanelRuntime: () => seller,
+    },
+    document: {},
+    chrome: { runtime: { sendMessage() {} } },
+  })
+
+  return () => receivedOptions
+}
+
+test('STEP 2B.5-C2 — 1/2: resolution.ready+cycle_id dispara refreshViewModels imediatamente, na MESMA virada que pinta o shell (renderPanel) — sem esperar nenhum capture_result', () => {
+  const seller = createHydrationAwareSellerPanelRuntime()
+  const currentKeyRef = { value: null }
+  const resolutionByKey = { 'conv-a': { ready: true, reason: null, cycle_id: 'cycle-a' } }
+  const getOptions = runHydrationBootstrap(seller, resolutionByKey, currentKeyRef)
+
+  currentKeyRef.value = 'conv-a'
+  getOptions().onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a' },
+  })
+
+  assert.deepEqual(seller.calls, [
+    ['renderPanel', 'conv-a'],
+    ['refreshViewModels', 'cycle-a', 'conv-a'],
+  ])
+
+  // O shell já foi pintado (renderPanel rodou) enquanto a hydration ainda
+  // está EM VOO — nunca esperou ela terminar.
+  assert.equal(seller.getConversationPanelState('conv-a').clientContext.status, 'loading')
+
+  seller.resolveHydration('conv-a')
+})
+
+test('STEP 2B.5-C2 — 3: repintar a MESMA resolução (A→B→A) enquanto a hydration de A ainda está em voo nunca dispara uma segunda hydration para A', () => {
+  const seller = createHydrationAwareSellerPanelRuntime()
+  const currentKeyRef = { value: null }
+  const resolutionByKey = {
+    'conv-a': { ready: true, reason: null, cycle_id: 'cycle-a' },
+    'conv-b': { ready: false, reason: 'CONTACT_NOT_LINKED', cycle_id: null },
+  }
+  const getOptions = runHydrationBootstrap(seller, resolutionByKey, currentKeyRef)
+
+  currentKeyRef.value = 'conv-a'
+  getOptions().onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a' },
+  })
+  assert.equal(seller.calls.filter((call) => call[0] === 'refreshViewModels').length, 1)
+
+  // Troca para B (a resolução de A não muda; a hydration de A continua em
+  // voo — ainda não resolvida).
+  currentKeyRef.value = 'conv-b'
+  getOptions().onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b', previous_conversation_key: 'conv-a' },
+  })
+
+  // Volta para A: MESMA resolução de antes (ready+cycle-a) — mas
+  // clientContext.status já é 'loading' (nunca voltou a 'idle'), então o
+  // bootstrap precisa recusar disparar uma segunda hydration.
+  currentKeyRef.value = 'conv-a'
+  getOptions().onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a', previous_conversation_key: 'conv-b' },
+  })
+
+  assert.equal(
+    seller.calls.filter((call) => call[0] === 'refreshViewModels' && call[2] === 'conv-a').length,
+    1,
+    'apenas UMA hydration para conv-a, mesmo depois de A→B→A com a mesma resolução',
+  )
+
+  seller.resolveHydration('conv-a')
+})
+
+test('STEP 2B.5-C2 — 6: hydration disparada pela resolução pronta NUNCA aciona ANALYZE_CONVERSATION (nem qualquer outro método além de renderPanel/refreshViewModels)', () => {
+  const seller = createHydrationAwareSellerPanelRuntime()
+  const currentKeyRef = { value: null }
+  const resolutionByKey = { 'conv-a': { ready: true, reason: null, cycle_id: 'cycle-a' } }
+  const getOptions = runHydrationBootstrap(seller, resolutionByKey, currentKeyRef)
+
+  currentKeyRef.value = 'conv-a'
+  getOptions().onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a' },
+  })
+
+  assert.deepEqual(
+    [...new Set(seller.calls.map((call) => call[0]))].sort(),
+    ['refreshViewModels', 'renderPanel'],
+  )
+
+  seller.resolveHydration('conv-a')
+})
+
+test('STEP 2B.5-C2 — 7/8: hydrations concorrentes de A e B ficam isoladas por conversation_key — resolver B nunca repinta/conclui a hydration de A', () => {
+  const seller = createHydrationAwareSellerPanelRuntime()
+  const currentKeyRef = { value: null }
+  const resolutionByKey = {
+    'conv-a': { ready: true, reason: null, cycle_id: 'cycle-a' },
+    'conv-b': { ready: true, reason: null, cycle_id: 'cycle-b' },
+  }
+  const getOptions = runHydrationBootstrap(seller, resolutionByKey, currentKeyRef)
+
+  currentKeyRef.value = 'conv-a'
+  getOptions().onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-a' },
+  })
+
+  currentKeyRef.value = 'conv-b'
+  getOptions().onEvent({
+    type: 'reader_event',
+    event: { type: 'conversation_changed', conversation_key: 'conv-b', previous_conversation_key: 'conv-a' },
+  })
+
+  assert.deepEqual(
+    seller.calls.filter((call) => call[0] === 'refreshViewModels'),
+    [
+      ['refreshViewModels', 'cycle-a', 'conv-a'],
+      ['refreshViewModels', 'cycle-b', 'conv-b'],
+    ],
+  )
+
+  // Resolve SÓ a hydration de B.
+  seller.resolveHydration('conv-b')
+
+  assert.equal(seller.getConversationPanelState('conv-b').clientContext.status, 'ready')
+  assert.equal(
+    seller.getConversationPanelState('conv-a').clientContext.status,
+    'loading',
+    'resolver B nunca conclui nem toca no estado de hydration de A',
+  )
+
+  // Resolve A separadamente — estado isolado por conversation_key.
+  seller.resolveHydration('conv-a')
+  assert.equal(seller.getConversationPanelState('conv-a').clientContext.status, 'ready')
+})
+
+// -----------------------------------------------------------------------
 // STEP 2B.5 — "MANUAL LEAD PICKER REMOVAL": o antigo fluxo
 // CONTACT_NOT_LINKED -> buscar -> selecionar -> confirmar
 // (manychat-contact-link-runtime.js, com seus data-yolen-link-lead-*) foi

@@ -79,6 +79,26 @@
         conversationKey
       ) {
         sellerPanelRuntime.renderPanel(conversationKey)
+
+        if (
+          resolution.cycle_id &&
+          typeof sellerPanelRuntime.refreshViewModels === 'function'
+        ) {
+          const panelState =
+            typeof sellerPanelRuntime.getConversationPanelState === 'function'
+              ? sellerPanelRuntime.getConversationPanelState(conversationKey)
+              : null
+
+          if (
+            panelState?.decisionState === null &&
+            panelState?.clientContext?.status === 'idle'
+          ) {
+            void sellerPanelRuntime.refreshViewModels({
+              cycleId: resolution.cycle_id,
+              conversationKey,
+            })
+          }
+        }
       } else {
         panelMountApi.setPanelContent(
           '<div class="yolen-status">Yolen · lead identificado</div>',

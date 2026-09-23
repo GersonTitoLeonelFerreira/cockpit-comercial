@@ -392,6 +392,127 @@ test('handleCaptureResult sem cycle_id resolvido não faz nada', async () => {
   assert.equal(fake.calls.length, 0)
 })
 
+// -----------------------------------------------------------------------
+// STEP 2B.5-C2 — "HYDRATE SELLER WORKSPACE IMMEDIATELY AFTER LEAD
+// RESOLUTION": refreshViewModels agora é single-flight por
+// conversation_key (state.viewModelsLoadPromise) — necessário porque o
+// bootstrap passou a chamar refreshViewModels assim que resolution.ready
+// fica true, e handleCaptureResult (chamado pelo primeiro capture_result)
+// pode disparar quase ao mesmo tempo para a MESMA conversa. Nenhum dos
+// dois caminhos pode duplicar os cinco LOAD_*.
+// -----------------------------------------------------------------------
+
+test('STEP 2B.5-C2 — single-flight: duas chamadas concorrentes de refreshViewModels para a MESMA conversa nunca duplicam os 5 LOAD_*', async () => {
+  const fake = createQueuedSender([
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ suggested_message: 'Posso te explicar as opções.' }),
+  ])
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  // Chamadas concorrentes (nenhuma delas aguardada antes da segunda
+  // começar) — a segunda precisa reaproveitar a MESMA promise da
+  // primeira, nunca disparar uma segunda rodada de rede.
+  const first = runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+  const second = runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+
+  await Promise.all([first, second])
+
+  assert.equal(fake.calls.length, 5, 'apenas uma rodada de LOAD_*, nunca 10')
+
+  const state = runtime.getConversationPanelState('conv-1')
+  assert.equal(state.clientContext.status, 'ready')
+  assert.equal(state.viewModelsLoadPromise, null, 'a promise em voo é limpa depois de resolver')
+
+  // Depois de terminada, uma chamada NOVA (não concorrente) precisa
+  // funcionar normalmente de novo — single-flight só protege contra
+  // concorrência, nunca vira um cache permanente que trava recargas
+  // futuras legítimas.
+  const fakeAgain = createQueuedSender([
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ suggested_message: null }),
+  ])
+  const runtimeAgain = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fakeAgain.sendMessage,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+  await runtimeAgain.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+  await runtimeAgain.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+  assert.equal(fakeAgain.calls.length, 10, 'duas chamadas SEQUENCIAIS (não concorrentes) continuam recarregando normalmente')
+})
+
+test('STEP 2B.5-C2 — single-flight: handleCaptureResult concorrente com um refreshViewModels já em voo (ex.: disparado pela resolução) reaproveita a MESMA hydration', async () => {
+  const fake = createQueuedSender([
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ suggested_message: null }),
+  ])
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    getCycleId: () => 'cycle-1',
+  })
+
+  // Simula: o bootstrap já disparou a hydration assim que resolution.ready
+  // ficou true (chamada direta a refreshViewModels), e QUASE ao mesmo
+  // tempo o primeiro capture_result chega e aciona handleCaptureResult —
+  // que também tentaria carregar os view models (isFirstLoad === true).
+  const fromResolutionReady = runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+  const fromCaptureResult = runtime.handleCaptureResult({
+    ok: true,
+    skipped: true,
+    conversation_key: 'conv-1',
+  })
+
+  await Promise.all([fromResolutionReady, fromCaptureResult])
+
+  assert.equal(fake.calls.length, 5, 'os dois caminhos concorrentes dividem a MESMA rodada de LOAD_*, nunca duas')
+  assert.equal(
+    fake.calls.some((call) => call.action === 'ANALYZE_CONVERSATION'),
+    false,
+    'captura pulada nunca dispara análise, mesmo com a hydration concorrente',
+  )
+})
+
+test('STEP 2B.5-C2 — depois que a hydration já terminou, um novo capture_result não trata mais como first load (nenhum LOAD_* novo)', async () => {
+  const fake = createQueuedSender([
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ suggested_message: null }),
+  ])
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    getCycleId: () => 'cycle-1',
+  })
+
+  // Hydration inicial (ex.: disparada pela resolução pronta) já terminou
+  // por completo antes de qualquer capture_result chegar.
+  await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+  assert.equal(fake.calls.length, 5)
+
+  // createQueuedSender lança exceção se a fila estiver vazia e for
+  // chamado de novo — a única forma deste `await` não lançar é
+  // handleCaptureResult NUNCA ter tentado um novo LOAD_* (decisionState já
+  // não é mais null).
+  await runtime.handleCaptureResult({ ok: true, skipped: true, conversation_key: 'conv-1' })
+
+  assert.equal(fake.calls.length, 5, 'nenhuma chamada nova — capture_result não repete a primeira carga')
+})
+
 test('applySuggestedMessage: sem sugestão carregada, recusa sem chamar o composer', async () => {
   const composer = createFakeComposer()
   const runtime = runtimeApi.createManyChatSellerPanelRuntime({
