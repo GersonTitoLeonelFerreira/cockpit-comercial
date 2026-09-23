@@ -37,6 +37,7 @@ const DEPENDENCY_FILES = [
   'companion-lead-summary-view.js',
   'companion-seller-information-view.js',
   'companion-reasoning-view.js',
+  'companion-workspace-runtime.js',
 ]
 
 export function escapeHtml(value) {

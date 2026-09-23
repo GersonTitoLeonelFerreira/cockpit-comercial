@@ -115,23 +115,8 @@ test(
     )
 
     assert.match(
-      contentScript,
-      /aria-label="Áreas do Yolen Companion"/,
-    )
-
-    assert.match(
-      contentScript,
-      /getSellerAreaTabHtml\('now', 'Agora'\)/,
-    )
-
-    assert.match(
-      contentScript,
-      /getSellerAreaTabHtml\('analysis', 'Análise'\)/,
-    )
-
-    assert.match(
-      contentScript,
-      /getSellerAreaTabHtml\('client', 'Cliente'\)/,
+      renderPanel,
+      /workspaceRuntime\.getSellerAreaTabsBarHtml\(\s*activeSellerArea,?\s*\)/,
     )
   },
 )

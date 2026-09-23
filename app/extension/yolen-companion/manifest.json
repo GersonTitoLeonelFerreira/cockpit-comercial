@@ -56,6 +56,7 @@
         "src/companion-seller-information-view.js",
         "src/companion-reasoning-view.js",
         "src/phase16-9-runtime-guard.js",
+        "src/companion-workspace-runtime.js",
         "src/content-script.js",
         "src/panel-stability-runtime.js",
         "src/editable-field-stability-runtime.js",
