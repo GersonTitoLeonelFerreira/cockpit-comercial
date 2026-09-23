@@ -359,6 +359,35 @@
         return
       }
 
+      // STEP 2B.5-D — "ANÁLISE — PARIDADE OBRIGATÓRIA": ação explícita de
+      // reanálise, reaproveitando a MESMA action já usada pela análise
+      // automática (requestAnalysis/ANALYZE_CONVERSATION) — nunca uma
+      // segunda lógica de disparo. O botão só existe no HTML quando
+      // sellerPanelRuntime não está com uma análise em voo (ver
+      // getAnalysisActionButtonHtml em manychat-seller-panel-runtime.js).
+      if (
+        target.closest('[data-yolen-action="analyze-conversation"]') &&
+        typeof sellerPanelRuntime.requestAnalysis === 'function'
+      ) {
+        const cycleId = runtime.getConversationState(conversationKey)?.resolution?.cycle_id ?? null
+        if (cycleId) {
+          void sellerPanelRuntime.requestAnalysis({ cycleId, conversationKey })
+        }
+        return
+      }
+
+      // Retry embutido no estado de erro de renderMethodGuidance (mesmo
+      // botão/data-attribute que o WhatsApp já usa dentro do resumo do
+      // lead — ver companion-lead-summary-view.js). Recarrega SOMENTE a
+      // orientação de método, nunca os outros view models.
+      if (
+        target.closest('[data-yolen-action="retry-method-guidance"]') &&
+        typeof sellerPanelRuntime.retryMethodGuidance === 'function'
+      ) {
+        void sellerPanelRuntime.retryMethodGuidance(conversationKey)
+        return
+      }
+
       const tabButton = target.closest('[data-yolen-seller-area]')
       if (tabButton) {
         sellerPanelRuntime.setActiveArea(

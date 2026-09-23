@@ -105,6 +105,15 @@
     globalThis
       .YolenCompanionLeadSummaryView
 
+  // STEP 2B.5-D — composição seller-facing compartilhada das quatro
+  // áreas (Agora/Mensagem/Análise/Cliente) entre WhatsApp e ManyChat.
+  // content-script.js consome este módulo em vez de decidir sozinho
+  // qual estado/fallback mostrar para cada área — ver
+  // companion-seller-workspace-view.js.
+  const sellerWorkspaceViewTools =
+    globalThis
+      .YolenCompanionSellerWorkspaceView
+
   // STEP 2B.5-A — fonte canônica única das áreas seller-facing (Agora/
   // Mensagem/Análise/Cliente), da navegação entre elas e do shell de abas.
   // content-script.js consome este módulo em vez de manter sua própria
@@ -140,6 +149,12 @@
   if (!leadSummaryViewTools) {
     throw new Error(
       'Módulo do resumo persistente do lead não carregado.',
+    )
+  }
+
+  if (!sellerWorkspaceViewTools) {
+    throw new Error(
+      'Módulo compartilhado do seller workspace do Companion não carregado.',
     )
   }
 
@@ -10991,47 +11006,15 @@
     }
   }
 
+  // STEP 2B.5-D: a composição do card (label + wrapper) saiu para o
+  // módulo compartilhado (companion-seller-workspace-view.js) — ManyChat
+  // chama a MESMA função para o seu próprio clientContext. Este wrapper
+  // só traduz o `state` do WhatsApp para os parâmetros dela.
   function getCompanionClientRelationshipCardHtml() {
-    if (
-      state.companionClientContext
-        ?.status === 'idle'
-    ) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-card yolen-client-relationship-card">
-        <div class="yolen-section-label">
-          Relacionamento e histórico
-        </div>
-
-        ${clientContextViewTools.renderClientContextSection(
-          state.companionClientContext,
-          Date.now(),
-        )}
-      </div>
-    `
-  }
-
-  function getCompanionLeadSummaryCardHtml() {
-    if (state.companionLeadSummary?.status === 'idle') {
-      return ''
-    }
-
-    return `
-      <div class="yolen-card yolen-lead-summary-card">
-        <div class="yolen-section-label">
-          Resumo salvo na Yolen
-        </div>
-
-        ${leadSummaryViewTools.renderLeadSummarySection({
-          ...state.companionLeadSummary,
-          saveStatus: state.companionLeadSummarySaveStatus,
-          saveError: state.companionLeadSummarySaveError,
-          draftValue: state.companionLeadSummaryDraftValue,
-        })}
-      </div>
-    `
+    return sellerWorkspaceViewTools.renderClientRelationshipCardHtml({
+      clientContext: state.companionClientContext,
+      now: Date.now(),
+    })
   }
 
   function startCompanionClientContextTicker() {
@@ -11095,76 +11078,26 @@
       }, COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS)
   }
 
+  // FASE 16.6 (recalibração seller-facing de ANÁLISE): a leitura
+  // detalhada não vem mais de getActiveCommercialReading() (o
+  // state.conversationAnalysis da tentativa atual) — vem pronta do
+  // ANÁLISE seller-facing view model (Integrated Commercial Context,
+  // FASE 16.4, traduzido por app/lib/server/analysis-view-model.ts e
+  // buscado por loadAnalysisViewModelForCurrentCycle). Os estados de
+  // loading/erro/desatualização continuam ligados ao JOB de análise
+  // semântica em si (conversationAnalysisLoading/Error,
+  // isCurrentAnalysisOutdated()) — são sinais distintos do fetch do
+  // view model: um job de reanálise em voo/errado/desatualizado
+  // precede a leitura persistida, mesmo padrão de prioridade já usado
+  // antes da FASE 16.6.
+  //
+  // STEP 2B.5-D: a composição de cada estado (loading/error/outdated/
+  // pronto/fallback/vazio) saiu para o módulo compartilhado
+  // (companion-seller-workspace-view.js#renderAnalysisAreaHtml) — este
+  // wrapper só traduz o `state` do WhatsApp (e seus próprios helpers de
+  // ação/spinner/legado) para os parâmetros dela. Prioridade e HTML
+  // produzidos são idênticos aos de antes desta extração.
   function getDetailedAnalysisAreaHtml() {
-    // FASE 16.6 (recalibração seller-facing de ANÁLISE): a leitura
-    // detalhada não vem mais de getActiveCommercialReading() (o
-    // state.conversationAnalysis da tentativa atual) — vem pronta do
-    // ANÁLISE seller-facing view model (Integrated Commercial Context,
-    // FASE 16.4, traduzido por app/lib/server/analysis-view-model.ts e
-    // buscado por loadAnalysisViewModelForCurrentCycle). Os estados de
-    // loading/erro/desatualização continuam ligados ao JOB de análise
-    // semântica em si (conversationAnalysisLoading/Error,
-    // isCurrentAnalysisOutdated()) — são sinais distintos do fetch do
-    // view model: um job de reanálise em voo/errado/desatualizado
-    // precede a leitura persistida, mesmo padrão de prioridade já usado
-    // antes da FASE 16.6.
-    if (state.conversationAnalysisLoading) {
-      return `
-        <div class="yolen-card yolen-seller-area-card">
-          <div class="yolen-section-label">Análise</div>
-          <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
-            ${getInlineSpinnerHtml()}
-            Analisando sua condução comercial…
-          </div>
-
-          <div class="yolen-inline-actions yolen-decision-actions">
-            ${getAnalysisActionButton()}
-          </div>
-        </div>
-      `
-    }
-
-    if (state.conversationAnalysisError) {
-      return `
-        <div class="yolen-card yolen-seller-area-card yolen-status-warning">
-          <div class="yolen-section-label">Análise</div>
-          <div class="yolen-seller-empty-state" data-yolen-analysis-error role="alert">
-            ${escapeHtml(state.conversationAnalysisError)}
-          </div>
-          ${
-            canAnalyzeCurrentConversation()
-              ? `
-                <div class="yolen-inline-actions">
-                  <button
-                    class="yolen-secondary-button"
-                    type="button"
-                    data-yolen-action="analyze-conversation"
-                  >
-                    Tentar novamente
-                  </button>
-                </div>
-              `
-              : ''
-          }
-        </div>
-      `
-    }
-
-    if (isCurrentAnalysisOutdated()) {
-      return `
-        <div class="yolen-card yolen-seller-area-card yolen-status-warning">
-          <div class="yolen-section-label">Análise</div>
-          <div class="yolen-seller-empty-state" data-yolen-analysis-outdated>
-            A conversa mudou. Atualize a leitura para avaliar a condução atual.
-          </div>
-
-          <div class="yolen-inline-actions yolen-decision-actions">
-            ${getAnalysisActionButton()}
-          </div>
-        </div>
-      `
-    }
-
     // Mesmo guard de escopo de getNowAttentionSnapshotHtml (AGORA,
     // FASE 16.5) — cycleId/conversationKey/companyId batendo garante
     // que uma troca de conversa/empresa nunca deixa a análise da
@@ -11177,80 +11110,53 @@
       state.analysisViewModelCompanyId ===
         (state.companyId || null)
 
-    if (
+    const ready =
       state.analysisViewModel?.status === 'ready' &&
       isCurrentAnalysisViewModelContext
-    ) {
-      return `
-        <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
-          ${sellerInformationViewTools.renderAnalysisViewModel(
-            state.analysisViewModel.data,
-          )}
 
-          <div class="yolen-inline-actions yolen-decision-actions">
-            ${getAnalysisActionButton()}
-          </div>
-        </div>
-      `
-    }
+    // Fallback: a tentativa de análise atual já resolveu localmente
+    // (state.conversationAnalysis), mas o ANÁLISE view model canônico
+    // (fetch separado, assíncrono) ainda não chegou — nunca esperar o
+    // segundo fetch para mostrar uma leitura que já existe (regressão
+    // de UX). Quando o view model canônico ficar pronto, `ready` acima
+    // já tem prioridade e substitui este fallback por completo — nunca
+    // os dois se misturam na mesma renderização.
+    const fallbackReading =
+      !ready && state.conversationAnalysis
+        ? getActiveCommercialReading()
+        : null
 
-    if (state.conversationAnalysis) {
-      // Fallback: a tentativa de análise atual já resolveu localmente
-      // (state.conversationAnalysis), mas o ANÁLISE view model canônico
-      // (fetch separado, assíncrono) ainda não chegou — nunca esperar o
-      // segundo fetch para mostrar uma leitura que já existe (regressão
-      // de UX). Quando o view model canônico ficar pronto, o branch
-      // acima passa a ter prioridade e substitui este fallback por
-      // completo — nunca os dois se misturam na mesma renderização.
-      const fallbackReading =
-        getActiveCommercialReading()
+    const fallbackViewModel =
+      fallbackReading
+        ? sellerInformationViewTools.buildAnalysisViewModelFromReading(
+            fallbackReading,
+          )
+        : null
 
-      const fallbackViewModel =
-        fallbackReading
-          ? sellerInformationViewTools
-              .buildAnalysisViewModelFromReading(
-                fallbackReading,
-              )
-          : null
-
-      if (fallbackViewModel) {
-        return `
-          <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
-            ${sellerInformationViewTools.renderAnalysisViewModel(
-              fallbackViewModel,
-            )}
-
-            <div class="yolen-inline-actions yolen-decision-actions">
-              ${getAnalysisActionButton()}
-            </div>
-          </div>
-        `
-      }
-
-      return `
-        ${getLegacyAnalysisCardHtml()}
-
-        <div class="yolen-card yolen-seller-area-card">
-          <div class="yolen-section-label">Análise</div>
-          <div class="yolen-seller-empty-state" data-yolen-analysis-progressive>
-            A leitura atual oferece somente orientação imediata. Ainda não há análise detalhada de coaching e método.
-          </div>
-        </div>
-      `
-    }
-
-    return `
-      <div class="yolen-card yolen-seller-area-card">
-        <div class="yolen-section-label">Análise</div>
-        <div class="yolen-seller-empty-state" data-yolen-analysis-progressive>
-          A leitura atual oferece somente orientação imediata. Ainda não há análise detalhada de coaching e método.
-        </div>
-
-        <div class="yolen-inline-actions yolen-decision-actions">
-          ${getAnalysisActionButton()}
-        </div>
-      </div>
-    `
+    return sellerWorkspaceViewTools.renderAnalysisAreaHtml({
+      loading: state.conversationAnalysisLoading,
+      error: state.conversationAnalysisError,
+      outdated: isCurrentAnalysisOutdated(),
+      ready,
+      data: ready ? state.analysisViewModel.data : null,
+      fallbackViewModel,
+      hasLegacyAttempt: Boolean(!ready && !fallbackViewModel && state.conversationAnalysis),
+      legacyCardHtml: getLegacyAnalysisCardHtml(),
+      actionHtml: getAnalysisActionButton(),
+      errorRetryButtonHtml:
+        state.conversationAnalysisError && canAnalyzeCurrentConversation()
+          ? `
+                  <button
+                    class="yolen-secondary-button"
+                    type="button"
+                    data-yolen-action="analyze-conversation"
+                  >
+                    Tentar novamente
+                  </button>
+                `
+          : '',
+      loadingSpinnerHtml: getInlineSpinnerHtml(),
+    })
   }
 
   function getClientInformationAreaHtml() {
@@ -11313,21 +11219,10 @@
     const relationshipHtml =
       getCompanionClientRelationshipCardHtml()
 
-    if (!commercialHtml && !relationshipHtml) {
-      return `
-        <div class="yolen-card yolen-seller-area-card">
-          <div class="yolen-section-label">Cliente</div>
-          <div class="yolen-seller-empty-state" data-yolen-client-empty>
-            Ainda não há informações suficientes sobre este cliente.
-          </div>
-        </div>
-      `
-    }
-
-    return `
-      ${commercialHtml}
-      ${relationshipHtml}
-    `
+    return sellerWorkspaceViewTools.renderClientAreaHtml({
+      commercialHtml,
+      relationshipHtml,
+    })
   }
 
   // AGORA é a única superfície de decisão: quando há um alerta relevante
@@ -11474,17 +11369,15 @@
   }
 
   function getSellerInformationArchitectureHtml() {
-    const nowHtml =
-      getNowAttentionSnapshotHtml() +
-      (getCompanionLeadSummaryCardHtml() ||
-      `
-        <div class="yolen-card yolen-seller-area-card yolen-status-neutral">
-          <div class="yolen-section-label">Agora</div>
-          <div class="yolen-seller-empty-state">
-            A Yolen está preparando o resumo e a orientação desta conversa.
-          </div>
-        </div>
-      `)
+    const nowHtml = sellerWorkspaceViewTools.renderAgoraAreaHtml({
+      snapshotHtml: getNowAttentionSnapshotHtml(),
+      leadSummary: {
+        ...state.companionLeadSummary,
+        saveStatus: state.companionLeadSummarySaveStatus,
+        saveError: state.companionLeadSummarySaveError,
+        draftValue: state.companionLeadSummaryDraftValue,
+      },
+    })
 
     const messageHtml =
       getSellerMessageAreaHtml()

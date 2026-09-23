@@ -181,10 +181,15 @@ test('a barra de abas é extraída para o módulo compartilhado, sem duplicar a 
 
   // A composição now/analysis/client (contrato já coberto por
   // seller-workspace-final-ux.test.mjs) continua intacta; só a barra de
-  // abas (role="tablist") saiu de dentro dela.
+  // abas (role="tablist") saiu de dentro dela. STEP 2B.5-D: a
+  // composição do nowHtml (sinal + resumo-ou-fallback) saiu para o
+  // módulo compartilhado com o ManyChat
+  // (companion-seller-workspace-view.js#renderAgoraAreaHtml) —
+  // getNowAttentionSnapshotHtml() continua sendo chamado aqui e
+  // repassado como snapshotHtml, nunca uma segunda composição local.
   assert.doesNotMatch(architectureBlock, /role="tablist"/)
   assert.match(
     architectureBlock,
-    /const nowHtml =\s*getNowAttentionSnapshotHtml\(\)\s*\+\s*\(getCompanionLeadSummaryCardHtml\(\)/,
+    /sellerWorkspaceViewTools\.renderAgoraAreaHtml\(\{\s*snapshotHtml: getNowAttentionSnapshotHtml\(\)/,
   )
 })

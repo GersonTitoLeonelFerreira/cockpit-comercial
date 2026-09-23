@@ -6,15 +6,6 @@
   const ANALYSIS_POLL_DELAYS_MS = Object.freeze([1500, 2000, 3000, 4000, 5000])
   const ANALYSIS_POLL_TIMEOUT_MS = 240000
 
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
-  }
-
   // Orquestra o painel do vendedor no ManyChat reaproveitando, sem
   // reescrever, os mesmos actions de background e os mesmos módulos de
   // view (puros, sem DOM) já usados pelo WhatsApp:
@@ -39,6 +30,18 @@
     const workspaceRuntimeApi = options.workspaceRuntime ?? root.YolenCompanionWorkspaceRuntime ?? null
     if (!workspaceRuntimeApi) {
       throw new Error('Módulo do workspace compartilhado do Companion não carregado.')
+    }
+
+    // STEP 2B.5-D — "UNIFICAÇÃO REAL DO SELLER WORKSPACE": a composição
+    // de cada área (AGORA/MENSAGEM/ANÁLISE/CLIENTE — qual estado mostrar,
+    // qual fallback quando ainda não há dado) é a MESMA que o WhatsApp
+    // usa, nunca uma segunda regra local por plataforma — ver
+    // companion-seller-workspace-view.js. Dependência obrigatória (igual
+    // a workspaceRuntimeApi acima): sem ela, este runtime falha fechado
+    // em vez de inventar uma composição própria.
+    const sellerWorkspaceViewApi = options.sellerWorkspaceView ?? root.YolenCompanionSellerWorkspaceView ?? null
+    if (!sellerWorkspaceViewApi) {
+      throw new Error('Módulo compartilhado do seller workspace do Companion não carregado.')
     }
 
     const panelMountApi = options.panelMountApi ?? root.YolenManyChatPanelMount ?? null
@@ -108,11 +111,6 @@
       getState(conversationKey).activeArea = workspaceRuntimeApi.SELLER_AREAS[0]
     }
 
-    function clientContextApi() {
-      const api = root.YolenCompanionClientContextView
-      return api && typeof api.renderClientContextSection === 'function' ? api : null
-    }
-
     // Consultado em cada render (nunca capturado no load do módulo):
     // companion-reasoning-view.js decora/sobrescreve
     // window.YolenCompanionSellerInformationView depois que
@@ -121,6 +119,27 @@
     function sellerInformationApi() {
       const api = root.YolenCompanionSellerInformationView
       return api && typeof api.renderAnalysisViewModel === 'function' ? api : null
+    }
+
+    // Botão de ação da área ANÁLISE — reaproveita a MESMA action já usada
+    // pela análise automática (ANALYZE_CONVERSATION via requestAnalysis),
+    // nunca uma segunda lógica de disparo. Ausente enquanto uma análise já
+    // está em voo (o backend dedup por watermark faria dela um no-op, e
+    // requestAnalysis já se recusa a rodar duas ao mesmo tempo — mostrar um
+    // botão que não faz nada seria enganoso); o texto de "Analisando…" do
+    // módulo compartilhado já cobre esse estado.
+    function getAnalysisActionButtonHtml(state) {
+      if (state.analyzing) return ''
+
+      return `
+        <button
+          class="yolen-secondary-button"
+          type="button"
+          data-yolen-action="analyze-conversation"
+        >
+          Analisar novamente
+        </button>
+      `
     }
 
     function renderPanel(conversationKey) {
@@ -134,37 +153,53 @@
       }
 
       const state = getState(conversationKey)
-
-      const clientApi = clientContextApi()
       const sellerApi = sellerInformationApi()
 
-      const clientHtml = clientApi
-        ? clientApi.renderClientContextSection(state.clientContext, now())
-        : ''
-      const agoraHtml = sellerApi
-        ? sellerApi.renderAgoraViewModelSnapshot(state.decisionState?.data ?? null)
-        : ''
-      const analysisHtml = sellerApi
-        ? sellerApi.renderAnalysisViewModel(state.analysisViewModel?.data ?? null)
-        : ''
-      const customerHtml = sellerApi
-        ? sellerApi.renderCustomerViewModel(state.customerViewModel?.data ?? null)
-        : ''
+      // STEP 2B.5-D: cada área usa a MESMA composição compartilhada com
+      // o WhatsApp (companion-seller-workspace-view.js) — este runtime só
+      // traduz o state do ManyChat (ready/data, nunca status) para os
+      // parâmetros dela. ManyChat ainda não tem hidratação de lead
+      // summary (leadSummary: null cai no fallback de preparação
+      // honesto do módulo compartilhado — nunca inventa um resumo local,
+      // mandato STEP 2B.5-D §13).
+      const agoraHtml = sellerWorkspaceViewApi.renderAgoraAreaHtml({
+        snapshotHtml:
+          sellerApi && state.decisionState?.ready === true
+            ? sellerApi.renderAgoraViewModelSnapshot(state.decisionState.data)
+            : '',
+        leadSummary: null,
+      })
 
-      // A sugestão de mensagem (STEP 2B.5-B) entra dentro da área MESSAGE
-      // compartilhada — nunca mais como uma quinta região solta fora do
-      // shell de abas. Paridade funcional completa dessa aba (o que o
-      // WhatsApp mostra em MENSAGEM) é subfase posterior; aqui só o
-      // conteúdo que o runtime ManyChat já produz muda de lugar.
-      const suggestion = state.methodGuidance?.data?.suggested_message ?? null
-      const messageHtml = suggestion
-        ? `
-          <div class="yolen-suggested-message">
-            <p data-yolen-suggested-message-text>${escapeHtml(suggestion)}</p>
-            <button type="button" data-yolen-apply-suggestion>Aplicar no composer</button>
-          </div>
-        `
-        : ''
+      const analysisHtml = sellerWorkspaceViewApi.renderAnalysisAreaHtml({
+        loading: state.analyzing,
+        ready: state.analysisViewModel?.ready === true,
+        data: state.analysisViewModel?.ready === true ? state.analysisViewModel.data : null,
+        actionHtml: getAnalysisActionButtonHtml(state),
+      })
+
+      const commercialHtml =
+        sellerApi && state.customerViewModel?.ready === true
+          ? sellerApi.renderCustomerViewModel(state.customerViewModel.data)
+          : ''
+
+      const clientHtml = sellerWorkspaceViewApi.renderClientAreaHtml({
+        commercialHtml,
+        relationshipHtml: sellerWorkspaceViewApi.renderClientRelationshipCardHtml({
+          clientContext: state.clientContext,
+          now: now(),
+        }),
+      })
+
+      // MENSAGEM: reaproveita o MESMO renderer puro de "próximo passo"
+      // que o WhatsApp já usa dentro do resumo do lead
+      // (companion-lead-summary-view.js#renderMethodGuidance, chamado
+      // pelo módulo compartilhado) — nunca uma segunda leitura de
+      // "mensagem sugerida" local. LOAD_METHOD_GUIDANCE já devolve
+      // exatamente o shape que renderMethodGuidance espera
+      // (status/method_name/stage_name/next_step/error).
+      const messageHtml = sellerWorkspaceViewApi.renderMessageAreaHtml({
+        methodGuidance: state.methodGuidance?.data ?? null,
+      })
 
       const activeArea = getActiveArea(conversationKey)
 
@@ -173,7 +208,7 @@
         ${workspaceRuntimeApi.getSellerAreaPanelHtml('now', agoraHtml, activeArea)}
         ${workspaceRuntimeApi.getSellerAreaPanelHtml('message', messageHtml, activeArea)}
         ${workspaceRuntimeApi.getSellerAreaPanelHtml('analysis', analysisHtml, activeArea)}
-        ${workspaceRuntimeApi.getSellerAreaPanelHtml('client', `${clientHtml}${customerHtml}`, activeArea)}
+        ${workspaceRuntimeApi.getSellerAreaPanelHtml('client', clientHtml, activeArea)}
       `)
     }
 
@@ -368,6 +403,21 @@
       }
     }
 
+    // Ação explícita do vendedor (clique no botão de retry que
+    // renderMethodGuidance já embute no estado de erro — ver
+    // companion-lead-summary-view.js): recarrega SOMENTE a orientação de
+    // método (LOAD_METHOD_GUIDANCE), nunca os outros quatro view models.
+    // Reaproveita a MESMA action/endpoint de refreshViewModels — nunca um
+    // segundo fetch/cache de orientação.
+    async function retryMethodGuidance(conversationKey) {
+      const cycleId = options.getCycleId ? options.getCycleId(conversationKey) : null
+      if (!cycleId) return
+
+      const state = getState(conversationKey)
+      state.methodGuidance = await loadSimpleViewModel('LOAD_METHOD_GUIDANCE', cycleId, conversationKey)
+      renderPanel(conversationKey)
+    }
+
     // Ação explícita do vendedor: nunca chamado automaticamente. Aplica o
     // texto já carregado em methodGuidance.suggested_message no composer
     // (nunca envia, nunca sobrescreve texto existente — ver
@@ -396,6 +446,7 @@
       refreshViewModels,
       requestAnalysis,
       handleCaptureResult,
+      retryMethodGuidance,
       applySuggestedMessage,
       renderPanel,
       getConversationPanelState,

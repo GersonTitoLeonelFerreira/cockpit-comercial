@@ -13,6 +13,15 @@ const contentScript =
     'utf8',
   )
 
+const sharedWorkspaceViewSource =
+  readFileSync(
+    new URL(
+      '../src/companion-seller-workspace-view.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 function getBlock(
   startMarker,
   endMarker,
@@ -81,6 +90,15 @@ test(
     // pronto pode ser exibido. getLegacyAnalysisCardHtml continua como
     // fallback para o formato V1/sem leitura rica (mandato §35: "não
     // remover fallback funcional sem entender por que existe").
+    //
+    // STEP 2B.5-D — a decisão de QUAL estado mostrar (pronto/fallback/
+    // legado/vazio) e a chamada real a
+    // sellerInformationViewTools.renderAnalysisViewModel saíram para o
+    // módulo compartilhado com o ManyChat
+    // (companion-seller-workspace-view.js#renderAnalysisAreaHtml).
+    // getDetailedAnalysisAreaHtml continua computando os MESMOS sinais
+    // (ready/fallback/legado) e repassando para ele — nunca uma segunda
+    // implementação local.
     const dispatch =
       getBlock(
         'function getDetailedAnalysisAreaHtml()',
@@ -89,12 +107,12 @@ test(
 
     assert.match(
       dispatch,
-      /state\.analysisViewModel\?\.status === 'ready'/,
+      /ready =\s*\n\s*state\.analysisViewModel\?\.status === 'ready'/,
     )
 
     assert.match(
       dispatch,
-      /sellerInformationViewTools\.renderAnalysisViewModel/,
+      /sellerWorkspaceViewTools\.renderAnalysisAreaHtml/,
     )
 
     assert.match(
@@ -105,6 +123,11 @@ test(
     assert.doesNotMatch(
       dispatch,
       /getRichCommercialReadingCardHtml/,
+    )
+
+    assert.match(
+      sharedWorkspaceViewSource,
+      /renderAnalysisAreaHtml[\s\S]*renderAnalysisViewModel/,
     )
   },
 )

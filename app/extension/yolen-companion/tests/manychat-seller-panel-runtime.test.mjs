@@ -4,6 +4,10 @@ import test from 'node:test'
 
 const require = createRequire(import.meta.url)
 require('../src/companion-workspace-runtime.js')
+require('../src/companion-client-context-view.js')
+require('../src/companion-lead-summary-view.js')
+require('../src/companion-seller-information-view.js')
+require('../src/companion-seller-workspace-view.js')
 const runtimeApi = require('../src/manychat-seller-panel-runtime.js')
 
 function createQueuedSender(responders) {
@@ -23,6 +27,29 @@ function createQueuedSender(responders) {
 
 function loadOk(data) {
   return { ok: true, payload: { ok: true, data } }
+}
+
+// STEP 2B.5-D: shape REAL de app/api/companion/method-guidance/route.ts
+// (status/method_name/stage_name/next_step/error) — o mesmo que
+// companion-lead-summary-view.js#renderMethodGuidance já sabe consumir
+// para o WhatsApp. Nunca um suggested_message fictício (a route nunca
+// devolve esse campo).
+function readyGuidance(nextStep, overrides = {}) {
+  return {
+    status: 'ready',
+    method_name: 'Consultivo',
+    method_config_version_id: 'method-1',
+    stage_key: 'discovery',
+    stage_name: 'Descoberta',
+    stage_reason: null,
+    next_step: nextStep,
+    seller_intents: [],
+    error: null,
+    error_code: null,
+    status_code: null,
+    retryable: null,
+    ...overrides,
+  }
 }
 
 function createFakePanelMount() {
@@ -100,7 +127,12 @@ test('refreshViewModels chama os 5 view models em paralelo com {cycle_id, conver
     loadOk({ primary: null, secondary: [] }),
     loadOk({ available: false }),
     loadOk({ available: false }),
-    loadOk({ suggested_message: 'Posso te explicar as opções.' }),
+    // STEP 2B.5-D: LOAD_METHOD_GUIDANCE devolve o MESMO shape que
+    // app/api/companion/method-guidance/route.ts sempre produziu
+    // (status/method_name/stage_name/next_step/error) — nunca um
+    // suggested_message fictício. renderMethodGuidance (o mesmo renderer
+    // puro que o WhatsApp já usa) é quem transforma isso em HTML.
+    loadOk(readyGuidance('Posso te explicar as opções.')),
   ])
 
   const panelMount = createFakePanelMount()
@@ -136,7 +168,7 @@ test('refreshViewModels chama os 5 view models em paralelo com {cycle_id, conver
 
   const state = runtime.getConversationPanelState('conv-1')
   assert.equal(state.clientContext.status, 'ready')
-  assert.equal(state.methodGuidance.data.suggested_message, 'Posso te explicar as opções.')
+  assert.equal(state.methodGuidance.data.next_step, 'Posso te explicar as opções.')
 })
 
 test('refreshViewModels sem cycle_id/conversation_key não chama nada', async () => {
@@ -627,13 +659,19 @@ test('E/F/G/H: renderPanel produz exatamente 4 tabs, na ordem now/message/analys
   assert.equal(hiddenCount, 3)
 })
 
-test('1/2/4: suggested_message aparece dentro do tabpanel MESSAGE com o wrapper visual yolen-suggested-message, nunca como região solta', async () => {
+// STEP 2B.5-D — "UNIFICAÇÃO REAL DO SELLER WORKSPACE": MENSAGEM passou a
+// reaproveitar o MESMO renderer puro que o WhatsApp já usa para o
+// "próximo passo" (companion-lead-summary-view.js#renderMethodGuidance,
+// chamado via companion-seller-workspace-view.js#renderMessageAreaHtml)
+// — nunca mais uma composição local de "suggested_message" (campo que a
+// resposta real de LOAD_METHOD_GUIDANCE nunca teve).
+test('a orientação de método (renderMethodGuidance) aparece dentro do tabpanel MESSAGE, dentro de um card canônico', async () => {
   const fake = createQueuedSender([
     loadOk({ relationship: 'ok' }),
     loadOk({ primary: null, secondary: [] }),
     loadOk({ available: false }),
     loadOk({ available: false }),
-    loadOk({ suggested_message: 'Posso te explicar as opções.' }),
+    loadOk(readyGuidance('Posso te explicar as opções.')),
   ])
   const panelMount = createFakePanelMount()
 
@@ -650,18 +688,50 @@ test('1/2/4: suggested_message aparece dentro do tabpanel MESSAGE com o wrapper 
   const analysisPanelStart = html.indexOf('data-yolen-seller-panel="analysis"')
   const messagePanelBlock = html.slice(messagePanelStart, analysisPanelStart)
 
-  // 1. a sugestão continua dentro de MESSAGE.
+  // 1. a orientação continua dentro de MESSAGE, nunca fora do shell.
   assert.match(messagePanelBlock, /Posso te explicar as opções\./)
-  assert.match(messagePanelBlock, /data-yolen-apply-suggestion/)
 
-  // 2. MESSAGE contém o wrapper visual real (styles.css tem uma regra
-  // para .yolen-suggested-message — perdê-lo é regressão visual).
-  assert.match(messagePanelBlock, /class="yolen-suggested-message"/)
+  // 2. usa o MESMO renderer/classes que o WhatsApp — nunca uma segunda
+  // composição visual local (mandato §6: "NÃO copiar... a regra deve
+  // sair do WhatsApp e virar compartilhada").
+  assert.match(messagePanelBlock, /class="yolen-method-guidance"/)
+  assert.match(messagePanelBlock, /class="yolen-method-guidance-next-step"/)
+
+  // 3. dentro do card canônico da área (mesma linguagem visual de
+  // AGORA/ANÁLISE — nunca um retângulo solto).
+  assert.match(messagePanelBlock, /class="yolen-card yolen-seller-area-card"/)
 
   // 4. o antigo shell externo (data-yolen-section="suggested-message")
-  // nunca reaparece em lugar nenhum do HTML — o wrapper agora vive DENTRO
-  // da área message, não como uma região solta fora do shell de abas.
+  // nunca reaparece em lugar nenhum do HTML — o conteúdo vive DENTRO da
+  // área message, não como uma região solta fora do shell de abas.
   assert.doesNotMatch(html, /data-yolen-section="suggested-message"/)
+})
+
+test('sem orientação de método ainda carregada, MENSAGEM mostra o estado vazio honesto — nunca um retângulo preto', async () => {
+  const fake = createQueuedSender([
+    loadOk({ relationship: 'ok' }),
+    loadOk({ primary: null, secondary: [] }),
+    loadOk({ available: false }),
+    loadOk({ available: false }),
+    loadOk({ status: 'missing_method' }),
+  ])
+  const panelMount = createFakePanelMount()
+
+  const runtime = runtimeApi.createManyChatSellerPanelRuntime({
+    sendMessage: fake.sendMessage,
+    panelMountApi: panelMount,
+    getCurrentConversationKey: () => 'conv-1',
+  })
+
+  await runtime.refreshViewModels({ cycleId: 'cycle-1', conversationKey: 'conv-1' })
+
+  const html = panelMount.contents.at(-1)
+  const messagePanelStart = html.indexOf('data-yolen-seller-panel="message"')
+  const analysisPanelStart = html.indexOf('data-yolen-seller-panel="analysis"')
+  const messagePanelBlock = html.slice(messagePanelStart, analysisPanelStart)
+
+  assert.match(messagePanelBlock, /yolen-method-guidance-note/)
+  assert.match(messagePanelBlock, /Método comercial ainda não publicado na Yolen\./)
 })
 
 test('3: não existe uma quinta área seller-facing — apenas as 4 áreas canônicas do módulo compartilhado são renderizadas', async () => {

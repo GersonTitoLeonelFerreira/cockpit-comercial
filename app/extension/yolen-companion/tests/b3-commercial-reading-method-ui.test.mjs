@@ -6,6 +6,10 @@ import test from 'node:test'
 const require = createRequire(import.meta.url)
 const sellerView = require('../src/companion-seller-information-view.js')
 const contentScript = readFileSync(new URL('../src/content-script.js', import.meta.url), 'utf8')
+const sharedWorkspaceViewSource = readFileSync(
+  new URL('../src/companion-seller-workspace-view.js', import.meta.url),
+  'utf8',
+)
 
 // FASE 16.6 — `renderAnalysisArea` foi substituída por
 // `renderAnalysisViewModel`, que consome o AnalysisViewModel já pronto
@@ -165,15 +169,31 @@ test('B3.3 traduz aderência e mostra recovery somente quando fora do método', 
 // FASE 16.6 — getRichCommercialReadingExpandedHtml (o adaptador fino que
 // só repassava para sellerInformationViewTools.renderAnalysisArea) foi
 // removido junto com renderAnalysisArea em si — getDetailedAnalysisAreaHtml
-// agora chama sellerInformationViewTools.renderAnalysisViewModel
+// passou a chamar sellerInformationViewTools.renderAnalysisViewModel
 // diretamente, sem nenhum adaptador intermediário.
+//
+// STEP 2B.5-D — a composição de estados (loading/error/outdated/pronto/
+// fallback/vazio) saiu para o módulo compartilhado com o WhatsApp
+// (companion-seller-workspace-view.js#renderAnalysisAreaHtml), que é
+// quem agora chama sellerInformationViewTools.renderAnalysisViewModel —
+// esse indireção é a composição compartilhada com o ManyChat, nunca uma
+// reconstrução de coaching legado (garantia que o doesNotMatch abaixo
+// continua provando).
 test('B3.3 integra o renderer oficial na área ANÁLISE sem reconstrução por coaching legado', () => {
   assert.match(
     contentScript,
-    /getDetailedAnalysisAreaHtml[\s\S]*sellerInformationViewTools\.renderAnalysisViewModel/,
+    /getDetailedAnalysisAreaHtml[\s\S]*sellerWorkspaceViewTools\.renderAnalysisAreaHtml/,
+  )
+  assert.match(
+    sharedWorkspaceViewSource,
+    /renderAnalysisAreaHtml[\s\S]*sellerInformationApi\(\)[\s\S]*renderAnalysisViewModel/,
   )
   assert.doesNotMatch(
     contentScript,
+    /getRichCommercialReadingExpandedHtml/,
+  )
+  assert.doesNotMatch(
+    sharedWorkspaceViewSource,
     /getRichCommercialReadingExpandedHtml/,
   )
 })

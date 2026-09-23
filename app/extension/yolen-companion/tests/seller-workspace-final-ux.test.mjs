@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const [contentScript, summaryView, sellerRuntime, styles] = await Promise.all([
+const [contentScript, summaryView, sellerRuntime, styles, sharedWorkspaceView] = await Promise.all([
   readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/companion-lead-summary-view.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/seller-message-runtime.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/styles.css', 'utf8'),
+  readFile('app/extension/yolen-companion/src/companion-seller-workspace-view.js', 'utf8'),
 ])
 
 test('UX7 dá responsabilidade única para AGORA ANÁLISE CLIENTE', () => {
@@ -19,9 +20,13 @@ test('UX7 dá responsabilidade única para AGORA ANÁLISE CLIENTE', () => {
   )
   const block = contentScript.slice(start, end)
 
+  // STEP 2B.5-D: a composição do nowHtml saiu para o módulo compartilhado
+  // com o ManyChat (companion-seller-workspace-view.js#renderAgoraAreaHtml)
+  // — getNowAttentionSnapshotHtml() continua sendo chamado aqui e
+  // repassado como snapshotHtml.
   assert.match(
     block,
-    /const nowHtml =\s*getNowAttentionSnapshotHtml\(\)\s*\+\s*\(getCompanionLeadSummaryCardHtml\(\)/,
+    /sellerWorkspaceViewTools\.renderAgoraAreaHtml\(\{\s*snapshotHtml: getNowAttentionSnapshotHtml\(\)/,
   )
   assert.match(block, /const analysisHtml =\s*getDetailedAnalysisAreaHtml\(\)/)
   assert.match(block, /getClientInformationAreaHtml\(\)/)
@@ -375,25 +380,18 @@ test(
 )
 
 test('erro e loading da análise profunda nunca bloqueiam nem aparecem em AGORA', () => {
-  const summaryCardStart = contentScript.indexOf(
-    'function getCompanionLeadSummaryCardHtml()',
-  )
-  const summaryCardEnd = contentScript.indexOf(
-    '\n  }',
-    summaryCardStart,
-  )
-  const summaryCardBlock = contentScript.slice(
-    summaryCardStart,
-    summaryCardEnd,
-  )
-
-  assert.notEqual(summaryCardStart, -1)
-
-  // AGORA (getCompanionLeadSummaryCardHtml) só depende do status do
-  // resumo salvo — nunca do estado da análise profunda/deep analysis.
+  // STEP 2B.5-D: getCompanionLeadSummaryCardHtml() saiu de
+  // content-script.js — a composição do card de resumo (e sua
+  // combinação com o fallback de preparação) agora vive no módulo
+  // compartilhado com o ManyChat
+  // (companion-seller-workspace-view.js#renderAgoraAreaHtml/
+  // renderLeadSummaryCardHtml). A mesma garantia continua valendo: AGORA
+  // só depende do status do resumo salvo, nunca do estado da análise
+  // profunda/deep analysis — e agora vale para as DUAS plataformas, não
+  // só para o WhatsApp.
   assert.doesNotMatch(
-    summaryCardBlock,
-    /conversationAnalysisLoading|conversationAnalysisError|deepAnalysisStatus|getDeepAnalysisStatusBlockHtml|getInlineSpinnerHtml/,
+    sharedWorkspaceView,
+    /conversationAnalysisLoading|conversationAnalysisError|deepAnalysisStatus|getDeepAnalysisStatusBlockHtml/,
   )
 
   // companion-lead-summary-view.js (o único módulo que desenha o conteúdo
