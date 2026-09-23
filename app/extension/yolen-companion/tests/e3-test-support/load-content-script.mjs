@@ -235,6 +235,7 @@ export function createFakeBackground({
   confirmConversationRegistrationResult,
   leadEnrichmentContextResult,
   applyLeadEnrichmentResult,
+  applyManyChatLeadEnrichmentResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
@@ -578,6 +579,25 @@ export function createFakeBackground({
         payload,
       }
     },
+    // STEP 2B.5-D1.1 (hardening) — action privilegiada exclusiva do
+    // ManyChat, nunca recebe lead_id (ver
+    // app/api/companion/apply-manychat-lead-enrichment/route.ts).
+    APPLY_MANYCHAT_LEAD_ENRICHMENT: async (requestPayload) => {
+      const payload = await (
+        typeof applyManyChatLeadEnrichmentResult === 'function'
+          ? applyManyChatLeadEnrichmentResult(requestPayload)
+          : (applyManyChatLeadEnrichmentResult ?? {
+              ok: false,
+              error: 'Aplicação de cadastro (ManyChat) não configurada neste cenário de teste.',
+            })
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 409 : 200,
+        payload,
+      }
+    },
   }
 
   const sendMessage = async (message) => {
@@ -736,6 +756,7 @@ export function loadContentScript({
   confirmConversationRegistrationResult,
   leadEnrichmentContextResult,
   applyLeadEnrichmentResult,
+  applyManyChatLeadEnrichmentResult,
   withStabilityRuntimes = false,
   withSellerMessageRuntime = false,
   withLeadResolutionCache = false,
@@ -760,6 +781,7 @@ export function loadContentScript({
     confirmConversationRegistrationResult,
     leadEnrichmentContextResult,
     applyLeadEnrichmentResult,
+    applyManyChatLeadEnrichmentResult,
   })
 
   const fakeChrome = {
@@ -932,6 +954,10 @@ export function leadEnrichmentContextCalls(calls) {
 
 export function applyLeadEnrichmentCalls(calls) {
   return calls.filter((call) => call.action === 'APPLY_LEAD_ENRICHMENT')
+}
+
+export function applyManyChatLeadEnrichmentCalls(calls) {
+  return calls.filter((call) => call.action === 'APPLY_MANYCHAT_LEAD_ENRICHMENT')
 }
 
 export function analysisCalls(calls) {

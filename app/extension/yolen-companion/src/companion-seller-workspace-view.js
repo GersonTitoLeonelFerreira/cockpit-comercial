@@ -404,16 +404,16 @@
 
   // Um candidato só é confirmável por ação explícita do vendedor quando:
   // campo confirmável + exige confirmação humana (o próprio candidato já
-  // carrega isso) + não é 'different_locked' (telefone diferente de um
-  // já cadastrado — nunca confirmável sem expor o valor atual; ver
+  // carrega isso). STEP 2B.5-D1.1 (hardening): 'different_private'
+  // (telefone diferente de um já cadastrado) TAMBÉM é confirmável — a
+  // aplicação nunca depende do content conhecer o valor atual (ver
   // companion-lead-enrichment-controller.js#isCandidateConfirmableNow,
   // MESMA regra duplicada aqui só porque a view nunca importa o
-  // controller — WhatsApp nunca produz 'different_locked').
+  // controller — WhatsApp nunca produz 'different_private').
   function isLeadEnrichmentCandidateConfirmableNow(candidate) {
     return (
       LEAD_ENRICHMENT_CONFIRMABLE_FIELDS.includes(candidate?.field) &&
-      candidate?.requires_human_confirmation === true &&
-      candidate?.comparison !== 'different_locked'
+      candidate?.requires_human_confirmation === true
     )
   }
 
@@ -432,21 +432,20 @@
       >Ignorar</button>
     `
 
-    if (candidate.comparison === 'different_locked') {
-      return `
-        <div class="yolen-inline-actions">${ignoreButton}</div>
-        <div class="yolen-operational-note">
-          Este telefone já está cadastrado com um valor diferente. Atualize pela Yolen.
-        </div>
-      `
-    }
-
     if (!isLeadEnrichmentCandidateConfirmableNow(candidate)) {
       return `
         <div class="yolen-inline-actions">${ignoreButton}</div>
         <div class="yolen-operational-note">Este campo exige revisão manual.</div>
       `
     }
+
+    // Telefone diferente de um já cadastrado: o número atual NUNCA é
+    // mostrado (hardening de telefone), mas a substituição continua
+    // possível por ação humana explícita — nunca aplicada
+    // automaticamente (o clique em "Confirmar substituição" é a MESMA
+    // action confirm-lead-enrichment; o servidor lê o telefone atual
+    // sozinho no momento do apply).
+    const isDifferentPrivatePhone = candidate.comparison === 'different_private'
 
     const confirmButton = `
       <button
@@ -455,10 +454,23 @@
         data-yolen-action="confirm-lead-enrichment"
         data-yolen-enrichment-key="${escapeHtml(candidate.key)}"
         ${actionsLocked ? 'disabled' : ''}
-      >${isApplied ? 'Atualizado' : isApplying ? 'Salvando...' : 'Confirmar'}</button>
+      >${
+        isApplied
+          ? 'Atualizado'
+          : isApplying
+            ? 'Salvando...'
+            : isDifferentPrivatePhone
+              ? 'Confirmar substituição'
+              : 'Confirmar'
+      }</button>
     `
 
     return `
+      ${
+        isDifferentPrivatePhone
+          ? '<div class="yolen-card-description yolen-status-warning">Já existe outro telefone cadastrado para este lead.</div>'
+          : ''
+      }
       <div class="yolen-inline-actions yolen-enrichment-actions">
         ${confirmButton}
         ${ignoreButton}

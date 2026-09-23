@@ -22,6 +22,7 @@ import test from 'node:test'
 
 import {
   applyLeadEnrichmentCalls,
+  applyManyChatLeadEnrichmentCalls,
   buildMessageHtml,
   createFakeBackground,
   defaultAgoraDecisionState,
@@ -654,7 +655,6 @@ test('L) Cadastro: candidato "ainda não consta no cadastro" aparece de forma ID
     leadEnrichmentContextResult: {
       ok: true,
       data: {
-        lead_id: 'lead-1',
         current_values: { email: null, cpf: null, cnpj: null, birth_date: null, profession: null, cep: null, address_raw: null },
         phone_registered: false,
         phone_matches: [],
@@ -677,6 +677,12 @@ test('L) Cadastro: candidato "ainda não consta no cadastro" aparece de forma ID
     extractEnrichmentCard(mcHtml).replace(/\s+/g, ' ').replace(/data-yolen-enrichment-key="[^"]*"/g, 'data-yolen-enrichment-key="X"'),
     'o card de Cadastro é IDÊNTICO nos dois canais (chave interna à parte, que é opaca por design)',
   )
+
+  // STEP 2B.5-D1.1 (hardening): o controller ManyChat NUNCA retém
+  // lead_id — o estado interno da conversa não pode conter a chave em
+  // nenhuma forma.
+  const panelState = mc.runtime.getConversationPanelState(MANYCHAT_CONVERSATION_KEY)
+  assert.equal(Object.prototype.hasOwnProperty.call(panelState.leadEnrichment, 'leadId'), false)
 })
 
 test('L) Cadastro: nenhuma mensagem com dado identificável -> NENHUM card em nenhum canal, e ManyChat nunca consulta LOAD_LEAD_ENRICHMENT_CONTEXT à toa', async () => {
@@ -695,7 +701,7 @@ test('L) Cadastro: nenhuma mensagem com dado identificável -> NENHUM card em ne
   )
 })
 
-test('L) Cadastro: confirmar um candidato aplica no backend (APPLY_LEAD_ENRICHMENT) e mostra "Atualizado" nos dois canais', async () => {
+test('L) Cadastro: confirmar um candidato aplica no backend e mostra "Atualizado" nos dois canais — ManyChat NUNCA envia lead_id', async () => {
   const EMAIL_TEXT = 'Meu e-mail é cliente@exemplo.com'
   const applyLeadEnrichmentResult = { ok: true }
 
@@ -713,18 +719,20 @@ test('L) Cadastro: confirmar um candidato aplica no backend (APPLY_LEAD_ENRICHME
   assert.equal(waApplyCall.payload.value, 'cliente@exemplo.com')
   assert.equal(waApplyCall.payload.confirmed_by_human, true)
 
+  // STEP 2B.5-D1.1 (hardening): o ManyChat usa uma action PRIVILEGIADA
+  // própria (APPLY_MANYCHAT_LEAD_ENRICHMENT), nunca
+  // APPLY_LEAD_ENRICHMENT do WhatsApp.
   const mc = bootManyChat({
     ledgerMessages: [ledgerMessage({ id: 'msg-enrichment-1', text: EMAIL_TEXT })],
     leadEnrichmentContextResult: {
       ok: true,
       data: {
-        lead_id: 'lead-1',
         current_values: { email: null, cpf: null, cnpj: null, birth_date: null, profession: null, cep: null, address_raw: null },
         phone_registered: false,
         phone_matches: [],
       },
     },
-    applyLeadEnrichmentResult,
+    applyManyChatLeadEnrichmentResult: { ok: true },
   })
   await mc.runtime.refreshViewModels({ cycleId: CYCLE_ID, conversationKey: MANYCHAT_CONVERSATION_KEY })
 
@@ -734,11 +742,18 @@ test('L) Cadastro: confirmar um candidato aplica no backend (APPLY_LEAD_ENRICHME
 
   assert.match(mc.getPanelHtml(), /Atualizado/)
 
-  const mcApplyCall = applyLeadEnrichmentCalls(mc.calls).at(-1)
+  assert.equal(applyLeadEnrichmentCalls(mc.calls).length, 0, 'ManyChat nunca chama APPLY_LEAD_ENRICHMENT')
+
+  const mcApplyCall = applyManyChatLeadEnrichmentCalls(mc.calls).at(-1)
   assert.equal(mcApplyCall.payload.field, 'email')
   assert.equal(mcApplyCall.payload.value, 'cliente@exemplo.com')
-  assert.equal(mcApplyCall.payload.lead_id, 'lead-1')
+  assert.equal(mcApplyCall.payload.cycle_id, CYCLE_ID)
   assert.equal(mcApplyCall.payload.confirmed_by_human, true)
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(mcApplyCall.payload, 'lead_id'),
+    false,
+    'o request de aplicação do ManyChat NUNCA contém lead_id',
+  )
 })
 
 test('L) Cadastro (ManyChat): erro ao consultar LOAD_LEAD_ENRICHMENT_CONTEXT mostra estado explícito, SEM apagar o restante da aba CLIENTE', async () => {
@@ -782,32 +797,59 @@ test('L) Cadastro (ManyChat): erro ao consultar LOAD_LEAD_ENRICHMENT_CONTEXT mos
   assert.match(html, /yolen-conversation-registration-card/)
 })
 
-test('L) Cadastro (ManyChat): telefone diferente de um JÁ cadastrado nunca oferece confirmação automática (capability objetivamente travada, nunca dado inventado)', async () => {
+test('L) Cadastro (ManyChat): telefone diferente de um JÁ cadastrado ainda pode ser confirmado — número atual nunca aparece, servidor deriva o expected_current_value sozinho', async () => {
   const mc = bootManyChat({
     ledgerMessages: [ledgerMessage({ id: 'msg-enrichment-phone', text: 'Meu celular é 11999998888' })],
     leadEnrichmentContextResult: {
       ok: true,
       data: {
-        lead_id: 'lead-1',
         current_values: { email: null, cpf: null, cnpj: null, birth_date: null, profession: null, cep: null, address_raw: null },
         phone_registered: true,
         phone_matches: [{ normalized_value: '11999998888', matches: false }],
       },
     },
+    applyManyChatLeadEnrichmentResult: { ok: true },
   })
 
   await mc.runtime.refreshViewModels({ cycleId: CYCLE_ID, conversationKey: MANYCHAT_CONVERSATION_KEY })
   const html = mc.getPanelHtml()
 
+  // STEP 2B.5-D1.1 (hardening): 'different_locked' foi eliminado — a
+  // capability NÃO é inerentemente indisponível, só o número atual é
+  // privado. O candidato aparece, o número atual NUNCA aparece, e a
+  // confirmação continua possível por ação humana explícita.
   assert.match(html, /yolen-lead-enrichment-card/)
   assert.match(html, /11999998888/)
-  assert.match(html, /Este telefone já está cadastrado com um valor diferente\. Atualize pela Yolen\./)
-  assert.doesNotMatch(html, /data-yolen-action="confirm-lead-enrichment"/)
+  assert.match(html, /Já existe outro telefone cadastrado para este lead\./)
+  assert.match(html, /Confirmar substituição/)
+  assert.doesNotMatch(html, /different_locked/)
+  assert.doesNotMatch(html, /Atualize pela Yolen/)
+  assert.match(html, /data-yolen-action="confirm-lead-enrichment"/)
   assert.match(html, /data-yolen-action="ignore-lead-enrichment"/)
 
   // O telefone atual do lead NUNCA chega a este content script — só o
   // resultado semântico (phone_registered/matches).
   assert.doesNotMatch(html, /"current_value"/)
+
+  const candidateKey =
+    mc.runtime.getConversationPanelState(MANYCHAT_CONVERSATION_KEY).leadEnrichment.candidates[0].key
+  await mc.runtime.confirmLeadEnrichment(MANYCHAT_CONVERSATION_KEY, candidateKey)
+
+  assert.match(mc.getPanelHtml(), /Atualizado/)
+
+  const applyCall = applyManyChatLeadEnrichmentCalls(mc.calls).at(-1)
+  assert.equal(applyCall.payload.field, 'phone_mobile')
+  assert.equal(applyCall.payload.value, '11999998888')
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(applyCall.payload, 'lead_id'),
+    false,
+    'o request de aplicação de telefone NUNCA contém lead_id',
+  )
+  // expected_current_value enviado pelo content é sempre null para
+  // telefone (nunca conheceu o valor atual) — o SERVIDOR é quem decide
+  // o valor real a comparar (provado nos testes de rota de
+  // apply-manychat-lead-enrichment).
+  assert.equal(applyCall.payload.expected_current_value, null)
 })
 
 test('L) Cadastro (ManyChat, A->B->A): candidatos de uma conversa nunca vazam para outra', async () => {
@@ -821,7 +863,6 @@ test('L) Cadastro (ManyChat, A->B->A): candidatos de uma conversa nunca vazam pa
     leadEnrichmentContextResult: {
       ok: true,
       data: {
-        lead_id: 'lead-a',
         current_values: { email: null, cpf: null, cnpj: null, birth_date: null, profession: null, cep: null, address_raw: null },
         phone_registered: false,
         phone_matches: [],

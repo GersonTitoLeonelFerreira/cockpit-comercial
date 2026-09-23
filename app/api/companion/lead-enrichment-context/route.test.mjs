@@ -144,7 +144,7 @@ test('lead-enrichment-context: ciclo não encontrado para a empresa — 404 cycl
   assert.equal(fake.calls.some((call) => call.table === 'leads'), false)
 })
 
-test('lead-enrichment-context: dono do ciclo — devolve lead_id derivado do cycle, valores atuais não-telefônicos, endereço concatenado, phone_registered=true e phone_matches SEM jamais expor o telefone atual', async () => {
+test('lead-enrichment-context: dono do ciclo — devolve valores atuais não-telefônicos, endereço concatenado, phone_registered=true e phone_matches, NUNCA lead_id nem o telefone atual', async () => {
   const fake = useAdmin([
     selectStep('company_memberships', MEMBER_MEMBERSHIP),
     selectStep('profiles', ACTIVE_PROFILE),
@@ -199,7 +199,11 @@ test('lead-enrichment-context: dono do ciclo — devolve lead_id derivado do cyc
 
   assert.equal(response.status, 200)
   assert.equal(payload.ok, true)
-  assert.equal(payload.data.lead_id, IDS.lead)
+
+  // STEP 2B.5-D1.1 (hardening): lead_id NUNCA é devolvido ao content
+  // script — o ManyChat opera Lead Enrichment inteiramente por
+  // cycle_id.
+  assert.equal(Object.prototype.hasOwnProperty.call(payload.data, 'lead_id'), false)
 
   assert.equal(payload.data.current_values.email, 'cliente@exemplo.com')
   assert.equal(payload.data.current_values.profession, 'Engenheira')

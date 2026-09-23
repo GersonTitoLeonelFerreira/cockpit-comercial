@@ -20,6 +20,20 @@ const route =
     'utf8',
   )
 
+// STEP 2B.5-D1.1 (hardening do Lead Enrichment): a chamada da RPC
+// (companion_apply_lead_enrichment) foi extraída para este núcleo
+// compartilhado com app/api/companion/apply-manychat-lead-enrichment/
+// route.ts — enrich-lead/route.ts (WhatsApp) delega a ele, nunca grava
+// leads/lead_profiles em duas etapas separadas.
+const core =
+  readFileSync(
+    new URL(
+      '../server/lead-enrichment-apply-core.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 test('B2 confirmação serializa alterações concorrentes do mesmo lead', () => {
   assert.match(
     migration,
@@ -102,7 +116,7 @@ test('B2 confirmação audita o clique sem duplicar PII no evento', () => {
 
 test('B2 rota não realiza mais gravação cadastral em duas etapas', () => {
   assert.match(
-    route,
+    core,
     /\.rpc\(\s*'companion_apply_lead_enrichment'/,
   )
 
@@ -116,8 +130,18 @@ test('B2 rota não realiza mais gravação cadastral em duas etapas', () => {
     /\.from\('lead_profiles'\)\s*\.update/,
   )
 
+  assert.doesNotMatch(
+    core,
+    /\.from\('leads'\)\s*\.update/,
+  )
+
+  assert.doesNotMatch(
+    core,
+    /\.from\('lead_profiles'\)\s*\.update/,
+  )
+
   assert.match(
-    route,
+    core,
     /p_confirmed_by_human:\s*true/,
   )
 })

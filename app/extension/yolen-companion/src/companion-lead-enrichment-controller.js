@@ -64,13 +64,20 @@
     return CONFIRMABLE_FIELDS.includes(candidate?.field)
   }
 
-  function buildCandidateKey({ leadId, candidate }) {
+  // STEP 2B.5-D1.1 (hardening): a chave nunca depende de lead_id — este
+  // controller nem conhece lead_id (o content script opera Lead
+  // Enrichment inteiramente por cycle_id; ver
+  // app/api/companion/apply-manychat-lead-enrichment/route.ts, que
+  // deriva lead_id sozinho no servidor). cycle_id já identifica o
+  // lead/ciclo de forma única por conversa — mesmo isolamento A→B de
+  // antes, sem o round-trip.
+  function buildCandidateKey({ cycleId, candidate }) {
     const evidenceIds = Array.isArray(candidate?.evidence_message_ids)
       ? candidate.evidence_message_ids
       : []
 
     return [
-      leadId || '',
+      cycleId || '',
       candidate?.field || '',
       candidate?.normalized_value || '',
       candidate?.current_value || '',
@@ -98,11 +105,13 @@
       .filter((candidate) => tools.isLeadEnrichmentCandidate(candidate))
   }
 
-  // Consulta LOAD_LEAD_ENRICHMENT_CONTEXT — a ÚNICA fonte de lead_id e de
-  // valores atuais para comparação no ManyChat (nunca o payload de
+  // Consulta LOAD_LEAD_ENRICHMENT_CONTEXT — a ÚNICA fonte de valores
+  // atuais para comparação no ManyChat (nunca o payload de
   // RESOLVE_LEAD/RESOLVE_MANYCHAT_LEAD_BY_PHONE, que continua sanitizado
   // de propósito). phoneCandidateValues são os normalized_value já
-  // extraídos localmente (nunca o telefone atual do lead).
+  // extraídos localmente (nunca o telefone atual do lead). STEP
+  // 2B.5-D1.1 (hardening): a resposta nunca contém lead_id — este
+  // controller opera inteiramente por cycle_id.
   async function loadEnrichmentContext({ sendMessage, cycleId, phoneCandidateValues }) {
     if (typeof sendMessage !== 'function') {
       throw new Error('sendMessage é obrigatório.')
@@ -129,7 +138,6 @@
 
       return Object.freeze({
         status: 'ready',
-        leadId: data.lead_id || null,
         currentValues: data.current_values && typeof data.current_values === 'object' ? data.current_values : {},
         phoneRegistered: data.phone_registered === true,
         phoneMatches: Array.isArray(data.phone_matches) ? data.phone_matches : [],
@@ -149,12 +157,14 @@
   // MESMA semântica de filtragem que content-script.js#getLeadEnrichmentCandidates
   // usa para o ramo isOwnedLead (um candidato cujo valor já bate com o
   // cadastro nunca aparece: nada para confirmar). phone_mobile nunca
-  // expõe current_value (hardening de telefone) — quando o telefone
-  // detectado difere de um telefone JÁ cadastrado (comparison
-  // 'different_locked'), a confirmação automática fica bloqueada (ver
-  // isCandidateConfirmableNow) porque expected_current_value nunca pode
-  // ser reconstruído sem expor o valor atual.
-  function annotateCandidates({ candidates, leadId, currentValues, phoneRegistered, phoneMatches }) {
+  // expõe current_value (hardening de telefone). STEP 2B.5-D1.1: um
+  // telefone DIFERENTE de um já cadastrado não fica mais travado —
+  // comparison 'different_private' ainda é confirmável (ver
+  // isCandidateConfirmableNow), porque a action de aplicação
+  // (APPLY_MANYCHAT_LEAD_ENRICHMENT) lê o telefone atual ela mesma no
+  // servidor, no momento do apply, e nunca depende de um
+  // expected_current_value vindo do content.
+  function annotateCandidates({ candidates, cycleId, currentValues, phoneRegistered, phoneMatches }) {
     if (!Array.isArray(candidates)) return []
 
     const phoneMatchByValue = new Map(
@@ -173,8 +183,8 @@
           {
             ...candidate,
             current_value: null,
-            comparison: phoneRegistered ? 'different_locked' : 'missing',
-            key: buildCandidateKey({ leadId, candidate }),
+            comparison: phoneRegistered ? 'different_private' : 'missing',
+            key: buildCandidateKey({ cycleId, candidate }),
           },
         ]
       }
@@ -190,36 +200,39 @@
           ...candidate,
           current_value: currentValue || null,
           comparison: currentValue ? 'different' : 'missing',
-          key: buildCandidateKey({ leadId, candidate }),
+          key: buildCandidateKey({ cycleId, candidate }),
         },
       ]
     })
   }
 
   // Um candidato só pode ser confirmado por ação explícita do vendedor
-  // quando: (1) o campo é confirmável, (2) exige confirmação humana (o
-  // próprio candidato já carrega isso), e (3) NÃO é o caso
-  // 'different_locked' (telefone diferente de um já cadastrado — nunca
-  // confirmável via ManyChat, ver annotateCandidates acima).
+  // quando o campo é confirmável e exige confirmação humana (o próprio
+  // candidato já carrega isso) — 'different_private' (telefone diferente
+  // de um já cadastrado) TAMBÉM é confirmável desde o hardening
+  // 2B.5-D1.1: a aplicação nunca depende de o content conhecer o valor
+  // atual.
   function isCandidateConfirmableNow(candidate) {
     return (
       isConfirmableCandidate(candidate) &&
-      candidate?.requires_human_confirmation === true &&
-      candidate?.comparison !== 'different_locked'
+      candidate?.requires_human_confirmation === true
     )
   }
 
-  // Aplica a confirmação — MESMA action/contrato que o WhatsApp já usa
-  // (APPLY_LEAD_ENRICHMENT -> /api/companion/enrich-lead), nunca um
-  // segundo endpoint. leadId vem SEMPRE de loadEnrichmentContext (nunca
-  // do payload de resolução sanitizado).
-  async function applyCandidate({ sendMessage, leadId, cycleId, candidate }) {
+  // Aplica a confirmação — action PRIVILEGIADA e exclusiva do ManyChat
+  // (APPLY_MANYCHAT_LEAD_ENRICHMENT -> /api/companion/apply-manychat-lead-enrichment),
+  // nunca reaproveita APPLY_LEAD_ENRICHMENT do WhatsApp. NUNCA envia
+  // lead_id (este controller nem o conhece) — o servidor deriva sozinho
+  // a partir de cycle_id, com as mesmas validações de
+  // company/membership/profile/ownership/status do núcleo compartilhado
+  // com o WhatsApp.
+  async function applyCandidate({ sendMessage, cycleId, candidate }) {
     if (typeof sendMessage !== 'function') {
       throw new Error('sendMessage é obrigatório.')
     }
 
-    if (!leadId || !cycleId) {
-      return Object.freeze({ status: 'error', error: 'Lead ou ciclo indisponível.' })
+    if (!cycleId) {
+      return Object.freeze({ status: 'error', error: 'Ciclo indisponível.' })
     }
 
     if (!isCandidateConfirmableNow(candidate)) {
@@ -232,9 +245,8 @@
     try {
       const response = await sendMessage({
         source: SOURCE,
-        action: 'APPLY_LEAD_ENRICHMENT',
+        action: 'APPLY_MANYCHAT_LEAD_ENRICHMENT',
         payload: {
-          lead_id: leadId,
           cycle_id: cycleId,
           field: candidate.field,
           value: candidate.normalized_value,

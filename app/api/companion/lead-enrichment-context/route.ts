@@ -5,18 +5,22 @@ import { areEquivalentPhones } from '@/app/lib/companion/lead-enrichment-phone-e
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
 import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
 
-// STEP 2B.5-D1 (Blocker D, Lead Enrichment): action privilegiada e
-// MÍNIMA para o ManyChat obter o que falta para comparar/aplicar
-// candidatos de cadastro (companion-lead-enrichment-controller.js), sem
-// jamais reabrir o vazamento de telefone que
+// STEP 2B.5-D1 / 2B.5-D1.1 (Blocker D, Lead Enrichment — hardening):
+// action privilegiada e MÍNIMA para o ManyChat obter o que falta para
+// comparar/aplicar candidatos de cadastro
+// (companion-lead-enrichment-controller.js), sem jamais reabrir o
+// vazamento de telefone que
 // manychat-capture-runtime.js#sanitizeLeadResolutionPayload corrige
 // deliberadamente (nunca aumenta aquele allowlist, nunca usa o payload de
 // RESOLVE_LEAD como transporte de dado cadastral). Entrada: SOMENTE
-// cycle_id (autorizado pelo token) — lead_id é sempre DERIVADO aqui no
-// servidor a partir do próprio ciclo, nunca aceito do content script.
-// Telefone: o content script manda os candidatos NORMALIZADOS extraídos
-// da conversa (phone_candidates) e recebe de volta só o resultado
-// semântico (matches: true/false) — o telefone atual do lead
+// cycle_id (autorizado pelo token) — lead_id é DERIVADO aqui no servidor
+// a partir do próprio ciclo E NUNCA DEVOLVIDO na resposta: o content
+// script opera inteiramente por cycle_id, sem round-trip de lead_id (ver
+// app/api/companion/apply-manychat-lead-enrichment/route.ts, que deriva
+// lead_id de novo, sozinho, na hora de aplicar). Telefone: o content
+// script manda os candidatos NORMALIZADOS extraídos da conversa
+// (phone_candidates) e recebe de volta só o resultado semântico
+// (matches: true/false) — o telefone atual do lead
 // (lead_profile.phone_mobile) nunca é incluído na resposta.
 type MembershipRow = {
   company_id: string
@@ -430,7 +434,13 @@ export async function POST(request: Request) {
     {
       ok: true,
       data: {
-        lead_id: lead.id,
+        // STEP 2B.5-D1.1 (hardening): lead_id NUNCA é devolvido ao
+        // content script — o ManyChat opera enrichment inteiramente por
+        // cycle_id (único scope seller-facing que ele conhece); a
+        // action de aplicação (APPLY_MANYCHAT_LEAD_ENRICHMENT) deriva
+        // lead_id de novo, sozinha, a partir do cycle_id. Sem esse
+        // round-trip o content nunca precisa reter/repassar um
+        // identificador que ele mesmo não decide nada com.
         current_values: {
           email: getCurrentNonPhoneValue('email', lead, profile),
           cpf: getCurrentNonPhoneValue('cpf', lead, profile),
@@ -442,15 +452,11 @@ export async function POST(request: Request) {
         },
         // phone_mobile nunca aparece em current_values (hardening de
         // telefone). phone_registered é só um booleano (existe cadastro
-        // ou não) — nunca o número em si — e decide, no controller
-        // compartilhado, se um candidato "different" pode ser confirmado
-        // via ManyChat (só quando não havia NADA cadastrado ainda: aí
-        // expected_current_value=null em APPLY_LEAD_ENRICHMENT é
-        // legítimo) ou se exige atualização pela Yolen (quando já existe
-        // um telefone diferente cadastrado — sobrescrever sem o
-        // vendedor ver o valor atual seria arriscado e sem
-        // expected_current_value de verdade o compare-and-set do
-        // enrich-lead sempre rejeitaria como stale_current_value).
+        // ou não) — nunca o número em si. Um candidato "diferente" de um
+        // telefone já cadastrado ainda pode ser confirmado: a action de
+        // aplicação lê lead_profiles.phone_mobile ela mesma, no momento
+        // do APPLY, e usa esse valor como expected_current_value
+        // internamente — o content nunca precisa (nem pode) fornecê-lo.
         phone_registered: phoneRegistered,
         phone_matches: phoneMatches,
       },

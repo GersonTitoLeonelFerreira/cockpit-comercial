@@ -155,15 +155,16 @@
           // isolados por conversation_key — MESMO shape que
           // companion-seller-workspace-view.js#renderLeadEnrichmentCandidatesHtml
           // espera (status idle/ready/error + candidates/applyLoadingKey/
-          // applySuccessKey/applyError/loadError). ignoredKeys nunca
-          // precisa de reset explícito na troca de conversa: cada chave
-          // já embute o lead_id (buildCandidateKey), então não pode
-          // colidir entre conversas diferentes mesmo compartilhando o
-          // mesmo Set por engano — aqui nem compartilha, já é por chave
-          // do Map.
+          // applySuccessKey/applyError/loadError). STEP 2B.5-D1.1
+          // (hardening): nenhum lead_id aqui — Lead Enrichment opera
+          // inteiramente por cycle_id (getCycleId), nunca conhece nem
+          // repassa lead_id. ignoredKeys nunca precisa de reset explícito
+          // na troca de conversa: cada chave já embute o cycle_id
+          // (buildCandidateKey), então não pode colidir entre conversas
+          // diferentes mesmo compartilhando o mesmo Set por engano — aqui
+          // nem compartilha, já é por chave do Map.
           leadEnrichment: {
             status: 'idle',
-            leadId: null,
             candidates: [],
             applyLoadingKey: null,
             applySuccessKey: null,
@@ -783,21 +784,23 @@
       renderPanel(conversationKey)
     }
 
-    // STEP 2B.5-D1 (Blocker D, Lead Enrichment): extrai candidatos do
-    // ledger de mensagens já observadas (nunca uma segunda leitura de
-    // DOM — ver manychat-capture-runtime.js#getEnrichmentLedgerMessages),
-    // consulta LOAD_LEAD_ENRICHMENT_CONTEXT SOMENTE quando há candidato
-    // de telefone/não-telefone para comparar (nunca uma chamada de rede
-    // sem propósito), e anota o resultado com o MESMO controlador
-    // compartilhado que a ação de confirmar usa. ignoredKeys sobrevive
-    // entre chamadas (candidato ignorado pelo vendedor nunca reaparece
-    // só porque a conversa recebeu uma mensagem nova).
+    // STEP 2B.5-D1 (Blocker D, Lead Enrichment) / 2B.5-D1.1 (hardening):
+    // extrai candidatos do ledger de mensagens já observadas (nunca uma
+    // segunda leitura de DOM — ver
+    // manychat-capture-runtime.js#getEnrichmentLedgerMessages), consulta
+    // LOAD_LEAD_ENRICHMENT_CONTEXT SOMENTE quando há candidato de
+    // telefone/não-telefone para comparar (nunca uma chamada de rede sem
+    // propósito), e anota o resultado com o MESMO controlador
+    // compartilhado que a ação de confirmar usa. Nenhum lead_id é
+    // guardado ou repassado — Lead Enrichment opera inteiramente por
+    // cycle_id. ignoredKeys sobrevive entre chamadas (candidato ignorado
+    // pelo vendedor nunca reaparece só porque a conversa recebeu uma
+    // mensagem nova).
     async function loadLeadEnrichment(cycleId, conversationKey) {
       if (!cycleId || !conversationKey) return
 
       const state = getState(conversationKey)
       const ignoredKeys = state.leadEnrichment.ignoredKeys
-      const leadId = state.leadEnrichment.leadId
 
       const ledgerMessages = getEnrichmentLedgerMessages(conversationKey)
       const rawCandidates = leadEnrichmentControllerApi.extractCandidatesFromMessages(ledgerMessages, {})
@@ -805,7 +808,6 @@
       if (rawCandidates.length === 0) {
         state.leadEnrichment = {
           status: 'ready',
-          leadId,
           candidates: [],
           applyLoadingKey: null,
           applySuccessKey: null,
@@ -833,7 +835,6 @@
       if (context.status !== 'ready') {
         state.leadEnrichment = {
           status: 'error',
-          leadId,
           candidates: [],
           applyLoadingKey: null,
           applySuccessKey: null,
@@ -847,7 +848,7 @@
       const annotated = leadEnrichmentControllerApi
         .annotateCandidates({
           candidates: rawCandidates,
-          leadId: context.leadId,
+          cycleId,
           currentValues: context.currentValues,
           phoneRegistered: context.phoneRegistered,
           phoneMatches: context.phoneMatches,
@@ -856,7 +857,6 @@
 
       state.leadEnrichment = {
         status: 'ready',
-        leadId: context.leadId,
         candidates: annotated,
         applyLoadingKey: null,
         applySuccessKey: null,
@@ -867,12 +867,13 @@
     }
 
     // Ação explícita do vendedor (data-yolen-action="confirm-lead-enrichment")
-    // — MESMO contrato de aplicação (APPLY_LEAD_ENRICHMENT) que o
-    // WhatsApp já usa, via companion-lead-enrichment-controller.js.
-    // Depois de aplicar com sucesso, recarrega o contexto (mesma
-    // consequência do "auto-refresh" que o WhatsApp aplica): o candidato
-    // aplicado deixa de existir na próxima leitura, porque o valor atual
-    // já bate com ele.
+    // — action PRIVILEGIADA e exclusiva do ManyChat
+    // (APPLY_MANYCHAT_LEAD_ENRICHMENT), via
+    // companion-lead-enrichment-controller.js. Nunca envia lead_id — o
+    // servidor deriva de cycle_id. Depois de aplicar com sucesso,
+    // recarrega o contexto (mesma consequência do "auto-refresh" que o
+    // WhatsApp aplica): o candidato aplicado deixa de existir na próxima
+    // leitura, porque o valor atual já bate com ele.
     async function confirmLeadEnrichment(conversationKey, candidateKey) {
       const cycleId = options.getCycleId ? options.getCycleId(conversationKey) : null
       if (!cycleId || !candidateKey) return
@@ -893,7 +894,6 @@
 
       const result = await leadEnrichmentControllerApi.applyCandidate({
         sendMessage,
-        leadId: state.leadEnrichment.leadId,
         cycleId,
         candidate,
       })

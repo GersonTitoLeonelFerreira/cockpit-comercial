@@ -657,6 +657,23 @@ async function handleCompanionMessage(message, sender) {
     )
   }
 
+  // STEP 2B.5-D1.1 (hardening): APPLY_LEAD_ENRICHMENT continua sendo do
+  // WhatsApp (que já conhece lead_id via RESOLVE_LEAD, sem sanitização —
+  // nenhuma mudança funcional ali). O ManyChat usa esta action
+  // ESPECÍFICA e nunca envia lead_id — o servidor deriva de cycle_id em
+  // /api/companion/apply-manychat-lead-enrichment (núcleo compartilhado
+  // com /api/companion/enrich-lead, nunca uma segunda regra comercial).
+  if (
+    message.action ===
+    'APPLY_MANYCHAT_LEAD_ENRICHMENT'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/apply-manychat-lead-enrichment',
+      message.payload,
+    )
+  }
+
   if (message.action === 'ANALYZE_CONVERSATION') {
     return handleConversationAnalysis(
       message,

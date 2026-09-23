@@ -29,6 +29,21 @@ const route =
     'utf8',
   )
 
+// STEP 2B.5-D1.1 (hardening): a validação de ciclo/ownership/status, o
+// stale-check, os conflitos de e-mail/documento e a chamada da RPC foram
+// extraídos para este núcleo compartilhado com
+// app/api/companion/apply-manychat-lead-enrichment/route.ts — o
+// enrich-lead/route.ts continua dono só do token/membership/profile e do
+// contrato de entrada (leadId conhecido pelo WhatsApp).
+const core =
+  readFileSync(
+    new URL(
+      '../../../lib/server/lead-enrichment-apply-core.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 test('B2 confirmação usa transporte autenticado do Companion', () => {
   assert.match(
     yolenApi,
@@ -68,12 +83,12 @@ test('B2 confirmação valida membership atual, empresa, ciclo e carteira', () =
   )
 
   assert.match(
-    route,
+    core,
     /sales_cycles/,
   )
 
   assert.match(
-    route,
+    core,
     /cycle\.owner_user_id/,
   )
 
@@ -83,7 +98,7 @@ test('B2 confirmação valida membership atual, empresa, ciclo e carteira', () =
   )
 
   assert.match(
-    route,
+    core,
     /not_cycle_owner/,
   )
 })
@@ -95,34 +110,34 @@ test('B2 confirmação protege contra overwrite desatualizado e duplicidade', ()
   )
 
   assert.match(
-    route,
+    core,
     /stale_current_value/,
   )
 
   assert.match(
-    route,
+    core,
     /email_norm/,
   )
 
   assert.match(
-    route,
+    core,
     /email_conflict/,
   )
 
   assert.match(
-    route,
+    core,
     /document_conflict/,
   )
 })
 
 test('B2 confirmação não aceita endereço livre como escrita automática', () => {
   assert.doesNotMatch(
-    route,
+    core,
     /address_raw/,
   )
 
   assert.match(
-    route,
+    core,
     /confirmation:\s*'human'/,
   )
 })
@@ -207,6 +222,51 @@ test('B2 ignorar candidato não chama API de atualização', () => {
   assert.match(
     contentScript,
     /ignoredLeadEnrichmentCandidateKeys[\s\S]*\.add\(candidateKey\)/,
+  )
+})
+
+const manyChatController =
+  readFileSync(
+    new URL(
+      '../src/companion-lead-enrichment-controller.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
+const manyChatRuntime =
+  readFileSync(
+    new URL(
+      '../src/manychat-seller-panel-runtime.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
+test('STEP 2B.5-D1.1 (hardening): ManyChat usa action privilegiada própria e NUNCA conhece/envia lead_id', () => {
+  assert.match(
+    background,
+    /APPLY_MANYCHAT_LEAD_ENRICHMENT/,
+  )
+
+  assert.match(
+    background,
+    /\/api\/companion\/apply-manychat-lead-enrichment/,
+  )
+
+  assert.match(
+    manyChatController,
+    /APPLY_MANYCHAT_LEAD_ENRICHMENT/,
+  )
+
+  assert.doesNotMatch(
+    manyChatController,
+    /leadId/,
+  )
+
+  assert.doesNotMatch(
+    manyChatRuntime,
+    /leadId/,
   )
 })
 

@@ -505,6 +505,168 @@ export function normalizeLeadEnrichmentUpdateInput(
   }
 }
 
+// STEP 2B.5-D1.1 (hardening do Lead Enrichment no ManyChat): contrato
+// SEM lead_id — a action privilegiada do ManyChat
+// (APPLY_MANYCHAT_LEAD_ENRICHMENT) nunca aceita lead_id do content
+// script; o servidor deriva lead_id a partir de cycle_id (ver
+// app/lib/server/lead-enrichment-apply-core.ts). Reaproveita os MESMOS
+// validadores de campo/valor/evidência que
+// normalizeLeadEnrichmentUpdateInput já usa — nunca uma segunda regra de
+// validação.
+export type ManyChatLeadEnrichmentApplyInput = {
+  cycleId: string
+  field: LeadEnrichmentUpdateField
+  value: string
+  expectedCurrentValue: string | null
+  evidenceMessageIds: string[]
+  confirmedByHuman: true
+}
+
+type ManyChatNormalizeResult =
+  | {
+      ok: true
+      value: ManyChatLeadEnrichmentApplyInput
+    }
+  | {
+      ok: false
+      code: string
+      error: string
+    }
+
+export function normalizeManyChatLeadEnrichmentApplyInput(
+  input: unknown,
+): ManyChatNormalizeResult {
+  if (!isRecord(input)) {
+    return {
+      ok: false,
+      code: 'invalid_payload',
+      error:
+        'Payload de enriquecimento inválido.',
+    }
+  }
+
+  if (
+    input.confirmed_by_human !== true
+  ) {
+    return {
+      ok: false,
+      code:
+        'human_confirmation_required',
+      error:
+        'A atualização cadastral exige confirmação humana explícita.',
+    }
+  }
+
+  const cycleId =
+    typeof input.cycle_id ===
+    'string'
+      ? input.cycle_id
+          .trim()
+          .toLowerCase()
+      : ''
+
+  if (
+    !UUID_PATTERN.test(cycleId)
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_scope',
+      error:
+        'Ciclo inválido.',
+    }
+  }
+
+  const fieldRaw =
+    typeof input.field ===
+    'string'
+      ? input.field.trim()
+      : ''
+
+  if (!FIELD_SET.has(fieldRaw)) {
+    return {
+      ok: false,
+      code: 'unsupported_field',
+      error:
+        'Campo não suportado pelo enriquecimento automático.',
+    }
+  }
+
+  const field =
+    fieldRaw as
+      LeadEnrichmentUpdateField
+
+  const normalizedValue =
+    normalizeLeadEnrichmentFieldValue(
+      field,
+      input.value,
+    )
+
+  if (!normalizedValue) {
+    return {
+      ok: false,
+      code: 'invalid_value',
+      error:
+        'Valor cadastral inválido.',
+    }
+  }
+
+  let expectedCurrentValue:
+    string | null = null
+
+  if (
+    input.expected_current_value !==
+      null &&
+    input.expected_current_value !==
+      undefined &&
+    String(
+      input.expected_current_value,
+    ).trim()
+  ) {
+    expectedCurrentValue =
+      normalizeLeadEnrichmentFieldValue(
+        field,
+        input.expected_current_value,
+      )
+
+    if (!expectedCurrentValue) {
+      return {
+        ok: false,
+        code:
+          'invalid_expected_value',
+        error:
+          'Valor atual esperado é inválido.',
+      }
+    }
+  }
+
+  const evidenceMessageIds =
+    normalizeEvidenceMessageIds(
+      input.evidence_message_ids,
+    )
+
+  if (!evidenceMessageIds) {
+    return {
+      ok: false,
+      code: 'invalid_evidence',
+      error:
+        'A atualização precisa de evidência válida da conversa.',
+    }
+  }
+
+  return {
+    ok: true,
+    value: {
+      cycleId,
+      field,
+      value:
+        normalizedValue,
+      expectedCurrentValue,
+      evidenceMessageIds,
+      confirmedByHuman: true,
+    },
+  }
+}
+
 export function areLeadEnrichmentValuesEqual(
   field: LeadEnrichmentUpdateField,
   first: unknown,
