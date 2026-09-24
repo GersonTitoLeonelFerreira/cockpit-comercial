@@ -6997,7 +6997,13 @@
       return ''
     }
 
-    if (resolution.status === 'NOT_FOUND') {
+    // A autoridade de cada ação é a capability canônica do ViewModel
+    // (resolve-lead → controller), nunca o status. Sem capability
+    // aplicável, mantém o fallback atual "Abrir vínculo na Yolen".
+    const capabilities =
+      resolution.capabilities
+
+    if (capabilities?.can_create_lead === true) {
       // O formulário de criação de lead (Nome/WhatsApp/E-mail/CPF-CNPJ)
       // é montado aqui, na MESMA passada de renderPanel() que decide o
       // resto da região "Conversa" — não por um MutationObserver
@@ -7039,7 +7045,7 @@
       `
     }
 
-    if (resolution.status === 'IN_POOL') {
+    if (capabilities?.can_open_pool === true) {
       return `
         <button class="yolen-secondary-button" type="button" data-yolen-action="open-pool">
           Abrir Pool na Yolen

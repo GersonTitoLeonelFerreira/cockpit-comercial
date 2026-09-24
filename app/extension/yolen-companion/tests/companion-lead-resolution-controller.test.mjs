@@ -1164,7 +1164,7 @@ test('shell seller-facing só apresenta as quatro áreas com WORKSPACE_READY', (
   )
 })
 
-test('lead action presenter decide status pelo ViewModel canônico', () => {
+test('lead action presenter decide pelas capabilities canônicas do ViewModel', () => {
   const start =
     contentScriptSource.indexOf(
       'function getLeadActionButton()',
@@ -1202,14 +1202,20 @@ test('lead action presenter decide status pelo ViewModel canônico', () => {
     /state\.leadResolution\b/,
   )
 
+  // FASE 4B.5M: a autoridade passou do status para as capabilities.
   assert.match(
     block,
-    /resolution\.status\s*===\s*'NOT_FOUND'/,
+    /capabilities\?\.can_create_lead\s*===\s*true/,
   )
 
   assert.match(
     block,
-    /resolution\.status\s*===\s*'IN_POOL'/,
+    /capabilities\?\.can_open_pool\s*===\s*true/,
+  )
+
+  assert.doesNotMatch(
+    block,
+    /resolution\.status/,
   )
 })
 
