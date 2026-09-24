@@ -6774,13 +6774,19 @@
   }
 
   function getLeadStatusClass() {
-    const status = state.leadResolution?.status
+    const status =
+      state
+        .leadResolutionViewModel
+        ?.status
 
     if (status === 'OWNED_BY_ME') {
       return 'yolen-status-success'
     }
 
-    if (status === 'NOT_FOUND' || status === 'NO_PHONE_DETECTED') {
+    if (
+      status === 'NOT_FOUND' ||
+      status === 'NO_PHONE_DETECTED'
+    ) {
       return 'yolen-status-warning'
     }
 
@@ -6812,7 +6818,12 @@
       return 'Telefone não detectado'
     }
 
-    return state.leadResolution?.user_message || 'Lead ainda não consultado'
+    return (
+      state
+        .leadResolutionViewModel
+        ?.user_message ||
+      'Lead ainda não consultado'
+    )
   }
 
   function getLeadStatusDescription() {
@@ -6843,7 +6854,8 @@
       )
     }
 
-    const resolution = state.leadResolution
+    const resolution =
+      state.leadResolutionViewModel
 
     if (!resolution) {
       return 'Clique em Atualizar leitura para consultar esse telefone.'
@@ -6851,23 +6863,38 @@
 
     const details = []
 
-    if (resolution.lead?.name) {
-      details.push(`Lead: ${resolution.lead.name}`)
+    if (resolution.lead_display?.name) {
+      details.push(
+        `Lead: ${resolution.lead_display.name}`,
+      )
     }
 
     if (resolution.cycle?.status) {
-      details.push(`Etapa atual: ${getStageLabel(resolution.cycle.status)}`)
+      details.push(
+        `Etapa atual: ${getStageLabel(
+          resolution.cycle.status,
+        )}`,
+      )
     }
 
-    if (resolution.cycle?.owner_name) {
-      details.push(`Responsável: ${resolution.cycle.owner_name}`)
+    if (
+      resolution
+        .ownership_display
+        ?.owner_name
+    ) {
+      details.push(
+        `Responsável: ${
+          resolution
+            .ownership_display
+            .owner_name
+        }`,
+      )
     }
 
-    if (resolution.phone_variants?.length) {
-      details.push(`Busca: ${resolution.phone_variants.join(', ')}`)
-    }
-
-    return escapeHtml(details.join(' · ') || resolution.user_message)
+    return escapeHtml(
+      details.join(' · ') ||
+        resolution.user_message,
+    )
   }
 
   function openYolen(path) {
@@ -12365,8 +12392,8 @@
   function getCompactConversationName() {
     return (
       state
-        .leadResolution
-        ?.lead
+        .leadResolutionViewModel
+        ?.lead_display
         ?.name ||
       state.conversationTitle ||
       'Nenhuma conversa detectada'
@@ -12402,7 +12429,7 @@
     }
 
     const resolution =
-      state.leadResolution
+      state.leadResolutionViewModel
 
     if (!resolution) {
       return 'Localizando vínculo comercial...'
@@ -12462,10 +12489,16 @@
   }
 
   function getCompactContextChipsHtml() {
+    const resolution =
+      state.leadResolutionViewModel
+
     const cycle =
-      state
-        .leadResolution
-        ?.cycle
+      resolution?.cycle
+
+    const ownerName =
+      resolution
+        ?.ownership_display
+        ?.owner_name
 
     const chips = []
 
@@ -12481,11 +12514,11 @@
       )
     }
 
-    if (cycle?.owner_name) {
+    if (ownerName) {
       chips.push(
         '<span class="yolen-context-chip yolen-context-chip-muted">' +
           escapeHtml(
-            cycle.owner_name,
+            ownerName,
           ) +
         '</span>',
       )

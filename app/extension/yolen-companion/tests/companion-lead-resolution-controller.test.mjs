@@ -586,7 +586,7 @@ test('controller está composto antes do content-script no runtime real', () => 
   )
 })
 
-test('wiring normaliza resolução bem-sucedida para o ViewModel canônico sem migrar consumidores ainda', () => {
+test('wiring normaliza resolução bem-sucedida para o ViewModel canônico', () => {
   assert.match(
     contentScriptSource,
     /const resolutionViewModel\s*=\s*leadResolutionController\s*\.createDomainResolutionViewModel\(\s*result\.payload,\s*\)/,
@@ -611,11 +611,6 @@ test('wiring normaliza resolução bem-sucedida para o ViewModel canônico sem m
     contentScriptSource,
     /leadResolutionController\.canOpenWorkspace/,
   )
-
-  assert.doesNotMatch(
-    contentScriptSource,
-    /state\.leadResolutionViewModel/,
-  )
 })
 
 test('ViewModel canônico é invalidado em todos os resets da resolução legacy', () => {
@@ -627,5 +622,111 @@ test('ViewModel canônico é invalidado em todos os resets da resolução legacy
   assert.equal(
     resets.length,
     6,
+  )
+})
+
+test('display seller-facing básico do contato consome somente o DomainResolutionViewModel', () => {
+  const statusDisplayStart =
+    contentScriptSource.indexOf(
+      'function getLeadStatusClass()',
+    )
+
+  const statusDisplayEnd =
+    contentScriptSource.indexOf(
+      'function openYolen(path)',
+      statusDisplayStart,
+    )
+
+  assert.notEqual(
+    statusDisplayStart,
+    -1,
+  )
+
+  assert.notEqual(
+    statusDisplayEnd,
+    -1,
+  )
+
+  const statusDisplayBlock =
+    contentScriptSource.slice(
+      statusDisplayStart,
+      statusDisplayEnd,
+    )
+
+  const compactDisplayStart =
+    contentScriptSource.indexOf(
+      'function getCompactConversationName()',
+    )
+
+  const compactDisplayEnd =
+    contentScriptSource.indexOf(
+      'function getCompactFooterHtml()',
+      compactDisplayStart,
+    )
+
+  assert.notEqual(
+    compactDisplayStart,
+    -1,
+  )
+
+  assert.notEqual(
+    compactDisplayEnd,
+    -1,
+  )
+
+  const compactDisplayBlock =
+    contentScriptSource.slice(
+      compactDisplayStart,
+      compactDisplayEnd,
+    )
+
+  for (const block of [
+    statusDisplayBlock,
+    compactDisplayBlock,
+  ]) {
+    assert.match(
+      block,
+      /state\.leadResolutionViewModel/,
+    )
+
+    assert.doesNotMatch(
+      block,
+      /state\.leadResolution\b/,
+    )
+
+    assert.doesNotMatch(
+      block,
+      /phone_variants/,
+    )
+
+    assert.doesNotMatch(
+      block,
+      /resolution\.lead\??\./,
+    )
+
+    assert.doesNotMatch(
+      block,
+      /cycle\??\.owner_name/,
+    )
+  }
+
+  assert.match(
+    statusDisplayBlock,
+    /lead_display/,
+  )
+
+  assert.match(
+    statusDisplayBlock,
+    /ownership_display/,
+  )
+
+  assert.match(
+    compactDisplayBlock,
+    /lead_display/,
+  )
+
+  assert.match(
+    compactDisplayBlock,
+    /ownership_display/,
   )
 })
