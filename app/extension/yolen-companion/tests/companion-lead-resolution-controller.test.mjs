@@ -792,3 +792,84 @@ test('runtime materializa e invalida o Canonical Resolution Outcome sem consumid
     0,
   )
 })
+
+test('eligibility de análise e aplicação usa resolução canônica', () => {
+  const analyzeStart =
+    contentScriptSource.indexOf(
+      'function canAnalyzeCurrentConversation()',
+    )
+
+  const analyzeEnd =
+    contentScriptSource.indexOf(
+      'function isOpenSuggestionStatus(',
+      analyzeStart,
+    )
+
+  assert.notEqual(
+    analyzeStart,
+    -1,
+  )
+
+  assert.notEqual(
+    analyzeEnd,
+    -1,
+  )
+
+  const analyzeBlock =
+    contentScriptSource.slice(
+      analyzeStart,
+      analyzeEnd,
+    )
+
+  assert.match(
+    analyzeBlock,
+    /state[\s\S]*leadResolutionOutcome[\s\S]*workspace_ready/,
+  )
+
+  assert.doesNotMatch(
+    analyzeBlock,
+    /leadResolution\??\.cycle/,
+  )
+
+  assert.doesNotMatch(
+    analyzeBlock,
+    /can_analyze_conversation/,
+  )
+
+  const applyStart =
+    contentScriptSource.indexOf(
+      'function canApplyCurrentSuggestion()',
+    )
+
+  const applyEnd =
+    contentScriptSource.indexOf(
+      'function getAnalysisStatusClass()',
+      applyStart,
+    )
+
+  assert.notEqual(
+    applyStart,
+    -1,
+  )
+
+  assert.notEqual(
+    applyEnd,
+    -1,
+  )
+
+  const applyBlock =
+    contentScriptSource.slice(
+      applyStart,
+      applyEnd,
+    )
+
+  assert.match(
+    applyBlock,
+    /leadResolutionViewModel[\s\S]*capabilities[\s\S]*can_apply_suggestion/,
+  )
+
+  assert.doesNotMatch(
+    applyBlock,
+    /leadResolution[\s\S]*actions[\s\S]*can_apply_suggestion/,
+  )
+})

@@ -7459,11 +7459,12 @@
   }
 
   function canAnalyzeCurrentConversation() {
-    return (
+    return Boolean(
       state.connected &&
       !state.isSelfConversation &&
-      state.leadResolution?.cycle?.id &&
-      state.leadResolution?.actions?.can_analyze_conversation === true
+      state
+        .leadResolutionOutcome
+        ?.workspace_ready === true
     )
   }
 
@@ -8808,8 +8809,8 @@
     return (
       canAnalyzeCurrentConversation() &&
       state
-        .leadResolution
-        ?.actions
+        .leadResolutionViewModel
+        ?.capabilities
         ?.can_apply_suggestion ===
         true &&
       hasTrustedAnalysis &&
