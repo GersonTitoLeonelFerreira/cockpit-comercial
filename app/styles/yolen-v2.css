@@ -1,0 +1,94 @@
+.yolen-v2 {
+  /* Core palette */
+  --yolen-bg: #0b1220;
+  --yolen-surface: #142033;
+  --yolen-surface-elevated: #1d2d46;
+
+  --yolen-text-primary: #eff4ff;
+  --yolen-text-secondary: #b5c4dc;
+  --yolen-text-muted: #9badca;
+
+  --yolen-action-primary: #2359d9;
+  --yolen-accent-blue: #79b4ff;
+  --yolen-focus: #b1d0ff;
+
+  /* Typography */
+  --yolen-font-body: 15px;
+  --yolen-font-form: 16px;
+  --yolen-font-meta: 13px;
+  --yolen-font-title-sm: 24px;
+  --yolen-font-title-lg: 32px;
+
+  /* Motion */
+  --yolen-motion-fast: 140ms;
+  --yolen-motion-standard: 180ms;
+  --yolen-motion-slow: 220ms;
+
+  color: var(--yolen-text-primary);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-size: var(--yolen-font-body);
+}
+
+.yolen-v2,
+.yolen-v2 *,
+.yolen-v2 *::before,
+.yolen-v2 *::after {
+  box-sizing: border-box;
+}
+
+.yolen-v2 :focus-visible {
+  outline: 2px solid var(--yolen-focus);
+  outline-offset: 3px;
+}
+
+.yolen-v2 input,
+.yolen-v2 select,
+.yolen-v2 textarea,
+.yolen-v2 button {
+  font: inherit;
+}
+
+.yolen-v2 input,
+.yolen-v2 select,
+.yolen-v2 textarea {
+  font-size: var(--yolen-font-form);
+}
+
+.yolen-v2-title {
+  margin: 0;
+  color: var(--yolen-text-primary);
+  font-size: clamp(
+    var(--yolen-font-title-sm),
+    2.3vw,
+    var(--yolen-font-title-lg)
+  );
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+}
+
+.yolen-v2-meta {
+  color: var(--yolen-text-muted);
+  font-size: var(--yolen-font-meta);
+  line-height: 1.45;
+}
+
+.yolen-v2-surface {
+  background: var(--yolen-surface);
+  color: var(--yolen-text-primary);
+}
+
+.yolen-v2-surface-elevated {
+  background: var(--yolen-surface-elevated);
+  color: var(--yolen-text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yolen-v2 *,
+  .yolen-v2 *::before,
+  .yolen-v2 *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
