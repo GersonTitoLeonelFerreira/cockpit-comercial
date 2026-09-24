@@ -586,22 +586,20 @@ test('controller está composto antes do content-script no runtime real', () => 
   )
 })
 
-test('wiring ainda não delega comportamento de resolução ao controller', () => {
-  const declarationCount =
-    (
-      contentScriptSource.match(
-        /\bleadResolutionController\b/g,
-      ) || []
-    ).length
+test('wiring normaliza resolução bem-sucedida para o ViewModel canônico sem migrar consumidores ainda', () => {
+  assert.match(
+    contentScriptSource,
+    /const resolutionViewModel\s*=\s*leadResolutionController\s*\.createDomainResolutionViewModel\(\s*result\.payload,\s*\)/,
+  )
 
-  assert.equal(
-    declarationCount,
-    2,
+  assert.match(
+    contentScriptSource,
+    /leadResolution:\s*result\.payload,\s*leadResolutionViewModel:\s*resolutionViewModel,/,
   )
 
   assert.doesNotMatch(
     contentScriptSource,
-    /leadResolutionController\.createDomainResolutionViewModel/,
+    /leadResolutionViewModel:\s*result\.payload/,
   )
 
   assert.doesNotMatch(
@@ -612,5 +610,22 @@ test('wiring ainda não delega comportamento de resolução ao controller', () =
   assert.doesNotMatch(
     contentScriptSource,
     /leadResolutionController\.canOpenWorkspace/,
+  )
+
+  assert.doesNotMatch(
+    contentScriptSource,
+    /state\.leadResolutionViewModel/,
+  )
+})
+
+test('ViewModel canônico é invalidado em todos os resets da resolução legacy', () => {
+  const resets =
+    contentScriptSource.match(
+      /leadResolutionViewModel:\s*null/g,
+    ) || []
+
+  assert.equal(
+    resets.length,
+    6,
   )
 })

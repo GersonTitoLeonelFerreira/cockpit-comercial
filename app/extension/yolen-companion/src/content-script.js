@@ -593,6 +593,7 @@
     lastSessionSyncAt: null,
     leadResolutionLoading: false,
     leadResolution: null,
+    leadResolutionViewModel: null,
     leadResolutionError: null,
     leadCreationStatus: null,
     leadCreationConversationKey: null,
@@ -6139,6 +6140,7 @@
       ...state,
       leadResolutionLoading: false,
       leadResolution: null,
+      leadResolutionViewModel: null,
       leadResolutionError: null,
       leadCreationStatus: null,
       leadCreationConversationKey: null,
@@ -13892,6 +13894,7 @@
         ...state,
         leadResolutionLoading: false,
         leadResolution: null,
+        leadResolutionViewModel: null,
         leadResolutionError: null,
       }
 
@@ -13936,6 +13939,7 @@
       ...state,
       leadResolutionLoading: true,
       leadResolution: null,
+      leadResolutionViewModel: null,
       leadResolutionError: null,
     }
 
@@ -13979,6 +13983,7 @@
           ...state,
           leadResolutionLoading: false,
           leadResolution: null,
+          leadResolutionViewModel: null,
           leadResolutionError:
             result?.payload?.error ||
             'Não foi possível consultar o vínculo na Yolen.',
@@ -13996,6 +14001,12 @@
       if (!requestStillCurrent()) {
         return
       }
+
+      const resolutionViewModel =
+        leadResolutionController
+          .createDomainResolutionViewModel(
+            result.payload,
+          )
 
       // Fonte única de verdade para sair de um estado de criação de lead
       // pendente (ver createLeadForCurrentConversation()/
@@ -14019,6 +14030,8 @@
         ...state,
         leadResolutionLoading: false,
         leadResolution: result.payload,
+        leadResolutionViewModel:
+          resolutionViewModel,
         leadResolutionError: null,
         ...(shouldClearPendingLeadCreation
           ? {
@@ -14076,6 +14089,7 @@
         ...state,
         leadResolutionLoading: false,
         leadResolution: null,
+        leadResolutionViewModel: null,
         leadResolutionError:
           error instanceof Error &&
           error.message
