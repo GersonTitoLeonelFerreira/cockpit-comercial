@@ -109,6 +109,10 @@
     globalThis
       .YolenCompanionConversationBoundary
 
+  const leadResolutionController =
+    globalThis
+      .YolenCompanionLeadResolutionController
+
   // FASE 4A.1 — autoridade canônica ÚNICA das áreas seller-facing (lista,
   // ordem, rótulos, validação, navegação por teclado e HTML de abas/
   // painéis): companion-workspace-runtime.js. Este arquivo só recebe o
@@ -150,6 +154,12 @@
   if (!conversationBoundaryRuntime) {
     throw new Error(
       'Módulo da fronteira canônica de conversa do Companion não carregado.',
+    )
+  }
+
+  if (!leadResolutionController) {
+    throw new Error(
+      'Controller canônico de resolução de lead do Companion não carregado.',
     )
   }
 

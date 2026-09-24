@@ -38,6 +38,7 @@ const DEPENDENCY_FILES = [
   'companion-seller-information-view.js',
   'companion-reasoning-view.js',
   'companion-conversation-boundary.js',
+  'companion-lead-resolution-controller.js',
   'companion-workspace-runtime.js',
 ]
 

@@ -57,6 +57,7 @@
         "src/companion-reasoning-view.js",
         "src/phase16-9-runtime-guard.js",
         "src/companion-conversation-boundary.js",
+        "src/companion-lead-resolution-controller.js",
         "src/companion-workspace-runtime.js",
         "src/content-script.js",
         "src/panel-stability-runtime.js",

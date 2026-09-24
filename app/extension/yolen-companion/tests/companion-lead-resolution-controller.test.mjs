@@ -19,6 +19,36 @@ const MODULE_PATH = fileURLToPath(
 const controller = require(MODULE_PATH)
 const moduleSource = readFileSync(MODULE_PATH, 'utf8')
 
+const EXTENSION_ROOT = fileURLToPath(
+  new URL('../', import.meta.url),
+)
+
+const contentScriptSource =
+  readFileSync(
+    `${EXTENSION_ROOT}src/content-script.js`,
+    'utf8',
+  )
+
+const manifest =
+  JSON.parse(
+    readFileSync(
+      `${EXTENSION_ROOT}manifest.json`,
+      'utf8',
+    ),
+  )
+
+const buildScriptSource =
+  readFileSync(
+    `${EXTENSION_ROOT}scripts/build-package.mjs`,
+    'utf8',
+  )
+
+const harnessSource =
+  readFileSync(
+    `${EXTENSION_ROOT}tests/e3-test-support/load-content-script.mjs`,
+    'utf8',
+  )
+
 function legacyPayload(overrides = {}) {
   return {
     ok: true,
@@ -461,4 +491,126 @@ test('módulo é platform-neutral', () => {
     assert.ok(!moduleSource.includes(term), `companion-lead-resolution-controller.js contém "${term}"`)
   }
   assert.doesNotMatch(moduleSource, /\.\.\.\s*payload\b/, 'nenhum spread de payload bruto')
+})
+
+test('controller está composto antes do content-script no runtime real', () => {
+  assert.match(
+    contentScriptSource,
+    /YolenCompanionLeadResolutionController/,
+  )
+
+  assert.match(
+    contentScriptSource,
+    /if\s*\(\s*!leadResolutionController\s*\)/,
+  )
+
+  const whatsappEntry =
+    manifest.content_scripts.find(
+      (entry) =>
+        entry.js?.includes(
+          'src/content-script.js',
+        ),
+    )
+
+  assert.ok(whatsappEntry)
+
+  const boundaryIndex =
+    whatsappEntry.js.indexOf(
+      'src/companion-conversation-boundary.js',
+    )
+
+  const controllerIndex =
+    whatsappEntry.js.indexOf(
+      'src/companion-lead-resolution-controller.js',
+    )
+
+  const workspaceIndex =
+    whatsappEntry.js.indexOf(
+      'src/companion-workspace-runtime.js',
+    )
+
+  const contentScriptIndex =
+    whatsappEntry.js.indexOf(
+      'src/content-script.js',
+    )
+
+  for (const index of [
+    boundaryIndex,
+    controllerIndex,
+    workspaceIndex,
+    contentScriptIndex,
+  ]) {
+    assert.notEqual(index, -1)
+  }
+
+  assert.ok(
+    boundaryIndex < controllerIndex,
+  )
+
+  assert.ok(
+    controllerIndex < workspaceIndex,
+  )
+
+  assert.ok(
+    workspaceIndex < contentScriptIndex,
+  )
+
+  assert.match(
+    buildScriptSource,
+    /src\/companion-lead-resolution-controller\.js/,
+  )
+
+  const harnessControllerIndex =
+    harnessSource.indexOf(
+      "'companion-lead-resolution-controller.js'",
+    )
+
+  const harnessWorkspaceIndex =
+    harnessSource.indexOf(
+      "'companion-workspace-runtime.js'",
+    )
+
+  assert.notEqual(
+    harnessControllerIndex,
+    -1,
+  )
+
+  assert.notEqual(
+    harnessWorkspaceIndex,
+    -1,
+  )
+
+  assert.ok(
+    harnessControllerIndex <
+      harnessWorkspaceIndex,
+  )
+})
+
+test('wiring ainda não delega comportamento de resolução ao controller', () => {
+  const declarationCount =
+    (
+      contentScriptSource.match(
+        /\bleadResolutionController\b/g,
+      ) || []
+    ).length
+
+  assert.equal(
+    declarationCount,
+    2,
+  )
+
+  assert.doesNotMatch(
+    contentScriptSource,
+    /leadResolutionController\.createDomainResolutionViewModel/,
+  )
+
+  assert.doesNotMatch(
+    contentScriptSource,
+    /leadResolutionController\.deriveCanonicalResolutionOutcome/,
+  )
+
+  assert.doesNotMatch(
+    contentScriptSource,
+    /leadResolutionController\.canOpenWorkspace/,
+  )
 })
