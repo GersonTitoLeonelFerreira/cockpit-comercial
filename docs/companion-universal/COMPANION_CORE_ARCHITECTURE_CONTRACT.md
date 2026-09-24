@@ -608,7 +608,7 @@ contrato fixa a lista e as transições.
 | 13 | `IN_POOL` | Lead no Pool |
 | 14 | `OWNED_BY_OTHER` | Lead de outra carteira |
 | 15 | `CLOSED_CYCLE` | Ciclo encerrado |
-| 16 | `RESOLUTION_ERROR` | Resposta de domínio de erro na resolução (`DOMAIN_ERROR`) |
+| 16 | `RESOLUTION_ERROR` | Resposta de domínio que não produz vínculo comercial seguro/operável. Inclui `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`, `MULTIPLE_MATCHES` e outros `DOMAIN_ERROR` normalizados pelo Core |
 | 17 | `NETWORK_ERROR` | Falha de transporte |
 | 18 | `BACKEND_ERROR` | Falha do backend (5xx/resposta inválida) |
 | 19 | `WORKSPACE_READY` | Workspace de 4 áreas ativo para o ciclo resolvido |
@@ -626,7 +626,7 @@ RESOLVING ──caso C (identidade não resolve, sem trustedPhone)──▶ NO_C
 NO_CONTACT_EVIDENCE ──nova evidência (platformIdentity ou trustedPhone)──▶ RESOLVING
 RESOLVING ──caso D: NOT_FOUND por trustedPhone──▶ NOT_FOUND ──(can_create_lead)──▶ LEAD_CREATE_READY
 RESOLVING ──OWNED_BY_ME / IN_POOL / OWNED_BY_OTHER / CLOSED_CYCLE──▶ estado correspondente
-RESOLVING ──DOMAIN_ERROR──▶ RESOLUTION_ERROR
+RESOLVING ──LEAD_WITHOUT_CYCLE / SOFT_DELETED / MULTIPLE_MATCHES / DOMAIN_ERROR──▶ RESOLUTION_ERROR
 RESOLVING ──transporte──▶ NETWORK_ERROR
 RESOLVING ──backend──▶ BACKEND_ERROR
 RESOLVING ──AUTH_ERROR──▶ NO_SESSION
@@ -643,13 +643,39 @@ workspace é decidido pelo Core a partir de `capabilities`/`flags` do
 Domain Resolution ViewModel — nunca pelo adapter. A matriz exata por
 status é **UNKNOWN / TO BE VERIFIED** (§31, questão Q2).
 
-### 10.3 Status de domínio sem estado canônico dedicado
+### 10.3 Status de domínio sem estado canônico dedicado — Q1 DECIDIDA
 
-A branch congelada exibe rótulos para `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`,
-`MULTIPLE_MATCHES`; o WhatsApp na base os trata pelo ramo genérico
-(`user_message` + "Abrir vínculo"). O mapeamento canônico desses status é
-**UNKNOWN / TO BE VERIFIED** (§31, Q1). Até decisão, o Core os trata de
-forma única em todos os canais e nunca por rótulo definido em adapter.
+Decisão do Controle na FASE 4B.3:
+
+`LEAD_WITHOUT_CYCLE`, `SOFT_DELETED` e `MULTIPLE_MATCHES` são
+normalizados pelo Core para o estado canônico `RESOLUTION_ERROR`.
+
+Eles não recebem estados canônicos próprios e não representam uma
+resolução comercial utilizável:
+
+| Backend status | Estado canônico | Significado | Ação seller-facing |
+|---|---|---|---|
+| `LEAD_WITHOUT_CYCLE` | `RESOLUTION_ERROR` | Lead encontrado sem ciclo comercial utilizável | Exibir `user_message` e permitir abrir a Yolen para corrigir o vínculo/ciclo |
+| `SOFT_DELETED` | `RESOLUTION_ERROR` | Lead correspondente arquivado ou excluído | Exibir `user_message` e permitir abrir a Yolen para reativação/correção |
+| `MULTIPLE_MATCHES` | `RESOLUTION_ERROR` | Mais de um lead corresponde à evidência; vínculo não é unívoco | Exibir `user_message` e permitir abrir a Yolen para desambiguar/corrigir |
+
+Invariantes para os três casos:
+
+- nunca transicionar para `LEAD_CREATE_READY`;
+- nunca criar lead automaticamente;
+- nunca escolher lead automaticamente em `MULTIPLE_MATCHES`;
+- nunca reativar `SOFT_DELETED` automaticamente;
+- nunca criar ciclo automaticamente para `LEAD_WITHOUT_CYCLE`;
+- nunca abrir `WORKSPACE_READY` enquanto a inconsistência persistir;
+- não iniciar análise/captura dependente de ciclo comercial resolvido;
+- `retry`/`Atualizar vínculo` volta para `RESOLVING` depois que a situação
+  for corrigida na Yolen;
+- o Core preserva `resolution.user_message` quando fornecido pelo backend;
+  fallback/copy adicional pertence ao Core, nunca ao adapter.
+
+`CONTACT_NOT_LINKED` não pertence a este mapeamento: continua seguindo
+§10.4 casos B/C. `NOT_FOUND` por `trustedPhone` continua seguindo §10.4
+caso D e pode levar a `LEAD_CREATE_READY`.
 
 ### 10.4 Ordem canônica de resolução
 
@@ -1353,7 +1379,7 @@ outra fase (ex.: "Q4 ainda está UNKNOWN" **não** bloqueia a FASE 3).
 
 | Questão | Tema | Status | Resolver antes de | Bloqueia FASE 3? |
 |---|---|---|---|---|
-| **Q1** | Mapeamento canônico de `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`, `MULTIPLE_MATCHES` (hoje: genérico no WhatsApp, rótulos próprios no ManyChat congelado) | SCHEDULED | Implementação do `companion-lead-resolution-controller` na **FASE 4** | Não |
+| **Q1** | Mapeamento canônico de `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`, `MULTIPLE_MATCHES` | **DECIDED — FASE 4B.3:** todos normalizam para `RESOLUTION_ERROR`, sem criação e sem workspace até correção externa | Implementação do `companion-lead-resolution-controller` na **FASE 4** | Não |
 | **Q2** | Estados comerciais que abrem `WORKSPACE_READY` (`OWNED_BY_OTHER`, `IN_POOL`, `CLOSED_CYCLE`) — deve derivar de `capabilities`/`flags` do Domain Resolution ViewModel | SCHEDULED | Implementação da composição resolution → workspace na **FASE 4** | Não |
 | **Q3** | Campos de display autorizados no Domain Resolution ViewModel por canal (lead name, owner_name, cycle status no ManyChat) | SCHEDULED | Implementação do contrato de resolução sanitizado na **FASE 4** | Não |
 | **Q4** | Capabilities ManyChat UNKNOWN (display name confiável, interceptação de envio, pedir detalhes de contato, grupo/self, deleção/edição, última mensagem enviada) | SCHEDULED | Resolvida **por evidência técnica** na **FASE 6** (ManyChatAdapter); não inventar antes | Não |

@@ -173,7 +173,7 @@ evidência (TO BE VERIFIED). Evidências no §8 do contrato.
 | # | STATE / SCENARIO | CORE AUTHORITY | EXPECTED SELLER-FACING RESULT | WA INPUT/CAP | MC INPUT/CAP | ALLOWED DIFF | FORBIDDEN DIFF | AUTO | LIVE |
 |---|---|---|---|---|---|---|---|---|---|
 | 65 | group/self (`NON_LEAD_CONVERSATION`) | resolution | "Conversas em grupo não são vinculadas a leads." / "Esta conversa não é vinculada a um lead comercial." ; sem busca de telefone | `kind: group/self` | `kind: unknown` (Q4) | Capability `canClassifyGroupOrSelf` | Resolver grupo como lead | CORE, ADP | WA |
-| 66 | `LEAD_WITHOUT_CYCLE` / `SOFT_DELETED` / `MULTIPLE_MATCHES` | resolution | UNKNOWN / TO BE VERIFIED (Q1) — tratamento único no Core | nenhum | nenhum | Nenhuma | Rótulo definido em adapter | CORE | — |
+| 66 | `LEAD_WITHOUT_CYCLE` / `SOFT_DELETED` / `MULTIPLE_MATCHES` → `RESOLUTION_ERROR` | resolution | Exibir `user_message` canônico do backend/Core + CTA para corrigir na Yolen; sem criação, análise ou `WORKSPACE_READY`; retry volta a `RESOLVING` | nenhum | nenhum | Nenhuma | Estado próprio por canal; rótulo/copy definido em adapter; formulário de criação; escolher lead automaticamente; abrir workspace | CORE, DOM | — |
 | 67 | pré-envio (gate) | message (pre-send) | Avaliação e gate de pré-envio canônicos | `interceptSendAttempt` | UNKNOWN (Q4) | Capability `canInterceptSend` | Regra de avaliação distinta | CORE, ADP | WA |
 | 68 | painel recolhido com atenção | workspace | Ponto de atenção por sinal canônico; reconhecimento ao abrir | nenhum | nenhum | Nenhuma | Atenção só em um canal | CORE, DOM | — |
 
