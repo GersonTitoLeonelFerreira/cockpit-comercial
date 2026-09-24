@@ -179,6 +179,118 @@ test('HTML escapa area e label', () => {
   assert.ok(panel.includes('yolen-seller-panel-a&quot;b'))
 })
 
+test('workspace canônico compõe os quatro painéis na ordem oficial', () => {
+  const html = workspace.getSellerWorkspaceHtml({
+    activeArea: 'analysis',
+    nowHtml: '<div data-content="now">NOW</div>',
+    messageHtml: '<div data-content="message">MESSAGE</div>',
+    analysisHtml: '<div data-content="analysis">ANALYSIS</div>',
+    clientHtml: '<div data-content="client">CLIENT</div>',
+  })
+
+  assert.match(
+    html,
+    /class="yolen-seller-workspace yolen-seller-workspace--ux7"/,
+  )
+  assert.match(
+    html,
+    /data-yolen-ux-build="UX7"/,
+  )
+
+  const nowIndex =
+    html.indexOf('data-yolen-seller-panel="now"')
+  const messageIndex =
+    html.indexOf('data-yolen-seller-panel="message"')
+  const analysisIndex =
+    html.indexOf('data-yolen-seller-panel="analysis"')
+  const clientIndex =
+    html.indexOf('data-yolen-seller-panel="client"')
+
+  for (const index of [
+    nowIndex,
+    messageIndex,
+    analysisIndex,
+    clientIndex,
+  ]) {
+    assert.notEqual(index, -1)
+  }
+
+  assert.ok(nowIndex < messageIndex)
+  assert.ok(messageIndex < analysisIndex)
+  assert.ok(analysisIndex < clientIndex)
+
+  assert.ok(
+    html.includes('<div data-content="now">NOW</div>'),
+  )
+  assert.ok(
+    html.includes('<div data-content="message">MESSAGE</div>'),
+  )
+  assert.ok(
+    html.includes('<div data-content="analysis">ANALYSIS</div>'),
+  )
+  assert.ok(
+    html.includes('<div data-content="client">CLIENT</div>'),
+  )
+
+  const analysisPanelStart =
+    html.indexOf('data-yolen-seller-panel="analysis"')
+  const analysisPanelEnd =
+    html.indexOf('</section>', analysisPanelStart)
+
+  const analysisPanel =
+    html.slice(
+      analysisPanelStart,
+      analysisPanelEnd,
+    )
+
+  assert.doesNotMatch(
+    analysisPanel,
+    /\shidden\b/,
+  )
+})
+
+test('workspace canônico normaliza activeArea inválida para now', () => {
+  const html = workspace.getSellerWorkspaceHtml({
+    activeArea: 'invalid',
+    nowHtml: 'NOW',
+    messageHtml: 'MESSAGE',
+    analysisHtml: 'ANALYSIS',
+    clientHtml: 'CLIENT',
+  })
+
+  const nowStart =
+    html.indexOf('data-yolen-seller-panel="now"')
+  const nowEnd =
+    html.indexOf('</section>', nowStart)
+
+  const nowPanel =
+    html.slice(
+      nowStart,
+      nowEnd,
+    )
+
+  assert.doesNotMatch(
+    nowPanel,
+    /\shidden\b/,
+  )
+
+  const clientStart =
+    html.indexOf('data-yolen-seller-panel="client"')
+  const clientEnd =
+    html.indexOf('</section>', clientStart)
+
+  const clientPanel =
+    html.slice(
+      clientStart,
+      clientEnd,
+    )
+
+  assert.match(
+    clientPanel,
+    /\shidden\b/,
+  )
+})
+
 test('módulo é platform-neutral: sem DOM, sem extensão e sem termos de plataforma', () => {
   const forbidden = [
     'web.whatsapp.com',
@@ -212,7 +324,7 @@ test('wiring: content-script.js consome o runtime canônico e não mantém lista
   for (const call of [
     'workspaceRuntime.isValidSellerArea',
     'workspaceRuntime.getNextSellerAreaForKeydown',
-    'workspaceRuntime.getSellerAreaPanelHtml',
+    'workspaceRuntime.getSellerWorkspaceHtml',
     'workspaceRuntime.getSellerAreaTabsBarHtml',
   ]) {
     assert.ok(contentScriptSource.includes(call), `content-script.js não usa ${call}`)

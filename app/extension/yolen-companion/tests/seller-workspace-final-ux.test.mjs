@@ -28,7 +28,10 @@ test('UX7 dá responsabilidade única para AGORA ANÁLISE CLIENTE', () => {
   assert.match(block, /getConversationRegistrationCardHtml\(\)/)
   assert.match(block, /getLeadEnrichmentCandidatesHtml\(\)/)
   assert.doesNotMatch(block, /getAnalysisCardHtml\(\)/)
-  assert.match(block, /data-yolen-ux-build="UX7"/)
+  assert.match(
+    block,
+    /workspaceRuntime\.getSellerWorkspaceHtml\(\{/,
+  )
 })
 
 // FASE 16.5 (recalibração seller-facing do AGORA): getNowAttentionSnapshotHtml

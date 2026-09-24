@@ -11,9 +11,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const [contentScript, summaryView] = await Promise.all([
+const [contentScript, summaryView, workspaceRuntimeSource] = await Promise.all([
   readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/companion-lead-summary-view.js', 'utf8'),
+  readFile('app/extension/yolen-companion/src/companion-workspace-runtime.js', 'utf8'),
 ])
 
 test('content-script consome a autoridade canônica das áreas seller-facing sem manter lista própria', () => {
@@ -102,7 +103,7 @@ test('a tablist é delegada à autoridade canônica do workspace runtime', () =>
   )
 })
 
-test('existe a superfície message (tabpanel próprio) dentro de getSellerInformationArchitectureHtml()', () => {
+test('a composição dos quatro tabpanels pertence ao workspace canônico', () => {
   const start = contentScript.indexOf(
     'function getSellerInformationArchitectureHtml()',
   )
@@ -113,14 +114,43 @@ test('existe a superfície message (tabpanel próprio) dentro de getSellerInform
   const block = contentScript.slice(start, end)
 
   assert.notEqual(start, -1)
-  assert.match(block, /const messageHtml =\s*getSellerMessageAreaHtml\(\)/)
+  assert.match(
+    block,
+    /const messageHtml =\s*getSellerMessageAreaHtml\(\)/,
+  )
+  assert.match(
+    block,
+    /workspaceRuntime\.getSellerWorkspaceHtml\(\{/,
+  )
 
-  const nowPanelIndex = block.indexOf("getSellerAreaPanelHtml(\n          'now',")
-  const messagePanelIndex = block.indexOf("getSellerAreaPanelHtml(\n          'message',")
-  const analysisPanelIndex = block.indexOf("getSellerAreaPanelHtml(\n          'analysis',")
-  const clientPanelIndex = block.indexOf("getSellerAreaPanelHtml(\n          'client',")
+  assert.doesNotMatch(
+    block,
+    /workspaceRuntime\.getSellerAreaPanelHtml\(/,
+  )
 
-  for (const index of [nowPanelIndex, messagePanelIndex, analysisPanelIndex, clientPanelIndex]) {
+  const nowPanelIndex =
+    workspaceRuntimeSource.indexOf(
+      "getSellerAreaPanelHtml('now'",
+    )
+  const messagePanelIndex =
+    workspaceRuntimeSource.indexOf(
+      "getSellerAreaPanelHtml('message'",
+    )
+  const analysisPanelIndex =
+    workspaceRuntimeSource.indexOf(
+      "getSellerAreaPanelHtml('analysis'",
+    )
+  const clientPanelIndex =
+    workspaceRuntimeSource.indexOf(
+      "getSellerAreaPanelHtml('client'",
+    )
+
+  for (const index of [
+    nowPanelIndex,
+    messagePanelIndex,
+    analysisPanelIndex,
+    clientPanelIndex,
+  ]) {
     assert.notEqual(index, -1)
   }
 

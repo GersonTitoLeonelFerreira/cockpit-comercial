@@ -131,6 +131,29 @@
     `
   }
 
+  function getSellerWorkspaceHtml({
+    activeArea = SELLER_AREAS[0],
+    nowHtml = '',
+    messageHtml = '',
+    analysisHtml = '',
+    clientHtml = '',
+  } = {}) {
+    const normalizedActiveArea =
+      normalizeSellerArea(activeArea)
+
+    return `
+      <div class="yolen-seller-workspace yolen-seller-workspace--ux7" data-yolen-ux-build="UX7">
+        ${getSellerAreaPanelHtml('now', nowHtml, normalizedActiveArea)}
+
+        ${getSellerAreaPanelHtml('message', messageHtml, normalizedActiveArea)}
+
+        ${getSellerAreaPanelHtml('analysis', analysisHtml, normalizedActiveArea)}
+
+        ${getSellerAreaPanelHtml('client', clientHtml, normalizedActiveArea)}
+      </div>
+    `
+  }
+
   const api = Object.freeze({
     SELLER_AREAS,
     SELLER_AREA_LABELS,
@@ -140,6 +163,7 @@
     getSellerAreaTabHtml,
     getSellerAreaPanelHtml,
     getSellerAreaTabsBarHtml,
+    getSellerWorkspaceHtml,
   })
 
   root.YolenCompanionWorkspaceRuntime = api

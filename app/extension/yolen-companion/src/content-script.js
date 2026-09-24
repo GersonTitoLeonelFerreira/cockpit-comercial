@@ -11491,33 +11491,13 @@
       getLeadEnrichmentCandidatesHtml(),
     ].filter(Boolean).join('')
 
-    return `
-      <div class="yolen-seller-workspace yolen-seller-workspace--ux7" data-yolen-ux-build="UX7">
-        ${workspaceRuntime.getSellerAreaPanelHtml(
-          'now',
-          nowHtml,
-          activeSellerArea,
-        )}
-
-        ${workspaceRuntime.getSellerAreaPanelHtml(
-          'message',
-          messageHtml,
-          activeSellerArea,
-        )}
-
-        ${workspaceRuntime.getSellerAreaPanelHtml(
-          'analysis',
-          analysisHtml,
-          activeSellerArea,
-        )}
-
-        ${workspaceRuntime.getSellerAreaPanelHtml(
-          'client',
-          clientHtml,
-          activeSellerArea,
-        )}
-      </div>
-    `
+    return workspaceRuntime.getSellerWorkspaceHtml({
+      activeArea: activeSellerArea,
+      nowHtml,
+      messageHtml,
+      analysisHtml,
+      clientHtml,
+    })
   }
 
   function setActiveSellerArea(
