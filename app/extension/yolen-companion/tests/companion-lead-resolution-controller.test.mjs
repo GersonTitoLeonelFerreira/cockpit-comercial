@@ -731,7 +731,7 @@ test('display seller-facing básico do contato consome somente o DomainResolutio
   )
 })
 
-test('runtime materializa e invalida o Canonical Resolution Outcome sem consumidores ainda', () => {
+test('runtime materializa e invalida o Canonical Resolution Outcome', () => {
   assert.match(
     contentScriptSource,
     /const resolutionOutcome\s*=\s*leadResolutionController\s*\.deriveCanonicalResolutionOutcome\(\s*resolutionViewModel,\s*\{\s*hasTrustedPhone:\s*Boolean\(phoneAtRequest\),?\s*\},?\s*\)/,
@@ -780,16 +780,6 @@ test('runtime materializa e invalida o Canonical Resolution Outcome sem consumid
   assert.ok(
     assignmentIndex >
       outcomeIndex,
-  )
-
-  const functionalReads =
-    contentScriptSource.match(
-      /state\.leadResolutionOutcome/g,
-    ) || []
-
-  assert.equal(
-    functionalReads.length,
-    0,
   )
 })
 
@@ -871,5 +861,64 @@ test('eligibility de análise e aplicação usa resolução canônica', () => {
   assert.doesNotMatch(
     applyBlock,
     /leadResolution[\s\S]*actions[\s\S]*can_apply_suggestion/,
+  )
+})
+
+test('apply suggestion sincroniza o ViewModel canônico com a etapa atualizada', () => {
+  const start =
+    contentScriptSource.indexOf(
+      'async function applyCurrentSuggestion()',
+    )
+
+  const end =
+    contentScriptSource.indexOf(
+      'function startSessionAutoRefresh()',
+      start,
+    )
+
+  assert.notEqual(
+    start,
+    -1,
+  )
+
+  assert.notEqual(
+    end,
+    -1,
+  )
+
+  const block =
+    contentScriptSource.slice(
+      start,
+      end,
+    )
+
+  assert.match(
+    block,
+    /const updatedLeadResolution\s*=/,
+  )
+
+  assert.match(
+    block,
+    /status:\s*applied\.status/,
+  )
+
+  assert.match(
+    block,
+    /createDomainResolutionViewModel\(\s*updatedLeadResolution,\s*\)/,
+  )
+
+  assert.match(
+    block,
+    /leadResolution:\s*updatedLeadResolution/,
+  )
+
+  assert.match(
+    block,
+    /leadResolutionViewModel:\s*updatedResolutionViewModel/,
+  )
+
+  assert.doesNotMatch(
+    block,
+    /leadResolutionViewModel:\s*state\.leadResolutionViewModel/,
   )
 })

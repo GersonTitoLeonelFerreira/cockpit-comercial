@@ -16556,23 +16556,40 @@
 
       const applied = result.payload.data
 
-      state = {
-        ...state,
-        suggestionApplyLoading: false,
-        suggestionApplyResult: applied,
-        suggestionApplyError: null,
-        leadResolution: state.leadResolution
+      const updatedLeadResolution =
+        state.leadResolution
           ? {
               ...state.leadResolution,
               cycle: {
                 ...state.leadResolution.cycle,
                 status: applied.status,
-                previous_status: applied.previous_status,
-                next_action: applied.next_action,
-                next_action_date: applied.next_action_date,
+                previous_status:
+                  applied.previous_status,
+                next_action:
+                  applied.next_action,
+                next_action_date:
+                  applied.next_action_date,
               },
             }
-          : state.leadResolution,
+          : state.leadResolution
+
+      const updatedResolutionViewModel =
+        updatedLeadResolution
+          ? leadResolutionController
+              .createDomainResolutionViewModel(
+                updatedLeadResolution,
+              )
+          : state.leadResolutionViewModel
+
+      state = {
+        ...state,
+        suggestionApplyLoading: false,
+        suggestionApplyResult: applied,
+        suggestionApplyError: null,
+        leadResolution:
+          updatedLeadResolution,
+        leadResolutionViewModel:
+          updatedResolutionViewModel,
       }
 
       renderPanel()
