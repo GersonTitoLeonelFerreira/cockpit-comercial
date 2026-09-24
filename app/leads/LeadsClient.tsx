@@ -6,6 +6,7 @@ import SalesCyclesKanban from './components/SalesCyclesKanban'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { getActiveCompetency, getRevenueGoal, getRevenueSummary } from '@/app/lib/services/simulator'
 import MetaSummaryHeader, { buildMetaSummaryKpis } from '@/app/components/meta/MetaSummaryCard'
+import styles from './LeadsClientV2.module.css'
 
 function toYMD(v: string) {
   return (v ?? '').split('T')[0].split(' ')[0]
@@ -223,8 +224,8 @@ const canManageReactivation = role === 'admin' || role === 'manager'
   }, [companyId, period])
 
   return (
-    <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '20px 24px' }}>
-     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+    <div className={styles.page}>
+     <div className={styles.toolbar}>
   {canManageReactivation ? (
     <Link
       href="/leads/reativacao"
@@ -312,7 +313,7 @@ const canManageReactivation = role === 'admin' || role === 'manager'
       </div>
 
 
-      <div style={{ marginTop: 0, marginLeft: -24, marginRight: -24 }}>
+      <div className={styles.kanbanStage}>
       <SalesCyclesKanban
         userId={userId}
         companyId={companyId}
