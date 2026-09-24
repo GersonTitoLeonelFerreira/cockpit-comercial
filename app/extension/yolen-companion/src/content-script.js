@@ -105,6 +105,10 @@
     globalThis
       .YolenCompanionLeadSummaryView
 
+  const conversationBoundaryRuntime =
+    globalThis
+      .YolenCompanionConversationBoundary
+
   // FASE 4A.1 — autoridade canônica ÚNICA das áreas seller-facing (lista,
   // ordem, rótulos, validação, navegação por teclado e HTML de abas/
   // painéis): companion-workspace-runtime.js. Este arquivo só recebe o
@@ -143,6 +147,12 @@
     )
   }
 
+  if (!conversationBoundaryRuntime) {
+    throw new Error(
+      'Módulo da fronteira canônica de conversa do Companion não carregado.',
+    )
+  }
+
   if (!workspaceRuntime) {
     throw new Error(
       'Módulo do workspace canônico do Companion não carregado.',
@@ -150,6 +160,11 @@
   }
 
   let panelCollapsed = false
+
+  const conversationBoundary =
+    conversationBoundaryRuntime
+      .createConversationBoundary()
+
   const workspaceState =
     workspaceRuntime.createSellerWorkspaceState()
 
@@ -6077,6 +6092,14 @@
     clearAnalysisWatchdogTimer()
     activeAnalysisAttempt = null
     clearCompanionClientContextRefreshTimer()
+
+    conversationBoundary.advanceBoundary({
+      conversationKey:
+        state.conversationKey,
+      companyId:
+        state.companyId,
+    })
+
     workspaceState.resetActiveArea()
 
     // Limpa o lock de ação de região (não pode proteger DOM de uma
@@ -13567,6 +13590,13 @@
         clearAnalysisWatchdogTimer()
         clearAutomaticAnalysisTimer()
         activeAnalysisAttempt = null
+
+        conversationBoundary.advanceBoundary({
+          conversationKey:
+            state.conversationKey,
+          companyId:
+            nextCompanyId,
+        })
       }
 
       state = {
