@@ -534,26 +534,27 @@ Estrutura conceitual:
 
 ```
 DomainResolutionViewModel
-  status            : NOT_FOUND | OWNED_BY_ME | OWNED_BY_OTHER | IN_POOL
-                      | CLOSED_CYCLE | <outros status de domínio — ver §10.3>
+  status
+  user_message
   cycle
-    id              : identificador autorizado
-    status          : somente quando seller-facing necessário
-  lead display
-    name            : somente quando autorizado/necessário
-  ownership display
-    owner_name      : somente quando autorizado/necessário
+    id
+    status                    : nullable/omitível quando não autorizado
+  lead_display
+    name                      : nullable/omitível quando não autorizado
+  ownership_display
+    owner_name                : nullable/omitível quando não autorizado
   capabilities
     can_create_lead
     can_analyze_conversation
+    can_apply_suggestion
     can_open_pool
     can_open_cycle
     can_register_conversation
     can_enrich_lead
-    ...
   flags
     is_closed
-    ...
+    is_owned_by_me
+    is_pool
 ```
 
 Regras (Decisão do Controle — privacidade ManyChat):
@@ -574,9 +575,24 @@ Evidência de hardening a preservar: `sanitizeManyChatPhoneResolutionPayload`
 (`manychat-capture-runtime.js`) já reduzem a resposta a
 `{status, cycle.id, actions.can_analyze_conversation, flags.is_closed}`.
 
-**Não determinado nesta fase:** endpoint final; lista exata de campos de
-display autorizados por canal (UNKNOWN / TO BE VERIFIED — ver §31). O
-backend não é alterado nesta fase.
+**Q3 DECIDIDA — FASE 4B.4:** WhatsApp e ManyChat consomem o mesmo
+`DomainResolutionViewModel` sanitizado. A allowlist seller-facing é
+`status`, `user_message`, `cycle.id`, `cycle.status`,
+`lead_display.name`, `ownership_display.owner_name`, as capabilities
+explicitamente declaradas e os flags explicitamente declarados acima.
+Campos de display são nullable/omitíveis quando o backend não autoriza
+sua exibição; o Core nunca amplia autorização com base em role local.
+
+Ficam fora deste ViewModel: telefone cadastrado, `phone_variants`,
+`lead.phone`, `lead.email`, `lead.cpf_cnpj`, `lead_profile`,
+`lead.id`/`lead_id`, `owner_user_id`, `current_group_id`, `next_action`,
+`next_action_date`, payload bruto e URLs que possam carregar PII.
+`trustedPhone` e `displayName` da plataforma pertencem à evidência da
+conversa, não ao payload de resolução. `cycle.id` permanece permitido como
+identificador autorizado para chamadas server-side posteriores.
+
+O backend não é alterado nesta fase; a implementação posterior deve
+normalizar o payload atual para esta allowlist antes de entregá-lo ao Core.
 
 **Proibido:** usar elegibilidade de captura
 (`isCaptureResolutionEligible`) como decisão de estado seller-facing
@@ -637,11 +653,33 @@ qualquer estado ──troca de sessão/empresa──▶ BOOT_LOADING (reset tota
 ```
 
 `WORKSPACE_READY` é um estado **sobreposto** ao estado comercial: o estado
-comercial (`OWNED_BY_ME`, etc.) continua visível no cabeçalho/card do
-contato e o workspace é exibido abaixo. Quais estados comerciais abrem o
-workspace é decidido pelo Core a partir de `capabilities`/`flags` do
-Domain Resolution ViewModel — nunca pelo adapter. A matriz exata por
-status é **UNKNOWN / TO BE VERIFIED** (§31, questão Q2).
+comercial continua visível no cabeçalho/card do contato e o workspace é
+exibido abaixo.
+
+**Q2 DECIDIDA — FASE 4B.4:** o Core abre `WORKSPACE_READY` somente quando
+as três condições forem verdadeiras:
+
+Boolean(resolution.cycle?.id)
+&& resolution.capabilities.can_analyze_conversation === true
+&& resolution.flags.is_closed !== true
+
+O status isolado nunca decide o workspace e o adapter nunca interpreta
+essas regras.
+
+Resultado canônico:
+
+| Estado comercial | WORKSPACE_READY |
+|---|---|
+| `OWNED_BY_ME` | Sim quando as três condições acima forem satisfeitas |
+| `IN_POOL` | Somente quando `can_analyze_conversation=true` e o ciclo estiver aberto; sem capability, apenas status/CTA |
+| `OWNED_BY_OTHER` | Somente quando `can_analyze_conversation=true` e o ciclo estiver aberto; sem capability, apenas status/CTA |
+| `CLOSED_CYCLE` | Nunca (`is_closed=true` prevalece) |
+
+`WORKSPACE_READY` não habilita automaticamente todas as ações internas:
+cada área continua obedecendo suas próprias capabilities. Exemplo:
+workspace disponível para admin/manager em `OWNED_BY_OTHER` não implica
+`can_apply_suggestion`; MENSAGEM permanece `ineligible` quando essa
+capability não existir.
 
 ### 10.3 Status de domínio sem estado canônico dedicado — Q1 DECIDIDA
 
@@ -1380,8 +1418,8 @@ outra fase (ex.: "Q4 ainda está UNKNOWN" **não** bloqueia a FASE 3).
 | Questão | Tema | Status | Resolver antes de | Bloqueia FASE 3? |
 |---|---|---|---|---|
 | **Q1** | Mapeamento canônico de `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`, `MULTIPLE_MATCHES` | **DECIDED — FASE 4B.3:** todos normalizam para `RESOLUTION_ERROR`, sem criação e sem workspace até correção externa | Implementação do `companion-lead-resolution-controller` na **FASE 4** | Não |
-| **Q2** | Estados comerciais que abrem `WORKSPACE_READY` (`OWNED_BY_OTHER`, `IN_POOL`, `CLOSED_CYCLE`) — deve derivar de `capabilities`/`flags` do Domain Resolution ViewModel | SCHEDULED | Implementação da composição resolution → workspace na **FASE 4** | Não |
-| **Q3** | Campos de display autorizados no Domain Resolution ViewModel por canal (lead name, owner_name, cycle status no ManyChat) | SCHEDULED | Implementação do contrato de resolução sanitizado na **FASE 4** | Não |
+| **Q2** | Estados comerciais que abrem `WORKSPACE_READY` | **DECIDED — FASE 4B.4:** exige `cycle.id` + `can_analyze_conversation=true` + `is_closed=false`; `CLOSED_CYCLE` nunca abre workspace | Implementação da composição resolution → workspace na **FASE 4** | Não |
+| **Q3** | Campos autorizados do `DomainResolutionViewModel` | **DECIDED — FASE 4B.4:** mesma allowlist sanitizada em WhatsApp e ManyChat; `lead_display.name`, `ownership_display.owner_name` e `cycle.status` são nullable/omitíveis conforme autorização server-side; sem raw phone, lead_id ou payload bruto | Implementação do contrato de resolução sanitizado na **FASE 4** | Não |
 | **Q4** | Capabilities ManyChat UNKNOWN (display name confiável, interceptação de envio, pedir detalhes de contato, grupo/self, deleção/edição, última mensagem enviada) | SCHEDULED | Resolvida **por evidência técnica** na **FASE 6** (ManyChatAdapter); não inventar antes | Não |
 | **Q5** | Política de escrita de `address` no enrichment | **DECIDED** (FASE 2.1) — DECIDED / OUT OF SCOPE FOR WRITE: `address` detectável como contexto, não confirmável/gravável; 7 campos graváveis preservados (§19.1) | — | Não |
 | **Q6** | Alternativa à escrita sintética no DOM do WhatsApp para mensagens de anexo (`phase16-9-runtime-guard.js`) | SCHEDULED | Conclusão da **FASE 5** (WhatsAppAdapter sobre o Core) | Não |
