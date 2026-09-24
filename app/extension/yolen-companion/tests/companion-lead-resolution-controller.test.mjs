@@ -730,3 +730,65 @@ test('display seller-facing básico do contato consome somente o DomainResolutio
     /ownership_display/,
   )
 })
+
+test('runtime materializa e invalida o Canonical Resolution Outcome sem consumidores ainda', () => {
+  assert.match(
+    contentScriptSource,
+    /const resolutionOutcome\s*=\s*leadResolutionController\s*\.deriveCanonicalResolutionOutcome\(\s*resolutionViewModel,\s*\{\s*hasTrustedPhone:\s*Boolean\(phoneAtRequest\),?\s*\},?\s*\)/,
+  )
+
+  assert.match(
+    contentScriptSource,
+    /leadResolutionOutcome:\s*resolutionOutcome/,
+  )
+
+  const resets =
+    contentScriptSource.match(
+      /leadResolutionOutcome:\s*null/g,
+    ) || []
+
+  assert.equal(
+    resets.length,
+    6,
+  )
+
+  const normalizerIndex =
+    contentScriptSource.indexOf(
+      '.createDomainResolutionViewModel(',
+    )
+
+  const outcomeIndex =
+    contentScriptSource.indexOf(
+      '.deriveCanonicalResolutionOutcome(',
+    )
+
+  const assignmentIndex =
+    contentScriptSource.indexOf(
+      'leadResolutionOutcome:',
+      outcomeIndex,
+    )
+
+  assert.ok(
+    normalizerIndex >= 0,
+  )
+
+  assert.ok(
+    outcomeIndex >
+      normalizerIndex,
+  )
+
+  assert.ok(
+    assignmentIndex >
+      outcomeIndex,
+  )
+
+  const functionalReads =
+    contentScriptSource.match(
+      /state\.leadResolutionOutcome/g,
+    ) || []
+
+  assert.equal(
+    functionalReads.length,
+    0,
+  )
+})

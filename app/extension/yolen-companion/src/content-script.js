@@ -594,6 +594,7 @@
     leadResolutionLoading: false,
     leadResolution: null,
     leadResolutionViewModel: null,
+    leadResolutionOutcome: null,
     leadResolutionError: null,
     leadCreationStatus: null,
     leadCreationConversationKey: null,
@@ -6141,6 +6142,7 @@
       leadResolutionLoading: false,
       leadResolution: null,
       leadResolutionViewModel: null,
+      leadResolutionOutcome: null,
       leadResolutionError: null,
       leadCreationStatus: null,
       leadCreationConversationKey: null,
@@ -13928,6 +13930,7 @@
         leadResolutionLoading: false,
         leadResolution: null,
         leadResolutionViewModel: null,
+        leadResolutionOutcome: null,
         leadResolutionError: null,
       }
 
@@ -13973,6 +13976,7 @@
       leadResolutionLoading: true,
       leadResolution: null,
       leadResolutionViewModel: null,
+      leadResolutionOutcome: null,
       leadResolutionError: null,
     }
 
@@ -14017,6 +14021,7 @@
           leadResolutionLoading: false,
           leadResolution: null,
           leadResolutionViewModel: null,
+          leadResolutionOutcome: null,
           leadResolutionError:
             result?.payload?.error ||
             'Não foi possível consultar o vínculo na Yolen.',
@@ -14039,6 +14044,16 @@
         leadResolutionController
           .createDomainResolutionViewModel(
             result.payload,
+          )
+
+      const resolutionOutcome =
+        leadResolutionController
+          .deriveCanonicalResolutionOutcome(
+            resolutionViewModel,
+            {
+              hasTrustedPhone:
+                Boolean(phoneAtRequest),
+            },
           )
 
       // Fonte única de verdade para sair de um estado de criação de lead
@@ -14065,6 +14080,8 @@
         leadResolution: result.payload,
         leadResolutionViewModel:
           resolutionViewModel,
+        leadResolutionOutcome:
+          resolutionOutcome,
         leadResolutionError: null,
         ...(shouldClearPendingLeadCreation
           ? {
@@ -14123,6 +14140,7 @@
         leadResolutionLoading: false,
         leadResolution: null,
         leadResolutionViewModel: null,
+        leadResolutionOutcome: null,
         leadResolutionError:
           error instanceof Error &&
           error.message
