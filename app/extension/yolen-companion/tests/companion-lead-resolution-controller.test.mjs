@@ -1307,3 +1307,41 @@ test('contrato 4B.5L: capabilities canônicas do backend chegam ao ViewModel sem
     assert.doesNotMatch(serialized, /5511988887777/)
   }
 })
+
+test('navegação de ações usa o estado canônico (exceção legacy: create_lead_url)', () => {
+  function handlerBlock(action) {
+    const start =
+      contentScriptSource.indexOf(
+        `panel.querySelector('[data-yolen-action="${action}"]'),`,
+      )
+
+    assert.notEqual(start, -1, action)
+
+    const end =
+      contentScriptSource.indexOf(
+        '    )\n',
+        start,
+      )
+
+    assert.notEqual(end, -1, action)
+
+    return contentScriptSource.slice(start, end)
+  }
+
+  const poolBlock = handlerBlock('open-pool')
+  assert.match(poolBlock, /openYolen\('\/pool'\)/)
+  assert.doesNotMatch(poolBlock, /state\.leadResolution\b/)
+  assert.doesNotMatch(poolBlock, /\.pool_url/)
+
+  const cycleBlock = handlerBlock('open-cycle-yolen')
+  assert.match(cycleBlock, /state\.leadResolutionViewModel/)
+  assert.match(cycleBlock, /can_open_cycle\s*===\s*true/)
+  assert.match(cycleBlock, /\/sales-cycles\/\$\{encodeURIComponent\(String\(cycleId\)\)\}/)
+  assert.doesNotMatch(cycleBlock, /state\.leadResolution\b/)
+  assert.doesNotMatch(cycleBlock, /\.open_yolen_url/)
+
+  // LEGACY NAVIGATION EXCEPTION: a URL de criação carrega telefone/nome e
+  // continua vindo do payload legacy até a migração do fluxo de criação.
+  const createBlock = handlerBlock('create-lead-yolen')
+  assert.match(createBlock, /state\.leadResolution\?\.actions\?\.create_lead_url/)
+})

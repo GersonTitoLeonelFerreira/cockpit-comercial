@@ -13297,6 +13297,9 @@
       },
     )
 
+    // LEGACY NAVIGATION EXCEPTION (4B.5N): create_lead_url carrega
+    // telefone/nome da conversa e não pertence ao ViewModel sanitizado;
+    // continua lida do payload legacy até a migração do fluxo de criação.
     wireOnce(
       panel.querySelector('[data-yolen-action="create-lead-yolen"]'),
       'click',
@@ -13310,8 +13313,8 @@
       panel.querySelector('[data-yolen-action="open-pool"]'),
       'click',
       () => {
-        const url = state.leadResolution?.actions?.pool_url || '/pool'
-        openYolen(url)
+        // pool_url do backend é sempre a constante '/pool'.
+        openYolen('/pool')
       },
     )
 
@@ -13319,8 +13322,24 @@
       panel.querySelector('[data-yolen-action="open-cycle-yolen"]'),
       'click',
       () => {
-        const url = state.leadResolution?.actions?.open_yolen_url || '/leads'
-        openYolen(url)
+        // Mesmo destino de open_yolen_url (lead && cycle →
+        // /sales-cycles/{id}, senão /leads), reconstruído a partir do
+        // ViewModel canônico da boundary atual — nunca de um cycle id raw.
+        const resolution =
+          state.leadResolutionViewModel
+
+        const cycleId =
+          resolution
+            ?.capabilities
+            ?.can_open_cycle === true
+            ? resolution.cycle?.id ?? null
+            : null
+
+        openYolen(
+          cycleId !== null
+            ? `/sales-cycles/${encodeURIComponent(String(cycleId))}`
+            : '/leads',
+        )
       },
     )
 

@@ -148,3 +148,131 @@ test('mutação inversa: capability can_open_pool=true oferece Abrir Pool mesmo 
   assert.ok(document.querySelector(OPEN_POOL_SELECTOR))
   assert.equal(document.querySelector(OPEN_CYCLE_SELECTOR), null)
 })
+
+// ---------------------------------------------------------------------
+// FASE 4B.5N — navegação reconstruída a partir do estado canônico.
+// ---------------------------------------------------------------------
+
+function captureOpenedUrls(window) {
+  const opened = []
+  window.open = (url) => {
+    opened.push(String(url))
+    return null
+  }
+  return opened
+}
+
+function click(document, selector) {
+  const element = document.querySelector(selector)
+  assert.ok(element, `esperava ${selector}`)
+  element.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }))
+}
+
+function pathOf(url) {
+  return new URL(url).pathname
+}
+
+test('navegação: Abrir Pool abre /pool', async () => {
+  const { document, window } = await loadResolved(
+    defaultLeadResolution({
+      status: 'IN_POOL',
+      lead: leadFor('Lead Pool Nav'),
+      cycle: { id: 'cycle-pool-nav', status: 'contato', owner_user_id: null },
+      flags: { is_owned_by_me: false, is_pool: true, is_closed: false },
+    }),
+    cardIncludes('Lead Pool Nav'),
+  )
+  const opened = captureOpenedUrls(window)
+
+  click(document, OPEN_POOL_SELECTOR)
+
+  assert.deepEqual(opened.map(pathOf), ['/pool'])
+})
+
+test('navegação: Abrir vínculo abre /sales-cycles/{cycle.id canônico}', async () => {
+  const { document, window } = await loadResolved(
+    defaultLeadResolution({
+      status: 'OWNED_BY_ME',
+      lead: leadFor('Lead Ciclo Nav'),
+      cycle: { id: 'cycle-nav-x', status: 'contato', owner_user_id: 'user-1' },
+    }),
+    cardIncludes('Lead Ciclo Nav'),
+  )
+  const opened = captureOpenedUrls(window)
+
+  click(document, OPEN_CYCLE_SELECTOR)
+
+  assert.deepEqual(opened.map(pathOf), ['/sales-cycles/cycle-nav-x'])
+})
+
+test('navegação: Abrir vínculo sem can_open_cycle mantém o destino legacy /leads', async () => {
+  const { document, window } = await loadResolved(
+    defaultLeadResolution({
+      status: 'LEAD_WITHOUT_CYCLE',
+      lead: leadFor('Lead Sem Ciclo Nav'),
+      cycle: null,
+    }),
+    cardIncludes('Lead Sem Ciclo Nav'),
+  )
+  const opened = captureOpenedUrls(window)
+
+  click(document, OPEN_CYCLE_SELECTOR)
+
+  assert.deepEqual(opened.map(pathOf), ['/leads'])
+})
+
+test('navegação: cycle id da conversa anterior nunca é usado depois de trocar de conversa', async () => {
+  const TITLE_B = '+55 21 97777-6666'
+  const PHONE_B = '5521977776666'
+  let releaseB = null
+
+  const { document, window, calls } = loadContentScript({
+    initialHtml: buildWhatsAppPageHtml({ headerTitle: HEADER_TITLE }),
+    resolutionsByPhone: {
+      [PHONE]: defaultLeadResolution({
+        status: 'OWNED_BY_ME',
+        lead: leadFor('Lead Conversa A'),
+        cycle: { id: 'cycle-conversa-a', status: 'contato', owner_user_id: 'user-1' },
+      }),
+      [PHONE_B]: () =>
+        new Promise((resolve) => {
+          releaseB = () =>
+            resolve(
+              defaultLeadResolution({
+                phone: PHONE_B,
+                status: 'OWNED_BY_ME',
+                lead: { ...leadFor('Lead Conversa B'), phone: PHONE_B },
+                cycle: { id: 'cycle-conversa-b', status: 'contato', owner_user_id: 'user-1' },
+              }),
+            )
+        }),
+    },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0)
+  await waitFor(() => cardIncludes('Lead Conversa A')(document))
+  const opened = captureOpenedUrls(window)
+
+  const header = document.querySelector('#main header')
+  header.innerHTML = `<span title="${TITLE_B}">${TITLE_B}</span>`
+  header.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }))
+
+  await waitFor(() =>
+    resolveLeadCalls(calls).some((call) => call.payload.phone === PHONE_B) &&
+    typeof releaseB === 'function',
+  )
+
+  // Enquanto B resolve, o vínculo de A não pode estar disponível.
+  assert.equal(
+    document.querySelector(OPEN_CYCLE_SELECTOR),
+    null,
+    'nenhum botão de vínculo com o ciclo de A durante a resolução de B',
+  )
+
+  releaseB()
+  await waitFor(() => cardIncludes('Lead Conversa B')(document))
+
+  click(document, OPEN_CYCLE_SELECTOR)
+
+  assert.deepEqual(opened.map(pathOf), ['/sales-cycles/cycle-conversa-b'])
+})
