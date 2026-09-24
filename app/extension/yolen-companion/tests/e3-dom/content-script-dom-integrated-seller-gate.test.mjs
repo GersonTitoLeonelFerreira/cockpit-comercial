@@ -475,7 +475,7 @@ test(
 )
 
 test(
-  'CLIENTE mostra o estado vazio de nível superior (não erro) quando não há leitura comercial nem relacionamento',
+  'NOT_FOUND não apresenta CLIENTE nem as demais áreas (Q2: sem WORKSPACE_READY)',
   async () => {
     const { document, calls } = loadContentScript({
       initialHtml: pageHtmlFor({
@@ -495,21 +495,22 @@ test(
 
     await waitFor(() => resolveLeadCalls(calls).length > 0)
 
-    await waitForSellerAreaOpen(document, 'client')
-
     await waitFor(() =>
-      Boolean(document.querySelector('[data-yolen-client-empty]')),
+      document
+        .querySelector('.yolen-contact-card')
+        ?.textContent
+        ?.includes('Este contato ainda não existe na Yolen.'),
     )
 
-    const clientText = getSellerPanelText(document, 'client')
-    assert.match(
-      clientText,
-      /Ainda não há informações suficientes sobre este cliente\./,
+    assert.equal(
+      document.querySelector('[data-yolen-seller-area="client"]'),
+      null,
+      'sem WORKSPACE_READY não existe aba CLIENTE',
     )
-    assert.doesNotMatch(
-      clientText,
-      /erro|falha|Falha/i,
-      'sem lead resolvido, CLIENTE deve mostrar o estado vazio real, nunca um texto de erro',
+    assert.equal(
+      document.querySelector('[data-yolen-seller-panel="client"]'),
+      null,
+      'sem WORKSPACE_READY não existe painel CLIENTE',
     )
   },
 )

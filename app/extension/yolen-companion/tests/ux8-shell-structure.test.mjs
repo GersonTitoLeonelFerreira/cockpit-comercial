@@ -156,7 +156,7 @@ test('a barra de abas usa a autoridade canônica do workspace sem duplicar a com
   assert.notEqual(renderStart, -1)
   assert.match(
     render,
-    /workspaceRuntime\.getSellerAreaTabsBarHtml\(\s*workspaceState\.getActiveArea\(\),?\s*\)/,
+    /workspaceRuntime\s*\.getSellerAreaTabsBarHtml\(\s*workspaceState\s*\.getActiveArea\(\),?\s*\)/,
   )
 
   const architectureStart = contentScript.indexOf(

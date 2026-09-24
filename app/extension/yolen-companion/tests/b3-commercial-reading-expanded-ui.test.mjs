@@ -97,7 +97,7 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
 
   assert.match(
     contentScript,
-    /workspaceRuntime\.getSellerAreaTabsBarHtml\(\s*workspaceState\.getActiveArea\(\),?\s*\)/,
+    /workspaceRuntime\s*\.getSellerAreaTabsBarHtml\(\s*workspaceState\s*\.getActiveArea\(\),?\s*\)/,
   )
 })
 

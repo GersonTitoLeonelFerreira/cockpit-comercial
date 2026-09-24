@@ -613,15 +613,173 @@ test('wiring normaliza resolução bem-sucedida para o ViewModel canônico', () 
   )
 })
 
-test('ViewModel canônico é invalidado em todos os resets da resolução legacy', () => {
-  const resets =
-    contentScriptSource.match(
-      /leadResolutionViewModel:\s*null/g,
-    ) || []
+const RESOLVED_CONTEXT_FIELDS = [
+  'leadResolution',
+  'leadResolutionViewModel',
+  'leadResolutionOutcome',
+  'leadResolutionBoundaryToken',
+]
 
-  assert.equal(
-    resets.length,
-    6,
+function sliceBetween(
+  source,
+  startMarker,
+  endMarker,
+  fromIndex = 0,
+) {
+  const start =
+    source.indexOf(
+      startMarker,
+      fromIndex,
+    )
+
+  assert.notEqual(
+    start,
+    -1,
+    `marcador inicial não encontrado: ${startMarker}`,
+  )
+
+  const end =
+    source.indexOf(
+      endMarker,
+      start + startMarker.length,
+    )
+
+  assert.notEqual(
+    end,
+    -1,
+    `marcador final não encontrado: ${endMarker}`,
+  )
+
+  return source.slice(
+    start,
+    end,
+  )
+}
+
+function assertClearsResolvedContext(
+  block,
+  label,
+) {
+  for (const field of RESOLVED_CONTEXT_FIELDS) {
+    assert.match(
+      block,
+      new RegExp(`\\b${field}:\\s*null`),
+      `${label} precisa limpar ${field}`,
+    )
+  }
+}
+
+test('contexto de resolução é invalidado nos resets e só é preservado na mesma boundary durante re-resolução', () => {
+  const resolveStart =
+    contentScriptSource.indexOf(
+      'async function resolveCurrentLead()',
+    )
+
+  assert.notEqual(
+    resolveStart,
+    -1,
+  )
+
+  assertClearsResolvedContext(
+    sliceBetween(
+      contentScriptSource,
+      'let state = {',
+      'leadResolutionError',
+    ),
+    'state inicial',
+  )
+
+  assertClearsResolvedContext(
+    sliceBetween(
+      contentScriptSource,
+      'function hardResetConversationWorkspace()',
+      'leadResolutionError',
+    ),
+    'hardResetConversationWorkspace()',
+  )
+
+  assertClearsResolvedContext(
+    sliceBetween(
+      contentScriptSource,
+      'if (!state.conversationPhone) {',
+      'const phoneAtRequest',
+      resolveStart,
+    ),
+    'resolveCurrentLead() sem telefone',
+  )
+
+  assertClearsResolvedContext(
+    sliceBetween(
+      contentScriptSource,
+      '!result.payload?.ok',
+      'enqueueRetainedPreResolutionCapture(',
+      resolveStart,
+    ),
+    'resposta de resolução com erro',
+  )
+
+  const successIndex =
+    contentScriptSource.indexOf(
+      'leadResolution: result.payload,',
+      resolveStart,
+    )
+
+  assert.notEqual(
+    successIndex,
+    -1,
+  )
+
+  assertClearsResolvedContext(
+    sliceBetween(
+      contentScriptSource,
+      '} catch (error) {',
+      'Erro ao localizar lead na Yolen.',
+      successIndex,
+    ),
+    'catch de resolveCurrentLead()',
+  )
+
+  assertClearsResolvedContext(
+    sliceBetween(
+      contentScriptSource,
+      '...(companyChanged',
+      ': {}),',
+    ),
+    'companyChanged',
+  )
+
+  const startBlock =
+    sliceBetween(
+      contentScriptSource,
+      'const canPreserveResolvedContext',
+      'renderPanel()',
+      resolveStart,
+    )
+
+  assert.match(
+    startBlock,
+    /conversationBoundary\s*\.isTokenCurrent\(\s*state\.leadResolutionBoundaryToken,?\s*\)/,
+  )
+
+  for (const field of RESOLVED_CONTEXT_FIELDS) {
+    assert.match(
+      startBlock,
+      new RegExp(
+        `\\b${field}:\\s*canPreserveResolvedContext\\s*\\?\\s*state\\.${field}\\s*:\\s*null`,
+      ),
+      `início da re-resolução só preserva ${field} com token da boundary atual`,
+    )
+
+    assert.doesNotMatch(
+      startBlock,
+      new RegExp(`\\b${field}:\\s*null`),
+      `início da re-resolução não pode limpar ${field} incondicionalmente`,
+    )
+  }
+
+  assert.match(
+    contentScriptSource,
+    /leadResolutionOutcome:\s*resolutionOutcome,\s*leadResolutionBoundaryToken:\s*boundaryTokenAtRequest,/,
   )
 })
 
@@ -740,16 +898,6 @@ test('runtime materializa e invalida o Canonical Resolution Outcome', () => {
   assert.match(
     contentScriptSource,
     /leadResolutionOutcome:\s*resolutionOutcome/,
-  )
-
-  const resets =
-    contentScriptSource.match(
-      /leadResolutionOutcome:\s*null/g,
-    ) || []
-
-  assert.equal(
-    resets.length,
-    6,
   )
 
   const normalizerIndex =
@@ -969,5 +1117,49 @@ test('seller message eligibility depende do workspace canônico', () => {
   assert.doesNotMatch(
     block,
     /state\.leadResolution\b/,
+  )
+})
+
+test('shell seller-facing só apresenta as quatro áreas com WORKSPACE_READY', () => {
+  const architectureStart =
+    contentScriptSource.indexOf(
+      'function getSellerInformationArchitectureHtml()',
+    )
+
+  const architectureEnd =
+    contentScriptSource.indexOf(
+      'function setActiveSellerArea(',
+      architectureStart,
+    )
+
+  const architectureBlock =
+    contentScriptSource.slice(
+      architectureStart,
+      architectureEnd,
+    )
+
+  assert.match(
+    architectureBlock,
+    /if\s*\(\s*!isSellerWorkspaceReady\(\)\s*\)/,
+  )
+
+  assert.match(
+    architectureBlock,
+    /return\s+''/,
+  )
+
+  const renderStart =
+    contentScriptSource.indexOf(
+      'function renderPanel()',
+    )
+
+  const renderBlock =
+    contentScriptSource.slice(
+      renderStart,
+    )
+
+  assert.match(
+    renderBlock,
+    /'seller-area-tabs'[\s\S]*isSellerWorkspaceReady\(\)[\s\S]*getSellerAreaTabsBarHtml/,
   )
 })

@@ -99,7 +99,7 @@ test('a tablist é delegada à autoridade canônica do workspace runtime', () =>
 
   assert.match(
     block,
-    /workspaceRuntime\.getSellerAreaTabsBarHtml\(\s*workspaceState\.getActiveArea\(\),?\s*\)/,
+    /workspaceRuntime\s*\.getSellerAreaTabsBarHtml\(\s*workspaceState\s*\.getActiveArea\(\),?\s*\)/,
   )
 
   assert.doesNotMatch(

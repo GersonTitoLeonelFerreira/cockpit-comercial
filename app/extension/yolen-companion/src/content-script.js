@@ -595,6 +595,7 @@
     leadResolution: null,
     leadResolutionViewModel: null,
     leadResolutionOutcome: null,
+    leadResolutionBoundaryToken: null,
     leadResolutionError: null,
     leadCreationStatus: null,
     leadCreationConversationKey: null,
@@ -6143,6 +6144,7 @@
       leadResolution: null,
       leadResolutionViewModel: null,
       leadResolutionOutcome: null,
+      leadResolutionBoundaryToken: null,
       leadResolutionError: null,
       leadCreationStatus: null,
       leadCreationConversationKey: null,
@@ -11548,6 +11550,10 @@
   }
 
   function getSellerInformationArchitectureHtml() {
+    if (!isSellerWorkspaceReady()) {
+      return ''
+    }
+
     const nowHtml =
       getNowAttentionSnapshotHtml() +
       (getCompanionLeadSummaryCardHtml() ||
@@ -13537,9 +13543,13 @@
     renderPanelRegion(
       panel,
       'seller-area-tabs',
-      workspaceRuntime.getSellerAreaTabsBarHtml(
-        workspaceState.getActiveArea(),
-      ),
+      isSellerWorkspaceReady()
+        ? workspaceRuntime
+            .getSellerAreaTabsBarHtml(
+              workspaceState
+                .getActiveArea(),
+            )
+        : '',
     )
 
     renderPanelRegion(
@@ -13674,6 +13684,12 @@
         lastSessionSyncAt: getCurrentTimeLabel(),
         ...(companyChanged
           ? {
+              leadResolution: null,
+              leadResolutionViewModel: null,
+              leadResolutionOutcome: null,
+              leadResolutionBoundaryToken: null,
+              leadResolutionLoading: false,
+              leadResolutionError: null,
               conversationAnalysisLoading: false,
               conversationAnalysis: null,
               conversationAnalysisError: null,
@@ -13733,6 +13749,15 @@
             state.conversationKey,
           )
         }
+      } else if (
+        companyChanged &&
+        !state.isSelfConversation &&
+        state.conversationPhone
+      ) {
+        // A resolução da empresa anterior foi invalidada acima e qualquer
+        // resolve em voo pertence à boundary antiga: resolve de novo sob
+        // a boundary da empresa nova.
+        resolveCurrentLead()
       }
     } catch (error) {
       state = {
@@ -13947,6 +13972,7 @@
         leadResolution: null,
         leadResolutionViewModel: null,
         leadResolutionOutcome: null,
+        leadResolutionBoundaryToken: null,
         leadResolutionError: null,
       }
 
@@ -13987,12 +14013,36 @@
       resolutionInFlightKey,
     )
 
+    const canPreserveResolvedContext =
+      Boolean(
+        state.leadResolution &&
+        state.leadResolutionViewModel &&
+        state.leadResolutionOutcome &&
+        state.leadResolutionBoundaryToken &&
+        conversationBoundary.isTokenCurrent(
+          state.leadResolutionBoundaryToken,
+        ),
+      )
+
     state = {
       ...state,
       leadResolutionLoading: true,
-      leadResolution: null,
-      leadResolutionViewModel: null,
-      leadResolutionOutcome: null,
+      leadResolution:
+        canPreserveResolvedContext
+          ? state.leadResolution
+          : null,
+      leadResolutionViewModel:
+        canPreserveResolvedContext
+          ? state.leadResolutionViewModel
+          : null,
+      leadResolutionOutcome:
+        canPreserveResolvedContext
+          ? state.leadResolutionOutcome
+          : null,
+      leadResolutionBoundaryToken:
+        canPreserveResolvedContext
+          ? state.leadResolutionBoundaryToken
+          : null,
       leadResolutionError: null,
     }
 
@@ -14038,6 +14088,7 @@
           leadResolution: null,
           leadResolutionViewModel: null,
           leadResolutionOutcome: null,
+          leadResolutionBoundaryToken: null,
           leadResolutionError:
             result?.payload?.error ||
             'Não foi possível consultar o vínculo na Yolen.',
@@ -14098,6 +14149,8 @@
           resolutionViewModel,
         leadResolutionOutcome:
           resolutionOutcome,
+        leadResolutionBoundaryToken:
+          boundaryTokenAtRequest,
         leadResolutionError: null,
         ...(shouldClearPendingLeadCreation
           ? {
@@ -14157,6 +14210,7 @@
         leadResolution: null,
         leadResolutionViewModel: null,
         leadResolutionOutcome: null,
+        leadResolutionBoundaryToken: null,
         leadResolutionError:
           error instanceof Error &&
           error.message

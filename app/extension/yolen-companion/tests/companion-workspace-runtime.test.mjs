@@ -465,7 +465,7 @@ test('wiring: content-script.js consome o runtime canônico e não mantém lista
     'workspaceRuntime.getSellerWorkspaceHtml',
     'workspaceRuntime.getSellerAreaTabsBarHtml',
   ]) {
-    assert.ok(contentScriptSource.includes(call), `content-script.js não usa ${call}`)
+    assert.ok(contentScriptSource.replace(/\s+\./g, '.').includes(call), `content-script.js não usa ${call}`)
   }
 })
 

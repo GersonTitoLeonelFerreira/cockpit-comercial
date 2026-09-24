@@ -230,7 +230,8 @@ test('b) region lock ativo (A) + A->grupo: seller mount/box desaparecem', async 
 
   assert.equal(isSellerRegionLocked(document), false, 'a troca para grupo precisa descartar o lock imediatamente')
 
-  switchToTab(document, 'message')
+  // Q2 (FASE 4B.5I): contexto sem WORKSPACE_READY não apresenta as abas seller-facing.
+  assert.equal(document.querySelector('[data-yolen-seller-area="message"]'), null)
   await sleep(30)
 
   assert.equal(hasMount(document), false, 'nenhum mount seller pode sobreviver a A->grupo mesmo com o lock ativo')
@@ -249,7 +250,8 @@ test('c) region lock ativo (A) + A->self: seller mount/box desaparecem', async (
 
   assert.equal(isSellerRegionLocked(document), false, 'a troca para self precisa descartar o lock imediatamente')
 
-  switchToTab(document, 'message')
+  // Q2 (FASE 4B.5I): contexto sem WORKSPACE_READY não apresenta as abas seller-facing.
+  assert.equal(document.querySelector('[data-yolen-seller-area="message"]'), null)
   await sleep(30)
 
   assert.equal(hasMount(document), false, 'nenhum mount seller pode sobreviver a A->self mesmo com o lock ativo')
