@@ -683,7 +683,8 @@ test('B2 integra candidatos reais no painel com confirmação humana explícita'
 test('B2 usa candidatos no novo cadastro e remove dados já iguais no lead existente', () => {
   assert.match(
     contentScript,
-    /resolution\?\.status ===\s*'NOT_FOUND'/,
+    // Fechamento da Fase 4: status vem da resolução canônica.
+    /getCanonicalResolutionStatus\(\) ===\s*'NOT_FOUND'/,
   )
 
   assert.match(
@@ -713,7 +714,7 @@ test('B2 usa candidatos no novo cadastro e remove dados já iguais no lead exist
 
   assert.match(
     contentScript,
-    /state\.leadResolution\?\.status ===[\s\S]*'NOT_FOUND'[\s\S]*return ''/,
+    /getCanonicalResolutionStatus\(\) ===[\s\S]*'NOT_FOUND'[\s\S]*return ''/,
   )
 })
 

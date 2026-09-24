@@ -128,7 +128,8 @@ test('payload legacy vira ViewModel allowlisted com cycle, display, capabilities
     can_analyze_conversation: true,
     can_apply_suggestion: true,
     can_open_pool: false,
-    can_open_cycle: false,
+    // Compatibilidade legacy (fechamento da Fase 4): lead && cycle.
+    can_open_cycle: true,
     can_register_conversation: false,
     can_enrich_lead: false,
   })
@@ -296,8 +297,10 @@ test('privacidade: todos os campos proibidos são descartados do ViewModel seria
 })
 
 test('nenhuma URL é inferida como capability', () => {
+  // Status sem fallback de ação e sem lead: só as URLs poderiam sugerir
+  // alguma capability — e nunca sugerem.
   const viewModel = controller.createDomainResolutionViewModel({
-    status: 'IN_POOL',
+    status: 'OWNED_BY_OTHER',
     cycle: { id: 'cycle-1' },
     actions: {
       create_lead_url: 'https://example.test/new',
@@ -1219,12 +1222,12 @@ test('lead action presenter decide pelas capabilities canônicas do ViewModel', 
   )
 })
 
-// FASE 4B.5K — inventário do contrato de ações. Payload no formato
-// legacy (somente `actions`, sem bloco `capabilities`), como o backend
-// resolve-lead devolve hoje: o fallback legacy do controller NÃO fornece
-// autoridade de ação ao ViewModel (can_create_lead vem de
-// can_create_lead_inside_extension, sempre false; can_open_pool e
-// can_open_cycle não existem no legacy).
+// FASE 4B.5K — inventário do contrato de ações; fechamento da Fase 4 —
+// compatibilidade de versão. Payload no formato legacy (somente
+// `actions`, sem bloco `capabilities`, como o backend anterior à 4B.5L):
+// o controller reproduz o comportamento legacy comprovado (NOT_FOUND →
+// criação, IN_POOL → Pool, lead && cycle → ciclo) somente enquanto a
+// capability canônica correspondente estiver ausente.
 function legacyActionPayload(status, { hasCycle }) {
   return {
     ok: true,
@@ -1246,14 +1249,14 @@ function legacyActionPayload(status, { hasCycle }) {
   }
 }
 
-test('contrato 4B.5K: payload legacy não fornece capabilities de ação ao ViewModel', () => {
-  for (const [status, hasCycle] of [
-    ['NOT_FOUND', false],
-    ['IN_POOL', true],
-    ['OWNED_BY_ME', true],
-    ['OWNED_BY_OTHER', true],
-    ['CLOSED_CYCLE', true],
-    ['CONTACT_NOT_LINKED', false],
+test('version skew: payload legacy sem capabilities reproduz as ações legacy', () => {
+  for (const [status, hasCycle, expected] of [
+    ['NOT_FOUND', false, { can_create_lead: true, can_open_pool: false, can_open_cycle: false }],
+    ['IN_POOL', true, { can_create_lead: false, can_open_pool: true, can_open_cycle: true }],
+    ['OWNED_BY_ME', true, { can_create_lead: false, can_open_pool: false, can_open_cycle: true }],
+    ['OWNED_BY_OTHER', true, { can_create_lead: false, can_open_pool: false, can_open_cycle: true }],
+    ['CLOSED_CYCLE', true, { can_create_lead: false, can_open_pool: false, can_open_cycle: true }],
+    ['CONTACT_NOT_LINKED', false, { can_create_lead: false, can_open_pool: false, can_open_cycle: false }],
   ]) {
     const viewModel =
       controller.createDomainResolutionViewModel(
@@ -1262,9 +1265,9 @@ test('contrato 4B.5K: payload legacy não fornece capabilities de ação ao View
 
     assert.equal(viewModel.status, status)
     assert.equal(Boolean(viewModel.cycle?.id), hasCycle)
-    assert.equal(viewModel.capabilities.can_create_lead, false, status)
-    assert.equal(viewModel.capabilities.can_open_pool, false, status)
-    assert.equal(viewModel.capabilities.can_open_cycle, false, status)
+    for (const [key, value] of Object.entries(expected)) {
+      assert.equal(viewModel.capabilities[key], value, `${status}.${key}`)
+    }
 
     const serialized = JSON.stringify(viewModel)
     assert.doesNotMatch(serialized, /create_lead_url|open_yolen_url|pool_url/)
@@ -1344,4 +1347,150 @@ test('navegação de ações usa o estado canônico (exceção legacy: create_le
   // continua vindo do payload legacy até a migração do fluxo de criação.
   const createBlock = handlerBlock('create-lead-yolen')
   assert.match(createBlock, /state\.leadResolution\?\.actions\?\.create_lead_url/)
+})
+
+test('version skew: capability canônica explícita vence o fallback legacy', () => {
+  const denied = controller.createDomainResolutionViewModel({
+    ...legacyActionPayload('NOT_FOUND', { hasCycle: false }),
+    capabilities: { can_create_lead: false },
+  })
+  assert.equal(denied.capabilities.can_create_lead, false)
+
+  const poolDenied = controller.createDomainResolutionViewModel({
+    ...legacyActionPayload('IN_POOL', { hasCycle: true }),
+    capabilities: { can_open_pool: false, can_open_cycle: false },
+  })
+  assert.equal(poolDenied.capabilities.can_open_pool, false)
+  assert.equal(poolDenied.capabilities.can_open_cycle, false)
+
+  // Capabilities presentes para outras chaves não desligam o fallback
+  // das chaves ausentes (compatibilidade por capability).
+  const partial = controller.createDomainResolutionViewModel({
+    ...legacyActionPayload('IN_POOL', { hasCycle: true }),
+    capabilities: { can_analyze_conversation: true },
+  })
+  assert.equal(partial.capabilities.can_open_pool, true)
+})
+
+// ---------------------------------------------------------------------
+// Fechamento da Fase 4 — o payload raw (`state.leadResolution`) só pode
+// ser lido por adapters que precisam de campos deliberadamente fora do
+// DomainResolutionViewModel. Escalares de resolução (cycle id / status)
+// vêm sempre do canônico.
+// ---------------------------------------------------------------------
+
+// função → motivo (campo raw necessário que o ViewModel não fornece).
+const RAW_RESOLUTION_ADAPTERS = {
+  // CAPTURE: telefone confirmado para a capture key e o payload completo
+  // para captureBatchTools.isCaptureResolutionEligible().
+  getCaptureConversationKey: /leadResolution\s*\?\.\s*(phone|lead\s*\?\.\s*phone)\b/,
+  canIngestCurrentCapture: /isCaptureResolutionEligible\(\s*state\.leadResolution,/,
+  rememberCurrentPreResolutionCapture: /isCaptureResolutionEligible\(\s*state\.leadResolution,/,
+  // CRM DIFF / SUGGESTION: next_action e next_action_date do ciclo.
+  hasOperationalSuggestionChange: /next_action/,
+  getOperationalSuggestionHtml: /next_action/,
+  getOperationalTelemetryTargets: /next_action/,
+  // ENRICHMENT: lead.id / lead.phone.
+  getLeadEnrichmentCandidates: /resolution\?\.lead\?\.phone/,
+  getLeadEnrichmentCandidateKey: /state\.leadResolution\?\.lead\?\.id/,
+  applyLeadEnrichmentCandidate: /resolution\.lead\.id/,
+  // CREATE URL: create_lead_url carrega telefone/nome (PII).
+  wirePanelInteractions: /state\.leadResolution\?\.actions\?\.create_lead_url/,
+  // PRESERVATION: mesma resolução raw mantida no refresh da boundary atual.
+  resolveCurrentLead: /canPreserveResolvedContext\s*\?\s*state\.leadResolution\b/,
+  // SUGGESTION SYNC: raw mantido coerente após aplicar sugestão.
+  applyCurrentSuggestion: /\.\.\.state\.leadResolution\.cycle/,
+}
+
+function rawResolutionReads() {
+  const reads = []
+  const pattern = /state\s*\.\s*leadResolution\b/g
+  let match
+
+  while ((match = pattern.exec(contentScriptSource))) {
+    const before = contentScriptSource.slice(0, match.index)
+    const owner = [...before.matchAll(/\n {2}(?:async )?function (\w+)\(/g)].pop()?.[1]
+    reads.push({
+      owner,
+      index: match.index,
+      snippet: contentScriptSource.slice(match.index, match.index + 80).replace(/\s+/g, ' '),
+    })
+  }
+
+  return reads
+}
+
+function functionSource(name) {
+  const start = contentScriptSource.search(new RegExp(`\\n {2}(?:async )?function ${name}\\(`))
+  assert.notEqual(start, -1, name)
+  const next = contentScriptSource.slice(start + 1).search(/\n {2}(?:async )?function \w+\(/)
+  return contentScriptSource.slice(start, next === -1 ? undefined : start + 1 + next)
+}
+
+test('Fase 4: cycle id e status nunca são lidos diretamente do payload raw', () => {
+  assert.doesNotMatch(contentScriptSource, /state\s*\.\s*leadResolution\s*\??\.\s*cycle\s*\??\.\s*id\b/)
+  assert.doesNotMatch(contentScriptSource, /state\s*\.\s*leadResolution\s*\??\.\s*status\b/)
+  assert.doesNotMatch(contentScriptSource, /state\s*\.\s*leadResolution\s*\??\.\s*cycle\s*\??\.\s*status\b/)
+
+  // Os aliases raw dos adapters de enrichment também não decidem por
+  // status/cycle id raw.
+  for (const name of ['getLeadEnrichmentCandidates', 'applyLeadEnrichmentCandidate']) {
+    const source = functionSource(name)
+    assert.doesNotMatch(source, /resolution\s*\??\.\s*status\b/, name)
+    assert.doesNotMatch(source, /resolution\s*\??\.\s*cycle\b/, name)
+    assert.match(source, /getCanonicalResolutionStatus\(\)/, name)
+    assert.match(source, /getCanonicalResolutionCycleId\(\)/, name)
+  }
+
+  const helpers = functionSource('getCanonicalResolutionCycleId') + functionSource('getCanonicalResolutionStatus')
+  assert.match(helpers, /leadResolutionViewModel/)
+  assert.doesNotMatch(helpers, /state\.leadResolution\b/)
+})
+
+test('Fase 4: payload raw restante está restrito aos adapters que precisam de campos não allowlisted', () => {
+  const reads = rawResolutionReads()
+  assert.ok(reads.length > 0)
+
+  for (const read of reads) {
+    assert.ok(
+      Object.hasOwn(RAW_RESOLUTION_ADAPTERS, read.owner),
+      `leitura raw fora dos adapters permitidos em ${read.owner}: ${read.snippet}`,
+    )
+  }
+
+  // Cada adapter permitido ainda usa de fato o campo que justifica o raw.
+  const owners = new Set(reads.map((read) => read.owner))
+  for (const [name, justification] of Object.entries(RAW_RESOLUTION_ADAPTERS)) {
+    assert.ok(owners.has(name), `adapter sem leitura raw (remova da allowlist): ${name}`)
+    assert.match(functionSource(name), justification, `${name} não usa mais o campo que justifica o raw`)
+  }
+})
+
+test('Fase 4: presenters, workspace, autorização de ação e navegação canônica não leem raw', () => {
+  for (const name of [
+    'getLeadStatusClass',
+    'getLeadStatusTitle',
+    'getLeadStatusDescription',
+    'getCompactConversationName',
+    'getCompactLeadDescription',
+    'getCompactContextChipsHtml',
+    'getContactCardHtml',
+    'canAnalyzeCurrentConversation',
+    'canApplyCurrentSuggestion',
+    'isSellerWorkspaceReady',
+    'hasSellerMessageCommercialContext',
+    'isSellerMessageMountEligible',
+    'getSellerInformationArchitectureHtml',
+    'getLeadActionButton',
+  ]) {
+    assert.doesNotMatch(functionSource(name), /state\s*\.\s*leadResolution\b/, name)
+  }
+
+  const wiring = functionSource('wirePanelInteractions')
+  for (const action of ['open-pool', 'open-cycle-yolen']) {
+    const start = wiring.indexOf(`[data-yolen-action="${action}"]`)
+    assert.notEqual(start, -1, action)
+    const block = wiring.slice(start, wiring.indexOf('\n    )\n', start))
+    assert.doesNotMatch(block, /state\s*\.\s*leadResolution\b/, action)
+  }
 })

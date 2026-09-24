@@ -77,6 +77,26 @@
     return false
   }
 
+  // Compatibilidade com payload legacy (backend sem `capabilities`):
+  // capability canônica booleana SEMPRE vence; só na ausência dela a
+  // capability de ação reproduz o comportamento legacy comprovado
+  // (presenter por status + open_yolen_url = lead && cycle).
+  function readActionCapability(
+    canonicalSource,
+    canonicalKey,
+    legacyValue,
+  ) {
+    if (
+      isPlainObject(canonicalSource) &&
+      typeof canonicalSource[canonicalKey] ===
+        'boolean'
+    ) {
+      return canonicalSource[canonicalKey]
+    }
+
+    return legacyValue === true
+  }
+
   function createDomainResolutionViewModel(
     payload,
   ) {
@@ -143,6 +163,11 @@
           rawCycle?.owner_name,
       )
 
+    const rawStatus =
+      normalizeOptionalString(
+        payload.status,
+      )
+
     const cycle =
       cycleId !== null ||
       cycleStatus !== null
@@ -165,11 +190,13 @@
     const capabilities =
       Object.freeze({
         can_create_lead:
-          readBoolean(
+          readActionCapability(
             canonicalCapabilities,
             'can_create_lead',
-            legacyActions,
-            'can_create_lead_inside_extension',
+            legacyActions
+              ?.can_create_lead_inside_extension ===
+              true ||
+              rawStatus === 'NOT_FOUND',
           ),
 
         can_analyze_conversation:
@@ -187,17 +214,20 @@
           ),
 
         can_open_pool:
-          readBoolean(
+          readActionCapability(
             canonicalCapabilities,
             'can_open_pool',
-            legacyActions,
+            rawStatus === 'IN_POOL',
           ),
 
         can_open_cycle:
-          readBoolean(
+          readActionCapability(
             canonicalCapabilities,
             'can_open_cycle',
-            legacyActions,
+            Boolean(
+              rawLegacyLead &&
+              rawCycle,
+            ),
           ),
 
         can_register_conversation:
@@ -229,10 +259,7 @@
       })
 
     return Object.freeze({
-      status:
-        normalizeOptionalString(
-          payload.status,
-        ),
+      status: rawStatus,
 
       user_message:
         normalizeOptionalString(

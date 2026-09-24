@@ -3917,7 +3917,7 @@
 
   function buildCurrentCapturePlan() {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -4039,7 +4039,7 @@
     }
 
     const currentCycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const currentConversationKey =
       getCaptureConversationKey()
@@ -5022,7 +5022,7 @@
       return
     }
 
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
 
     if (!cycleId) {
       state = {
@@ -5274,7 +5274,7 @@
       activeAnalysisAttempt.source ===
         'manual' &&
       activeAnalysisAttempt.cycleId ===
-        state.leadResolution?.cycle?.id &&
+        getCanonicalResolutionCycleId() &&
       activeAnalysisAttempt
         .conversationKey ===
         getCaptureConversationKey(),
@@ -6777,6 +6777,27 @@
     )
   }
 
+  // Fonte única dos escalares de resolução (cycle id / status) para
+  // consumidores que só precisam deles: o DomainResolutionViewModel da
+  // boundary atual, nunca o payload raw. `undefined` quando ausente, como
+  // a leitura raw equivalente.
+  function getCanonicalResolutionCycleId() {
+    return (
+      state
+        .leadResolutionViewModel
+        ?.cycle
+        ?.id ?? undefined
+    )
+  }
+
+  function getCanonicalResolutionStatus() {
+    return (
+      state
+        .leadResolutionViewModel
+        ?.status ?? undefined
+    )
+  }
+
   function getLeadStatusClass() {
     const status =
       state
@@ -7073,12 +7094,12 @@
     return Boolean(
       state.connected &&
         !state.isSelfConversation &&
-        state.leadResolution?.cycle?.id,
+        getCanonicalResolutionCycleId(),
     )
   }
 
   function getConversationRegistrationKey() {
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
     const conversationKey =
       typeof getCaptureConversationKey === 'function'
         ? getCaptureConversationKey()
@@ -7128,7 +7149,7 @@
         {
           requestCycleId,
           requestConversationKey,
-          currentCycleId: state.leadResolution?.cycle?.id,
+          currentCycleId: getCanonicalResolutionCycleId(),
           currentConversationKey:
             typeof getCaptureConversationKey === 'function'
               ? getCaptureConversationKey()
@@ -7146,7 +7167,7 @@
       return
     }
 
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
     const conversationKey =
       typeof getCaptureConversationKey === 'function'
         ? getCaptureConversationKey()
@@ -7250,7 +7271,7 @@
       return
     }
 
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
     const conversationKey =
       typeof getCaptureConversationKey === 'function'
         ? getCaptureConversationKey()
@@ -7554,7 +7575,7 @@
     }
 
     const currentCycleId =
-      state.leadResolution?.cycle?.id ||
+      getCanonicalResolutionCycleId() ||
       null
 
     const currentConversationKey =
@@ -8663,7 +8684,7 @@
 
     const cycle =
       state
-        .leadResolution
+        .leadResolutionViewModel
         ?.cycle
 
     const crm =
@@ -9469,7 +9490,7 @@
 
     const pendingSend = {
       cycleId:
-        state.leadResolution?.cycle?.id ||
+        getCanonicalResolutionCycleId() ||
         null,
       coachingNoteId:
         state.conversationAnalysis
@@ -10161,7 +10182,7 @@
     contextKey,
   ) {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10234,7 +10255,7 @@
       options.force === true
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10401,7 +10422,7 @@
       ++agoraDecisionStateRequestSequence
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10563,7 +10584,7 @@
       ++analysisViewModelRequestSequence
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10710,7 +10731,7 @@
       ++customerViewModelRequestSequence
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10844,7 +10865,7 @@
   // explícita do vendedor (ver handleSaveLeadSummaryClick).
   async function loadCompanionLeadSummaryForCurrentCycle() {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10956,7 +10977,7 @@
   // outra ação salvou uma versão mais nova nesse meio-tempo, e o cartão
   // mostra o aviso de conflito em vez de sobrescrever.
   async function handleSaveLeadSummaryClick(summaryText) {
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
     const conversationKey = getCaptureConversationKey()
 
     if (!cycleId || !conversationKey) {
@@ -10984,7 +11005,7 @@
       })
 
       if (
-        state.leadResolution?.cycle?.id !== cycleId ||
+        getCanonicalResolutionCycleId() !== cycleId ||
         getCaptureConversationKey() !== conversationKey
       ) {
         return
@@ -11239,7 +11260,7 @@
     // conversa/empresa anterior visível (mandato FASE 16.6 §31/§32).
     const isCurrentAnalysisViewModelContext =
       state.analysisViewModelCycleId ===
-        state.leadResolution?.cycle?.id &&
+        getCanonicalResolutionCycleId() &&
       state.analysisViewModelConversationKey ===
         getCaptureConversationKey() &&
       state.analysisViewModelCompanyId ===
@@ -11333,7 +11354,7 @@
     // nunca duplicar um presenter equivalente já correto).
     const isCurrentCustomerViewModelContext =
       state.customerViewModelCycleId ===
-        state.leadResolution?.cycle?.id &&
+        getCanonicalResolutionCycleId() &&
       state.customerViewModelConversationKey ===
         getCaptureConversationKey() &&
       state.customerViewModelCompanyId ===
@@ -11419,7 +11440,7 @@
     }
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -11854,18 +11875,20 @@
   }
 
   function getLeadEnrichmentCandidates() {
+    // Raw somente para campos cadastrais do lead (lead.id / lead.phone),
+    // deliberadamente fora do ViewModel; status/ciclo vêm do canônico.
     const resolution =
       state.leadResolution
 
     const isNewLead =
-      resolution?.status ===
+      getCanonicalResolutionStatus() ===
       'NOT_FOUND'
 
     const isOwnedLead =
-      resolution?.status ===
+      getCanonicalResolutionStatus() ===
         'OWNED_BY_ME' &&
       resolution?.lead?.id &&
-      resolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     if (
       !leadEnrichmentTools ||
@@ -12047,14 +12070,19 @@
       return
     }
 
+    // Raw somente para lead.id (fora do ViewModel); status/ciclo vêm do
+    // canônico.
     const resolution =
       state.leadResolution
 
+    const cycleId =
+      getCanonicalResolutionCycleId()
+
     if (
-      resolution?.status !==
+      getCanonicalResolutionStatus() !==
         'OWNED_BY_ME' ||
       !resolution?.lead?.id ||
-      !resolution?.cycle?.id
+      !cycleId
     ) {
       return
     }
@@ -12126,7 +12154,7 @@
             lead_id:
               resolution.lead.id,
             cycle_id:
-              resolution.cycle.id,
+              cycleId,
             field:
               candidate.field,
             value:
@@ -12282,7 +12310,7 @@
 
   function getLeadEnrichmentCandidatesHtml() {
     if (
-      state.leadResolution?.status ===
+      getCanonicalResolutionStatus() ===
       'NOT_FOUND'
     ) {
       return ''
@@ -12798,7 +12826,7 @@
     const isCurrentAgoraContext =
       state.agoraDecisionState?.status === 'ready' &&
       state.agoraDecisionStateCycleId ===
-        state.leadResolution?.cycle?.id &&
+        getCanonicalResolutionCycleId() &&
       state.agoraDecisionStateConversationKey ===
         getCaptureConversationKey() &&
       state.agoraDecisionStateCompanyId ===
@@ -12873,7 +12901,7 @@
     }
 
     if (
-      state.leadResolution?.status ===
+      getCanonicalResolutionStatus() ===
         'NOT_FOUND' &&
       !state.leadResolutionLoading
     ) {
@@ -13830,7 +13858,7 @@
 
   async function loadSavedAudioTranscriptionsForCurrentCycle() {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     if (
       !cycleId ||
@@ -13865,7 +13893,7 @@
       if (
         state.conversationKey !==
           conversationKeyAtRequest ||
-        state.leadResolution?.cycle?.id !==
+        getCanonicalResolutionCycleId() !==
           cycleId
       ) {
         return
@@ -14291,8 +14319,8 @@
       }
 
       if (
-        state.leadResolution &&
-        state.leadResolution.status !== 'NOT_FOUND'
+        state.leadResolutionViewModel &&
+        state.leadResolutionViewModel.status !== 'NOT_FOUND'
       ) {
         state = {
           ...state,
@@ -14521,7 +14549,7 @@
     actionType,
     seed,
     cycleId =
-      state.leadResolution?.cycle?.id,
+      getCanonicalResolutionCycleId(),
   ) {
     return [
       'companion-ui',
@@ -14540,7 +14568,7 @@
   ) {
     const cycleId =
       options.cycleId ||
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     if (
       !cycleId ||
@@ -15025,7 +15053,7 @@
     }
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKeyAtRequest =
       getCaptureConversationKey()
@@ -15132,7 +15160,7 @@
         .shouldApplyConversationRegistrationResult({
           requestCycleId: cycleId,
           requestConversationKey: conversationKeyAtRequest,
-          currentCycleId: state.leadResolution?.cycle?.id,
+          currentCycleId: getCanonicalResolutionCycleId(),
           currentConversationKey: getCaptureConversationKey(),
         })
 
@@ -15425,7 +15453,7 @@
   }
 
   async function registerSuggestedMessageAction(action, options = {}) {
-    const cycleId = options.cycleId || state.leadResolution?.cycle?.id
+    const cycleId = options.cycleId || getCanonicalResolutionCycleId()
     const message = options.message || getSuggestedMessage()
     const coachingNoteId =
       options.coachingNoteId || state.conversationAnalysis?.saved_coaching?.id || null
@@ -16415,7 +16443,7 @@
 
     const cycle =
       state
-        .leadResolution
+        .leadResolutionViewModel
         ?.cycle
 
     const crm =
@@ -16533,7 +16561,7 @@
 
     const currentStatus =
       state
-        .leadResolution
+        .leadResolutionViewModel
         ?.cycle
         ?.status ||
       '-'
@@ -16583,7 +16611,7 @@
     }
 
     const suggestion = state.conversationAnalysis?.suggestion
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
 
     if (!suggestion || !cycleId) {
       state = {
