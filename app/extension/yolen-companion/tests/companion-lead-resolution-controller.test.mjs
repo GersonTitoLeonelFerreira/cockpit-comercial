@@ -1265,3 +1265,39 @@ test('contrato 4B.5K: payload legacy não fornece capabilities de ação ao View
     assert.doesNotMatch(serialized, /5511988887777/)
   }
 })
+
+// FASE 4B.5L — o backend passa a expor `capabilities` canônicas junto do
+// bloco legacy `actions` (preservado). O controller prefere o canônico e
+// continua sem copiar URLs/PII para o ViewModel.
+test('contrato 4B.5L: capabilities canônicas do backend chegam ao ViewModel sem URLs', () => {
+  const cases = [
+    ['NOT_FOUND', false, { can_create_lead: true, can_open_pool: false, can_open_cycle: false }],
+    ['IN_POOL', true, { can_create_lead: false, can_open_pool: true, can_open_cycle: true }],
+    ['OWNED_BY_ME', true, { can_create_lead: false, can_open_pool: false, can_open_cycle: true }],
+    ['OWNED_BY_OTHER', true, { can_create_lead: false, can_open_pool: false, can_open_cycle: true }],
+    ['CLOSED_CYCLE', true, { can_create_lead: false, can_open_pool: false, can_open_cycle: true }],
+    ['CONTACT_NOT_LINKED', false, { can_create_lead: false, can_open_pool: false, can_open_cycle: false }],
+  ]
+
+  for (const [status, hasCycle, actionCapabilities] of cases) {
+    const payload = {
+      ...legacyActionPayload(status, { hasCycle }),
+      capabilities: {
+        can_analyze_conversation: false,
+        can_apply_suggestion: false,
+        ...actionCapabilities,
+      },
+    }
+
+    const viewModel =
+      controller.createDomainResolutionViewModel(payload)
+
+    for (const [key, value] of Object.entries(actionCapabilities)) {
+      assert.equal(viewModel.capabilities[key], value, `${status}.${key}`)
+    }
+
+    const serialized = JSON.stringify(viewModel)
+    assert.doesNotMatch(serialized, /create_lead_url|open_yolen_url|pool_url|\/sales-cycles|\/leads|\/pool/)
+    assert.doesNotMatch(serialized, /5511988887777/)
+  }
+})

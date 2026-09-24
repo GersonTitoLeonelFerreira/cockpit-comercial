@@ -648,6 +648,7 @@ test('resolve-lead: erro ao buscar identidade externa é reportado como EXTERNAL
 const ACTION_CONTRACT_SCENARIOS = [
   {
     status: 'NOT_FOUND',
+    capabilities: { can_create_lead: true, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -659,6 +660,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'IN_POOL',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: true, can_open_cycle: true },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -672,6 +674,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'OWNED_BY_ME',
+    capabilities: { can_create_lead: false, can_analyze_conversation: true, can_apply_suggestion: true, can_open_pool: false, can_open_cycle: true },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -686,6 +689,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'OWNED_BY_OTHER',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -700,6 +704,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'CLOSED_CYCLE',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -714,6 +719,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'LEAD_WITHOUT_CYCLE',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -727,6 +733,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'CONTACT_NOT_LINKED',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -766,7 +773,44 @@ for (const scenario of ACTION_CONTRACT_SCENARIOS) {
     // representa a disponibilidade real do formulário de criação.
     assert.equal(payload.actions.can_create_lead_inside_extension, false)
 
-    // Contrato atual: nenhum bloco canônico `capabilities`.
-    assert.equal(payload.capabilities, undefined)
+    // FASE 4B.5L: bloco canônico `capabilities` equivalente ao
+    // comportamento atual (a matriz 4B.5K registrava sua ausência).
+    assert.deepEqual(payload.capabilities, scenario.capabilities)
+    assert.equal(
+      payload.capabilities.can_analyze_conversation,
+      payload.actions.can_analyze_conversation,
+    )
+    assert.equal(
+      payload.capabilities.can_apply_suggestion,
+      payload.actions.can_apply_suggestion,
+    )
+    assert.equal(
+      payload.capabilities.can_open_cycle,
+      payload.actions.open_yolen_url !== '/leads',
+    )
+
+    // Nenhuma URL/PII no bloco canônico.
+    assert.doesNotMatch(JSON.stringify(payload.capabilities), /\/|phone|name/)
   })
 }
+
+test('resolve-lead contrato de ações (4B.5L): manager mantém can_analyze_conversation canônico igual ao legacy', async () => {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('leads', [LEAD_ROW]),
+    selectStep('lead_profiles', LEAD_PROFILE_ROW),
+    selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.otherSeller })]),
+    selectStep('profiles', { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'manager' })
+
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.equal(payload.status, 'OWNED_BY_OTHER')
+  assert.equal(payload.actions.can_analyze_conversation, true)
+  assert.equal(payload.capabilities.can_analyze_conversation, true)
+  assert.equal(payload.capabilities.can_apply_suggestion, false)
+  assert.equal(payload.capabilities.can_open_cycle, true)
+})
