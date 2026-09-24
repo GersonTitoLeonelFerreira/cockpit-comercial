@@ -922,3 +922,52 @@ test('apply suggestion sincroniza o ViewModel canônico com a etapa atualizada',
     /leadResolutionViewModel:\s*state\.leadResolutionViewModel/,
   )
 })
+
+test('seller message eligibility depende do workspace canônico', () => {
+  const start =
+    contentScriptSource.indexOf(
+      'function isSellerWorkspaceReady()',
+    )
+
+  const end =
+    contentScriptSource.indexOf(
+      'function getSellerInformationArchitectureHtml()',
+      start,
+    )
+
+  assert.notEqual(
+    start,
+    -1,
+  )
+
+  assert.notEqual(
+    end,
+    -1,
+  )
+
+  const block =
+    contentScriptSource.slice(
+      start,
+      end,
+    )
+
+  assert.match(
+    block,
+    /leadResolutionOutcome[\s\S]*workspace_ready/,
+  )
+
+  assert.match(
+    block,
+    /leadResolutionViewModel[\s\S]*cycle[\s\S]*id/,
+  )
+
+  assert.match(
+    block,
+    /isSellerWorkspaceReady\(\)/,
+  )
+
+  assert.doesNotMatch(
+    block,
+    /state\.leadResolution\b/,
+  )
+})

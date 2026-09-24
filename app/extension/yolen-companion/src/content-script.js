@@ -11432,6 +11432,17 @@
     )
   }
 
+  function isSellerWorkspaceReady() {
+    return Boolean(
+      state.connected &&
+      !state.isGroupConversation &&
+      !state.isSelfConversation &&
+      state
+        .leadResolutionOutcome
+        ?.workspace_ready === true
+    )
+  }
+
   // Elegibilidade "dura": esta conversa TEM, em tese, um contexto
   // comercial (não é grupo/self, está conectada, e já existe um ciclo e
   // uma conversationKey de captura resolvidos) — independente de o
@@ -11440,15 +11451,16 @@
   // a conversa ter um composer seller em algum momento.
   function hasSellerMessageCommercialContext() {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      state
+        .leadResolutionViewModel
+        ?.cycle
+        ?.id
 
     const conversationKey =
       getCaptureConversationKey()
 
     return Boolean(
-      state.connected &&
-      !state.isGroupConversation &&
-      !state.isSelfConversation &&
+      isSellerWorkspaceReady() &&
       state.conversationKey &&
       cycleId &&
       conversationKey,
@@ -11468,7 +11480,10 @@
     }
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      state
+        .leadResolutionViewModel
+        ?.cycle
+        ?.id
 
     const conversationKey =
       getCaptureConversationKey()
