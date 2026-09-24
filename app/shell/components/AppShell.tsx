@@ -7,6 +7,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import GlobalSearch from './GlobalSearch.client'
 import AuthButton from './AuthButton.client'
+import YolenShellFrame from '../v2/YolenShellChrome'
 
 // ─── Design tokens ──────────────────────────────────────────────────────────
 const C = {
@@ -640,6 +641,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const isAdminUser = userRole === 'admin'
   const canAccessPlatformAdmin = isPlatformAdmin
+
+  if (pathname === '/leads') {
+    return (
+      <YolenShellFrame
+        activeCompanyName={activeCompanyName}
+        contextLabel="Oportunidades"
+        activeDestination="opportunities"
+        showOperation={false}
+        showManagement={isAdminUser || canAccessPlatformAdmin}
+      >
+        {children}
+      </YolenShellFrame>
+    )
+  }
 
   const isActive = (href: string) => {
     if (!pathname) return false

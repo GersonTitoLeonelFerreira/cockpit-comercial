@@ -21,6 +21,7 @@ type YolenShellFrameProps = {
   activeCompanyName: string | null
   contextLabel: string
   activeDestination: YolenDestination
+  showOperation?: boolean
   showManagement: boolean
   onYolenAction?: () => void
 }
@@ -264,19 +265,23 @@ function YolenTopBar({
 
 function YolenDock({
   activeDestination,
+  showOperation,
   showManagement,
   onYolenAction,
 }: {
   activeDestination: YolenDestination
+  showOperation: boolean
   showManagement: boolean
   onYolenAction?: () => void
 }) {
   return (
     <div className={styles.dockArea}>
       <nav className={styles.dock} aria-label="Navegação principal">
-        {DOCK_ITEMS.filter(
-          (item) => item.id !== 'management' || showManagement,
-        ).map((item) => {
+        {DOCK_ITEMS.filter((item) => {
+          if (item.id === 'operation' && !showOperation) return false
+          if (item.id === 'management' && !showManagement) return false
+          return true
+        }).map((item) => {
           const active = item.id === activeDestination
 
           return (
@@ -320,6 +325,7 @@ export default function YolenShellFrame({
   activeCompanyName,
   contextLabel,
   activeDestination,
+  showOperation = true,
   showManagement,
   onYolenAction,
 }: YolenShellFrameProps) {
@@ -334,6 +340,7 @@ export default function YolenShellFrame({
 
       <YolenDock
         activeDestination={activeDestination}
+        showOperation={showOperation}
         showManagement={showManagement}
         onYolenAction={onYolenAction}
       />
