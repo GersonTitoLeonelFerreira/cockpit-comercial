@@ -39,6 +39,33 @@
     return isValidSellerArea(area) ? area : fallback
   }
 
+  function createSellerWorkspaceState(
+    initialArea = SELLER_AREAS[0],
+  ) {
+    let activeArea =
+      normalizeSellerArea(initialArea)
+
+    return Object.freeze({
+      getActiveArea() {
+        return activeArea
+      },
+
+      setActiveArea(nextArea) {
+        if (!isValidSellerArea(nextArea)) {
+          return false
+        }
+
+        activeArea = nextArea
+        return true
+      },
+
+      resetActiveArea() {
+        activeArea = SELLER_AREAS[0]
+        return activeArea
+      },
+    })
+  }
+
   // Navegação por teclado entre as abas: função pura de (área atual,
   // tecla) → próxima área, com wrap nas setas. Devolve null quando a
   // tecla não navega ou a área atual é inválida — quem chama decide, só
@@ -159,6 +186,7 @@
     SELLER_AREA_LABELS,
     isValidSellerArea,
     normalizeSellerArea,
+    createSellerWorkspaceState,
     getNextSellerAreaForKeydown,
     getSellerAreaTabHtml,
     getSellerAreaPanelHtml,

@@ -69,6 +69,114 @@ test('normalizeSellerArea devolve a área válida ou o fallback', () => {
   assert.equal(workspace.normalizeSellerArea('invalid', 'analysis'), 'analysis')
 })
 
+test('workspace state inicia em now por padrão', () => {
+  const state =
+    workspace.createSellerWorkspaceState()
+
+  assert.equal(
+    state.getActiveArea(),
+    'now',
+  )
+
+  assert.ok(
+    Object.isFrozen(state),
+  )
+})
+
+test('workspace state respeita initialArea válida e normaliza inválida', () => {
+  const clientState =
+    workspace.createSellerWorkspaceState(
+      'client',
+    )
+
+  assert.equal(
+    clientState.getActiveArea(),
+    'client',
+  )
+
+  const invalidState =
+    workspace.createSellerWorkspaceState(
+      'invalid',
+    )
+
+  assert.equal(
+    invalidState.getActiveArea(),
+    'now',
+  )
+})
+
+test('workspace state altera somente para área válida', () => {
+  const state =
+    workspace.createSellerWorkspaceState()
+
+  assert.equal(
+    state.setActiveArea('analysis'),
+    true,
+  )
+
+  assert.equal(
+    state.getActiveArea(),
+    'analysis',
+  )
+
+  assert.equal(
+    state.setActiveArea('analysis'),
+    true,
+  )
+
+  assert.equal(
+    state.getActiveArea(),
+    'analysis',
+  )
+
+  assert.equal(
+    state.setActiveArea('invalid'),
+    false,
+  )
+
+  assert.equal(
+    state.getActiveArea(),
+    'analysis',
+  )
+})
+
+test('workspace state reset volta deterministicamente para now', () => {
+  const state =
+    workspace.createSellerWorkspaceState(
+      'client',
+    )
+
+  assert.equal(
+    state.resetActiveArea(),
+    'now',
+  )
+
+  assert.equal(
+    state.getActiveArea(),
+    'now',
+  )
+})
+
+test('instâncias de workspace state são isoladas', () => {
+  const first =
+    workspace.createSellerWorkspaceState()
+
+  const second =
+    workspace.createSellerWorkspaceState()
+
+  first.setActiveArea('client')
+
+  assert.equal(
+    first.getActiveArea(),
+    'client',
+  )
+
+  assert.equal(
+    second.getActiveArea(),
+    'now',
+  )
+})
+
 test('ArrowRight avança para a próxima área', () => {
   assert.equal(workspace.getNextSellerAreaForKeydown('now', 'ArrowRight'), 'message')
   assert.equal(workspace.getNextSellerAreaForKeydown('message', 'ArrowRight'), 'analysis')
@@ -321,8 +429,38 @@ test('wiring: content-script.js consome o runtime canônico e não mantém lista
   assert.doesNotMatch(contentScriptSource, /\b(?:const|let|var)\s+SELLER_AREAS\b/)
   assert.doesNotMatch(contentScriptSource, /\bSELLER_AREAS\b/)
   assert.doesNotMatch(contentScriptSource, /function\s+getSellerArea(?:TabHtml|PanelHtml|TabsBarHtml)\s*\(/)
+
+  assert.doesNotMatch(
+    contentScriptSource,
+    /\blet activeSellerArea\b/,
+  )
+
+  assert.doesNotMatch(
+    contentScriptSource,
+    /\bactiveSellerArea\b/,
+  )
+
+  assert.match(
+    contentScriptSource,
+    /workspaceRuntime\.createSellerWorkspaceState\(\)/,
+  )
+
+  assert.match(
+    contentScriptSource,
+    /workspaceState\.getActiveArea\(\)/,
+  )
+
+  assert.match(
+    contentScriptSource,
+    /workspaceState\.setActiveArea\(nextArea\)/,
+  )
+
+  assert.match(
+    contentScriptSource,
+    /workspaceState\.resetActiveArea\(\)/,
+  )
   for (const call of [
-    'workspaceRuntime.isValidSellerArea',
+    'workspaceRuntime.createSellerWorkspaceState',
     'workspaceRuntime.getNextSellerAreaForKeydown',
     'workspaceRuntime.getSellerWorkspaceHtml',
     'workspaceRuntime.getSellerAreaTabsBarHtml',

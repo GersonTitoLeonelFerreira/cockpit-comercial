@@ -23,6 +23,16 @@ test('content-script consome a autoridade canônica das áreas seller-facing sem
     /\bconst SELLER_AREAS\s*=/,
   )
 
+  assert.doesNotMatch(
+    contentScript,
+    /\bactiveSellerArea\b/,
+  )
+
+  assert.match(
+    contentScript,
+    /workspaceRuntime\.createSellerWorkspaceState\(\)/,
+  )
+
   const setActiveStart = contentScript.indexOf(
     'function setActiveSellerArea(',
   )
@@ -39,7 +49,7 @@ test('content-script consome a autoridade canônica das áreas seller-facing sem
 
   assert.match(
     setActiveBlock,
-    /workspaceRuntime\.isValidSellerArea\(\s*nextArea,?\s*\)/,
+    /workspaceState\.setActiveArea\(\s*nextArea,?\s*\)/,
   )
 
   assert.doesNotMatch(
@@ -89,7 +99,7 @@ test('a tablist é delegada à autoridade canônica do workspace runtime', () =>
 
   assert.match(
     block,
-    /workspaceRuntime\.getSellerAreaTabsBarHtml\(\s*activeSellerArea,?\s*\)/,
+    /workspaceRuntime\.getSellerAreaTabsBarHtml\(\s*workspaceState\.getActiveArea\(\),?\s*\)/,
   )
 
   assert.doesNotMatch(

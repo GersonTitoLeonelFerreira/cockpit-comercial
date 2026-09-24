@@ -116,7 +116,7 @@ test(
 
     assert.match(
       renderPanel,
-      /workspaceRuntime\.getSellerAreaTabsBarHtml\(\s*activeSellerArea,?\s*\)/,
+      /workspaceRuntime\.getSellerAreaTabsBarHtml\(\s*workspaceState\.getActiveArea\(\),?\s*\)/,
     )
   },
 )

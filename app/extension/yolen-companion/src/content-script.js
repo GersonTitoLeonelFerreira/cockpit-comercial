@@ -150,7 +150,8 @@
   }
 
   let panelCollapsed = false
-  let activeSellerArea = 'now'
+  const workspaceState =
+    workspaceRuntime.createSellerWorkspaceState()
 
   // Rendering por região: renderPanel() costumava fazer panel.innerHTML =
   // <painel inteiro> a cada mudança de estado (ver histórico em
@@ -6076,7 +6077,7 @@
     clearAnalysisWatchdogTimer()
     activeAnalysisAttempt = null
     clearCompanionClientContextRefreshTimer()
-    activeSellerArea = 'now'
+    workspaceState.resetActiveArea()
 
     // Limpa o lock de ação de região (não pode proteger DOM de uma
     // conversa que já não existe mais), o cache de HTML por região
@@ -11492,7 +11493,8 @@
     ].filter(Boolean).join('')
 
     return workspaceRuntime.getSellerWorkspaceHtml({
-      activeArea: activeSellerArea,
+      activeArea:
+        workspaceState.getActiveArea(),
       nowHtml,
       messageHtml,
       analysisHtml,
@@ -11504,11 +11506,10 @@
     nextArea,
     options = {},
   ) {
-    if (!workspaceRuntime.isValidSellerArea(nextArea)) {
+    if (!workspaceState.setActiveArea(nextArea)) {
       return
     }
 
-    activeSellerArea = nextArea
     renderPanel()
 
     if (options.focus === true) {
@@ -13451,7 +13452,7 @@
       panel,
       'seller-area-tabs',
       workspaceRuntime.getSellerAreaTabsBarHtml(
-        activeSellerArea,
+        workspaceState.getActiveArea(),
       ),
     )
 
