@@ -381,6 +381,10 @@ function buildResolutionPayload({
     status === 'OWNED_BY_ME' ||
     isAdminOrManager
 
+  const canAnalyzeConversation =
+    status === 'OWNED_BY_ME' || (isAdminOrManager && status !== 'NOT_FOUND')
+  const canApplySuggestion = status === 'OWNED_BY_ME'
+
   return {
     ok: true,
     status,
@@ -440,10 +444,23 @@ function buildResolutionPayload({
           next_action_date: cycle.next_action_date,
         }
       : null,
+    // Contrato canônico de ações (FASE 4B.5L). Cada capability reproduz a
+    // autoridade que já decide a ação hoje: can_analyze_conversation e
+    // can_apply_suggestion são as mesmas expressões de `actions`;
+    // can_create_lead segue o formulário de criação oferecido para
+    // NOT_FOUND (só produzido com telefone; a criação em si continua
+    // autorizada por create-lead); can_open_pool segue IN_POOL (pool_url);
+    // can_open_cycle segue o mesmo lead && cycle de open_yolen_url.
+    capabilities: {
+      can_create_lead: status === 'NOT_FOUND',
+      can_analyze_conversation: canAnalyzeConversation,
+      can_apply_suggestion: canApplySuggestion,
+      can_open_pool: status === 'IN_POOL',
+      can_open_cycle: Boolean(lead && cycle),
+    },
     actions: {
-      can_analyze_conversation:
-        status === 'OWNED_BY_ME' || (isAdminOrManager && status !== 'NOT_FOUND'),
-      can_apply_suggestion: status === 'OWNED_BY_ME',
+      can_analyze_conversation: canAnalyzeConversation,
+      can_apply_suggestion: canApplySuggestion,
       can_create_lead_inside_extension: false,
       can_assign_pool_inside_extension: false,
       can_transfer_owner_inside_extension: false,

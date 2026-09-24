@@ -95,9 +95,10 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
   assert.match(analysisHtml, /evolução comercial/i)
   assert.doesNotMatch(analysisHtml, /<details[^>]*open/)
 
-  assert.match(contentScript, /getSellerAreaTabHtml\('now', 'Agora'\)/)
-  assert.match(contentScript, /getSellerAreaTabHtml\('analysis', 'Análise'\)/)
-  assert.match(contentScript, /getSellerAreaTabHtml\('client', 'Cliente'\)/)
+  assert.match(
+    contentScript,
+    /workspaceRuntime\s*\.getSellerAreaTabsBarHtml\(\s*workspaceState\s*\.getActiveArea\(\),?\s*\)/,
+  )
 })
 
 test('B3.2 consome os campos seller-facing consolidados pelo contrato do cliente', () => {

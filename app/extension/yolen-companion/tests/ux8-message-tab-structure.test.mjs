@@ -11,25 +11,28 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const [contentScript, summaryView] = await Promise.all([
+const [contentScript, summaryView, workspaceRuntimeSource] = await Promise.all([
   readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/companion-lead-summary-view.js', 'utf8'),
+  readFile('app/extension/yolen-companion/src/companion-workspace-runtime.js', 'utf8'),
 ])
 
-test('existe uma única fonte canônica das 4 áreas seller-facing, na ordem oficial', () => {
-  const start = contentScript.indexOf('const SELLER_AREAS = [')
-  const end = contentScript.indexOf(']', start)
-  const block = contentScript.slice(start, end)
-
-  assert.notEqual(start, -1)
-  assert.match(
-    block,
-    /'now',\s*'message',\s*'analysis',\s*'client',/,
+test('content-script consome a autoridade canônica das áreas seller-facing sem manter lista própria', () => {
+  assert.doesNotMatch(
+    contentScript,
+    /\bconst SELLER_AREAS\s*=/,
   )
 
-  // setActiveSellerArea() e handleSellerAreaKeyboard() não podem manter
-  // listas de áreas próprias e divergentes — ambas devem reaproveitar
-  // SELLER_AREAS.
+  assert.doesNotMatch(
+    contentScript,
+    /\bactiveSellerArea\b/,
+  )
+
+  assert.match(
+    contentScript,
+    /workspaceRuntime\.createSellerWorkspaceState\(\)/,
+  )
+
   const setActiveStart = contentScript.indexOf(
     'function setActiveSellerArea(',
   )
@@ -42,13 +45,16 @@ test('existe uma única fonte canônica das 4 áreas seller-facing, na ordem ofi
     setActiveEnd,
   )
 
+  assert.notEqual(setActiveStart, -1)
+
   assert.match(
     setActiveBlock,
-    /SELLER_AREAS\.includes\(\s*nextArea,?\s*\)/,
+    /workspaceState\.setActiveArea\(\s*nextArea,?\s*\)/,
   )
+
   assert.doesNotMatch(
     setActiveBlock,
-    /const areas = \[/,
+    /\bSELLER_AREAS\b/,
   )
 
   const keyboardStart = contentScript.indexOf(
@@ -64,52 +70,50 @@ test('existe uma única fonte canônica das 4 áreas seller-facing, na ordem ofi
   )
 
   assert.notEqual(keyboardStart, -1)
-  assert.match(keyboardBlock, /SELLER_AREAS\.indexOf\(/)
-  assert.match(keyboardBlock, /SELLER_AREAS\.length/)
-  assert.match(keyboardBlock, /SELLER_AREAS\[nextIndex\]/)
-  assert.doesNotMatch(keyboardBlock, /const areas = \[/)
+
+  assert.match(
+    keyboardBlock,
+    /workspaceRuntime\.getNextSellerAreaForKeydown\(\s*currentArea,\s*event\.key,?\s*\)/,
+  )
+
+  assert.doesNotMatch(
+    keyboardBlock,
+    /\bSELLER_AREAS\b/,
+  )
 })
 
-test('a tablist renderiza exatamente 4 abas, na ordem Agora Mensagem Análise Cliente', () => {
+test('a tablist é delegada à autoridade canônica do workspace runtime', () => {
   const start = contentScript.indexOf(
-    'function getSellerAreaTabsBarHtml()',
+    'function renderPanel()',
   )
   const end = contentScript.indexOf(
-    'function getSellerMessageAreaHtml()',
+    'function escapeHtml',
     start,
   )
-  const block = contentScript.slice(start, end)
+  const block = contentScript.slice(
+    start,
+    end,
+  )
 
   assert.notEqual(start, -1)
 
-  const nowIndex = block.indexOf(
-    "getSellerAreaTabHtml('now', 'Agora')",
-  )
-  const messageIndex = block.indexOf(
-    "getSellerAreaTabHtml('message', 'Mensagem')",
-  )
-  const analysisIndex = block.indexOf(
-    "getSellerAreaTabHtml('analysis', 'Análise')",
-  )
-  const clientIndex = block.indexOf(
-    "getSellerAreaTabHtml('client', 'Cliente')",
+  assert.match(
+    block,
+    /workspaceRuntime\s*\.getSellerAreaTabsBarHtml\(\s*workspaceState\s*\.getActiveArea\(\),?\s*\)/,
   )
 
-  for (const index of [nowIndex, messageIndex, analysisIndex, clientIndex]) {
-    assert.notEqual(index, -1)
-  }
+  assert.doesNotMatch(
+    contentScript,
+    /function getSellerAreaTabsBarHtml\(/,
+  )
 
-  assert.ok(nowIndex < messageIndex)
-  assert.ok(messageIndex < analysisIndex)
-  assert.ok(analysisIndex < clientIndex)
-
-  // Exatamente 4 chamadas de getSellerAreaTabHtml nesta barra — nenhuma
-  // 5ª aba solta, nenhuma duplicada.
-  const calls = block.match(/getSellerAreaTabHtml\(/g)
-  assert.equal(calls?.length, 4)
+  assert.doesNotMatch(
+    contentScript,
+    /function getSellerAreaTabHtml\(/,
+  )
 })
 
-test('existe a superfície message (tabpanel próprio) dentro de getSellerInformationArchitectureHtml()', () => {
+test('a composição dos quatro tabpanels pertence ao workspace canônico', () => {
   const start = contentScript.indexOf(
     'function getSellerInformationArchitectureHtml()',
   )
@@ -120,14 +124,43 @@ test('existe a superfície message (tabpanel próprio) dentro de getSellerInform
   const block = contentScript.slice(start, end)
 
   assert.notEqual(start, -1)
-  assert.match(block, /const messageHtml =\s*getSellerMessageAreaHtml\(\)/)
+  assert.match(
+    block,
+    /const messageHtml =\s*getSellerMessageAreaHtml\(\)/,
+  )
+  assert.match(
+    block,
+    /workspaceRuntime\.getSellerWorkspaceHtml\(\{/,
+  )
 
-  const nowPanelIndex = block.indexOf("getSellerAreaPanelHtml(\n          'now',")
-  const messagePanelIndex = block.indexOf("getSellerAreaPanelHtml(\n          'message',")
-  const analysisPanelIndex = block.indexOf("getSellerAreaPanelHtml(\n          'analysis',")
-  const clientPanelIndex = block.indexOf("getSellerAreaPanelHtml(\n          'client',")
+  assert.doesNotMatch(
+    block,
+    /workspaceRuntime\.getSellerAreaPanelHtml\(/,
+  )
 
-  for (const index of [nowPanelIndex, messagePanelIndex, analysisPanelIndex, clientPanelIndex]) {
+  const nowPanelIndex =
+    workspaceRuntimeSource.indexOf(
+      "getSellerAreaPanelHtml('now'",
+    )
+  const messagePanelIndex =
+    workspaceRuntimeSource.indexOf(
+      "getSellerAreaPanelHtml('message'",
+    )
+  const analysisPanelIndex =
+    workspaceRuntimeSource.indexOf(
+      "getSellerAreaPanelHtml('analysis'",
+    )
+  const clientPanelIndex =
+    workspaceRuntimeSource.indexOf(
+      "getSellerAreaPanelHtml('client'",
+    )
+
+  for (const index of [
+    nowPanelIndex,
+    messagePanelIndex,
+    analysisPanelIndex,
+    clientPanelIndex,
+  ]) {
     assert.notEqual(index, -1)
   }
 

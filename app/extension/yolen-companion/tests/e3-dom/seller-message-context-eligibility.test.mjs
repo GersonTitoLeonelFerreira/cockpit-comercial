@@ -162,7 +162,8 @@ test('A) lead A ativo + summary ready + mensagem A -> grupo: mount, box e mensag
   switchToGroup(document, 'Grupo da Equipe')
   await sleep(700)
 
-  switchToTab(document, 'message')
+  // Q2 (FASE 4B.5I): contexto sem WORKSPACE_READY não apresenta as abas seller-facing.
+  assert.equal(document.querySelector('[data-yolen-seller-area="message"]'), null)
   await sleep(30)
 
   assert.equal(hasMount(document), false)
@@ -193,7 +194,8 @@ test(
     await waitFor(() => resolveLeadCalls(calls).some((call) => call.payload.phone === PHONE_B))
     await sleep(700)
 
-    switchToTab(document, 'message')
+    // Q2 (FASE 4B.5I): contexto sem WORKSPACE_READY não apresenta as abas seller-facing.
+    assert.equal(document.querySelector('[data-yolen-seller-area="message"]'), null)
     await sleep(30)
 
     assert.equal(hasMount(document), false, 'nenhum mount seller')
@@ -221,7 +223,8 @@ test('C) lead A ativo -> B LEAD_WITHOUT_CYCLE: nenhum mount seller, nenhuma mens
   await waitFor(() => resolveLeadCalls(calls).some((call) => call.payload.phone === PHONE_B))
   await sleep(700)
 
-  switchToTab(document, 'message')
+  // Q2 (FASE 4B.5I): contexto sem WORKSPACE_READY não apresenta as abas seller-facing.
+  assert.equal(document.querySelector('[data-yolen-seller-area="message"]'), null)
   await sleep(30)
 
   assert.equal(hasMount(document), false)
@@ -239,7 +242,8 @@ test('D) lead A ativo -> B NOT_FOUND: nenhum mount seller, nenhuma mensagem A', 
   await waitFor(() => resolveLeadCalls(calls).some((call) => call.payload.phone === PHONE_B))
   await sleep(700)
 
-  switchToTab(document, 'message')
+  // Q2 (FASE 4B.5I): contexto sem WORKSPACE_READY não apresenta as abas seller-facing.
+  assert.equal(document.querySelector('[data-yolen-seller-area="message"]'), null)
   await sleep(30)
 
   assert.equal(hasMount(document), false)
@@ -252,7 +256,8 @@ test('E) lead A ativo -> self: nenhum mount seller, nenhuma mensagem A', async (
   switchToSelf(document)
   await sleep(700)
 
-  switchToTab(document, 'message')
+  // Q2 (FASE 4B.5I): contexto sem WORKSPACE_READY não apresenta as abas seller-facing.
+  assert.equal(document.querySelector('[data-yolen-seller-area="message"]'), null)
   await sleep(30)
 
   assert.equal(hasMount(document), false)
@@ -461,7 +466,8 @@ test('self detection: título real do smoke ("Gerson Ferreira (você)") continua
   // não reconhecesse mais esse título, o mount/mensagem de A
   // continuariam visíveis (mesma prova do cenário E, título exato do
   // smoke real reportado).
-  switchToTab(document, 'message')
+  // Q2 (FASE 4B.5I): contexto sem WORKSPACE_READY não apresenta as abas seller-facing.
+  assert.equal(document.querySelector('[data-yolen-seller-area="message"]'), null)
   await sleep(30)
 
   assert.equal(hasMount(document), false)

@@ -105,6 +105,22 @@
     globalThis
       .YolenCompanionLeadSummaryView
 
+  const conversationBoundaryRuntime =
+    globalThis
+      .YolenCompanionConversationBoundary
+
+  const leadResolutionController =
+    globalThis
+      .YolenCompanionLeadResolutionController
+
+  // FASE 4A.1 — autoridade canônica ÚNICA das áreas seller-facing (lista,
+  // ordem, rótulos, validação, navegação por teclado e HTML de abas/
+  // painéis): companion-workspace-runtime.js. Este arquivo só recebe o
+  // evento real, aplica foco/scroll e re-renderiza.
+  const workspaceRuntime =
+    globalThis
+      .YolenCompanionWorkspaceRuntime
+
   if (!messageMutationTools) {
     throw new Error(
       'Módulo de integridade das mensagens do Companion não carregado.',
@@ -135,21 +151,32 @@
     )
   }
 
-  let panelCollapsed = false
-  let activeSellerArea = 'now'
+  if (!conversationBoundaryRuntime) {
+    throw new Error(
+      'Módulo da fronteira canônica de conversa do Companion não carregado.',
+    )
+  }
 
-  // UX8 FASE C: fonte canônica única das áreas seller-facing e sua ordem
-  // oficial (Agora, Mensagem, Análise, Cliente). setActiveSellerArea() e
-  // handleSellerAreaKeyboard() usavam cada um sua própria lista — se uma
-  // área nova fosse adicionada num lugar e esquecida no outro, a
-  // navegação por teclado e o valor aceito por setActiveSellerArea()
-  // divergiriam silenciosamente. Uma única lista, em ordem, evita isso.
-  const SELLER_AREAS = [
-    'now',
-    'message',
-    'analysis',
-    'client',
-  ]
+  if (!leadResolutionController) {
+    throw new Error(
+      'Controller canônico de resolução de lead do Companion não carregado.',
+    )
+  }
+
+  if (!workspaceRuntime) {
+    throw new Error(
+      'Módulo do workspace canônico do Companion não carregado.',
+    )
+  }
+
+  let panelCollapsed = false
+
+  const conversationBoundary =
+    conversationBoundaryRuntime
+      .createConversationBoundary()
+
+  const workspaceState =
+    workspaceRuntime.createSellerWorkspaceState()
 
   // Rendering por região: renderPanel() costumava fazer panel.innerHTML =
   // <painel inteiro> a cada mudança de estado (ver histórico em
@@ -566,6 +593,9 @@
     lastSessionSyncAt: null,
     leadResolutionLoading: false,
     leadResolution: null,
+    leadResolutionViewModel: null,
+    leadResolutionOutcome: null,
+    leadResolutionBoundaryToken: null,
     leadResolutionError: null,
     leadCreationStatus: null,
     leadCreationConversationKey: null,
@@ -3887,7 +3917,7 @@
 
   function buildCurrentCapturePlan() {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -4009,7 +4039,7 @@
     }
 
     const currentCycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const currentConversationKey =
       getCaptureConversationKey()
@@ -4992,7 +5022,7 @@
       return
     }
 
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
 
     if (!cycleId) {
       state = {
@@ -5244,7 +5274,7 @@
       activeAnalysisAttempt.source ===
         'manual' &&
       activeAnalysisAttempt.cycleId ===
-        state.leadResolution?.cycle?.id &&
+        getCanonicalResolutionCycleId() &&
       activeAnalysisAttempt
         .conversationKey ===
         getCaptureConversationKey(),
@@ -6075,7 +6105,15 @@
     clearAnalysisWatchdogTimer()
     activeAnalysisAttempt = null
     clearCompanionClientContextRefreshTimer()
-    activeSellerArea = 'now'
+
+    conversationBoundary.advanceBoundary({
+      conversationKey:
+        state.conversationKey,
+      companyId:
+        state.companyId,
+    })
+
+    workspaceState.resetActiveArea()
 
     // Limpa o lock de ação de região (não pode proteger DOM de uma
     // conversa que já não existe mais), o cache de HTML por região
@@ -6104,6 +6142,9 @@
       ...state,
       leadResolutionLoading: false,
       leadResolution: null,
+      leadResolutionViewModel: null,
+      leadResolutionOutcome: null,
+      leadResolutionBoundaryToken: null,
       leadResolutionError: null,
       leadCreationStatus: null,
       leadCreationConversationKey: null,
@@ -6736,14 +6777,41 @@
     )
   }
 
+  // Fonte única dos escalares de resolução (cycle id / status) para
+  // consumidores que só precisam deles: o DomainResolutionViewModel da
+  // boundary atual, nunca o payload raw. `undefined` quando ausente, como
+  // a leitura raw equivalente.
+  function getCanonicalResolutionCycleId() {
+    return (
+      state
+        .leadResolutionViewModel
+        ?.cycle
+        ?.id ?? undefined
+    )
+  }
+
+  function getCanonicalResolutionStatus() {
+    return (
+      state
+        .leadResolutionViewModel
+        ?.status ?? undefined
+    )
+  }
+
   function getLeadStatusClass() {
-    const status = state.leadResolution?.status
+    const status =
+      state
+        .leadResolutionViewModel
+        ?.status
 
     if (status === 'OWNED_BY_ME') {
       return 'yolen-status-success'
     }
 
-    if (status === 'NOT_FOUND' || status === 'NO_PHONE_DETECTED') {
+    if (
+      status === 'NOT_FOUND' ||
+      status === 'NO_PHONE_DETECTED'
+    ) {
       return 'yolen-status-warning'
     }
 
@@ -6775,7 +6843,12 @@
       return 'Telefone não detectado'
     }
 
-    return state.leadResolution?.user_message || 'Lead ainda não consultado'
+    return (
+      state
+        .leadResolutionViewModel
+        ?.user_message ||
+      'Lead ainda não consultado'
+    )
   }
 
   function getLeadStatusDescription() {
@@ -6806,7 +6879,8 @@
       )
     }
 
-    const resolution = state.leadResolution
+    const resolution =
+      state.leadResolutionViewModel
 
     if (!resolution) {
       return 'Clique em Atualizar leitura para consultar esse telefone.'
@@ -6814,23 +6888,38 @@
 
     const details = []
 
-    if (resolution.lead?.name) {
-      details.push(`Lead: ${resolution.lead.name}`)
+    if (resolution.lead_display?.name) {
+      details.push(
+        `Lead: ${resolution.lead_display.name}`,
+      )
     }
 
     if (resolution.cycle?.status) {
-      details.push(`Etapa atual: ${getStageLabel(resolution.cycle.status)}`)
+      details.push(
+        `Etapa atual: ${getStageLabel(
+          resolution.cycle.status,
+        )}`,
+      )
     }
 
-    if (resolution.cycle?.owner_name) {
-      details.push(`Responsável: ${resolution.cycle.owner_name}`)
+    if (
+      resolution
+        .ownership_display
+        ?.owner_name
+    ) {
+      details.push(
+        `Responsável: ${
+          resolution
+            .ownership_display
+            .owner_name
+        }`,
+      )
     }
 
-    if (resolution.phone_variants?.length) {
-      details.push(`Busca: ${resolution.phone_variants.join(', ')}`)
-    }
-
-    return escapeHtml(details.join(' · ') || resolution.user_message)
+    return escapeHtml(
+      details.join(' · ') ||
+        resolution.user_message,
+    )
   }
 
   function openYolen(path) {
@@ -6922,13 +7011,20 @@
       return ''
     }
 
-    const resolution = state.leadResolution
+    const resolution =
+      state.leadResolutionViewModel
 
     if (!resolution || !state.connected) {
       return ''
     }
 
-    if (resolution.status === 'NOT_FOUND') {
+    // A autoridade de cada ação é a capability canônica do ViewModel
+    // (resolve-lead → controller), nunca o status. Sem capability
+    // aplicável, mantém o fallback atual "Abrir vínculo na Yolen".
+    const capabilities =
+      resolution.capabilities
+
+    if (capabilities?.can_create_lead === true) {
       // O formulário de criação de lead (Nome/WhatsApp/E-mail/CPF-CNPJ)
       // é montado aqui, na MESMA passada de renderPanel() que decide o
       // resto da região "Conversa" — não por um MutationObserver
@@ -6970,7 +7066,7 @@
       `
     }
 
-    if (resolution.status === 'IN_POOL') {
+    if (capabilities?.can_open_pool === true) {
       return `
         <button class="yolen-secondary-button" type="button" data-yolen-action="open-pool">
           Abrir Pool na Yolen
@@ -6998,12 +7094,12 @@
     return Boolean(
       state.connected &&
         !state.isSelfConversation &&
-        state.leadResolution?.cycle?.id,
+        getCanonicalResolutionCycleId(),
     )
   }
 
   function getConversationRegistrationKey() {
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
     const conversationKey =
       typeof getCaptureConversationKey === 'function'
         ? getCaptureConversationKey()
@@ -7053,7 +7149,7 @@
         {
           requestCycleId,
           requestConversationKey,
-          currentCycleId: state.leadResolution?.cycle?.id,
+          currentCycleId: getCanonicalResolutionCycleId(),
           currentConversationKey:
             typeof getCaptureConversationKey === 'function'
               ? getCaptureConversationKey()
@@ -7071,7 +7167,7 @@
       return
     }
 
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
     const conversationKey =
       typeof getCaptureConversationKey === 'function'
         ? getCaptureConversationKey()
@@ -7175,7 +7271,7 @@
       return
     }
 
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
     const conversationKey =
       typeof getCaptureConversationKey === 'function'
         ? getCaptureConversationKey()
@@ -7393,11 +7489,12 @@
   }
 
   function canAnalyzeCurrentConversation() {
-    return (
+    return Boolean(
       state.connected &&
       !state.isSelfConversation &&
-      state.leadResolution?.cycle?.id &&
-      state.leadResolution?.actions?.can_analyze_conversation === true
+      state
+        .leadResolutionOutcome
+        ?.workspace_ready === true
     )
   }
 
@@ -7478,7 +7575,7 @@
     }
 
     const currentCycleId =
-      state.leadResolution?.cycle?.id ||
+      getCanonicalResolutionCycleId() ||
       null
 
     const currentConversationKey =
@@ -8587,7 +8684,7 @@
 
     const cycle =
       state
-        .leadResolution
+        .leadResolutionViewModel
         ?.cycle
 
     const crm =
@@ -8742,8 +8839,8 @@
     return (
       canAnalyzeCurrentConversation() &&
       state
-        .leadResolution
-        ?.actions
+        .leadResolutionViewModel
+        ?.capabilities
         ?.can_apply_suggestion ===
         true &&
       hasTrustedAnalysis &&
@@ -9393,7 +9490,7 @@
 
     const pendingSend = {
       cycleId:
-        state.leadResolution?.cycle?.id ||
+        getCanonicalResolutionCycleId() ||
         null,
       coachingNoteId:
         state.conversationAnalysis
@@ -10085,7 +10182,7 @@
     contextKey,
   ) {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10158,7 +10255,7 @@
       options.force === true
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10325,7 +10422,7 @@
       ++agoraDecisionStateRequestSequence
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10487,7 +10584,7 @@
       ++analysisViewModelRequestSequence
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10634,7 +10731,7 @@
       ++customerViewModelRequestSequence
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10768,7 +10865,7 @@
   // explícita do vendedor (ver handleSaveLeadSummaryClick).
   async function loadCompanionLeadSummaryForCurrentCycle() {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -10880,7 +10977,7 @@
   // outra ação salvou uma versão mais nova nesse meio-tempo, e o cartão
   // mostra o aviso de conflito em vez de sobrescrever.
   async function handleSaveLeadSummaryClick(summaryText) {
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
     const conversationKey = getCaptureConversationKey()
 
     if (!cycleId || !conversationKey) {
@@ -10908,7 +11005,7 @@
       })
 
       if (
-        state.leadResolution?.cycle?.id !== cycleId ||
+        getCanonicalResolutionCycleId() !== cycleId ||
         getCaptureConversationKey() !== conversationKey
       ) {
         return
@@ -11163,7 +11260,7 @@
     // conversa/empresa anterior visível (mandato FASE 16.6 §31/§32).
     const isCurrentAnalysisViewModelContext =
       state.analysisViewModelCycleId ===
-        state.leadResolution?.cycle?.id &&
+        getCanonicalResolutionCycleId() &&
       state.analysisViewModelConversationKey ===
         getCaptureConversationKey() &&
       state.analysisViewModelCompanyId ===
@@ -11257,7 +11354,7 @@
     // nunca duplicar um presenter equivalente já correto).
     const isCurrentCustomerViewModelContext =
       state.customerViewModelCycleId ===
-        state.leadResolution?.cycle?.id &&
+        getCanonicalResolutionCycleId() &&
       state.customerViewModelConversationKey ===
         getCaptureConversationKey() &&
       state.customerViewModelCompanyId ===
@@ -11322,50 +11419,6 @@
     `
   }
 
-  function getSellerAreaTabHtml(
-    area,
-    label,
-  ) {
-    const selected =
-      activeSellerArea === area
-
-    return `
-      <button
-        id="yolen-seller-tab-${escapeHtml(area)}"
-        class="yolen-seller-tab ${selected ? 'yolen-seller-tab--active' : ''}"
-        type="button"
-        role="tab"
-        data-yolen-seller-area="${escapeHtml(area)}"
-        aria-selected="${selected ? 'true' : 'false'}"
-        aria-controls="yolen-seller-panel-${escapeHtml(area)}"
-        tabindex="${selected ? '0' : '-1'}"
-      >
-        ${escapeHtml(label)}
-      </button>
-    `
-  }
-
-  function getSellerAreaPanelHtml(
-    area,
-    content,
-  ) {
-    const selected =
-      activeSellerArea === area
-
-    return `
-      <section
-        id="yolen-seller-panel-${escapeHtml(area)}"
-        class="yolen-seller-panel"
-        role="tabpanel"
-        aria-labelledby="yolen-seller-tab-${escapeHtml(area)}"
-        data-yolen-seller-panel="${escapeHtml(area)}"
-        ${selected ? '' : 'hidden'}
-      >
-        ${content}
-      </section>
-    `
-  }
-
   // AGORA é a única superfície de decisão: quando há um alerta relevante
   // (SLA, risco de atendimento, desvio de método, pergunta/objeção em
   // aberto), ele é o item de maior prioridade visual — o mesmo sinal que já
@@ -11387,7 +11440,7 @@
     }
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKey =
       getCaptureConversationKey()
@@ -11409,23 +11462,15 @@
     )
   }
 
-  // UX8 (shell estável): a barra de abas precisa viver FORA da região
-  // rolável (workspace-body) para não fazer scroll junto com o conteúdo.
-  // Ver renderPanel()/getPanelRegionContainer() — a barra é sua própria
-  // região top-level, renderizada antes de 'seller-information-architecture'.
-  function getSellerAreaTabsBarHtml() {
-    return `
-      <div
-        class="yolen-seller-tabs"
-        role="tablist"
-        aria-label="Áreas do Yolen Companion"
-      >
-        ${getSellerAreaTabHtml('now', 'Agora')}
-        ${getSellerAreaTabHtml('message', 'Mensagem')}
-        ${getSellerAreaTabHtml('analysis', 'Análise')}
-        ${getSellerAreaTabHtml('client', 'Cliente')}
-      </div>
-    `
+  function isSellerWorkspaceReady() {
+    return Boolean(
+      state.connected &&
+      !state.isGroupConversation &&
+      !state.isSelfConversation &&
+      state
+        .leadResolutionOutcome
+        ?.workspace_ready === true
+    )
   }
 
   // Elegibilidade "dura": esta conversa TEM, em tese, um contexto
@@ -11436,15 +11481,16 @@
   // a conversa ter um composer seller em algum momento.
   function hasSellerMessageCommercialContext() {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      state
+        .leadResolutionViewModel
+        ?.cycle
+        ?.id
 
     const conversationKey =
       getCaptureConversationKey()
 
     return Boolean(
-      state.connected &&
-      !state.isGroupConversation &&
-      !state.isSelfConversation &&
+      isSellerWorkspaceReady() &&
       state.conversationKey &&
       cycleId &&
       conversationKey,
@@ -11464,7 +11510,10 @@
     }
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      state
+        .leadResolutionViewModel
+        ?.cycle
+        ?.id
 
     const conversationKey =
       getCaptureConversationKey()
@@ -11529,6 +11578,10 @@
   }
 
   function getSellerInformationArchitectureHtml() {
+    if (!isSellerWorkspaceReady()) {
+      return ''
+    }
+
     const nowHtml =
       getNowAttentionSnapshotHtml() +
       (getCompanionLeadSummaryCardHtml() ||
@@ -11553,40 +11606,24 @@
       getLeadEnrichmentCandidatesHtml(),
     ].filter(Boolean).join('')
 
-    return `
-      <div class="yolen-seller-workspace yolen-seller-workspace--ux7" data-yolen-ux-build="UX7">
-        ${getSellerAreaPanelHtml(
-          'now',
-          nowHtml,
-        )}
-
-        ${getSellerAreaPanelHtml(
-          'message',
-          messageHtml,
-        )}
-
-        ${getSellerAreaPanelHtml(
-          'analysis',
-          analysisHtml,
-        )}
-
-        ${getSellerAreaPanelHtml(
-          'client',
-          clientHtml,
-        )}
-      </div>
-    `
+    return workspaceRuntime.getSellerWorkspaceHtml({
+      activeArea:
+        workspaceState.getActiveArea(),
+      nowHtml,
+      messageHtml,
+      analysisHtml,
+      clientHtml,
+    })
   }
 
   function setActiveSellerArea(
     nextArea,
     options = {},
   ) {
-    if (!SELLER_AREAS.includes(nextArea)) {
+    if (!workspaceState.setActiveArea(nextArea)) {
       return
     }
 
-    activeSellerArea = nextArea
     renderPanel()
 
     if (options.focus === true) {
@@ -11642,42 +11679,19 @@
           'data-yolen-seller-area',
         )
 
-    const currentIndex =
-      SELLER_AREAS.indexOf(currentArea)
+    const nextArea =
+      workspaceRuntime.getNextSellerAreaForKeydown(
+        currentArea,
+        event.key,
+      )
 
-    if (currentIndex < 0) {
-      return
-    }
-
-    let nextIndex = null
-
-    if (
-      event.key === 'ArrowRight' ||
-      event.key === 'ArrowDown'
-    ) {
-      nextIndex =
-        (currentIndex + 1) %
-        SELLER_AREAS.length
-    } else if (
-      event.key === 'ArrowLeft' ||
-      event.key === 'ArrowUp'
-    ) {
-      nextIndex =
-        (currentIndex - 1 + SELLER_AREAS.length) %
-        SELLER_AREAS.length
-    } else if (event.key === 'Home') {
-      nextIndex = 0
-    } else if (event.key === 'End') {
-      nextIndex = SELLER_AREAS.length - 1
-    }
-
-    if (nextIndex === null) {
+    if (nextArea === null) {
       return
     }
 
     event.preventDefault()
     setActiveSellerArea(
-      SELLER_AREAS[nextIndex],
+      nextArea,
       { focus: true },
     )
   }
@@ -11861,18 +11875,20 @@
   }
 
   function getLeadEnrichmentCandidates() {
+    // Raw somente para campos cadastrais do lead (lead.id / lead.phone),
+    // deliberadamente fora do ViewModel; status/ciclo vêm do canônico.
     const resolution =
       state.leadResolution
 
     const isNewLead =
-      resolution?.status ===
+      getCanonicalResolutionStatus() ===
       'NOT_FOUND'
 
     const isOwnedLead =
-      resolution?.status ===
+      getCanonicalResolutionStatus() ===
         'OWNED_BY_ME' &&
       resolution?.lead?.id &&
-      resolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     if (
       !leadEnrichmentTools ||
@@ -12054,14 +12070,19 @@
       return
     }
 
+    // Raw somente para lead.id (fora do ViewModel); status/ciclo vêm do
+    // canônico.
     const resolution =
       state.leadResolution
 
+    const cycleId =
+      getCanonicalResolutionCycleId()
+
     if (
-      resolution?.status !==
+      getCanonicalResolutionStatus() !==
         'OWNED_BY_ME' ||
       !resolution?.lead?.id ||
-      !resolution?.cycle?.id
+      !cycleId
     ) {
       return
     }
@@ -12133,7 +12154,7 @@
             lead_id:
               resolution.lead.id,
             cycle_id:
-              resolution.cycle.id,
+              cycleId,
             field:
               candidate.field,
             value:
@@ -12289,7 +12310,7 @@
 
   function getLeadEnrichmentCandidatesHtml() {
     if (
-      state.leadResolution?.status ===
+      getCanonicalResolutionStatus() ===
       'NOT_FOUND'
     ) {
       return ''
@@ -12430,8 +12451,8 @@
   function getCompactConversationName() {
     return (
       state
-        .leadResolution
-        ?.lead
+        .leadResolutionViewModel
+        ?.lead_display
         ?.name ||
       state.conversationTitle ||
       'Nenhuma conversa detectada'
@@ -12467,7 +12488,7 @@
     }
 
     const resolution =
-      state.leadResolution
+      state.leadResolutionViewModel
 
     if (!resolution) {
       return 'Localizando vínculo comercial...'
@@ -12527,10 +12548,16 @@
   }
 
   function getCompactContextChipsHtml() {
+    const resolution =
+      state.leadResolutionViewModel
+
     const cycle =
-      state
-        .leadResolution
-        ?.cycle
+      resolution?.cycle
+
+    const ownerName =
+      resolution
+        ?.ownership_display
+        ?.owner_name
 
     const chips = []
 
@@ -12546,11 +12573,11 @@
       )
     }
 
-    if (cycle?.owner_name) {
+    if (ownerName) {
       chips.push(
         '<span class="yolen-context-chip yolen-context-chip-muted">' +
           escapeHtml(
-            cycle.owner_name,
+            ownerName,
           ) +
         '</span>',
       )
@@ -12799,7 +12826,7 @@
     const isCurrentAgoraContext =
       state.agoraDecisionState?.status === 'ready' &&
       state.agoraDecisionStateCycleId ===
-        state.leadResolution?.cycle?.id &&
+        getCanonicalResolutionCycleId() &&
       state.agoraDecisionStateConversationKey ===
         getCaptureConversationKey() &&
       state.agoraDecisionStateCompanyId ===
@@ -12874,7 +12901,7 @@
     }
 
     if (
-      state.leadResolution?.status ===
+      getCanonicalResolutionStatus() ===
         'NOT_FOUND' &&
       !state.leadResolutionLoading
     ) {
@@ -13298,6 +13325,9 @@
       },
     )
 
+    // LEGACY NAVIGATION EXCEPTION (4B.5N): create_lead_url carrega
+    // telefone/nome da conversa e não pertence ao ViewModel sanitizado;
+    // continua lida do payload legacy até a migração do fluxo de criação.
     wireOnce(
       panel.querySelector('[data-yolen-action="create-lead-yolen"]'),
       'click',
@@ -13311,8 +13341,8 @@
       panel.querySelector('[data-yolen-action="open-pool"]'),
       'click',
       () => {
-        const url = state.leadResolution?.actions?.pool_url || '/pool'
-        openYolen(url)
+        // pool_url do backend é sempre a constante '/pool'.
+        openYolen('/pool')
       },
     )
 
@@ -13320,8 +13350,24 @@
       panel.querySelector('[data-yolen-action="open-cycle-yolen"]'),
       'click',
       () => {
-        const url = state.leadResolution?.actions?.open_yolen_url || '/leads'
-        openYolen(url)
+        // Mesmo destino de open_yolen_url (lead && cycle →
+        // /sales-cycles/{id}, senão /leads), reconstruído a partir do
+        // ViewModel canônico da boundary atual — nunca de um cycle id raw.
+        const resolution =
+          state.leadResolutionViewModel
+
+        const cycleId =
+          resolution
+            ?.capabilities
+            ?.can_open_cycle === true
+            ? resolution.cycle?.id ?? null
+            : null
+
+        openYolen(
+          cycleId !== null
+            ? `/sales-cycles/${encodeURIComponent(String(cycleId))}`
+            : '/leads',
+        )
       },
     )
 
@@ -13551,7 +13597,13 @@
     renderPanelRegion(
       panel,
       'seller-area-tabs',
-      getSellerAreaTabsBarHtml(),
+      isSellerWorkspaceReady()
+        ? workspaceRuntime
+            .getSellerAreaTabsBarHtml(
+              workspaceState
+                .getActiveArea(),
+            )
+        : '',
     )
 
     renderPanelRegion(
@@ -13665,6 +13717,13 @@
         clearAnalysisWatchdogTimer()
         clearAutomaticAnalysisTimer()
         activeAnalysisAttempt = null
+
+        conversationBoundary.advanceBoundary({
+          conversationKey:
+            state.conversationKey,
+          companyId:
+            nextCompanyId,
+        })
       }
 
       state = {
@@ -13679,6 +13738,12 @@
         lastSessionSyncAt: getCurrentTimeLabel(),
         ...(companyChanged
           ? {
+              leadResolution: null,
+              leadResolutionViewModel: null,
+              leadResolutionOutcome: null,
+              leadResolutionBoundaryToken: null,
+              leadResolutionLoading: false,
+              leadResolutionError: null,
               conversationAnalysisLoading: false,
               conversationAnalysis: null,
               conversationAnalysisError: null,
@@ -13738,6 +13803,15 @@
             state.conversationKey,
           )
         }
+      } else if (
+        companyChanged &&
+        !state.isSelfConversation &&
+        state.conversationPhone
+      ) {
+        // A resolução da empresa anterior foi invalidada acima e qualquer
+        // resolve em voo pertence à boundary antiga: resolve de novo sob
+        // a boundary da empresa nova.
+        resolveCurrentLead()
       }
     } catch (error) {
       state = {
@@ -13784,7 +13858,7 @@
 
   async function loadSavedAudioTranscriptionsForCurrentCycle() {
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     if (
       !cycleId ||
@@ -13819,7 +13893,7 @@
       if (
         state.conversationKey !==
           conversationKeyAtRequest ||
-        state.leadResolution?.cycle?.id !==
+        getCanonicalResolutionCycleId() !==
           cycleId
       ) {
         return
@@ -13950,6 +14024,9 @@
         ...state,
         leadResolutionLoading: false,
         leadResolution: null,
+        leadResolutionViewModel: null,
+        leadResolutionOutcome: null,
+        leadResolutionBoundaryToken: null,
         leadResolutionError: null,
       }
 
@@ -13966,23 +14043,60 @@
     const titleAtRequest =
       state.conversationTitle
 
+    if (!keyAtRequest) {
+      return
+    }
+
+    const boundaryTokenAtRequest =
+      conversationBoundary.captureToken()
+
+    const resolutionInFlightKey = [
+      boundaryTokenAtRequest.generation,
+      keyAtRequest,
+    ].join('::')
+
     if (
-      !keyAtRequest ||
       leadResolutionInFlightKeys.has(
-        keyAtRequest,
+        resolutionInFlightKey,
       )
     ) {
       return
     }
 
     leadResolutionInFlightKeys.add(
-      keyAtRequest,
+      resolutionInFlightKey,
     )
+
+    const canPreserveResolvedContext =
+      Boolean(
+        state.leadResolution &&
+        state.leadResolutionViewModel &&
+        state.leadResolutionOutcome &&
+        state.leadResolutionBoundaryToken &&
+        conversationBoundary.isTokenCurrent(
+          state.leadResolutionBoundaryToken,
+        ),
+      )
 
     state = {
       ...state,
       leadResolutionLoading: true,
-      leadResolution: null,
+      leadResolution:
+        canPreserveResolvedContext
+          ? state.leadResolution
+          : null,
+      leadResolutionViewModel:
+        canPreserveResolvedContext
+          ? state.leadResolutionViewModel
+          : null,
+      leadResolutionOutcome:
+        canPreserveResolvedContext
+          ? state.leadResolutionOutcome
+          : null,
+      leadResolutionBoundaryToken:
+        canPreserveResolvedContext
+          ? state.leadResolutionBoundaryToken
+          : null,
       leadResolutionError: null,
     }
 
@@ -13990,6 +14104,10 @@
 
     const requestStillCurrent = () => {
       return (
+        conversationBoundary
+          .isTokenCurrent(
+            boundaryTokenAtRequest,
+          ) &&
         state.conversationPhone ===
           phoneAtRequest &&
         state.conversationKey ===
@@ -14022,6 +14140,9 @@
           ...state,
           leadResolutionLoading: false,
           leadResolution: null,
+          leadResolutionViewModel: null,
+          leadResolutionOutcome: null,
+          leadResolutionBoundaryToken: null,
           leadResolutionError:
             result?.payload?.error ||
             'Não foi possível consultar o vínculo na Yolen.',
@@ -14039,6 +14160,22 @@
       if (!requestStillCurrent()) {
         return
       }
+
+      const resolutionViewModel =
+        leadResolutionController
+          .createDomainResolutionViewModel(
+            result.payload,
+          )
+
+      const resolutionOutcome =
+        leadResolutionController
+          .deriveCanonicalResolutionOutcome(
+            resolutionViewModel,
+            {
+              hasTrustedPhone:
+                Boolean(phoneAtRequest),
+            },
+          )
 
       // Fonte única de verdade para sair de um estado de criação de lead
       // pendente (ver createLeadForCurrentConversation()/
@@ -14062,6 +14199,12 @@
         ...state,
         leadResolutionLoading: false,
         leadResolution: result.payload,
+        leadResolutionViewModel:
+          resolutionViewModel,
+        leadResolutionOutcome:
+          resolutionOutcome,
+        leadResolutionBoundaryToken:
+          boundaryTokenAtRequest,
         leadResolutionError: null,
         ...(shouldClearPendingLeadCreation
           ? {
@@ -14119,6 +14262,9 @@
         ...state,
         leadResolutionLoading: false,
         leadResolution: null,
+        leadResolutionViewModel: null,
+        leadResolutionOutcome: null,
+        leadResolutionBoundaryToken: null,
         leadResolutionError:
           error instanceof Error &&
           error.message
@@ -14129,7 +14275,7 @@
       renderPanel()
     } finally {
       leadResolutionInFlightKeys.delete(
-        keyAtRequest,
+        resolutionInFlightKey,
       )
     }
   }
@@ -14173,8 +14319,8 @@
       }
 
       if (
-        state.leadResolution &&
-        state.leadResolution.status !== 'NOT_FOUND'
+        state.leadResolutionViewModel &&
+        state.leadResolutionViewModel.status !== 'NOT_FOUND'
       ) {
         state = {
           ...state,
@@ -14403,7 +14549,7 @@
     actionType,
     seed,
     cycleId =
-      state.leadResolution?.cycle?.id,
+      getCanonicalResolutionCycleId(),
   ) {
     return [
       'companion-ui',
@@ -14422,7 +14568,7 @@
   ) {
     const cycleId =
       options.cycleId ||
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     if (
       !cycleId ||
@@ -14907,7 +15053,7 @@
     }
 
     const cycleId =
-      state.leadResolution?.cycle?.id
+      getCanonicalResolutionCycleId()
 
     const conversationKeyAtRequest =
       getCaptureConversationKey()
@@ -15014,7 +15160,7 @@
         .shouldApplyConversationRegistrationResult({
           requestCycleId: cycleId,
           requestConversationKey: conversationKeyAtRequest,
-          currentCycleId: state.leadResolution?.cycle?.id,
+          currentCycleId: getCanonicalResolutionCycleId(),
           currentConversationKey: getCaptureConversationKey(),
         })
 
@@ -15307,7 +15453,7 @@
   }
 
   async function registerSuggestedMessageAction(action, options = {}) {
-    const cycleId = options.cycleId || state.leadResolution?.cycle?.id
+    const cycleId = options.cycleId || getCanonicalResolutionCycleId()
     const message = options.message || getSuggestedMessage()
     const coachingNoteId =
       options.coachingNoteId || state.conversationAnalysis?.saved_coaching?.id || null
@@ -16297,7 +16443,7 @@
 
     const cycle =
       state
-        .leadResolution
+        .leadResolutionViewModel
         ?.cycle
 
     const crm =
@@ -16415,7 +16561,7 @@
 
     const currentStatus =
       state
-        .leadResolution
+        .leadResolutionViewModel
         ?.cycle
         ?.status ||
       '-'
@@ -16465,7 +16611,7 @@
     }
 
     const suggestion = state.conversationAnalysis?.suggestion
-    const cycleId = state.leadResolution?.cycle?.id
+    const cycleId = getCanonicalResolutionCycleId()
 
     if (!suggestion || !cycleId) {
       state = {
@@ -16533,23 +16679,40 @@
 
       const applied = result.payload.data
 
-      state = {
-        ...state,
-        suggestionApplyLoading: false,
-        suggestionApplyResult: applied,
-        suggestionApplyError: null,
-        leadResolution: state.leadResolution
+      const updatedLeadResolution =
+        state.leadResolution
           ? {
               ...state.leadResolution,
               cycle: {
                 ...state.leadResolution.cycle,
                 status: applied.status,
-                previous_status: applied.previous_status,
-                next_action: applied.next_action,
-                next_action_date: applied.next_action_date,
+                previous_status:
+                  applied.previous_status,
+                next_action:
+                  applied.next_action,
+                next_action_date:
+                  applied.next_action_date,
               },
             }
-          : state.leadResolution,
+          : state.leadResolution
+
+      const updatedResolutionViewModel =
+        updatedLeadResolution
+          ? leadResolutionController
+              .createDomainResolutionViewModel(
+                updatedLeadResolution,
+              )
+          : state.leadResolutionViewModel
+
+      state = {
+        ...state,
+        suggestionApplyLoading: false,
+        suggestionApplyResult: applied,
+        suggestionApplyError: null,
+        leadResolution:
+          updatedLeadResolution,
+        leadResolutionViewModel:
+          updatedResolutionViewModel,
       }
 
       renderPanel()
