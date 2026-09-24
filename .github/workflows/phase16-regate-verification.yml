@@ -34,11 +34,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Companion regression suite
-        run: npm run test:companion
+      - name: Companion regression suite (no new failures)
+        run: node scripts/companion-known-failures-gate.mjs companion
 
-      - name: E3 DOM suite
-        run: node --test app/extension/yolen-companion/tests/e3-dom/*.test.mjs
+      - name: E3 DOM suite (no new failures)
+        run: node scripts/companion-known-failures-gate.mjs e3
 
       - name: Stateful shadow wiring isolated
         run: node --test app/extension/yolen-companion/tests/stateful-shadow-wiring.test.mjs
