@@ -5,7 +5,8 @@ import Link from 'next/link'
 import SalesCyclesKanban from './components/SalesCyclesKanban'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { getActiveCompetency, getRevenueGoal, getRevenueSummary } from '@/app/lib/services/simulator'
-import MetaSummaryHeader, { buildMetaSummaryKpis } from '@/app/components/meta/MetaSummaryCard'
+import { buildMetaSummaryKpis } from '@/app/components/meta/MetaSummaryCard'
+import MetaSummaryV2 from './components/MetaSummaryV2'
 import styles from './LeadsClientV2.module.css'
 
 function toYMD(v: string) {
@@ -305,7 +306,7 @@ const canManageReactivation = role === 'admin' || role === 'manager'
         ) : revenueLoading ? (
           <div style={{ fontSize: 12, color: '#546070' }}>Carregando faturamento do período...</div>
         ) : (
-          <MetaSummaryHeader
+          <MetaSummaryV2
             title={goalView === 'mine' ? 'Minha meta (comparada ao Real da empresa)' : 'Empresa (todos)'}
             kpis={buildMetaSummaryKpis(revenueTotalReal, activeGoal, revenueBDRemaining, revenueProjection)}
           />
