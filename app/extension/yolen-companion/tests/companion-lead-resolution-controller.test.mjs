@@ -1163,3 +1163,52 @@ test('shell seller-facing só apresenta as quatro áreas com WORKSPACE_READY', (
     /'seller-area-tabs'[\s\S]*isSellerWorkspaceReady\(\)[\s\S]*getSellerAreaTabsBarHtml/,
   )
 })
+
+test('lead action presenter decide status pelo ViewModel canônico', () => {
+  const start =
+    contentScriptSource.indexOf(
+      'function getLeadActionButton()',
+    )
+
+  const end =
+    contentScriptSource.indexOf(
+      '// ---------------------------------------------------------------------',
+      start,
+    )
+
+  assert.notEqual(
+    start,
+    -1,
+  )
+
+  assert.notEqual(
+    end,
+    -1,
+  )
+
+  const block =
+    contentScriptSource.slice(
+      start,
+      end,
+    )
+
+  assert.match(
+    block,
+    /state\.leadResolutionViewModel/,
+  )
+
+  assert.doesNotMatch(
+    block,
+    /state\.leadResolution\b/,
+  )
+
+  assert.match(
+    block,
+    /resolution\.status\s*===\s*'NOT_FOUND'/,
+  )
+
+  assert.match(
+    block,
+    /resolution\.status\s*===\s*'IN_POOL'/,
+  )
+})

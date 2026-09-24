@@ -6990,7 +6990,8 @@
       return ''
     }
 
-    const resolution = state.leadResolution
+    const resolution =
+      state.leadResolutionViewModel
 
     if (!resolution || !state.connected) {
       return ''
