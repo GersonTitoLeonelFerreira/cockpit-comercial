@@ -237,3 +237,46 @@ test('build allowlist e harness E3 incluem a boundary antes do workspace runtime
   assert.notEqual(boundaryIndex, -1, 'harness não carrega a boundary')
   assert.ok(boundaryIndex < workspaceIndex, 'harness precisa carregar a boundary antes do workspace runtime')
 })
+
+test('resolveCurrentLead usa generation da boundary no stale guard e no single-flight', () => {
+  const start = contentScript.indexOf('  async function resolveCurrentLead()')
+  const end = contentScript.indexOf('\n  const LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS', start)
+  assert.notEqual(start, -1)
+  assert.notEqual(end, -1)
+  const block = contentScript.slice(start, end)
+
+  assert.match(
+    block,
+    /const boundaryTokenAtRequest =\s*conversationBoundary\.captureToken\(\)/,
+  )
+  assert.match(
+    block,
+    /const resolutionInFlightKey = \[\s*boundaryTokenAtRequest\.generation,\s*keyAtRequest,?\s*\]\.join\('::'\)/,
+  )
+  assert.match(
+    block,
+    /leadResolutionInFlightKeys\.has\(\s*resolutionInFlightKey,?\s*\)/,
+  )
+  assert.match(
+    block,
+    /leadResolutionInFlightKeys\.add\(\s*resolutionInFlightKey,?\s*\)/,
+  )
+  assert.match(
+    block,
+    /leadResolutionInFlightKeys\.delete\(\s*resolutionInFlightKey,?\s*\)/,
+  )
+  assert.doesNotMatch(
+    block,
+    /leadResolutionInFlightKeys\.(?:has|add|delete)\(\s*keyAtRequest,?\s*\)/,
+  )
+
+  const guardStart = block.indexOf('const requestStillCurrent = () => {')
+  assert.notEqual(guardStart, -1)
+  const guard = block.slice(guardStart, block.indexOf('\n    }', guardStart))
+  assert.match(
+    guard,
+    /conversationBoundary\s*\.isTokenCurrent\(\s*boundaryTokenAtRequest,?\s*\)/,
+  )
+  assert.match(guard, /state\.conversationPhone ===\s*phoneAtRequest/)
+  assert.match(guard, /state\.conversationKey ===\s*keyAtRequest/)
+})

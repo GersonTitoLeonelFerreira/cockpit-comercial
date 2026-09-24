@@ -13898,17 +13898,28 @@
     const titleAtRequest =
       state.conversationTitle
 
+    if (!keyAtRequest) {
+      return
+    }
+
+    const boundaryTokenAtRequest =
+      conversationBoundary.captureToken()
+
+    const resolutionInFlightKey = [
+      boundaryTokenAtRequest.generation,
+      keyAtRequest,
+    ].join('::')
+
     if (
-      !keyAtRequest ||
       leadResolutionInFlightKeys.has(
-        keyAtRequest,
+        resolutionInFlightKey,
       )
     ) {
       return
     }
 
     leadResolutionInFlightKeys.add(
-      keyAtRequest,
+      resolutionInFlightKey,
     )
 
     state = {
@@ -13922,6 +13933,10 @@
 
     const requestStillCurrent = () => {
       return (
+        conversationBoundary
+          .isTokenCurrent(
+            boundaryTokenAtRequest,
+          ) &&
         state.conversationPhone ===
           phoneAtRequest &&
         state.conversationKey ===
@@ -14061,7 +14076,7 @@
       renderPanel()
     } finally {
       leadResolutionInFlightKeys.delete(
-        keyAtRequest,
+        resolutionInFlightKey,
       )
     }
   }
