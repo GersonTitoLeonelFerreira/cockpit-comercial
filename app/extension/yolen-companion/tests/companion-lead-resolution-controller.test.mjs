@@ -1212,3 +1212,56 @@ test('lead action presenter decide status pelo ViewModel canônico', () => {
     /resolution\.status\s*===\s*'IN_POOL'/,
   )
 })
+
+// FASE 4B.5K — inventário do contrato de ações. Payload no formato
+// legacy (somente `actions`, sem bloco `capabilities`), como o backend
+// resolve-lead devolve hoje: o fallback legacy do controller NÃO fornece
+// autoridade de ação ao ViewModel (can_create_lead vem de
+// can_create_lead_inside_extension, sempre false; can_open_pool e
+// can_open_cycle não existem no legacy).
+function legacyActionPayload(status, { hasCycle }) {
+  return {
+    ok: true,
+    status,
+    lead: hasCycle ? { id: 'lead-x', name: 'Lead X' } : null,
+    cycle: hasCycle ? { id: 'cycle-x', status: 'contato' } : null,
+    actions: {
+      can_analyze_conversation: false,
+      can_apply_suggestion: false,
+      can_create_lead_inside_extension: false,
+      can_assign_pool_inside_extension: false,
+      can_transfer_owner_inside_extension: false,
+      can_link_lead: status === 'CONTACT_NOT_LINKED',
+      open_yolen_url: hasCycle ? '/sales-cycles/cycle-x' : '/leads',
+      create_lead_url: '/leads?source=companion&phone=5511988887777&name=Cliente',
+      pool_url: '/pool',
+    },
+    flags: { is_closed: false, is_owned_by_me: false, is_pool: false },
+  }
+}
+
+test('contrato 4B.5K: payload legacy não fornece capabilities de ação ao ViewModel', () => {
+  for (const [status, hasCycle] of [
+    ['NOT_FOUND', false],
+    ['IN_POOL', true],
+    ['OWNED_BY_ME', true],
+    ['OWNED_BY_OTHER', true],
+    ['CLOSED_CYCLE', true],
+    ['CONTACT_NOT_LINKED', false],
+  ]) {
+    const viewModel =
+      controller.createDomainResolutionViewModel(
+        legacyActionPayload(status, { hasCycle }),
+      )
+
+    assert.equal(viewModel.status, status)
+    assert.equal(Boolean(viewModel.cycle?.id), hasCycle)
+    assert.equal(viewModel.capabilities.can_create_lead, false, status)
+    assert.equal(viewModel.capabilities.can_open_pool, false, status)
+    assert.equal(viewModel.capabilities.can_open_cycle, false, status)
+
+    const serialized = JSON.stringify(viewModel)
+    assert.doesNotMatch(serialized, /create_lead_url|open_yolen_url|pool_url/)
+    assert.doesNotMatch(serialized, /5511988887777/)
+  }
+})
