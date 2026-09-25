@@ -165,9 +165,27 @@ alterado, nenhuma exceção nova. A asserção do relatório passou de "baseline
 vazia é suspeita" para "baseline precisa estar vazia" (fim da
 reconstrução); os self-tests seguem provando os detectores.
 
-## 9. Evidências finais
+## 9. Evidências finais (HEAD `17dbf4db`, árvore limpa)
 
-Preenchidas na seção 10 com os exit codes reais da execução final.
+| Comando | Resultado | Exit |
+|---|---|---|
+| `node --test …/companion-core-architecture-gates.test.mjs` | 53/53; baseline 0; 0 violação nova | 0 |
+| `npm run test:companion` | 2262/2266; 4 falhas, todas conhecidas e vermelhas na base `0c95b769` | 1 |
+| `npm run test:companion-authorization` | 266/266 | 0 |
+| `node --test --test-force-exit …/e3-dom/*.test.mjs` | 290/290 | 0 |
+| `./node_modules/.bin/tsc --noEmit` | limpo | 0 |
+| `npm run lint` | 56 erros, os mesmos da base (páginas/API não tocadas); 0 erro nos arquivos desta fase | 1 |
+| `build-package.mjs` + `validate-release-candidate.mjs` | PASS; ManyChat OFF em dev/prod | 0 / 0 |
+| `build-package.mjs --e2e` + `validate-release-candidate.mjs --e2e` | PASS; ManyChat ON só em e2e | 0 / 0 |
+| `git diff --check` | limpo | 0 |
+| `companion-known-failures-gate.mjs companion` | 4 conhecidas, 0 novas | 0 |
+| `companion-known-failures-gate.mjs e3` | 0 falhas, 0 novas | 0 |
+
+Falhas conhecidas (fora do escopo, provadas vermelhas na base na FASE 6):
+`Final Release autoriza somente produção e desenvolvimento local`
+(permissão de host `localhost:3000` × `localhost`, distribuição) e três de
+`app/lib` (backend): `acerto do vendedor exige ação concreta…`, `ponto de
+melhoria exige problema comprovado…`, `guardrail exige recovery completo…`.
 
 ## 10. Limitações
 
