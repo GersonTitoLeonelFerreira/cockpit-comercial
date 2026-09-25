@@ -3196,6 +3196,158 @@ function createWhatsAppAdapter({
     return null
   }
 
+  // Contrato §7 (ChannelAdapter): capacidades técnicas do composer. O
+  // elemento nunca sai do adapter; o Core recebe só estado e motivos
+  // técnicos (composer_not_found, apply_verification_failed,
+  // send_control_not_found, send_failed) e decide a copy.
+  function isProbablySameMessage(actualMessage, expectedMessage) {
+    const actual = normalizeMessageText(actualMessage)
+    const expected = normalizeMessageText(expectedMessage)
+
+    if (!actual || !expected) {
+      return false
+    }
+
+    if (actual === expected) {
+      return true
+    }
+
+    if (expected.length >= 24 && actual.includes(expected)) {
+      return true
+    }
+
+    if (actual.length >= 24 && expected.includes(actual)) {
+      return true
+    }
+
+    const expectedStart = expected.slice(0, 80)
+
+    return expectedStart.length >= 24 && actual.includes(expectedStart)
+  }
+
+  function getComposerState() {
+    const composer = getWhatsAppComposer()
+
+    if (!composer) {
+      return {
+        available: false,
+        busy: false,
+        reason: 'composer_not_found',
+        hasText: false,
+      }
+    }
+
+    return {
+      available: true,
+      busy: false,
+      reason: null,
+      hasText: Boolean(
+        normalizeMessageText(composer.textContent),
+      ),
+    }
+  }
+
+  async function applyMessage(message) {
+    const composer = getWhatsAppComposer()
+
+    if (!composer) {
+      return {
+        applied: false,
+        reason: 'composer_not_found',
+      }
+    }
+
+    try {
+      writeTextInComposer(
+        composer,
+        message,
+      )
+    } catch {
+      // O WhatsApp pode substituir o composer durante os eventos de input.
+      // A confirmação real da inserção é feita abaixo pelo conteúdo atual.
+    }
+
+    let insertedComposerText = ''
+
+    for (
+      let attempt = 0;
+      attempt < 8;
+      attempt += 1
+    ) {
+      const composerAfterWrite =
+        getWhatsAppComposer() ||
+        composer
+
+      insertedComposerText =
+        normalizeMessageText(
+          composerAfterWrite
+            ?.textContent,
+        )
+
+      if (
+        isProbablySameMessage(
+          insertedComposerText,
+          message,
+        )
+      ) {
+        break
+      }
+
+      await sleep(50)
+    }
+
+    if (
+      !isProbablySameMessage(
+        insertedComposerText,
+        message,
+      )
+    ) {
+      return {
+        applied: false,
+        reason: 'apply_verification_failed',
+      }
+    }
+
+    return {
+      applied: true,
+      reason: null,
+    }
+  }
+
+  function focusComposer() {
+    getWhatsAppComposer()?.focus()
+  }
+
+  function hasSendControl() {
+    return Boolean(getWhatsAppSendButton())
+  }
+
+  function triggerSend() {
+    const sendButton =
+      getWhatsAppSendButton()
+
+    if (!sendButton?.click) {
+      return {
+        sent: false,
+        reason: 'send_control_not_found',
+      }
+    }
+
+    try {
+      sendButton.click()
+    } catch {
+      return {
+        sent: false,
+        reason: 'send_failed',
+      }
+    }
+
+    return {
+      sent: true,
+      reason: null,
+    }
+  }
+
 
   // Escrita do texto sugerido pela aba MENSAGEM no campo de mensagem do
   // WhatsApp (FASE 5: mecânica de plataforma que antes vivia no runtime de
@@ -4223,11 +4375,13 @@ function createWhatsAppAdapter({
     getVisibleAudioTargets,
     getAudioBlobForTarget,
     getSelectedChatActivitySnapshot,
-    getWhatsAppComposer,
-    writeTextInComposer,
+    getComposerState,
+    applyMessage,
+    focusComposer,
+    hasSendControl,
+    triggerSend,
     getComposerText,
     getLatestOutgoingVisibleMessageText,
-    getWhatsAppSendButton,
   }
 }
 

@@ -24,11 +24,8 @@ function createCompanionCore(ctx) {
     getLatestOutgoingVisibleMessageText,
     getSelectedChatActivitySnapshot,
     getVisibleAudioTargets,
-    getWhatsAppComposer,
-    getWhatsAppSendButton,
     insertTextIntoEmptyComposer,
     readVisibleMessageEntries,
-    writeTextInComposer,
   } = channelAdapter
 
   // Nome de exibição do canal (contrato §5): só interpolado em copy
@@ -5415,27 +5412,29 @@ function createCompanionCore(ctx) {
       return
     }
 
-    const composer = getWhatsAppComposer()
+    const composerNotFoundCopy =
+      `Não encontrei o campo de mensagem do ${platformDisplayName}. Copie e cole manualmente.`
 
-    if (!composer) {
+    const composerState =
+      channelAdapter.getComposerState()
+
+    if (!composerState.available) {
       state = {
         ...state,
         suggestedMessageCopyStatus:
-          'Não encontrei o campo de mensagem do WhatsApp. Copie e cole manualmente.',
+          composerNotFoundCopy,
       }
 
       renderPanel()
       return
     }
 
-    const currentComposerText = normalizeMessageText(composer.textContent)
-
     if (
-      currentComposerText &&
+      composerState.hasText &&
       options.replaceExisting !== true
     ) {
       const confirmed = window.confirm(
-        'O campo do WhatsApp já tem texto. Substituir pela mensagem sugerida?',
+        `O campo do ${platformDisplayName} já tem texto. Substituir pela mensagem sugerida?`,
       )
 
       if (!confirmed) {
@@ -5480,55 +5479,21 @@ function createCompanionCore(ctx) {
       message,
     }
 
-    try {
-      writeTextInComposer(
-        composer,
+    // Escrita + verificação são capacidade técnica do adapter (§7); o
+    // Core só traduz o motivo técnico em copy.
+    const applyResult =
+      await channelAdapter.applyMessage(
         message,
       )
-    } catch {
-      // O WhatsApp pode substituir o composer durante os eventos de input.
-      // A confirmação real da inserção é feita abaixo pelo conteúdo atual.
-    }
 
-    let insertedComposerText = ''
-
-    for (
-      let attempt = 0;
-      attempt < 8;
-      attempt += 1
-    ) {
-      const composerAfterWrite =
-        getWhatsAppComposer() ||
-        composer
-
-      insertedComposerText =
-        normalizeMessageText(
-          composerAfterWrite
-            ?.textContent,
-        )
-
-      if (
-        isProbablySameMessage(
-          insertedComposerText,
-          message,
-        )
-      ) {
-        break
-      }
-
-      await sleep(50)
-    }
-
-    if (
-      !isProbablySameMessage(
-        insertedComposerText,
-        message,
-      )
-    ) {
+    if (!applyResult.applied) {
       state = {
         ...state,
         suggestedMessageCopyStatus:
-          'Não foi possível confirmar a inserção da mensagem no WhatsApp.',
+          applyResult.reason ===
+          'composer_not_found'
+            ? composerNotFoundCopy
+            : `Não foi possível confirmar a inserção da mensagem no ${platformDisplayName}.`,
       }
 
       renderPanel()
@@ -5557,10 +5522,10 @@ function createCompanionCore(ctx) {
       state = {
         ...state,
         suggestedMessageCopyStatus: registration.alreadyRegistered
-          ? 'Mensagem inserida no WhatsApp. Uso já estava registrado na Yolen. Revise antes de enviar.'
+          ? `Mensagem inserida no ${platformDisplayName}. Uso já estava registrado na Yolen. Revise antes de enviar.`
           : registration.registered
-            ? 'Mensagem inserida no WhatsApp e registrada na Yolen. Revise antes de enviar.'
-            : 'Mensagem inserida no campo do WhatsApp. Revise antes de enviar.',
+            ? `Mensagem inserida no ${platformDisplayName} e registrada na Yolen. Revise antes de enviar.`
+            : `Mensagem inserida no campo do ${platformDisplayName}. Revise antes de enviar.`,
         suggestedMessageLastRegisteredKey:
           registration.registrationKey || state.suggestedMessageLastRegisteredKey,
         pendingSuggestedMessageSend:
@@ -9241,7 +9206,7 @@ function createCompanionCore(ctx) {
 
     renderPanel()
 
-    getWhatsAppComposer()?.focus()
+    channelAdapter.focusComposer()
   }
 
   function sendCurrentPreSendDraftAnyway() {
@@ -9267,17 +9232,14 @@ function createCompanionCore(ctx) {
 
     renderPanel()
 
-    const sendButton =
-      getWhatsAppSendButton()
-
-    if (!sendButton) {
+    if (!channelAdapter.hasSendControl()) {
       state = {
         ...state,
         preSendBypassKey: null,
       }
 
       renderPanel()
-      getWhatsAppComposer()?.focus()
+      channelAdapter.focusComposer()
       return
     }
 
@@ -9302,10 +9264,10 @@ function createCompanionCore(ctx) {
           return
         }
 
-        const currentSendButton =
-          getWhatsAppSendButton()
+        const sendResult =
+          channelAdapter.triggerSend()
 
-        if (!currentSendButton?.click) {
+        if (!sendResult.sent) {
           state = {
             ...state,
             preSendGateOpen: false,
@@ -9313,21 +9275,7 @@ function createCompanionCore(ctx) {
           }
 
           renderPanel()
-          getWhatsAppComposer()?.focus()
-          return
-        }
-
-        try {
-          currentSendButton.click()
-        } catch {
-          state = {
-            ...state,
-            preSendGateOpen: false,
-            preSendBypassKey: null,
-          }
-
-          renderPanel()
-          getWhatsAppComposer()?.focus()
+          channelAdapter.focusComposer()
           return
         }
 

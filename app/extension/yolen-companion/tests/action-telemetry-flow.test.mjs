@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
+import {
+  readWhatsAppCompositionSource,
+  sliceFunction,
+} from './support/whatsapp-composition-source.mjs'
 
 const api = readFileSync(
   new URL('../src/yolen-api.js', import.meta.url),
@@ -119,19 +122,22 @@ test('instrumenta os seis fatos de interação com sugestão', () => {
       insertEnd,
     )
 
+  // FASE 5 (contrato §7): a escrita no composer e a verificação ficam no
+  // adapter (applyMessage); o Core monta o contexto, chama applyMessage e
+  // só emite telemetria depois da confirmação técnica.
   const contextPosition =
     insertBlock.indexOf(
       'const pendingSend =',
     )
 
-  const writePosition =
+  const applyPosition =
     insertBlock.indexOf(
-      'writeTextInComposer(',
+      'channelAdapter.applyMessage(',
     )
 
   const confirmationPosition =
     insertBlock.indexOf(
-      'isProbablySameMessage(',
+      'if (!applyResult.applied) {',
     )
 
   const telemetryPosition =
@@ -140,29 +146,40 @@ test('instrumenta os seis fatos de interação com sugestão', () => {
     )
 
   assert.ok(contextPosition >= 0)
-  assert.ok(writePosition > contextPosition)
+  assert.ok(applyPosition > contextPosition)
   assert.ok(
     confirmationPosition >
-      writePosition,
+      applyPosition,
   )
   assert.ok(
     telemetryPosition >
       confirmationPosition,
   )
 
-  assert.match(
+  assert.doesNotMatch(
     insertBlock,
+    /writeTextInComposer\(|textContent/,
+  )
+
+  const applyBlock =
+    sliceFunction(
+      contentScript,
+      'async function applyMessage(message) {',
+    )
+
+  assert.match(
+    applyBlock,
     /try \{[\s\S]*writeTextInComposer\([\s\S]*\} catch \{/,
   )
 
   assert.match(
-    insertBlock,
+    applyBlock,
     /for \([\s\S]*attempt < 8[\s\S]*await sleep\(50\)/,
   )
 
   assert.match(
-    insertBlock,
-    /await sleep\(50\)[\s\S]*suggestion_inserted/,
+    applyBlock,
+    /await sleep\(50\)[\s\S]*isProbablySameMessage\([\s\S]*reason: 'apply_verification_failed'/,
   )
 
   assert.match(

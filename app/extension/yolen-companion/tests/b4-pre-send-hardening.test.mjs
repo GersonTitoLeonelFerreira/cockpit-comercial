@@ -284,14 +284,33 @@ test(
         'async function useCurrentPreSendSuggestion',
       )
 
+    // FASE 5 (contrato §7): "existe botão Enviar" e "clicar" são
+    // capacidades técnicas do adapter; o Core continua desarmando o
+    // bypass quando elas falham.
     assert.match(
       block,
-      /if \(!sendButton\)[\s\S]*preSendBypassKey:\s*null/,
+      /if \(!channelAdapter\.hasSendControl\(\)\)[\s\S]*preSendBypassKey:\s*null/,
     )
 
     assert.match(
       block,
-      /if \(!currentSendButton\?\.click\)[\s\S]*preSendBypassKey:\s*null/,
+      /if \(!sendResult\.sent\)[\s\S]*preSendBypassKey:\s*null/,
+    )
+
+    const triggerSendBlock =
+      getBlock(
+        'function triggerSend() {',
+        '\n  }\n',
+      )
+
+    assert.match(
+      triggerSendBlock,
+      /if \(!sendButton\?\.click\)[\s\S]*sent: false/,
+    )
+
+    assert.match(
+      triggerSendBlock,
+      /try \{\s*sendButton\.click\(\)\s*\} catch \{[\s\S]*sent: false/,
     )
   },
 )
