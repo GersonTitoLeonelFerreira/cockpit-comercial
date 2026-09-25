@@ -2251,16 +2251,20 @@ export default function SalesCyclesKanban({
   isAdmin,
   defaultOwnerId,
   onShowCreateLeadModal,
+  uiVersion = 'classic',
 }: {
   userId: string
   companyId: string
   isAdmin: boolean
   defaultOwnerId?: string
   onShowCreateLeadModal?: () => void
+  uiVersion?: 'classic' | 'v2'
 }) {
   const supabase = useMemo(() => supabaseBrowser(), [])
   const { toasts, addToast, dismissToast } = useToast()
   void onShowCreateLeadModal
+
+  const isV2 = uiVersion === 'v2'
 
   const [items, setItems] = useState<Record<Status, PipelineItem[]>>({
     novo: [],
@@ -3178,24 +3182,38 @@ export default function SalesCyclesKanban({
   const allKanbanItems = visibleKanbanItems
   const allKanbanSelected = selectedIds.size === visibleKanbanItems.length && visibleKanbanItems.length > 0
 
-  const pillStyle: React.CSSProperties = {
-    borderRadius: DS.radius,
-    padding: '6px 10px',
-    background: 'transparent',
-    border: `1px solid ${DS.border}`,
-    color: DS.textSecondary,
-    fontSize: 12,
-    cursor: 'pointer',
-    fontWeight: 500,
-    outline: 'none',
-    height: 30,
-    lineHeight: 1,
-  }
+  const pillStyle: React.CSSProperties = isV2
+    ? {
+        borderRadius: 8,
+        padding: '0 10px',
+        background: 'rgba(20,32,51,0.72)',
+        border: '1px solid rgba(177,208,255,0.12)',
+        color: 'var(--yolen-text-secondary, #b5c4dc)',
+        fontSize: 11,
+        cursor: 'pointer',
+        fontWeight: 550,
+        outline: 'none',
+        height: 32,
+        lineHeight: 1,
+      }
+    : {
+        borderRadius: DS.radius,
+        padding: '6px 10px',
+        background: 'transparent',
+        border: `1px solid ${DS.border}`,
+        color: DS.textSecondary,
+        fontSize: 12,
+        cursor: 'pointer',
+        fontWeight: 500,
+        outline: 'none',
+        height: 30,
+        lineHeight: 1,
+      }
 
   const iconButtonStyle: React.CSSProperties = {
     ...pillStyle,
-    padding: '0 9px',
-    width: 30,
+    padding: isV2 ? 0 : '0 9px',
+    width: isV2 ? 32 : 30,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3204,9 +3222,11 @@ export default function SalesCyclesKanban({
 
   const dividerStyle: React.CSSProperties = {
     width: 1,
-    height: 18,
-    background: DS.divider,
-    margin: '0 2px',
+    height: isV2 ? 20 : 18,
+    background: isV2
+      ? 'rgba(177,208,255,0.10)'
+      : DS.divider,
+    margin: isV2 ? '0 3px' : '0 2px',
     flexShrink: 0,
   }
 
@@ -3230,19 +3250,38 @@ export default function SalesCyclesKanban({
       }}
     >
       <div
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 50,
-          background: 'rgba(13,15,20,0.92)',
-          backdropFilter: 'blur(10px)',
-          borderBottom: `1px solid ${DS.border}`,
-          padding: '8px 16px',
-          display: 'flex',
-          gap: 6,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        }}
+        style={
+          isV2
+            ? {
+                position: 'sticky',
+                top: 0,
+                zIndex: 50,
+                background: 'rgba(14,24,40,0.92)',
+                backdropFilter: 'blur(16px)',
+                border: '1px solid rgba(177,208,255,0.10)',
+                borderRadius: 12,
+                boxShadow: '0 10px 28px rgba(0,0,0,0.16)',
+                padding: '9px 12px',
+                marginBottom: 8,
+                display: 'flex',
+                gap: 8,
+                alignItems: 'center',
+                flexWrap: 'wrap',
+              }
+            : {
+                position: 'sticky',
+                top: 0,
+                zIndex: 50,
+                background: 'rgba(13,15,20,0.92)',
+                backdropFilter: 'blur(10px)',
+                borderBottom: `1px solid ${DS.border}`,
+                padding: '8px 16px',
+                display: 'flex',
+                gap: 6,
+                alignItems: 'center',
+                flexWrap: 'wrap',
+              }
+        }
       >
         {/* Zona 1 — Contexto */}
         {isAdmin && (
@@ -3320,17 +3359,31 @@ export default function SalesCyclesKanban({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar nome, telefone, CPF, email..."
-            style={{
-              borderRadius: DS.radius,
-              padding: '6px 10px 6px 28px',
-              background: DS.selectBg,
-              border: `1px solid ${DS.border}`,
-              color: DS.textPrimary,
-              fontSize: 12,
-              minWidth: 240,
-              outline: 'none',
-              height: 30,
-            }}
+            style={
+              isV2
+                ? {
+                    borderRadius: 8,
+                    padding: '6px 30px 6px 30px',
+                    background: 'rgba(20,32,51,0.72)',
+                    border: '1px solid rgba(177,208,255,0.12)',
+                    color: 'var(--yolen-text-primary, #eff4ff)',
+                    fontSize: 11,
+                    minWidth: 260,
+                    outline: 'none',
+                    height: 32,
+                  }
+                : {
+                    borderRadius: DS.radius,
+                    padding: '6px 10px 6px 28px',
+                    background: DS.selectBg,
+                    border: `1px solid ${DS.border}`,
+                    color: DS.textPrimary,
+                    fontSize: 12,
+                    minWidth: 240,
+                    outline: 'none',
+                    height: 30,
+                  }
+            }
           />
           <span style={{ position: 'absolute', left: 9, color: DS.textMuted, fontSize: 12, pointerEvents: 'none' }}>⌕</span>
           {searchTerm.trim() && !isSearching && searchCount !== null && (
@@ -3342,7 +3395,14 @@ export default function SalesCyclesKanban({
         </div>
 
         {/* Zona 3 — Ações */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            gap: isV2 ? 6 : 4,
+            alignItems: 'center',
+          }}
+        >
           {selectedIds.size > 0 && (
             <>
               <button
@@ -3398,14 +3458,26 @@ export default function SalesCyclesKanban({
               onShowCreateLeadModal?.()
               setShowCreateLeadModal(true)
             }}
-            style={{
-              ...pillStyle,
-              background: '#1e7d4a',
-              border: '1px solid #1e7d4a',
-              color: '#ffffff',
-              fontWeight: 600,
-              padding: '6px 12px',
-            }}
+            style={
+              isV2
+                ? {
+                    ...pillStyle,
+                    background: 'linear-gradient(135deg, #2359d9, #2c6df0)',
+                    border: '1px solid rgba(121,180,255,0.24)',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    padding: '0 13px',
+                    boxShadow: '0 6px 18px rgba(35,89,217,0.18)',
+                  }
+                : {
+                    ...pillStyle,
+                    background: '#1e7d4a',
+                    border: '1px solid #1e7d4a',
+                    color: '#ffffff',
+                    fontWeight: 600,
+                    padding: '6px 12px',
+                  }
+            }
           >
             + Criar Lead
           </button>

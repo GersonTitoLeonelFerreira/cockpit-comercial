@@ -370,6 +370,7 @@ const canManageReactivation = role === 'admin' || role === 'manager'
         companyId={companyId}
         isAdmin={isAdmin}
         defaultOwnerId={defaultOwnerId ?? undefined}
+        uiVersion={isV2 ? 'v2' : 'classic'}
       />
       </div>
     </div>
