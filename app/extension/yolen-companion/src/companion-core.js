@@ -129,11 +129,6 @@ function createCompanionCore(ctx) {
 
   const leadResolutionInFlightKeys =
     new Set()
-  // Idempotência determinística de createLead por conversa: nenhum clique
-  // duplicado/triplo pode gerar uma segunda requisição CREATE_LEAD
-  // enquanto a primeira ainda está em voo para a MESMA conversationKey.
-  const leadCreationInFlightKeys =
-    new Set()
   let autoContactLookupInFlight = false
   let autoContactLookupConversationRefreshPending =
     false
@@ -262,6 +257,170 @@ function createCompanionCore(ctx) {
     scheduleAutomaticAnalysis,
   } = analysisController
 
+  const leadSummaryControllerContext = {
+    get getCanonicalResolutionCycleId() {
+      return getCanonicalResolutionCycleId
+    },
+    get getCaptureConversationKey() {
+      return getCaptureConversationKey
+    },
+    get leadSummaryViewTools() {
+      return leadSummaryViewTools
+    },
+    get renderPanel() {
+      return renderPanel
+    },
+    get state() {
+      return state
+    },
+    set state(value) {
+      state = value
+    },
+  }
+
+  const leadSummaryController =
+    globalThis
+      .YolenCompanionLeadSummaryController
+      .create(
+        leadSummaryControllerContext,
+      )
+
+  const {
+    getCompanionLeadSummaryCardHtml,
+    handleSaveLeadSummaryClick,
+    loadCompanionLeadSummaryForCurrentCycle,
+  } = leadSummaryController
+
+  const leadEnrichmentControllerContext = {
+    get MAX_MESSAGE_LEDGER_SIZE() {
+      return MAX_MESSAGE_LEDGER_SIZE
+    },
+    get PANEL_ID() {
+      return PANEL_ID
+    },
+    get escapeHtml() {
+      return escapeHtml
+    },
+    get getCanonicalResolutionCycleId() {
+      return getCanonicalResolutionCycleId
+    },
+    get getCanonicalResolutionStatus() {
+      return getCanonicalResolutionStatus
+    },
+    get getMessageTranscription() {
+      return getMessageTranscription
+    },
+    get getSortedLedgerMessages() {
+      return getSortedLedgerMessages
+    },
+    get leadEnrichmentTools() {
+      return leadEnrichmentTools
+    },
+    get messageMutationTools() {
+      return messageMutationTools
+    },
+    get onlyDigits() {
+      return onlyDigits
+    },
+    get renderPanel() {
+      return renderPanel
+    },
+    get state() {
+      return state
+    },
+    set state(value) {
+      state = value
+    },
+  }
+
+  const leadEnrichmentController =
+    globalThis
+      .YolenCompanionLeadEnrichmentController
+      .create(
+        leadEnrichmentControllerContext,
+      )
+
+  const {
+    applyLeadEnrichmentCandidate,
+    getLeadEnrichmentCandidateKey,
+    getLeadEnrichmentCandidates,
+    getLeadEnrichmentCandidatesHtml,
+    getVisibleLeadEnrichmentCandidates,
+    ignoreLeadEnrichmentCandidate,
+  } = leadEnrichmentController
+
+  const conversationRegistrationControllerContext = {
+    get escapeHtml() {
+      return escapeHtml
+    },
+    get getCanonicalResolutionCycleId() {
+      return getCanonicalResolutionCycleId
+    },
+    get getCaptureConversationKey() {
+      return getCaptureConversationKey
+    },
+    get loadCompanionLeadSummaryForCurrentCycle() {
+      return loadCompanionLeadSummaryForCurrentCycle
+    },
+    get renderPanel() {
+      return renderPanel
+    },
+    get state() {
+      return state
+    },
+    set state(value) {
+      state = value
+    },
+  }
+
+  const conversationRegistrationController =
+    globalThis
+      .YolenCompanionConversationRegistrationController
+      .create(
+        conversationRegistrationControllerContext,
+      )
+
+  const {
+    cancelCurrentConversationRegistration,
+    confirmCurrentConversationRegistration,
+    getConversationRegistrationCardHtml,
+    registerCurrentConversation,
+  } = conversationRegistrationController
+
+  const leadCreationControllerContext = {
+    get escapeHtml() {
+      return escapeHtml
+    },
+    get renderPanel() {
+      return renderPanel
+    },
+    get resolveCurrentLead() {
+      return resolveCurrentLead
+    },
+    get sleep() {
+      return sleep
+    },
+    get state() {
+      return state
+    },
+    set state(value) {
+      state = value
+    },
+  }
+
+  const leadCreationController =
+    globalThis
+      .YolenCompanionLeadCreationController
+      .create(
+        leadCreationControllerContext,
+      )
+
+  const {
+    getLeadActionButton,
+    isLeadCreationPendingForConversation,
+    retryLeadLinkAfterCreation,
+  } = leadCreationController
+
   const autoLookupAttemptedKeys = new Set()
   const lastIngestedCaptureKeys = new Map()
 
@@ -275,9 +434,6 @@ function createCompanionCore(ctx) {
     new Map()
 
   const registeredSuggestionShownTelemetryKeys =
-    new Set()
-
-  const ignoredLeadEnrichmentCandidateKeys =
     new Set()
 
   let state = {
@@ -393,7 +549,8 @@ function createCompanionCore(ctx) {
     capturedAudioBlobCount: 0,
     audioTranscriptionHistoryLoading: false,
     audioTranscriptionHistoryCycleId: null,
-    leadEnrichmentApplyLoadingKey: null,
+    // A chave de aplicação em voo do enriquecimento de lead é escrita
+    // somente pelo controller de enriquecimento (ausente = nenhuma).
     leadEnrichmentApplySuccessKey: null,
     leadEnrichmentApplyError: null,
     preSendAssessment: null,
@@ -1693,40 +1850,6 @@ function createCompanionCore(ctx) {
       },
     )
 
-  }
-
-  function getStructuredMessagesForEnrichment(
-    transcriptionMap = null,
-  ) {
-    return getSortedLedgerMessages()
-      .slice(
-        -MAX_MESSAGE_LEDGER_SIZE,
-      )
-      .map((message) => {
-        return {
-          id: message.id,
-          timestamp_ms:
-            message.timestampMs,
-          timestamp_label:
-            message.timestampLabel,
-          date_key: message.dateKey,
-          direction:
-            message.direction,
-          sender: message.sender,
-          text:
-            messageMutationTools
-              .prepareCapturedMessageTextForAnalysis(
-                message.text,
-              ),
-          has_audio:
-            message.hasAudio,
-          audio_transcription:
-            getMessageTranscription(
-              message.id,
-              transcriptionMap,
-            ),
-        }
-      })
   }
 
   function clearCaptureIngestionTimer() {
@@ -4133,541 +4256,6 @@ function createCompanionCore(ctx) {
     }
 
     return labels[status] || status || '-'
-  }
-
-  function getLeadCreationStatusHtml(message, tone) {
-    return `
-      <div class="yolen-lead-create-status" data-tone="${escapeHtml(tone)}">
-        ${escapeHtml(message)}
-      </div>
-    `
-  }
-
-  function getLeadActionButton() {
-    if (state.isSelfConversation) {
-      return ''
-    }
-
-    // O estado de criação de lead (creating/created_resolving/error) só
-    // pode ser aplicado à região "Conversa" se ele pertencer à conversa
-    // ATUAL — se o vendedor já trocou de conversa, leadCreationConversationKey
-    // não bate mais com state.conversationKey e este bloco fica inerte
-    // (hardResetConversationWorkspace() já zera os dois campos numa
-    // troca real, isto aqui é uma segunda trava de segurança).
-    const creationBelongsToCurrentConversation =
-      Boolean(state.conversationKey) &&
-      state.leadCreationConversationKey === state.conversationKey
-
-    if (creationBelongsToCurrentConversation) {
-      if (state.leadCreationStatus === 'creating') {
-        return getLeadCreationStatusHtml(
-          'Criando lead na Yolen...',
-          'loading',
-        )
-      }
-
-      if (state.leadCreationStatus === 'created_resolving') {
-        return getLeadCreationStatusHtml(
-          'Lead criado. Atualizando o vínculo...',
-          'success',
-        )
-      }
-
-      // O backend já confirmou a criação — nunca pode voltar a mostrar o
-      // formulário/botão "Criar lead" (permitiria um segundo create do
-      // mesmo lead). Só uma reconsulta manual (RESOLVE, nunca CREATE) pode
-      // sair daqui — ver retryLeadLinkAfterCreation().
-      if (state.leadCreationStatus === 'created_unresolved') {
-        return `
-          <div class="yolen-lead-create-status" data-tone="warning">
-            Lead criado, mas o vínculo ainda não foi atualizado.
-          </div>
-          <button class="yolen-secondary-button" type="button" data-yolen-action="retry-lead-link">
-            Atualizar vínculo
-          </button>
-        `
-      }
-    }
-
-    if (state.leadResolutionLoading) {
-      return ''
-    }
-
-    const resolution =
-      state.leadResolutionViewModel
-
-    if (!resolution || !state.connected) {
-      return ''
-    }
-
-    // A autoridade de cada ação é a capability canônica do ViewModel
-    // (resolve-lead → controller), nunca o status. Sem capability
-    // aplicável, mantém o fallback atual "Abrir vínculo na Yolen".
-    const capabilities =
-      resolution.capabilities
-
-    if (capabilities?.can_create_lead === true) {
-      // O formulário de criação de lead (Nome/WhatsApp/E-mail/CPF-CNPJ)
-      // é montado aqui, na MESMA passada de renderPanel() que decide o
-      // resto da região "Conversa" — não por um MutationObserver
-      // separado substituindo esse trecho depois. Antes, lead-automation.js
-      // observava o painel e trocava este botão por um formulário assim
-      // que ele aparecia no DOM; quando uma atualização em segundo plano
-      // (mais frequente com "Dados do contato" aberto) chegava nesse
-      // meio-tempo, o botão simples podia reaparecer entre o pointerdown e
-      // o click do vendedor, e o primeiro clique se perdia. Com uma única
-      // fonte de verdade por região, isso não pode mais acontecer.
-      //
-      // conversationKey/phone/displayName são passados explicitamente —
-      // lead-automation.js NÃO decide sozinho a partir de um estado global
-      // implícito qual é "a conversa atual" (causa raiz do vazamento A→B
-      // corrigido na Frente 1B): a única fonte de verdade é o state deste
-      // arquivo, no instante exato deste render.
-      const formHtml =
-        window.YolenCompanionLeadAutomation
-          ?.buildCreateLeadFormHtml
-          ?.({
-            conversationKey: state.conversationKey,
-            phone: state.conversationPhone,
-            displayName: state.conversationTitle,
-            errorMessage:
-              creationBelongsToCurrentConversation &&
-              state.leadCreationStatus === 'error'
-                ? state.leadCreationError
-                : null,
-          })
-
-      if (formHtml) {
-        return formHtml
-      }
-
-      return `
-        <button class="yolen-secondary-button" type="button" data-yolen-action="create-lead-yolen">
-          Criar lead na Yolen
-        </button>
-      `
-    }
-
-    if (capabilities?.can_open_pool === true) {
-      return `
-        <button class="yolen-secondary-button" type="button" data-yolen-action="open-pool">
-          Abrir Pool na Yolen
-        </button>
-      `
-    }
-
-    return `
-      <button class="yolen-secondary-button" type="button" data-yolen-action="open-cycle-yolen">
-        Abrir vínculo na Yolen
-      </button>
-    `
-  }
-
-  // ---------------------------------------------------------------------
-  // Registrar conversa — registro factual e manual da conversa atual no
-  // histórico do lead. Independente da análise profunda (V2): não lê nem
-  // depende de state.conversationAnalysis, não sugere mensagem, não altera
-  // CRM/Agenda. O estado fica indexado por (cycle_id + conversation_key)
-  // para nunca vazar entre conversas quando o vendedor troca de contato
-  // enquanto uma chamada está em andamento.
-  // ---------------------------------------------------------------------
-
-  function canRegisterCurrentConversation() {
-    return Boolean(
-      state.connected &&
-        !state.isSelfConversation &&
-        getCanonicalResolutionCycleId(),
-    )
-  }
-
-  function getConversationRegistrationKey() {
-    const cycleId = getCanonicalResolutionCycleId()
-    const conversationKey =
-      typeof getCaptureConversationKey === 'function'
-        ? getCaptureConversationKey()
-        : null
-
-    if (!cycleId || !conversationKey) {
-      return null
-    }
-
-    return globalThis.YolenCompanionConversationRegistrationTools.buildConversationRegistrationKey(
-      {
-        cycleId,
-        conversationKey,
-      },
-    )
-  }
-
-  function getCurrentConversationRegistrationEntry() {
-    const key = getConversationRegistrationKey()
-
-    if (!key) {
-      return null
-    }
-
-    return (state.conversationRegistrations || {})[key] || null
-  }
-
-  function applyConversationRegistrationUpdate({
-    key,
-    requestCycleId,
-    requestConversationKey,
-    patch,
-  }) {
-    state = {
-      ...state,
-      conversationRegistrations: {
-        ...(state.conversationRegistrations || {}),
-        [key]: {
-          ...(state.conversationRegistrations?.[key] || {}),
-          ...patch,
-        },
-      },
-    }
-
-    const stillCurrent =
-      globalThis.YolenCompanionConversationRegistrationTools.shouldApplyConversationRegistrationResult(
-        {
-          requestCycleId,
-          requestConversationKey,
-          currentCycleId: getCanonicalResolutionCycleId(),
-          currentConversationKey:
-            typeof getCaptureConversationKey === 'function'
-              ? getCaptureConversationKey()
-              : null,
-        },
-      )
-
-    if (stillCurrent) {
-      renderPanel()
-    }
-  }
-
-  async function registerCurrentConversation() {
-    if (!canRegisterCurrentConversation()) {
-      return
-    }
-
-    const cycleId = getCanonicalResolutionCycleId()
-    const conversationKey =
-      typeof getCaptureConversationKey === 'function'
-        ? getCaptureConversationKey()
-        : null
-
-    if (!cycleId || !conversationKey) {
-      return
-    }
-
-    const key = globalThis.YolenCompanionConversationRegistrationTools.buildConversationRegistrationKey(
-      {
-        cycleId,
-        conversationKey,
-      },
-    )
-
-    applyConversationRegistrationUpdate({
-      key,
-      requestCycleId: cycleId,
-      requestConversationKey: conversationKey,
-      patch: {
-        status: 'previewing',
-        summary_text: null,
-        watermark: null,
-        confirmation_token: null,
-        message_count: null,
-        occurred_at: null,
-        error_message: null,
-        already_registered: false,
-      },
-    })
-
-    let previewResult
-
-    try {
-      previewResult = await window.YolenCompanionApi.previewConversationRegistration({
-        cycle_id: cycleId,
-        conversation_key: conversationKey,
-      })
-    } catch (error) {
-      applyConversationRegistrationUpdate({
-        key,
-        requestCycleId: cycleId,
-        requestConversationKey: conversationKey,
-        patch: {
-          status: 'error',
-          error_message:
-            error instanceof Error && error.message
-              ? error.message
-              : 'Não foi possível gerar o resumo da conversa.',
-        },
-      })
-      return
-    }
-
-    if (!previewResult?.ok || !previewResult.payload?.ok || !previewResult.payload?.data) {
-      applyConversationRegistrationUpdate({
-        key,
-        requestCycleId: cycleId,
-        requestConversationKey: conversationKey,
-        patch: {
-          status: 'error',
-          error_message:
-            previewResult?.payload?.error || 'Não foi possível gerar o resumo da conversa.',
-        },
-      })
-      return
-    }
-
-    const data = previewResult.payload.data
-    const alreadyRegistered = data.already_registered === true
-
-    applyConversationRegistrationUpdate({
-      key,
-      requestCycleId: cycleId,
-      requestConversationKey: conversationKey,
-      patch: {
-        status: alreadyRegistered ? 'success' : 'preview_ready',
-        summary_text: data.summary_text || '',
-        watermark: data.watermark || null,
-        confirmation_token: data.confirmation_token || null,
-        message_count: data.message_count ?? null,
-        occurred_at: data.occurred_at || null,
-        already_registered: alreadyRegistered,
-        error_message: null,
-      },
-    })
-
-    if (alreadyRegistered) {
-      await loadCompanionLeadSummaryForCurrentCycle()
-    }
-  }
-
-  function canConfirmConversationRegistration() {
-    const entry = getCurrentConversationRegistrationEntry()
-    return Boolean(entry) && entry.status === 'preview_ready' && Boolean(entry.confirmation_token)
-  }
-
-  async function confirmCurrentConversationRegistration() {
-    if (!canConfirmConversationRegistration()) {
-      return
-    }
-
-    const cycleId = getCanonicalResolutionCycleId()
-    const conversationKey =
-      typeof getCaptureConversationKey === 'function'
-        ? getCaptureConversationKey()
-        : null
-
-    if (!cycleId || !conversationKey) {
-      return
-    }
-
-    const key = globalThis.YolenCompanionConversationRegistrationTools.buildConversationRegistrationKey(
-      {
-        cycleId,
-        conversationKey,
-      },
-    )
-
-    const entry = getCurrentConversationRegistrationEntry()
-
-    if (!entry || entry.status !== 'preview_ready' || !entry.confirmation_token) {
-      return
-    }
-
-    applyConversationRegistrationUpdate({
-      key,
-      requestCycleId: cycleId,
-      requestConversationKey: conversationKey,
-      patch: {
-        status: 'saving',
-        error_message: null,
-      },
-    })
-
-    let confirmResult
-
-    try {
-      confirmResult = await window.YolenCompanionApi.confirmConversationRegistration({
-        cycle_id: cycleId,
-        conversation_key: conversationKey,
-        confirmation_token: entry.confirmation_token,
-        summary_text: entry.summary_text,
-      })
-    } catch (error) {
-      applyConversationRegistrationUpdate({
-        key,
-        requestCycleId: cycleId,
-        requestConversationKey: conversationKey,
-        patch: {
-          status: 'error',
-          error_message:
-            error instanceof Error && error.message
-              ? error.message
-              : 'Não foi possível registrar a conversa no histórico.',
-        },
-      })
-      return
-    }
-
-    if (!confirmResult?.ok || !confirmResult.payload?.ok || !confirmResult.payload?.data) {
-      const code = confirmResult?.payload?.code
-      const isStale = [
-        'REGISTER_CONVERSATION_STALE_WATERMARK',
-        'REGISTER_CONVERSATION_INVALID_CONFIRMATION_TOKEN',
-        'REGISTER_CONVERSATION_CONFIRMATION_TOKEN_SCOPE_MISMATCH',
-        'REGISTER_CONVERSATION_CYCLE_MISMATCH',
-        'REGISTER_CONVERSATION_CONVERSATION_KEY_MISMATCH',
-        'REGISTER_CONVERSATION_SUMMARY_MISMATCH',
-      ].includes(code)
-
-      applyConversationRegistrationUpdate({
-        key,
-        requestCycleId: cycleId,
-        requestConversationKey: conversationKey,
-        patch: {
-          status: isStale ? 'stale' : 'error',
-          error_message:
-            confirmResult?.payload?.error ||
-            'Não foi possível registrar a conversa no histórico.',
-        },
-      })
-      return
-    }
-
-    const data = confirmResult.payload.data
-
-    applyConversationRegistrationUpdate({
-      key,
-      requestCycleId: cycleId,
-      requestConversationKey: conversationKey,
-      patch: {
-        status: 'success',
-        summary_text: data.summary_text || entry.summary_text,
-        occurred_at: data.occurred_at || null,
-        already_registered: data.already_registered === true,
-        error_message: null,
-      },
-    })
-
-    // O registro confirmado passa a ser uma fonte histórica do working
-    // summary. O wrapper de cache já invalidou o snapshot anterior; esta
-    // nova leitura faz a UI refletir o marco salvo imediatamente, inclusive
-    // quando antes ela exibia o estado vazio.
-    await loadCompanionLeadSummaryForCurrentCycle()
-  }
-
-  function cancelCurrentConversationRegistration() {
-    const key = getConversationRegistrationKey()
-
-    if (!key || !state.conversationRegistrations?.[key]) {
-      return
-    }
-
-    const nextRegistrations = {
-      ...state.conversationRegistrations,
-    }
-
-    delete nextRegistrations[key]
-
-    state = {
-      ...state,
-      conversationRegistrations: nextRegistrations,
-    }
-
-    renderPanel()
-  }
-
-  function getConversationRegistrationCardHtml() {
-    if (!canRegisterCurrentConversation()) {
-      return ''
-    }
-
-    const entry = getCurrentConversationRegistrationEntry()
-    const status = entry?.status || 'idle'
-
-    const body = (() => {
-      if (status === 'previewing') {
-        return `
-          <div class="yolen-card-description">Gerando resumo…</div>
-          <button class="yolen-secondary-button" type="button" disabled>Gerando resumo…</button>
-        `
-      }
-
-      if (status === 'preview_ready') {
-        return `
-          <div class="yolen-card-description yolen-conversation-registration-preview">
-            ${escapeHtml(entry?.summary_text || '')}
-          </div>
-          <div class="yolen-inline-actions">
-            <button class="yolen-primary-button" type="button" data-yolen-action="confirm-conversation-registration">
-              Confirmar registro
-            </button>
-            <button class="yolen-tertiary-button" type="button" data-yolen-action="cancel-conversation-registration">
-              Cancelar
-            </button>
-          </div>
-        `
-      }
-
-      if (status === 'saving') {
-        return `
-          <div class="yolen-card-description">Registrando no histórico…</div>
-          <button class="yolen-primary-button" type="button" disabled>Registrando no histórico…</button>
-        `
-      }
-
-      if (status === 'success') {
-        return `
-          <div class="yolen-card-description yolen-conversation-registration-preview">
-            ${escapeHtml(entry?.summary_text || '')}
-          </div>
-          <div class="yolen-decision-kicker">Conversa registrada no histórico</div>
-          <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
-            Registrar novamente
-          </button>
-        `
-      }
-
-      if (status === 'stale') {
-        return `
-          <div class="yolen-card-description">
-            ${escapeHtml(
-              entry?.error_message ||
-                'A conversa mudou desde a geração do resumo. Gere novamente.',
-            )}
-          </div>
-          <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
-            Gerar novamente
-          </button>
-        `
-      }
-
-      if (status === 'error') {
-        return `
-          <div class="yolen-card-description yolen-status-warning">
-            ${escapeHtml(entry?.error_message || 'Não foi possível registrar. Tentar novamente.')}
-          </div>
-          <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
-            Tentar novamente
-          </button>
-        `
-      }
-
-      return `
-        <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
-          Registrar conversa
-        </button>
-      `
-    })()
-
-    return `
-      <div class="yolen-card yolen-conversation-registration-card">
-        <div class="yolen-section-label">Histórico do lead</div>
-        ${body}
-      </div>
-    `
   }
 
   function isOpenSuggestionStatus(status) {
@@ -7779,227 +7367,6 @@ function createCompanionCore(ctx) {
     }
   }
 
-  // Carrega o working summary factual do lead. A rota combina memória
-  // persistente, registros históricos confirmados e mensagens canônicas;
-  // somente o salvamento da memória consolidada continua dependendo de ação
-  // explícita do vendedor (ver handleSaveLeadSummaryClick).
-  async function loadCompanionLeadSummaryForCurrentCycle() {
-    const cycleId =
-      getCanonicalResolutionCycleId()
-
-    const conversationKey =
-      getCaptureConversationKey()
-
-    if (!cycleId || !conversationKey) {
-      window.YolenCompanionSellerMessageRuntime
-        ?.clear?.()
-
-      state = {
-        ...state,
-        companionLeadSummary: {
-          status: 'idle',
-        },
-        companionLeadSummaryCycleId: null,
-        companionLeadSummaryConversationKey: null,
-        companionLeadSummarySaveStatus: null,
-        companionLeadSummarySaveError: null,
-        companionLeadSummaryDraftValue: null,
-      }
-
-      renderPanel()
-      return
-    }
-
-    state = {
-      ...state,
-      companionLeadSummary: {
-        status: 'loading',
-      },
-      companionLeadSummaryCycleId: cycleId,
-      companionLeadSummaryConversationKey: conversationKey,
-      companionLeadSummarySaveStatus: null,
-      companionLeadSummarySaveError: null,
-      companionLeadSummaryDraftValue: null,
-    }
-
-    renderPanel()
-
-    const isStillCurrentContext = () =>
-      state.companionLeadSummaryCycleId === cycleId &&
-      state.companionLeadSummaryConversationKey === conversationKey
-
-    try {
-      const result = await window.YolenCompanionApi.loadLeadSummary({
-        cycle_id: cycleId,
-        conversation_key: conversationKey,
-      })
-
-      if (!isStillCurrentContext()) {
-        return
-      }
-
-      if (!result?.ok || !result.payload?.ok) {
-        state = {
-          ...state,
-          companionLeadSummary: {
-            status: 'error',
-            error:
-              result?.payload?.error ||
-              'Não foi possível carregar o resumo salvo na Yolen.',
-          },
-        }
-
-        renderPanel()
-        return
-      }
-
-      state = {
-        ...state,
-        companionLeadSummary: {
-          status: 'ready',
-          data: result.payload.data,
-        },
-      }
-
-      renderPanel()
-
-      window.YolenCompanionSellerMessageRuntime
-        ?.syncContext?.(
-          {
-            cycle_id: cycleId,
-            conversation_key: conversationKey,
-          },
-          result.payload.data,
-        )
-    } catch (error) {
-      if (!isStillCurrentContext()) {
-        return
-      }
-
-      state = {
-        ...state,
-        companionLeadSummary: {
-          status: 'error',
-          error:
-            error instanceof Error && error.message
-              ? error.message
-              : 'Não foi possível carregar o resumo salvo na Yolen.',
-        },
-      }
-
-      renderPanel()
-    }
-  }
-
-  // Salva o resumo por ação EXPLÍCITA do vendedor (clique no botão) — nunca
-  // automaticamente. compare-and-set: envia expected_version = versão atual
-  // conhecida (ou null se ainda não existe nenhuma); um 409 significa que
-  // outra ação salvou uma versão mais nova nesse meio-tempo, e o cartão
-  // mostra o aviso de conflito em vez de sobrescrever.
-  async function handleSaveLeadSummaryClick(summaryText) {
-    const cycleId = getCanonicalResolutionCycleId()
-    const conversationKey = getCaptureConversationKey()
-
-    if (!cycleId || !conversationKey) {
-      return
-    }
-
-    const expectedVersion =
-      state.companionLeadSummary?.data?.summary?.version ?? null
-
-    state = {
-      ...state,
-      companionLeadSummarySaveStatus: 'saving',
-      companionLeadSummarySaveError: null,
-      companionLeadSummaryDraftValue: summaryText,
-    }
-
-    renderPanel()
-
-    try {
-      const result = await window.YolenCompanionApi.saveLeadSummary({
-        cycle_id: cycleId,
-        conversation_key: conversationKey,
-        summary: summaryText,
-        expected_version: expectedVersion,
-      })
-
-      if (
-        getCanonicalResolutionCycleId() !== cycleId ||
-        getCaptureConversationKey() !== conversationKey
-      ) {
-        return
-      }
-
-      if (result?.payload?.code === 'LEAD_SUMMARY_VERSION_CONFLICT') {
-        state = {
-          ...state,
-          companionLeadSummarySaveStatus: 'conflict',
-          companionLeadSummarySaveError: null,
-        }
-
-        renderPanel()
-        return
-      }
-
-      if (!result?.ok || !result.payload?.ok) {
-        state = {
-          ...state,
-          companionLeadSummarySaveStatus: 'error',
-          companionLeadSummarySaveError:
-            result?.payload?.error || 'Não foi possível salvar o resumo.',
-        }
-
-        renderPanel()
-        return
-      }
-
-      const previousSummaryData =
-        state.companionLeadSummary?.data || {}
-      const persistedSummary =
-        result.payload.data.summary || null
-
-      state = {
-        ...state,
-        companionLeadSummary: {
-          status: 'ready',
-          data: {
-            ...previousSummaryData,
-            ...result.payload.data,
-            working_summary:
-              persistedSummary?.summary ||
-              previousSummaryData.working_summary ||
-              null,
-            working_summary_source: 'canonical',
-            has_unsaved_changes: false,
-            current_message_watermark:
-              persistedSummary
-                ?.last_message_watermark ??
-              previousSummaryData
-                .current_message_watermark ??
-              null,
-          },
-        },
-        companionLeadSummarySaveStatus: null,
-        companionLeadSummarySaveError: null,
-        companionLeadSummaryDraftValue: null,
-      }
-
-      renderPanel()
-    } catch (error) {
-      state = {
-        ...state,
-        companionLeadSummarySaveStatus: 'error',
-        companionLeadSummarySaveError:
-          error instanceof Error && error.message
-            ? error.message
-            : 'Não foi possível salvar o resumo.',
-      }
-
-      renderPanel()
-    }
-  }
-
   function getCompanionClientRelationshipCardHtml() {
     if (
       state.companionClientContext
@@ -8018,27 +7385,6 @@ function createCompanionCore(ctx) {
           state.companionClientContext,
           Date.now(),
         )}
-      </div>
-    `
-  }
-
-  function getCompanionLeadSummaryCardHtml() {
-    if (state.companionLeadSummary?.status === 'idle') {
-      return ''
-    }
-
-    return `
-      <div class="yolen-card yolen-lead-summary-card">
-        <div class="yolen-section-label">
-          Resumo salvo na Yolen
-        </div>
-
-        ${leadSummaryViewTools.renderLeadSummarySection({
-          ...state.companionLeadSummary,
-          saveStatus: state.companionLeadSummarySaveStatus,
-          saveError: state.companionLeadSummarySaveError,
-          draftValue: state.companionLeadSummaryDraftValue,
-        })}
       </div>
     `
   }
@@ -8614,727 +7960,6 @@ function createCompanionCore(ctx) {
       nextArea,
       { focus: true },
     )
-  }
-
-  function getLeadEnrichmentAddressValue(
-    profile,
-  ) {
-    const parts = [
-      profile?.address_street,
-      profile?.address_number,
-      profile?.address_complement,
-      profile?.address_neighborhood,
-      profile?.address_city,
-      profile?.address_state,
-    ]
-      .map((value) =>
-        String(value || '').trim(),
-      )
-      .filter(Boolean)
-
-    return parts.length > 0
-      ? parts.join(', ')
-      : null
-  }
-
-  function getCurrentLeadEnrichmentValue(
-    field,
-    resolution,
-  ) {
-    const lead =
-      resolution?.lead || {}
-
-    const profile =
-      resolution?.lead_profile || {}
-
-    if (field === 'email') {
-      return (
-        lead.email ||
-        profile.email ||
-        null
-      )
-    }
-
-    if (field === 'cpf') {
-      return (
-        profile.cpf ||
-        (
-          onlyDigits(
-            lead.cpf_cnpj,
-          ).length === 11
-            ? onlyDigits(
-                lead.cpf_cnpj,
-              )
-            : null
-        )
-      )
-    }
-
-    if (field === 'cnpj') {
-      return (
-        profile.cnpj ||
-        (
-          onlyDigits(
-            lead.cpf_cnpj,
-          ).length === 14
-            ? onlyDigits(
-                lead.cpf_cnpj,
-              )
-            : null
-        )
-      )
-    }
-
-    if (field === 'birth_date') {
-      return profile.birth_date || null
-    }
-
-    if (field === 'profession') {
-      return profile.profession || null
-    }
-
-    if (field === 'cep') {
-      return profile.cep || null
-    }
-
-    if (field === 'address_raw') {
-      return getLeadEnrichmentAddressValue(
-        profile,
-      )
-    }
-
-    if (field === 'phone_mobile') {
-      return profile.phone_mobile || null
-    }
-
-    return null
-  }
-
-  function normalizeLeadEnrichmentComparisonValue(
-    value,
-  ) {
-    return String(value || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLocaleLowerCase('pt-BR')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  }
-
-  function areSameLeadEnrichmentValue(
-    field,
-    currentValue,
-    candidateValue,
-  ) {
-    if (
-      !currentValue ||
-      !candidateValue
-    ) {
-      return false
-    }
-
-    if (
-      field === 'cpf' ||
-      field === 'cnpj' ||
-      field === 'cep'
-    ) {
-      return (
-        onlyDigits(currentValue) ===
-        onlyDigits(candidateValue)
-      )
-    }
-
-    if (
-      field === 'phone_mobile' &&
-      typeof leadEnrichmentTools
-        ?.areEquivalentPhones ===
-        'function'
-    ) {
-      return leadEnrichmentTools
-        .areEquivalentPhones(
-          currentValue,
-          candidateValue,
-        )
-    }
-
-    const currentNormalized =
-      normalizeLeadEnrichmentComparisonValue(
-        currentValue,
-      )
-
-    const candidateNormalized =
-      normalizeLeadEnrichmentComparisonValue(
-        candidateValue,
-      )
-
-    if (
-      !currentNormalized ||
-      !candidateNormalized
-    ) {
-      return false
-    }
-
-    if (field === 'address_raw') {
-      return (
-        currentNormalized ===
-          candidateNormalized ||
-        currentNormalized.includes(
-          candidateNormalized,
-        ) ||
-        candidateNormalized.includes(
-          currentNormalized,
-        )
-      )
-    }
-
-    return (
-      currentNormalized ===
-      candidateNormalized
-    )
-  }
-
-  function getLeadEnrichmentCandidates() {
-    // Raw somente para campos cadastrais do lead (lead.id / lead.phone),
-    // deliberadamente fora do ViewModel; status/ciclo vêm do canônico.
-    const resolution =
-      state.leadResolution
-
-    const isNewLead =
-      getCanonicalResolutionStatus() ===
-      'NOT_FOUND'
-
-    const isOwnedLead =
-      getCanonicalResolutionStatus() ===
-        'OWNED_BY_ME' &&
-      resolution?.lead?.id &&
-      getCanonicalResolutionCycleId()
-
-    if (
-      !leadEnrichmentTools ||
-      typeof leadEnrichmentTools
-        .extractLeadEnrichmentCandidates !==
-        'function' ||
-      typeof leadEnrichmentTools
-        .isLeadEnrichmentCandidate !==
-        'function' ||
-      (
-        !isNewLead &&
-        !isOwnedLead
-      )
-    ) {
-      return []
-    }
-
-    const messages =
-      getStructuredMessagesForEnrichment()
-
-    const candidates =
-      leadEnrichmentTools
-        .extractLeadEnrichmentCandidates(
-          messages,
-          {
-            currentPhone:
-              resolution?.lead?.phone ||
-              state.conversationPhone ||
-              null,
-          },
-        )
-        .filter(
-          (candidate) =>
-            leadEnrichmentTools
-              .isLeadEnrichmentCandidate(
-                candidate,
-              ),
-        )
-
-    if (isNewLead) {
-      return candidates.map(
-        (candidate) => ({
-          ...candidate,
-          current_value: null,
-          comparison: 'new_lead',
-        }),
-      )
-    }
-
-    return candidates.flatMap(
-      (candidate) => {
-        const currentValue =
-          getCurrentLeadEnrichmentValue(
-            candidate.field,
-            resolution,
-          )
-
-        if (
-          currentValue &&
-          areSameLeadEnrichmentValue(
-            candidate.field,
-            currentValue,
-            candidate.normalized_value,
-          )
-        ) {
-          return []
-        }
-
-        return [{
-          ...candidate,
-          current_value:
-            currentValue || null,
-          comparison:
-            currentValue
-              ? 'different'
-              : 'missing',
-        }]
-      },
-    )
-  }
-
-  function getLeadEnrichmentFieldLabel(
-    field,
-  ) {
-    const labels = {
-      email: 'E-mail',
-      cpf: 'CPF',
-      cnpj: 'CNPJ',
-      birth_date: 'Data de nascimento',
-      profession: 'Profissão',
-      cep: 'CEP',
-      address_raw: 'Endereço',
-      phone_mobile:
-        'Telefone adicional',
-    }
-
-    return (
-      labels[field] ||
-      'Dado cadastral'
-    )
-  }
-
-  function getLeadEnrichmentCandidateKey(
-    candidate,
-  ) {
-    const evidenceIds =
-      Array.isArray(
-        candidate?.evidence_message_ids,
-      )
-        ? candidate.evidence_message_ids
-        : []
-
-    return [
-      state.leadResolution?.lead?.id || '',
-      candidate?.field || '',
-      candidate?.normalized_value || '',
-      candidate?.current_value || '',
-      ...evidenceIds,
-    ].join('::')
-  }
-
-  function isConfirmableLeadEnrichmentCandidate(
-    candidate,
-  ) {
-    return [
-      'email',
-      'cpf',
-      'cnpj',
-      'birth_date',
-      'profession',
-      'cep',
-      'phone_mobile',
-    ].includes(
-      candidate?.field,
-    )
-  }
-
-  function getVisibleLeadEnrichmentCandidates() {
-    return getLeadEnrichmentCandidates()
-      .filter((candidate) => {
-        const candidateKey =
-          getLeadEnrichmentCandidateKey(
-            candidate,
-          )
-
-        return !ignoredLeadEnrichmentCandidateKeys
-          .has(candidateKey)
-      })
-  }
-
-  function ignoreLeadEnrichmentCandidate(
-    candidateKey,
-  ) {
-    if (!candidateKey) {
-      return
-    }
-
-    ignoredLeadEnrichmentCandidateKeys
-      .add(candidateKey)
-
-    state = {
-      ...state,
-      leadEnrichmentApplySuccessKey:
-        null,
-      leadEnrichmentApplyError:
-        null,
-    }
-
-    renderPanel()
-  }
-
-  async function applyLeadEnrichmentCandidate(
-    candidateKey,
-  ) {
-    if (
-      !candidateKey ||
-      state.leadEnrichmentApplyLoadingKey
-    ) {
-      return
-    }
-
-    // Raw somente para lead.id (fora do ViewModel); status/ciclo vêm do
-    // canônico.
-    const resolution =
-      state.leadResolution
-
-    const cycleId =
-      getCanonicalResolutionCycleId()
-
-    if (
-      getCanonicalResolutionStatus() !==
-        'OWNED_BY_ME' ||
-      !resolution?.lead?.id ||
-      !cycleId
-    ) {
-      return
-    }
-
-    const candidate =
-      getVisibleLeadEnrichmentCandidates()
-        .find((item) => {
-          return (
-            getLeadEnrichmentCandidateKey(
-              item,
-            ) === candidateKey
-          )
-        })
-
-    if (!candidate) {
-      return
-    }
-
-    if (
-      candidate
-        .requires_human_confirmation !==
-        true ||
-      !isConfirmableLeadEnrichmentCandidate(
-        candidate,
-      )
-    ) {
-      state = {
-        ...state,
-        leadEnrichmentApplyError:
-          'Este dado exige revisão manual antes de alterar o cadastro.',
-      }
-
-      renderPanel()
-      return
-    }
-
-    if (
-      !window
-        .YolenCompanionApi
-        ?.applyLeadEnrichment
-    ) {
-      state = {
-        ...state,
-        leadEnrichmentApplyError:
-          'Atualização cadastral indisponível nesta versão do Companion.',
-      }
-
-      renderPanel()
-      return
-    }
-
-    state = {
-      ...state,
-      leadEnrichmentApplyLoadingKey:
-        candidateKey,
-      leadEnrichmentApplySuccessKey:
-        null,
-      leadEnrichmentApplyError:
-        null,
-    }
-
-    renderPanel()
-
-    try {
-      const result =
-        await window
-          .YolenCompanionApi
-          .applyLeadEnrichment({
-            lead_id:
-              resolution.lead.id,
-            cycle_id:
-              cycleId,
-            field:
-              candidate.field,
-            value:
-              candidate.normalized_value,
-            expected_current_value:
-              candidate.current_value ||
-              null,
-            evidence_message_ids:
-              candidate
-                .evidence_message_ids,
-            confirmed_by_human:
-              true,
-          })
-
-      if (
-        !result?.ok ||
-        !result?.payload?.ok
-      ) {
-        throw new Error(
-          result?.payload?.error ||
-            'Não foi possível atualizar o cadastro.',
-        )
-      }
-
-      state = {
-        ...state,
-        leadEnrichmentApplyLoadingKey:
-          null,
-        leadEnrichmentApplySuccessKey:
-          candidateKey,
-        leadEnrichmentApplyError:
-          null,
-      }
-
-      renderPanel()
-
-      window.setTimeout(() => {
-        const panel =
-          document.getElementById(
-            PANEL_ID,
-          )
-
-        panel
-          ?.querySelector(
-            '[data-yolen-action="refresh"]',
-          )
-          ?.click()
-      }, 350)
-    } catch (error) {
-      state = {
-        ...state,
-        leadEnrichmentApplyLoadingKey:
-          null,
-        leadEnrichmentApplySuccessKey:
-          null,
-        leadEnrichmentApplyError:
-          error instanceof Error &&
-          error.message
-            ? error.message
-            : 'Erro ao atualizar o cadastro.',
-      }
-
-      renderPanel()
-    }
-  }
-
-  function getLeadEnrichmentCandidateActionsHtml(
-    candidate,
-  ) {
-    const candidateKey =
-      getLeadEnrichmentCandidateKey(
-        candidate,
-      )
-
-    const isApplying =
-      state
-        .leadEnrichmentApplyLoadingKey ===
-      candidateKey
-
-    const isApplied =
-      state
-        .leadEnrichmentApplySuccessKey ===
-      candidateKey
-
-    const actionsLocked =
-      Boolean(
-        state
-          .leadEnrichmentApplyLoadingKey,
-      ) ||
-      isApplied
-
-    const ignoreButton = [
-      '<button',
-        ' class="yolen-secondary-button"',
-        ' type="button"',
-        ' data-yolen-action="ignore-lead-enrichment"',
-        ' data-yolen-enrichment-key="' +
-          escapeHtml(candidateKey) +
-          '"',
-        actionsLocked
-          ? ' disabled'
-          : '',
-      '>',
-        'Ignorar',
-      '</button>',
-    ].join('')
-
-    if (
-      !isConfirmableLeadEnrichmentCandidate(
-        candidate,
-      ) ||
-      candidate
-        .requires_human_confirmation !==
-        true
-    ) {
-      return [
-        '<div class="yolen-inline-actions">',
-          ignoreButton,
-        '</div>',
-        '<div class="yolen-operational-note">',
-          'Este campo exige revisão manual.',
-        '</div>',
-      ].join('')
-    }
-
-    const confirmButton = [
-      '<button',
-        ' class="yolen-primary-button"',
-        ' type="button"',
-        ' data-yolen-action="confirm-lead-enrichment"',
-        ' data-yolen-enrichment-key="' +
-          escapeHtml(candidateKey) +
-          '"',
-        actionsLocked
-          ? ' disabled'
-          : '',
-      '>',
-        isApplied
-          ? 'Atualizado'
-          : isApplying
-            ? 'Salvando...'
-            : 'Confirmar',
-      '</button>',
-    ].join('')
-
-    return [
-      '<div class="yolen-inline-actions yolen-enrichment-actions">',
-        confirmButton,
-        ignoreButton,
-      '</div>',
-    ].join('')
-  }
-
-  function getLeadEnrichmentCandidatesHtml() {
-    if (
-      getCanonicalResolutionStatus() ===
-      'NOT_FOUND'
-    ) {
-      return ''
-    }
-
-    const candidates =
-      getVisibleLeadEnrichmentCandidates()
-
-    if (candidates.length === 0) {
-      return ''
-    }
-
-    const items =
-      candidates
-        .map((candidate) => {
-          const evidenceCount =
-            candidate
-              .evidence_message_ids
-              .length
-
-          const evidenceLabel =
-            evidenceCount === 1
-              ? '1 mensagem de evidência'
-              : `${evidenceCount} mensagens de evidência`
-
-          const confidenceLabel =
-            candidate.confidence ===
-            'high'
-              ? 'Alta confiança'
-              : 'Média confiança'
-
-          const comparisonLabel =
-            candidate.current_value
-              ? (
-                  'Atual: ' +
-                  candidate.current_value
-                )
-              : 'Ainda não consta no cadastro'
-
-          return [
-            '<div class="yolen-decision-list-item">',
-              '<div class="yolen-decision-kicker">',
-                escapeHtml(
-                  getLeadEnrichmentFieldLabel(
-                    candidate.field,
-                  ),
-                ),
-              '</div>',
-              '<div class="yolen-decision-copy">',
-                escapeHtml(
-                  candidate.value,
-                ),
-              '</div>',
-              '<div class="yolen-card-description">',
-                escapeHtml(
-                  confidenceLabel +
-                  ' · ' +
-                  evidenceLabel +
-                  ' · ' +
-                  comparisonLabel,
-                ),
-              '</div>',
-              getLeadEnrichmentCandidateActionsHtml(
-                candidate,
-              ),
-            '</div>',
-          ].join('')
-        })
-        .join('')
-
-    return [
-      '<div class="yolen-card yolen-lead-enrichment-card">',
-        '<div class="yolen-section-label">',
-          'Cadastro',
-        '</div>',
-
-        '<div class="yolen-card-title">',
-          'Dados encontrados na conversa',
-        '</div>',
-
-        '<div class="yolen-card-description">',
-          'A Yolen identificou informações que podem complementar o cadastro deste lead.',
-        '</div>',
-
-        '<div class="yolen-decision-list">',
-          items,
-        '</div>',
-
-        state.leadEnrichmentApplyError
-          ? [
-              '<div class="yolen-operational-note">',
-                escapeHtml(
-                  state
-                    .leadEnrichmentApplyError,
-                ),
-              '</div>',
-            ].join('')
-          : '',
-
-        '<div class="yolen-operational-note">',
-          'O cadastro só muda depois que você confirmar.',
-        '</div>',
-      '</div>',
-    ].join('')
   }
 
   globalThis
@@ -11109,10 +9734,8 @@ function createCompanionCore(ctx) {
       // tela mesmo depois do vínculo já ter sido confirmado.
       const shouldClearPendingLeadCreation =
         result.payload.status !== 'NOT_FOUND' &&
-        state.leadCreationConversationKey === keyAtRequest &&
-        (
-          state.leadCreationStatus === 'created_resolving' ||
-          state.leadCreationStatus === 'created_unresolved'
+        isLeadCreationPendingForConversation(
+          keyAtRequest,
         )
 
       state = {
@@ -11198,255 +9821,6 @@ function createCompanionCore(ctx) {
         resolutionInFlightKey,
       )
     }
-  }
-
-  const LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS =
-    [400, 900, 1600]
-
-  // Depois de um CREATE_LEAD confirmado, o vínculo pode ainda não estar
-  // visível na primeira consulta (eventual consistency) — poucas
-  // tentativas curtas com backoff, nunca polling agressivo/indefinido
-  // (ver TESTE 3 e TESTE 7 da Frente 1B). A cada tentativa valida de novo
-  // se a conversa/telefone ainda são os mesmos de quando o create foi
-  // disparado: se o vendedor já trocou de conversa, para silenciosamente
-  // sem tocar em nada da UI atual (ver TESTE 5/TESTE 6). Se uma tentativa
-  // coincidir com outra resolução da mesma conversa já em voo (guard de
-  // resolveCurrentLead()), ela vira um no-op silencioso — o pedido não se
-  // perde porque a PRÓXIMA tentativa deste laço tenta de novo pouco
-  // depois (ver TESTE 2); não precisamos de uma fila própria dentro de
-  // resolveCurrentLead() só para isso.
-  async function resolveAfterLeadCreation(
-    conversationKeyAtCreate,
-    phoneAtCreate,
-  ) {
-    const stillCurrent = () =>
-      state.conversationKey === conversationKeyAtCreate &&
-      state.conversationPhone === phoneAtCreate
-
-    for (
-      let attempt = 0;
-      attempt <= LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS.length;
-      attempt += 1
-    ) {
-      if (!stillCurrent()) {
-        return
-      }
-
-      await resolveCurrentLead()
-
-      if (!stillCurrent()) {
-        return
-      }
-
-      if (
-        state.leadResolutionViewModel &&
-        state.leadResolutionViewModel.status !== 'NOT_FOUND'
-      ) {
-        state = {
-          ...state,
-          leadCreationStatus: null,
-          leadCreationConversationKey: null,
-          leadCreationError: null,
-        }
-
-        renderPanel()
-        return
-      }
-
-      if (attempt < LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS.length) {
-        await sleep(
-          LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS[attempt],
-        )
-      }
-    }
-
-    // Tentativas esgotadas: o backend já confirmou a criação (senão nunca
-    // teríamos chegado aqui) — isso NUNCA pode voltar a ser um estado de
-    // "erro de criação" genérico, porque 'error' também é usado para um
-    // CREATE que falhou de verdade (ver createLeadForCurrentConversation),
-    // e esse caso reabre o formulário com o botão "Criar lead" habilitado
-    // de propósito. Aqui o lead já existe no backend: reabrir o formulário
-    // permitiria um SEGUNDO create depois de um primeiro já confirmado —
-    // proibido. 'created_unresolved' é um estado à parte, sem permissão
-    // de criar de novo: só uma reconsulta manual (ver
-    // retryLeadLinkAfterCreation()) pode sair dele.
-    if (stillCurrent()) {
-      state = {
-        ...state,
-        leadCreationStatus: 'created_unresolved',
-        leadCreationConversationKey: conversationKeyAtCreate,
-        leadCreationError: null,
-      }
-
-      renderPanel()
-    }
-  }
-
-  // Clique em "Atualizar vínculo" a partir do estado created_unresolved —
-  // dispara só uma reconsulta (RESOLVE), nunca um novo CREATE. Se o
-  // vínculo aparecer, sai do estado pendente; se continuar NOT_FOUND, o
-  // vendedor continua vendo "Lead criado, mas o vínculo ainda não foi
-  // atualizado." sem nenhum formulário de criação reaparecer.
-  async function retryLeadLinkAfterCreation() {
-    // resolveCurrentLead() já é a fonte única de verdade para sair de
-    // created_unresolved (ver o bloco de sucesso lá dentro) — dispara
-    // sempre a MESMA reconsulta que o botão global "Atualizar" dispara,
-    // sem lógica própria duplicada aqui.
-    await resolveCurrentLead()
-  }
-
-  // Fonte única de verdade para criar um lead a partir do formulário de
-  // "Novo contato": chamado por lead-automation.js via
-  // window.YolenCompanionLeadCreationBridge, nunca por clique sintético em
-  // [data-yolen-action="refresh"] (ver causa raiz do BLOCKER da Frente
-  // 1B). conversationKey/phone recebidos são os que estavam vinculados ao
-  // FORMULÁRIO no momento do clique — comparados aqui contra o state atual
-  // antes de qualquer efeito colateral, e de novo depois do POST, porque o
-  // vendedor pode trocar de conversa a qualquer momento durante o create.
-  async function createLeadForCurrentConversation(payload) {
-    const {
-      name,
-      phone,
-      email,
-      document,
-      conversationKey,
-    } = payload || {}
-
-    if (
-      !conversationKey ||
-      conversationKey !== state.conversationKey ||
-      !phone ||
-      phone !== state.conversationPhone
-    ) {
-      return {
-        ok: false,
-        code: 'conversation_changed',
-      }
-    }
-
-    if (leadCreationInFlightKeys.has(conversationKey)) {
-      return {
-        ok: false,
-        code: 'already_in_flight',
-      }
-    }
-
-    leadCreationInFlightKeys.add(conversationKey)
-
-    state = {
-      ...state,
-      leadCreationStatus: 'creating',
-      leadCreationConversationKey: conversationKey,
-      leadCreationError: null,
-    }
-
-    renderPanel()
-
-    const stillCurrent = () =>
-      state.conversationKey === conversationKey &&
-      state.conversationPhone === phone
-
-    try {
-      const result =
-        await window.YolenCompanionApi.createLead({
-          name,
-          phone,
-          email: email || null,
-          cpf_cnpj: document || null,
-        })
-
-      if (!stillCurrent()) {
-        // A conversa já mudou — o resultado deste create pertence à
-        // conversa anterior e não pode alterar a UI da conversa atual.
-        return { ok: true, applied: false }
-      }
-
-      if (!result?.ok || !result.payload?.ok) {
-        const code =
-          result?.payload?.code ||
-          result?.payload?.status
-
-        if (
-          code === 'active_lead_conflict' ||
-          code === 'concurrent_create_conflict'
-        ) {
-          state = {
-            ...state,
-            leadCreationStatus: 'created_resolving',
-            leadCreationError: null,
-          }
-
-          renderPanel()
-
-          await resolveAfterLeadCreation(
-            conversationKey,
-            phone,
-          )
-
-          return { ok: true, applied: true, code }
-        }
-
-        state = {
-          ...state,
-          leadCreationStatus: 'error',
-          leadCreationConversationKey: conversationKey,
-          leadCreationError:
-            result?.payload?.error ||
-            'Não foi possível criar o lead.',
-        }
-
-        renderPanel()
-
-        return {
-          ok: false,
-          applied: true,
-          error: state.leadCreationError,
-        }
-      }
-
-      state = {
-        ...state,
-        leadCreationStatus: 'created_resolving',
-        leadCreationError: null,
-      }
-
-      renderPanel()
-
-      await resolveAfterLeadCreation(
-        conversationKey,
-        phone,
-      )
-
-      return { ok: true, applied: true }
-    } catch (error) {
-      if (!stillCurrent()) {
-        return { ok: true, applied: false }
-      }
-
-      state = {
-        ...state,
-        leadCreationStatus: 'error',
-        leadCreationConversationKey: conversationKey,
-        leadCreationError:
-          error instanceof Error && error.message
-            ? error.message
-            : 'Erro ao criar lead na Yolen.',
-      }
-
-      renderPanel()
-
-      return {
-        ok: false,
-        applied: true,
-        error: state.leadCreationError,
-      }
-    } finally {
-      leadCreationInFlightKeys.delete(conversationKey)
-    }
-  }
-
-  window.YolenCompanionLeadCreationBridge = {
-    createLead: createLeadForCurrentConversation,
   }
 
   function createActionTelemetryInteractionId() {

@@ -596,9 +596,11 @@ test('B2 integra candidatos reais no painel com confirmação humana explícita'
       'function getLeadEnrichmentCandidates()',
     )
 
+  // FASE 5: a integração de candidatos vive no controller de
+  // enriquecimento; o bloco vai até o fim das declarações do controller.
   const integrationEnd =
     contentScript.indexOf(
-      'function getCompactConnectionLabel()',
+      '\n  return {\n',
       integrationStart,
     )
 

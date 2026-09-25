@@ -1,5 +1,5 @@
 ;(function initYolenCompanionWhatsAppAdapter(root) {
-function createWhatsAppAdapter(ctx) {
+function createWhatsAppAdapter() {
 
   function sleep(ms) {
     return new Promise((resolve) => {

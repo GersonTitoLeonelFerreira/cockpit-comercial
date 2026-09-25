@@ -1173,9 +1173,11 @@ test('lead action presenter decide pelas capabilities canônicas do ViewModel', 
       'function getLeadActionButton()',
     )
 
+  // FASE 5: getLeadActionButton vive no controller de criação de lead; o
+  // bloco termina no fechamento da própria função.
   const end =
     contentScriptSource.indexOf(
-      '// ---------------------------------------------------------------------',
+      '\n  }\n',
       start,
     )
 

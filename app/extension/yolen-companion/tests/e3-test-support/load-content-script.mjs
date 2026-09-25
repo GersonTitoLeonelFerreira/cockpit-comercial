@@ -42,6 +42,10 @@ const DEPENDENCY_FILES = [
   'companion-workspace-runtime.js',
   'whatsapp-adapter.js',
   'companion-analysis-controller.js',
+  'companion-lead-creation-controller.js',
+  'companion-conversation-registration-controller.js',
+  'companion-lead-enrichment-controller.js',
+  'companion-lead-summary-controller.js',
   'companion-core.js',
 ]
 

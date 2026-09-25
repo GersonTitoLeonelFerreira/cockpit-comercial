@@ -107,8 +107,10 @@ test(
     const start = contentScript.indexOf(
       'async function loadAgoraDecisionStateForCurrentCycle(',
     )
+    // FASE 5: o working summary do lead saiu para o controller de resumo;
+    // o bloco termina no fechamento da própria função.
     const end = contentScript.indexOf(
-      '\n  }\n\n  // Carrega o working summary factual do lead.',
+      '\n  }\n',
       start,
     )
     const block = contentScript.slice(start, end)
@@ -226,8 +228,10 @@ test(
     const start = contentScript.indexOf(
       'async function loadAgoraDecisionStateForCurrentCycle(',
     )
+    // FASE 5: o working summary do lead saiu para o controller de resumo;
+    // o bloco termina no fechamento da própria função.
     const end = contentScript.indexOf(
-      '\n  }\n\n  // Carrega o working summary factual do lead.',
+      '\n  }\n',
       start,
     )
     const block = contentScript.slice(start, end)
