@@ -13,6 +13,11 @@ function createCompanionMessageController({
   getBaseUrl,
   // Nome de exibição do canal (contrato §5): só interpolado em copy.
   platformDisplayName = '',
+  // Contexto de operação do Core (conversa/geração/empresa/sessão). A
+  // geração, a cópia e a inclusão só produzem efeitos enquanto o contexto
+  // em que o resumo foi sincronizado continuar vivo.
+  captureOperationContext = () => null,
+  isOperationContextCurrent = () => true,
 } = {}) {
   const stateByContext = new Map()
   let currentContext = null
@@ -415,6 +420,12 @@ function createCompanionMessageController({
     state.feedback = null
     queueRender()
 
+    // Resposta de uma geração cujo contexto já não é o atual (troca de
+    // conversa, A→B→A, empresa ou sessão) é descartada sem tocar em nada.
+    const isStillCurrent = () =>
+      stateByContext.get(context.key) === state &&
+      isOperationContextCurrent(context.operationContext)
+
     // FASE 16.9 — a mensagem não envia mais uma orientação própria
     // (guidance_status/guidance_stage_name/guidance_next_step) ao
     // servidor. O servidor carrega, ele mesmo, a mesma fotografia
@@ -444,12 +455,20 @@ function createCompanionMessageController({
         },
       })
     } catch (error) {
+      if (!isStillCurrent()) {
+        return
+      }
+
       state.status = 'error'
       state.error =
         error instanceof Error && error.message
           ? error.message
           : 'Falha de comunicação ao gerar a mensagem.'
       queueRender()
+      return
+    }
+
+    if (!isStillCurrent()) {
       return
     }
 
@@ -511,19 +530,27 @@ function createCompanionMessageController({
       'Não foi possível confirmar a inserção. Use Copiar.',
     inserted:
       `Mensagem incluída no ${platformDisplayName}. Revise antes de enviar.`,
+    conversation_changed:
+      'A conversa mudou. Nada foi incluído.',
   })
 
   function insertIntoChannelComposer() {
-    const state = getState(currentContext)
+    const context = currentContext
+    const state = getState(context)
 
     if (!state?.message) {
       return
     }
 
     const outcome =
-      typeof insertIntoComposer === 'function'
-        ? insertIntoComposer(state.message)
-        : 'composer_unavailable'
+      !isOperationContextCurrent(context.operationContext)
+        ? 'conversation_changed'
+        : typeof insertIntoComposer === 'function'
+          ? insertIntoComposer(state.message, {
+              conversationKey:
+                context.operationContext?.conversationKey || null,
+            })
+          : 'composer_unavailable'
 
     state.feedback =
       INSERT_FEEDBACK[outcome] ||
@@ -532,22 +559,33 @@ function createCompanionMessageController({
   }
 
   async function copyMessage() {
-    const state = getState(currentContext)
+    const context = currentContext
+    const state = getState(context)
 
     if (!state?.message) {
       return
     }
 
+    let feedback
+
     try {
       await navigator.clipboard.writeText(
         state.message,
       )
-      state.feedback = 'Mensagem copiada.'
+      feedback = 'Mensagem copiada.'
     } catch {
-      state.feedback =
+      feedback =
         'Não foi possível copiar automaticamente. Selecione a mensagem manualmente.'
     }
 
+    if (
+      stateByContext.get(context.key) !== state ||
+      !isOperationContextCurrent(context.operationContext)
+    ) {
+      return
+    }
+
+    state.feedback = feedback
     queueRender()
   }
 
@@ -560,6 +598,8 @@ function createCompanionMessageController({
       return false
     }
 
+    context.operationContext =
+      captureOperationContext()
     currentContext = context
     queueRender()
     return true

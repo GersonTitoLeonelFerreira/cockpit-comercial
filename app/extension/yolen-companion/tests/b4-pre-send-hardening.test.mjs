@@ -115,7 +115,7 @@ test(
           'function observeManualChannelSend',
           'function reviewCurrentPreSendDraft',
         ),
-        'function onSendAttempt(',
+        'function handleSendKeydown(',
       )
 
     assert.match(
@@ -141,7 +141,7 @@ test(
           'function observeManualChannelSend',
           'function reviewCurrentPreSendDraft',
         ),
-        'function onSendAttempt(',
+        'function handleSendKeydown(',
       )
 
     assert.match(block, /event\.shiftKey/)
@@ -299,7 +299,7 @@ test(
 
     const triggerSendBlock =
       getBlock(
-        'function triggerSend() {',
+        'function triggerSend(expected = {}) {',
         '\n  }\n',
       )
 

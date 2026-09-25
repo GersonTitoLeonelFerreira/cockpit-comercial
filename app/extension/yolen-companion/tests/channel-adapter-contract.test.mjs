@@ -22,10 +22,11 @@ const adapterSource = readSrc('whatsapp-adapter.js')
 const coreSource = readSrc('companion-core.js')
 const messageControllerSource = readSrc('companion-message-controller.js')
 
-function createAdapter({ composerDraft = '', withSendButton = false } = {}) {
+function createAdapter({ composerDraft = '', withSendButton = false, headerTitle = '' } = {}) {
   const dom = new JSDOM(
     `<!doctype html><html><body>
       <div id="main">
+        ${headerTitle ? `<header><span title="${headerTitle}">${headerTitle}</span></header>` : ''}
         <footer>
           <div contenteditable="true" role="textbox" data-lexical-editor="true">${composerDraft}</div>
           ${withSendButton ? '<button aria-label="Enviar" data-testid="send"><span data-icon="send"></span></button>' : ''}
@@ -60,7 +61,11 @@ function createAdapter({ composerDraft = '', withSendButton = false } = {}) {
     MutationObserver: dom.window.MutationObserver,
     InputEvent: dom.window.InputEvent,
     Event: dom.window.Event,
+    KeyboardEvent: dom.window.KeyboardEvent,
     Promise,
+    Set,
+    Array,
+    Object,
     Map,
     WeakMap,
     Math,
@@ -242,4 +247,175 @@ test('§8: Core consulta capabilities antes de oferecer interceptação, áudio,
       marker,
     )
   }
+})
+
+const TITLE_A = '+55 11 98888-7777'
+const TITLE_B = '+55 21 97777-6666'
+
+function setHeader(dom, title) {
+  const span = dom.window.document.querySelector('header span[title]')
+  span.setAttribute('title', title)
+  span.textContent = title
+}
+
+test('§7: applyMessage só escreve na conversa esperada e preserva rascunho sem substituição confirmada', async () => {
+  const a = createAdapter({ headerTitle: TITLE_A })
+  const expectedKey = a.adapter.getCurrentConversationKey()
+
+  assert.ok(expectedKey)
+
+  setHeader(a.dom, TITLE_B)
+  assert.deepEqual(
+    { ...(await a.adapter.applyMessage('Mensagem longa o suficiente para verificar', { conversationKey: expectedKey })) },
+    { applied: false, reason: 'conversation_changed' },
+  )
+  assert.equal(a.getInsertCommandCount(), 0, 'nada é escrito fora da conversa esperada')
+
+  const draft = createAdapter({ headerTitle: TITLE_A, composerDraft: 'Rascunho do vendedor' })
+  const draftKey = draft.adapter.getCurrentConversationKey()
+
+  assert.deepEqual(
+    { ...(await draft.adapter.applyMessage('Mensagem sugerida', { conversationKey: draftKey })) },
+    { applied: false, reason: 'composer_not_empty' },
+  )
+  assert.equal(draft.getInsertCommandCount(), 0)
+
+  assert.deepEqual(
+    { ...(await draft.adapter.applyMessage('Mensagem sugerida pela Yolen para o cliente', { conversationKey: draftKey, replaceExisting: true })) },
+    { applied: true, reason: null },
+  )
+})
+
+test('§7: verificação não confirma texto encontrado depois da troca de conversa', async () => {
+  const { dom, adapter } = createAdapter({ headerTitle: TITLE_A })
+  const expectedKey = adapter.getCurrentConversationKey()
+  const composer = dom.window.document.querySelector('#main footer [contenteditable="true"]')
+
+  // Editor assíncrono: o texto aparece depois da troca de conversa.
+  dom.window.document.execCommand = (command, _showUi, value) => {
+    if (command === 'insertText') {
+      setTimeout(() => {
+        setHeader(dom, TITLE_B)
+        composer.textContent = value
+      }, 60)
+      return true
+    }
+
+    return command === 'delete'
+  }
+
+  const result = await adapter.applyMessage('Mensagem longa o suficiente para verificar', { conversationKey: expectedKey })
+
+  assert.deepEqual({ ...result }, { applied: false, reason: 'conversation_changed' })
+})
+
+test('§7.2: tentativa de envio chega normalizada; só o bloqueio do Core cancela o evento; modificadores/IME ficam fora', () => {
+  const { dom, adapter } = createAdapter({ headerTitle: TITLE_A, withSendButton: true, composerDraft: 'Olá cliente' })
+  const window = dom.window
+  const button = window.document.querySelector('#main footer button')
+  const composer = window.document.querySelector('#main footer [contenteditable="true"]')
+  const attempts = []
+  let block = false
+
+  const unsubscribe = adapter.onSendAttempt((attempt) => {
+    attempts.push(attempt)
+    return { block }
+  })
+
+  const allowedClick = new window.MouseEvent('click', { bubbles: true, cancelable: true })
+  button.dispatchEvent(allowedClick)
+
+  assert.equal(attempts.length, 1)
+  assert.deepEqual(
+    { ...attempts[0] },
+    { kind: 'click', cancelable: true, conversationKey: adapter.getCurrentConversationKey(), draftText: 'Olá cliente' },
+  )
+  assert.equal(allowedClick.defaultPrevented, false)
+  assert.equal(attempts[0] instanceof window.Event, false, 'o Core nunca recebe o Event da plataforma')
+
+  block = true
+  const blockedEnter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+  composer.dispatchEvent(blockedEnter)
+
+  assert.equal(attempts.length, 2)
+  assert.equal(attempts[1].kind, 'enter')
+  assert.equal(blockedEnter.defaultPrevented, true)
+
+  for (const init of [{ shiftKey: true }, { altKey: true }, { ctrlKey: true }, { metaKey: true }, { isComposing: true }]) {
+    composer.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }))
+  }
+
+  assert.equal(attempts.length, 2, 'Shift/Alt/Ctrl/Meta+Enter e composição IME não são tentativas de envio')
+
+  unsubscribe()
+  button.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))
+  assert.equal(attempts.length, 2, 'inscrição cancelada não recebe tentativas')
+})
+
+test('§7.2: várias inscrições compartilham um único par de listeners, removido ao cancelar a última', () => {
+  const { dom, adapter } = createAdapter({ headerTitle: TITLE_A, withSendButton: true })
+  const window = dom.window
+  const added = []
+  const removed = []
+  const originalAdd = window.addEventListener.bind(window)
+  const originalRemove = window.removeEventListener.bind(window)
+
+  window.addEventListener = (type, ...rest) => {
+    added.push(type)
+    return originalAdd(type, ...rest)
+  }
+  window.removeEventListener = (type, ...rest) => {
+    removed.push(type)
+    return originalRemove(type, ...rest)
+  }
+
+  const calls = []
+  const first = adapter.onSendAttempt(() => {
+    calls.push('first')
+    return { block: false }
+  })
+  const second = adapter.onSendAttempt(() => {
+    calls.push('second')
+    return { block: false }
+  })
+
+  assert.deepEqual(added.filter((type) => type === 'click' || type === 'keydown'), ['click', 'keydown'])
+
+  window.document.querySelector('#main footer button').dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))
+  assert.deepEqual(calls, ['first', 'second'])
+
+  first()
+  assert.deepEqual(removed, [])
+  second()
+  assert.deepEqual(removed.sort(), ['click', 'keydown'])
+})
+
+test('§7.2: retomada física só clica com a mesma conversa e o mesmo rascunho confirmados', () => {
+  const { dom, adapter } = createAdapter({ headerTitle: TITLE_A, withSendButton: true, composerDraft: 'Rascunho confirmado' })
+  const button = dom.window.document.querySelector('#main footer button')
+  const expectedKey = adapter.getCurrentConversationKey()
+  let clicks = 0
+
+  button.addEventListener('click', () => {
+    clicks += 1
+  })
+
+  assert.deepEqual(
+    { ...adapter.triggerSend({ conversationKey: expectedKey, draftText: 'Outro rascunho' }) },
+    { sent: false, reason: 'draft_changed' },
+  )
+
+  setHeader(dom, TITLE_B)
+  assert.deepEqual(
+    { ...adapter.triggerSend({ conversationKey: expectedKey, draftText: 'Rascunho confirmado' }) },
+    { sent: false, reason: 'conversation_changed' },
+  )
+  assert.equal(clicks, 0)
+
+  setHeader(dom, TITLE_A)
+  assert.deepEqual(
+    { ...adapter.triggerSend({ conversationKey: expectedKey, draftText: 'Rascunho confirmado' }) },
+    { sent: true, reason: null },
+  )
+  assert.equal(clicks, 1)
 })

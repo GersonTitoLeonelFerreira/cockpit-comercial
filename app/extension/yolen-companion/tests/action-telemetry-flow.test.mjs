@@ -164,7 +164,7 @@ test('instrumenta os seis fatos de interação com sugestão', () => {
   const applyBlock =
     sliceFunction(
       contentScript,
-      'async function applyMessage(message) {',
+      'async function applyMessage(message, expected = {}) {',
     )
 
   assert.match(
@@ -222,12 +222,12 @@ test('instrumenta aceite e rejeição separados para CRM e Agenda', () => {
 test('telemetria nova não substitui o histórico legado de uso da mensagem', () => {
   assert.match(
     contentScript,
-    /registerSuggestedMessageAction\('copied'\)/,
+    /registerSuggestedMessageAction\(\s*'copied',/,
   )
 
   assert.match(
     contentScript,
-    /registerSuggestedMessageAction\('inserted'\)/,
+    /registerSuggestedMessageAction\(\s*'inserted',/,
   )
 
   assert.match(

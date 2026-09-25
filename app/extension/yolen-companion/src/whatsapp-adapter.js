@@ -3299,13 +3299,48 @@ function createWhatsAppAdapter({
     }
   }
 
-  async function applyMessage(message) {
+  // Contexto físico esperado (contrato §7): a escrita só acontece se a
+  // conversa aberta AGORA for a conversa em que o Core iniciou a operação,
+  // e a verificação só confirma enquanto ela continuar aberta — texto
+  // coincidente encontrado em outra conversa nunca confirma a inserção.
+  function isExpectedConversationOpen(expectedConversationKey) {
+    return (
+      !expectedConversationKey ||
+      getCurrentConversationKey() ===
+        expectedConversationKey
+    )
+  }
+
+  // applyMessage(text, { conversationKey, replaceExisting }) — nunca envia.
+  // Sem replaceExisting (substituição confirmada pelo vendedor no Core), um
+  // rascunho existente é preservado (composer_not_empty).
+  async function applyMessage(message, expected = {}) {
+    const expectedConversationKey =
+      expected?.conversationKey || null
+
+    if (!isExpectedConversationOpen(expectedConversationKey)) {
+      return {
+        applied: false,
+        reason: 'conversation_changed',
+      }
+    }
+
     const composer = getWhatsAppComposer()
 
     if (!composer) {
       return {
         applied: false,
         reason: 'composer_not_found',
+      }
+    }
+
+    if (
+      normalizeMessageText(composer.textContent) &&
+      expected?.replaceExisting !== true
+    ) {
+      return {
+        applied: false,
+        reason: 'composer_not_empty',
       }
     }
 
@@ -3326,6 +3361,13 @@ function createWhatsAppAdapter({
       attempt < 8;
       attempt += 1
     ) {
+      if (!isExpectedConversationOpen(expectedConversationKey)) {
+        return {
+          applied: false,
+          reason: 'conversation_changed',
+        }
+      }
+
       const composerAfterWrite =
         getWhatsAppComposer() ||
         composer
@@ -3346,6 +3388,13 @@ function createWhatsAppAdapter({
       }
 
       await sleep(50)
+    }
+
+    if (!isExpectedConversationOpen(expectedConversationKey)) {
+      return {
+        applied: false,
+        reason: 'conversation_changed',
+      }
     }
 
     if (
@@ -3374,7 +3423,29 @@ function createWhatsAppAdapter({
     return Boolean(getWhatsAppSendButton())
   }
 
-  function triggerSend() {
+  // Retomada física de um envio que o Core liberou ("Enviar mesmo assim"):
+  // só clica se a conversa e o rascunho continuam os que o vendedor
+  // confirmou. O clique passa pelo mesmo onSendAttempt, onde o Core libera
+  // uma única vez (sem recursão nem envio duplicado).
+  function triggerSend(expected = {}) {
+    if (!isExpectedConversationOpen(expected?.conversationKey || null)) {
+      return {
+        sent: false,
+        reason: 'conversation_changed',
+      }
+    }
+
+    if (
+      typeof expected?.draftText === 'string' &&
+      getComposerText() !==
+        normalizeMessageText(expected.draftText)
+    ) {
+      return {
+        sent: false,
+        reason: 'draft_changed',
+      }
+    }
+
     const sendButton =
       getWhatsAppSendButton()
 
@@ -3472,7 +3543,11 @@ function createWhatsAppAdapter({
       .trim()
   }
 
-  function insertTextIntoEmptyComposer(text) {
+  function insertTextIntoEmptyComposer(text, expectedContext = {}) {
+    if (!isExpectedConversationOpen(expectedContext?.conversationKey || null)) {
+      return 'conversation_changed'
+    }
+
     const composer = findEmptyDraftComposer()
 
     if (!composer) {
@@ -3722,45 +3797,113 @@ function createWhatsAppAdapter({
     )
   }
 
-  function onSendAttempt(onAttempt) {
-    window.addEventListener(
-      'click',
-      (event) => {
-        if (
-          !isWhatsAppSendButtonTarget(
-            event.target,
-          )
-        ) {
-          return
-        }
+  // Contrato §7.2 interceptSendAttempt: a detecção física (clique no botão
+  // Enviar ou Enter no campo, sem Shift/Alt/Ctrl/Meta e fora de composição
+  // IME) e o cancelamento do evento são do adapter. O Core recebe só a
+  // tentativa normalizada e devolve a decisão { block }. Um único par de
+  // listeners serve todas as inscrições; cancelar a última remove os
+  // listeners.
+  const sendAttemptSubscribers = new Set()
+  let sendAttemptListenersInstalled = false
 
-        onAttempt(event)
-      },
-      true,
-    )
+  function dispatchSendAttempt(event, kind) {
+    const attempt = Object.freeze({
+      kind,
+      cancelable: event.cancelable === true,
+      conversationKey:
+        getCurrentConversationKey() || null,
+      draftText: getComposerText(),
+    })
 
-    window.addEventListener(
-      'keydown',
-      (event) => {
-        if (
-          event.key !== 'Enter' ||
-          event.shiftKey ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.metaKey ||
-          event.isComposing ||
-          event.keyCode === 229 ||
-          !isComposerEnterTarget(
-            event.target,
-          )
-        ) {
-          return
-        }
+    let block = false
 
-        onAttempt(event)
-      },
-      true,
-    )
+    for (const decide of Array.from(sendAttemptSubscribers)) {
+      if (decide(attempt)?.block === true) {
+        block = true
+      }
+    }
+
+    if (block && attempt.cancelable) {
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+    }
+  }
+
+  function handleSendClick(event) {
+    if (
+      !isWhatsAppSendButtonTarget(
+        event.target,
+      )
+    ) {
+      return
+    }
+
+    dispatchSendAttempt(event, 'click')
+  }
+
+  function handleSendKeydown(event) {
+    if (
+      event.key !== 'Enter' ||
+      event.shiftKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.isComposing ||
+      event.keyCode === 229 ||
+      !isComposerEnterTarget(
+        event.target,
+      )
+    ) {
+      return
+    }
+
+    dispatchSendAttempt(event, 'enter')
+  }
+
+  function onSendAttempt(decide) {
+    if (typeof decide !== 'function') {
+      return () => {}
+    }
+
+    sendAttemptSubscribers.add(decide)
+
+    if (!sendAttemptListenersInstalled) {
+      window.addEventListener(
+        'click',
+        handleSendClick,
+        true,
+      )
+
+      window.addEventListener(
+        'keydown',
+        handleSendKeydown,
+        true,
+      )
+
+      sendAttemptListenersInstalled = true
+    }
+
+    return function unsubscribeSendAttempt() {
+      sendAttemptSubscribers.delete(decide)
+
+      if (
+        sendAttemptSubscribers.size === 0 &&
+        sendAttemptListenersInstalled
+      ) {
+        window.removeEventListener(
+          'click',
+          handleSendClick,
+          true,
+        )
+        window.removeEventListener(
+          'keydown',
+          handleSendKeydown,
+          true,
+        )
+        sendAttemptListenersInstalled = false
+      }
+    }
   }
   // ---------------------------------------------------------------------
   // Identidade e evidência de contato (FASE 5 — contrato §6/§7:

@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   readWhatsAppCompositionSource,
   sliceCoreWithChannelEvent,
+  sliceFunction,
 } from './support/whatsapp-composition-source.mjs'
 
 const contentScript = readWhatsAppCompositionSource()
@@ -124,19 +125,26 @@ test('Companion recolhido permanece fail-open', () => {
 })
 
 test('bloqueio usa cancelamento somente no gate', () => {
-  assert.match(
-    gateSource,
-    /event\.preventDefault\(\)/,
+  // FASE 5 (contrato §7.2): o Core decide ({ block }) sobre a tentativa
+  // normalizada; o cancelamento físico do evento é do adapter e só ocorre
+  // quando o Core bloqueia e o evento é cancelável.
+  const intercept = sliceFunction(
+    contentScript,
+    'function interceptPreSendAttempt(attempt) {',
+  )
+
+  assert.ok(intercept)
+  assert.match(intercept, /attempt\?\.cancelable === true/)
+  assert.doesNotMatch(intercept, /preventDefault|stopPropagation|stopImmediatePropagation/)
+
+  const dispatch = sliceFunction(
+    contentScript,
+    'function dispatchSendAttempt(event, kind) {',
   )
 
   assert.match(
-    gateSource,
-    /event\.stopPropagation\(\)/,
-  )
-
-  assert.match(
-    gateSource,
-    /event\.stopImmediatePropagation\(\)/,
+    dispatch,
+    /if \(block && attempt\.cancelable\) \{\s*event\.preventDefault\(\)\s*event\.stopPropagation\(\)\s*event\.stopImmediatePropagation\(\)/,
   )
 })
 
@@ -154,7 +162,7 @@ test('Shift Enter e modificadores permanecem fora do gate', () => {
       observerStart,
       observerStart + 1800,
     ),
-    'function onSendAttempt(',
+    'function handleSendKeydown(',
   )
 
   assert.match(observer, /event\.shiftKey/)
@@ -190,9 +198,16 @@ test('Usar sugestão reutiliza inserção e não o envio', () => {
     /insertSuggestedMessageInChannelWithOptions\(\{\s*replaceExisting:\s*true/,
   )
 
+  // FASE 5: a substituição confirmada (ou pedida por "Usar sugestão")
+  // segue explícita até o adapter, que preserva rascunho sem ela.
   assert.match(
     contentScript,
-    /options\.replaceExisting !== true/,
+    /let replaceExisting =\s*options\.replaceExisting === true/,
+  )
+
+  assert.match(
+    contentScript,
+    /composerState\.busy &&\s*!replaceExisting/,
   )
 })
 

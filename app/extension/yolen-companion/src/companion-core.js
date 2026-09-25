@@ -49,6 +49,41 @@ function createCompanionCore(ctx) {
 
   let lastSessionUserId = null
 
+  // Contexto imutável de uma operação seller-facing (FASE 5): fronteira da
+  // conversa (geração + conversa + empresa) e sessão no instante em que a
+  // operação começou. Todo efeito posterior a uma espera (escrita no
+  // canal, telemetria, registro, atualização de estado) só acontece se o
+  // contexto continuar vivo; A→B→A é uma geração nova e nunca reaproveita
+  // a operação da geração antiga.
+  function captureOperationContext() {
+    return Object.freeze({
+      boundaryToken:
+        conversationBoundary.captureToken(),
+      conversationKey:
+        state.conversationKey || null,
+      companyId:
+        state.companyId || null,
+      sessionUserId:
+        lastSessionUserId,
+    })
+  }
+
+  function isOperationContextCurrent(operationContext) {
+    return Boolean(
+      operationContext &&
+      state.connected &&
+      conversationBoundary.isTokenCurrent(
+        operationContext.boundaryToken,
+      ) &&
+      (state.conversationKey || null) ===
+        operationContext.conversationKey &&
+      (state.companyId || null) ===
+        operationContext.companyId &&
+      lastSessionUserId ===
+        operationContext.sessionUserId,
+    )
+  }
+
   // Políticas de transporte compostas explicitamente (retry + cache de
   // resolução; coordenação de versões + rebase de base nula na captura).
   const coreApiComposition =
@@ -69,6 +104,10 @@ function createCompanionCore(ctx) {
         insertIntoComposer:
           insertTextIntoEmptyComposer,
         platformDisplayName,
+        captureOperationContext: () =>
+          captureOperationContext(),
+        isOperationContextCurrent: (operationContext) =>
+          isOperationContextCurrent(operationContext),
         getBaseUrl: () =>
           window.YolenCompanionApi
             ?.getBaseUrl
@@ -300,6 +339,12 @@ function createCompanionCore(ctx) {
   } = clientController
 
   const leadSummaryControllerContext = {
+    get captureOperationContext() {
+      return captureOperationContext
+    },
+    get isOperationContextCurrent() {
+      return isOperationContextCurrent
+    },
     get messageController() {
       return messageController
     },
@@ -5457,6 +5502,9 @@ function createCompanionCore(ctx) {
       return
     }
 
+    const operationContext =
+      captureOperationContext()
+
     const composerNotFoundCopy =
       `Não encontrei o campo de mensagem do ${platformDisplayName}. Copie e cole manualmente.`
 
@@ -5476,13 +5524,20 @@ function createCompanionCore(ctx) {
       return
     }
 
+    let replaceExisting =
+      options.replaceExisting === true
+
     if (
       composerState.busy &&
-      options.replaceExisting !== true
+      !replaceExisting
     ) {
       const confirmed = window.confirm(
         `O campo do ${platformDisplayName} já tem texto. Substituir pela mensagem sugerida?`,
       )
+
+      if (!isOperationContextCurrent(operationContext)) {
+        return
+      }
 
       if (!confirmed) {
         fireCompanionActionTelemetry(
@@ -5505,6 +5560,8 @@ function createCompanionCore(ctx) {
         renderPanel()
         return
       }
+
+      replaceExisting = true
     }
 
     const telemetryInteractionId =
@@ -5524,23 +5581,43 @@ function createCompanionCore(ctx) {
         getCaptureConversationKey(),
       telemetryInteractionId,
       message,
+      operationContext,
     }
 
-    // Escrita + verificação são capacidade técnica do adapter (§7); o
-    // Core só traduz o motivo técnico em copy.
+    // Escrita + verificação são capacidade técnica do adapter (§7), sempre
+    // na conversa em que a operação começou; o Core só traduz o motivo
+    // técnico em copy.
     const applyResult =
       await channelAdapter.applyMessage(
         message,
+        {
+          conversationKey:
+            operationContext.conversationKey,
+          replaceExisting,
+        },
       )
 
+    // Resultado de uma operação cuja conversa/geração/empresa/sessão já
+    // não é a atual: nada é registrado nem aplicado ao contexto atual.
+    if (!isOperationContextCurrent(operationContext)) {
+      return
+    }
+
     if (!applyResult.applied) {
+      if (applyResult.reason === 'conversation_changed') {
+        return
+      }
+
       state = {
         ...state,
         suggestedMessageCopyStatus:
           applyResult.reason ===
           'composer_not_found'
             ? composerNotFoundCopy
-            : `Não foi possível confirmar a inserção da mensagem no ${platformDisplayName}.`,
+            : applyResult.reason ===
+                'composer_not_empty'
+              ? `O campo do ${platformDisplayName} já tem texto. Nada foi substituído.`
+              : `Não foi possível confirmar a inserção da mensagem no ${platformDisplayName}.`,
       }
 
       renderPanel()
@@ -5564,7 +5641,20 @@ function createCompanionCore(ctx) {
     )
 
     try {
-      const registration = await registerSuggestedMessageAction('inserted')
+      const registration =
+        await registerSuggestedMessageAction(
+          'inserted',
+          {
+            cycleId: pendingSend.cycleId,
+            coachingNoteId:
+              pendingSend.coachingNoteId,
+            message,
+          },
+        )
+
+      if (!isOperationContextCurrent(operationContext)) {
+        return
+      }
 
       state = {
         ...state,
@@ -5581,6 +5671,10 @@ function createCompanionCore(ctx) {
 
       renderPanel()
     } catch (error) {
+      if (!isOperationContextCurrent(operationContext)) {
+        return
+      }
+
       state = {
         ...state,
         suggestedMessageCopyStatus:
@@ -8824,11 +8918,21 @@ function createCompanionCore(ctx) {
     })
   }
 
+  // Valores explícitos da operação (cycleId/message/coachingNoteId) nunca
+  // são completados com o estado atual: uma operação iniciada em A não
+  // deriva ciclo, mensagem ou coaching de B.
   async function registerSuggestedMessageAction(action, options = {}) {
-    const cycleId = options.cycleId || getCanonicalResolutionCycleId()
-    const message = options.message || getSuggestedMessage()
-    const coachingNoteId =
-      options.coachingNoteId || state.conversationAnalysis?.saved_coaching?.id || null
+    const hasOption = (name) =>
+      Object.prototype.hasOwnProperty.call(options, name)
+    const cycleId = hasOption('cycleId')
+      ? options.cycleId
+      : getCanonicalResolutionCycleId()
+    const message = hasOption('message')
+      ? options.message
+      : getSuggestedMessage()
+    const coachingNoteId = hasOption('coachingNoteId')
+      ? options.coachingNoteId || null
+      : state.conversationAnalysis?.saved_coaching?.id || null
 
     if (!cycleId || !message || !window.YolenCompanionApi?.registerMessageAction) {
       return {
@@ -8943,7 +9047,7 @@ function createCompanionCore(ctx) {
       return
     }
 
-    if (pending.conversationKey !== state.conversationKey) {
+    if (!isOperationContextCurrent(pending.operationContext)) {
       return
     }
 
@@ -9029,6 +9133,10 @@ function createCompanionCore(ctx) {
         message: messageToRegister,
       })
 
+      if (!isOperationContextCurrent(pending.operationContext)) {
+        return
+      }
+
       state = {
         ...state,
         suggestedMessageCopyStatus: registration.alreadyRegistered
@@ -9044,6 +9152,10 @@ function createCompanionCore(ctx) {
 
       renderPanel()
     } catch {
+      if (!isOperationContextCurrent(pending.operationContext)) {
+        return
+      }
+
       state = {
         ...state,
         suggestedMessageCopyStatus:
@@ -9067,7 +9179,7 @@ function createCompanionCore(ctx) {
       return
     }
 
-    if (pending.conversationKey !== state.conversationKey) {
+    if (!isOperationContextCurrent(pending.operationContext)) {
       return
     }
 
@@ -9082,14 +9194,25 @@ function createCompanionCore(ctx) {
     )
   }
 
-  function scheduleManualSendRegistration() {
-    const currentMessage = getComposerText() || state.pendingSuggestedMessageSend?.message || ''
+  function scheduleManualSendRegistration(attempt = null) {
+    const currentMessage =
+      attempt?.draftText ||
+      getComposerText() ||
+      state.pendingSuggestedMessageSend?.message ||
+      ''
 
     if (!currentMessage) {
       return
     }
 
+    const operationContext =
+      captureOperationContext()
+
     window.setTimeout(() => {
+      if (!isOperationContextCurrent(operationContext)) {
+        return
+      }
+
       registerManualSuggestedMessageSend(currentMessage)
     }, 250)
   }
@@ -9176,7 +9299,10 @@ function createCompanionCore(ctx) {
     ].join('::')
   }
 
-  function interceptPreSendAttempt(event) {
+  // Decide a tentativa física normalizada pelo adapter (§7.2
+  // interceptSendAttempt). O cancelamento do evento é do adapter; o Core só
+  // devolve se bloqueia.
+  function interceptPreSendAttempt(attempt) {
     const gateKey =
       getCurrentPreSendGateKey()
 
@@ -9186,7 +9312,7 @@ function createCompanionCore(ctx) {
         bypassKey:
           state.preSendBypassKey,
         cancelable:
-          event?.cancelable === true,
+          attempt?.cancelable === true,
         collapsed:
           panelCollapsed === true,
       })
@@ -9206,10 +9332,6 @@ function createCompanionCore(ctx) {
       return false
     }
 
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation()
-
     state = {
       ...state,
       preSendGateOpen: true,
@@ -9219,6 +9341,17 @@ function createCompanionCore(ctx) {
     renderPanel()
 
     return true
+  }
+
+  let unsubscribeManualChannelSend = null
+
+  function stopObservingManualChannelSend() {
+    if (typeof unsubscribeManualChannelSend === 'function') {
+      unsubscribeManualChannelSend()
+    }
+
+    unsubscribeManualChannelSend = null
+    globalThis.__yolenCompanionManualSendObserverInstalled = false
   }
 
   function observeManualChannelSend() {
@@ -9235,21 +9368,37 @@ function createCompanionCore(ctx) {
     globalThis[observerKey] = true
 
     // Evento de canal (ChannelAdapter): tentativa de envio manual pela
-    // plataforma (botão enviar ou Enter no campo de mensagem). A decisão
-    // de interceptar (gate pré-envio) e o registro são do Core.
-    channelAdapter.onSendAttempt(
-      (event) => {
-        if (
-          interceptPreSendAttempt(
-            event,
-          )
-        ) {
-          return
-        }
+    // plataforma (botão enviar ou Enter no campo de mensagem), já
+    // normalizada ({ kind, cancelable, conversationKey, draftText }). A
+    // decisão de interceptar (gate pré-envio) e o registro são do Core; o
+    // cancelamento físico é do adapter.
+    unsubscribeManualChannelSend =
+      channelAdapter.onSendAttempt(
+        (attempt) => {
+          // Tentativa numa conversa que o Core ainda não assumiu (janela do
+          // observer): nenhum gate nem pendência desta conversa se aplica.
+          if (
+            (attempt?.conversationKey || null) !==
+            (state.conversationKey || null)
+          ) {
+            return { block: false }
+          }
 
-        scheduleManualSendRegistration()
-      },
-    )
+          if (
+            interceptPreSendAttempt(
+              attempt,
+            )
+          ) {
+            return { block: true }
+          }
+
+          scheduleManualSendRegistration(
+            attempt,
+          )
+
+          return { block: false }
+        },
+      )
   }
   function reviewCurrentPreSendDraft() {
     state = {
@@ -9277,6 +9426,13 @@ function createCompanionCore(ctx) {
       renderPanel()
       return
     }
+
+    // Retomada presa à confirmação humana: mesma conversa/geração/empresa/
+    // sessão e mesmo rascunho que o vendedor viu no gate.
+    const operationContext =
+      captureOperationContext()
+    const confirmedDraft =
+      state.preSendDraft
 
     state = {
       ...state,
@@ -9306,6 +9462,7 @@ function createCompanionCore(ctx) {
         }
 
         if (
+          !isOperationContextCurrent(operationContext) ||
           getCurrentPreSendGateKey() !== gateKey
         ) {
           state = {
@@ -9319,7 +9476,11 @@ function createCompanionCore(ctx) {
         }
 
         const sendResult =
-          channelAdapter.triggerSend()
+          channelAdapter.triggerSend({
+            conversationKey:
+              operationContext.conversationKey,
+            draftText: confirmedDraft,
+          })
 
         if (!sendResult.sent) {
           state = {
@@ -9503,9 +9664,26 @@ function createCompanionCore(ctx) {
       return
     }
 
+    const operationContext =
+      captureOperationContext()
+    const registrationValues = {
+      cycleId:
+        getCanonicalResolutionCycleId() ||
+        null,
+      coachingNoteId:
+        state.conversationAnalysis
+          ?.saved_coaching?.id ||
+        null,
+      message,
+    }
+
     try {
       await navigator.clipboard.writeText(message)
     } catch {
+      if (!isOperationContextCurrent(operationContext)) {
+        return
+      }
+
       state = {
         ...state,
         suggestedMessageCopyStatus:
@@ -9513,6 +9691,10 @@ function createCompanionCore(ctx) {
       }
 
       renderPanel()
+      return
+    }
+
+    if (!isOperationContextCurrent(operationContext)) {
       return
     }
 
@@ -9528,7 +9710,15 @@ function createCompanionCore(ctx) {
     )
 
     try {
-      const registration = await registerSuggestedMessageAction('copied')
+      const registration =
+        await registerSuggestedMessageAction(
+          'copied',
+          registrationValues,
+        )
+
+      if (!isOperationContextCurrent(operationContext)) {
+        return
+      }
 
       state = {
         ...state,
@@ -9543,6 +9733,10 @@ function createCompanionCore(ctx) {
 
       renderPanel()
     } catch (error) {
+      if (!isOperationContextCurrent(operationContext)) {
+        return
+      }
+
       state = {
         ...state,
         suggestedMessageCopyStatus:
@@ -10065,6 +10259,7 @@ function createCompanionCore(ctx) {
     renderPanel,
     loadYolenSession,
     observeManualChannelSend,
+    stopObservingManualChannelSend,
     observePreSendGateActions,
     startSessionAutoRefresh,
     observeChannelChanges,

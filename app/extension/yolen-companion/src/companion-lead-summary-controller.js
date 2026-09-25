@@ -136,6 +136,8 @@ function createCompanionLeadSummaryController(ctx) {
   // Dependências explícitas do Core (funções e referências estáveis).
   // Estado mutável do Core é lido via ctx.<nome> no momento do uso.
   const {
+    captureOperationContext = () => null,
+    isOperationContextCurrent = () => true,
     getCanonicalResolutionCycleId,
     getCaptureConversationKey,
     getLeadSummarySnapshotSignature,
@@ -208,9 +210,16 @@ function createCompanionLeadSummaryController(ctx) {
 
     renderPanel()
 
+    // Além do ciclo/chave de captura, a mesma geração de conversa/empresa/
+    // sessão do Core: uma carga iniciada em A₁ não sincroniza a MENSAGEM de
+    // A₂ (A→B→A).
+    const operationContext =
+      captureOperationContext()
+
     const isStillCurrentContext = () =>
       ctx.state.companionLeadSummaryCycleId === cycleId &&
-      ctx.state.companionLeadSummaryConversationKey === conversationKey
+      ctx.state.companionLeadSummaryConversationKey === conversationKey &&
+      isOperationContextCurrent(operationContext)
 
     try {
       const result = await leadSummaryCache.load(

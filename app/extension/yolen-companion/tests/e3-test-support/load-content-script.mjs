@@ -283,6 +283,7 @@ function createFakeBackground({
   getMeResult,
   methodGuidanceResult,
   messageGenerationResult,
+  messageActionResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
@@ -527,6 +528,19 @@ function createFakeBackground({
         payload,
       }
     },
+    // FASE 5 — registro de uso da mensagem sugerida. Um valor estático ou
+    // uma função `(payload) => payload` (podendo devolver uma Promise
+    // retida pelo teste) — usada pelos testes de corrida A→B/A→B→A da
+    // inserção para controlar QUANDO o registro termina.
+    REGISTER_MESSAGE_ACTION: async (requestPayload) => {
+      const payload = await (
+        typeof messageActionResult === 'function'
+          ? messageActionResult(requestPayload)
+          : (messageActionResult ?? { ok: true, data: { already_registered: false } })
+      )
+
+      return { ok: true, statusCode: 200, payload }
+    },
     CREATE_LEAD: async (requestPayload) => {
       const payload = await (
         typeof createLeadResult === 'function'
@@ -675,6 +689,7 @@ export function loadContentScript({
   getMeResult,
   methodGuidanceResult,
   messageGenerationResult,
+  messageActionResult,
   // withStabilityRuntimes/withSellerMessageRuntime/withLeadResolutionCache,
   // ainda passados por testes antigos, não têm mais efeito: a composição
   // carregada é sempre a do manifest (FASE 5).
@@ -697,6 +712,7 @@ export function loadContentScript({
     getMeResult,
     methodGuidanceResult,
     messageGenerationResult,
+    messageActionResult,
   })
 
   const fakeChrome = {
