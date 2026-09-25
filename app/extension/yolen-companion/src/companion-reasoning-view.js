@@ -1,45 +1,4 @@
 ;(function initCompanionReasoningView(root) {
-  function installAnalysisScrollFreshnessRuntime() {
-    const tools =
-      root.YolenCompanionNullBaseRebase ||
-      root.window
-        ?.YolenCompanionNullBaseRebase
-
-    const companionApi =
-      root.YolenCompanionApi ||
-      root.window?.YolenCompanionApi
-
-    if (
-      !tools ||
-      typeof tools
-        .installAnalysisScrollFreshnessHotfix !==
-        'function' ||
-      !companionApi
-    ) {
-      return null
-    }
-
-    const target =
-      root.YolenCompanionApi ===
-      companionApi
-        ? root
-        : {
-            YolenCompanionApi:
-              companionApi,
-            browser:
-              root.browser ||
-              root.window?.browser,
-            chrome:
-              root.chrome ||
-              root.window?.chrome,
-          }
-
-    return tools
-      .installAnalysisScrollFreshnessHotfix(
-        target,
-      )
-  }
-
   function installAttachmentBubbleFallback() {
     const tools =
       root.YolenCompanionMessageMutations ||
@@ -848,15 +807,6 @@
 
     return installed
   }
-
-  // Firefox pode expor a API da extensão no global isolado enquanto
-  // `window.YolenCompanionApi` vive no WindowProxy da página. O hotfix de
-  // freshness já existia, mas o bootstrap anterior assumia
-  // `globalThis === window` e podia nunca instalá-lo nesse cenário real.
-  // Este ponto roda depois de capture-resilience-null-base.js e antes do
-  // content-script.js, localiza a API em qualquer um dos dois realms e
-  // preserva o runtime de browser/chrome do realm da extensão.
-  installAnalysisScrollFreshnessRuntime()
 
   // O WhatsApp pode renderizar o cartão de documento fora do nó
   // [data-pre-plain-text], dentro da mesma bolha .message-in/.message-out.

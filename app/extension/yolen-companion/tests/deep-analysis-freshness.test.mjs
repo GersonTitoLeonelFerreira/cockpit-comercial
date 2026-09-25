@@ -76,39 +76,12 @@ function deepSellerResult(relevance = 'commercial') {
   }
 }
 
-function messageElement() {
-  return {
-    nodeType: 1,
-    parentElement: null,
-    closest(selector) {
-      return selector === '[data-pre-plain-text]'
-        ? this
-        : null
-    },
-    matches(selector) {
-      return selector === '[data-pre-plain-text]'
-    },
-    querySelector() {
-      return null
-    },
-  }
-}
-
 function loadApi({
   analyzeResponder,
   statusResponder,
   retryResponder,
 } = {}) {
   const calls = []
-  let mutationCallback = null
-
-  class FakeMutationObserver {
-    constructor(callback) {
-      mutationCallback = callback
-    }
-
-    observe() {}
-  }
 
   const window = {}
   const document = {
@@ -200,7 +173,6 @@ function loadApi({
     {
       window,
       document,
-      MutationObserver: FakeMutationObserver,
       chrome,
       browser: undefined,
       console,
@@ -214,15 +186,6 @@ function loadApi({
   return {
     api: window.YolenCompanionApi,
     calls,
-    mutateMessageDom() {
-      mutationCallback?.([
-        {
-          target: messageElement(),
-          addedNodes: [],
-          removedNodes: [],
-        },
-      ])
-    },
   }
 }
 
@@ -265,13 +228,48 @@ for (const [label, messages] of [
     })],
   ],
 ]) {
-  test(`stale: ${label} invalida succeeded antigo antes de aplicá-lo`, async () => {
-    const runtime = loadApi()
-    await establishJob(runtime)
+  // FASE 5: o status do job é autoritativo do backend (a composição de
+  // produção já reconsultava o superseded sintético local); a mudança de
+  // captura continua bloqueando a reabertura implícita de um job failed
+  // observado para o snapshot anterior. Obsolescência de resposta por
+  // conversa/ciclo/análise mais nova é do Core
+  // (companion-analysis-controller).
+  test(`captura mudou (${label}): status vem do backend e failed antigo não é reaberto implicitamente`, async () => {
+    const runtime = loadApi({
+      analyzeResponder() {
+        return {
+          ok: true,
+          payload: {
+            ok: true,
+            data: {
+              engine_source: 'v1',
+              suggestion: { summary: 'rápido' },
+              coaching: {},
+              deep_analysis: {
+                analysis_job_id: JOB_ID,
+                status: 'failed',
+                message_watermark: WATERMARK,
+              },
+            },
+          },
+        }
+      },
+      statusResponder() {
+        return {
+          ok: true,
+          payload: {
+            ok: true,
+            data: {
+              analysis_job_id: JOB_ID,
+              status: 'running',
+              message_watermark: WATERMARK,
+            },
+          },
+        }
+      },
+    })
 
-    const remoteReadsBefore = runtime.calls.filter(
-      (call) => call.action === 'GET_ANALYSIS_JOB_STATUS',
-    ).length
+    await establishJob(runtime)
 
     await runtime.api.ingestCapturedMessages(
       capture(messages),
@@ -281,64 +279,30 @@ for (const [label, messages] of [
       analysis_job_id: JOB_ID,
     })
 
-    assert.equal(response.payload.data.status, 'superseded')
+    assert.equal(response.payload.data.status, 'running')
     assert.equal(
       runtime.calls.filter(
         (call) => call.action === 'GET_ANALYSIS_JOB_STATUS',
       ).length,
-      remoteReadsBefore,
-      'job semanticamente stale deve ser barrado antes do read remoto',
+      1,
+    )
+
+    // Captura nova => snapshot novo: o job failed do snapshot anterior não
+    // é reaberto implicitamente.
+    await runtime.api.analyzeConversation({
+      conversation_key: CONVERSATION_KEY,
+      message_snapshot_hash: `${WATERMARK}-${label}`,
+    })
+
+    assert.equal(
+      runtime.calls.filter(
+        (call) => call.action === 'RETRY_ANALYSIS_JOB',
+      ).length,
+      0,
+      'failed observado antes da mudança de captura não pode ser reaberto implicitamente',
     )
   })
 }
-
-test('stale: restore invalida o job anterior', async () => {
-  const runtime = loadApi()
-  await establishJob(runtime)
-
-  await runtime.api.ingestCapturedMessages(
-    capture([
-      message({
-        text_content: null,
-        is_deleted: true,
-      }),
-    ]),
-  )
-
-  await runtime.api.ingestCapturedMessages(
-    capture([
-      message({
-        text_content: 'Mensagem restaurada',
-        is_deleted: false,
-      }),
-    ]),
-  )
-
-  const response = await runtime.api.getAnalysisJobStatus({
-    analysis_job_id: JOB_ID,
-  })
-
-  assert.equal(response.payload.data.status, 'superseded')
-})
-
-test('stale window: mutação DOM invalida job antes do próximo ingest/debounce', async () => {
-  const runtime = loadApi()
-  await establishJob(runtime)
-
-  runtime.mutateMessageDom()
-
-  const response = await runtime.api.getAnalysisJobStatus({
-    analysis_job_id: JOB_ID,
-  })
-
-  assert.equal(response.payload.data.status, 'superseded')
-  assert.equal(
-    runtime.calls.filter(
-      (call) => call.action === 'GET_ANALYSIS_JOB_STATUS',
-    ).length,
-    0,
-  )
-})
 
 test('poll fresco envia ao backend apenas analysis_job_id e promove DTO no objeto seller-facing compartilhado', async () => {
   const runtime = loadApi()

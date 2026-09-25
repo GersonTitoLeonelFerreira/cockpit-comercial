@@ -9,13 +9,17 @@
 
   let sessionBaseUrl = null
   let lastLeadLookupContext = null
-  let messageDomRevision = 0
 
   /*
-   * Freshness local do deep-result. Mantemos duas barreiras independentes:
-   * 1) revisão semântica do payload efetivamente capturado;
-   * 2) revisão imediata do DOM de mensagens, para fechar a janela entre uma
-   *    mutação visual e o próximo debounce/ingest.
+   * Contexto local do deep-result (FASE 5 — dono único da política de
+   * retry/status da análise no transporte):
+   * - revisão semântica do payload efetivamente capturado: só decide se um
+   *   job failed observado nesta sessão pode ser reaberto implicitamente
+   *   no próximo analyze do mesmo snapshot;
+   * - status do job é sempre autoritativo do backend. Obsolescência por
+   *   troca de conversa/ciclo/análise mais nova é decidida pelo Core
+   *   (companion-analysis-controller: isAnalysisResponseStillCurrent), não
+   *   por revisão do DOM da plataforma.
    */
   const captureMessagesByConversation =
     new Map()
@@ -130,109 +134,6 @@
     return `${conversationKey}\u0000${messageWatermark.trim()}`
   }
 
-  function getElementForNode(node) {
-    if (!node) {
-      return null
-    }
-
-    if (node.nodeType === 1) {
-      return node
-    }
-
-    return node.parentElement || null
-  }
-
-  function nodeContainsWhatsAppMessage(node) {
-    const element =
-      getElementForNode(node)
-
-    if (!element) {
-      return false
-    }
-
-    if (
-      typeof element.closest === 'function' &&
-      element.closest('[data-pre-plain-text]')
-    ) {
-      return true
-    }
-
-    return (
-      typeof element.matches === 'function' &&
-      element.matches('[data-pre-plain-text]')
-    ) || (
-      typeof element.querySelector === 'function' &&
-      Boolean(
-        element.querySelector('[data-pre-plain-text]'),
-      )
-    )
-  }
-
-  function mutationTouchesWhatsAppMessage(mutation) {
-    if (
-      nodeContainsWhatsAppMessage(
-        mutation?.target,
-      )
-    ) {
-      return true
-    }
-
-    for (const collection of [
-      mutation?.addedNodes,
-      mutation?.removedNodes,
-    ]) {
-      if (!collection) {
-        continue
-      }
-
-      for (const node of collection) {
-        if (nodeContainsWhatsAppMessage(node)) {
-          return true
-        }
-      }
-    }
-
-    return false
-  }
-
-  function installImmediateMessageMutationGuard() {
-    if (
-      typeof MutationObserver === 'undefined' ||
-      typeof document === 'undefined' ||
-      !document.documentElement
-    ) {
-      return
-    }
-
-    const observer =
-      new MutationObserver(
-        mutations => {
-          if (
-            mutations.some(
-              mutationTouchesWhatsAppMessage,
-            )
-          ) {
-            messageDomRevision += 1
-          }
-        },
-      )
-
-    observer.observe(
-      document.documentElement,
-      {
-        subtree: true,
-        childList: true,
-        characterData: true,
-        attributes: true,
-        attributeFilter: [
-          'data-pre-plain-text',
-        ],
-      },
-    )
-  }
-
-  installImmediateMessageMutationGuard()
-
   function buildCaptureMessageSignature(message) {
     if (!isRecord(message)) {
       return null
@@ -331,14 +232,12 @@
     )
   }
 
-  function isFreshnessStillCurrent(freshness) {
+  function isCaptureRevisionStillCurrent(freshness) {
     return Boolean(
       freshness &&
       getCaptureRevision(
         freshness.conversationKey,
-      ) === freshness.revisionAtRequest &&
-      messageDomRevision ===
-        freshness.domRevisionAtRequest
+      ) === freshness.revisionAtRequest
     )
   }
 
@@ -672,9 +571,6 @@
           )
         : 0
 
-    const domRevisionAtRequest =
-      messageDomRevision
-
     const result =
       await sendToBackground(
         'ANALYZE_CONVERSATION',
@@ -684,16 +580,12 @@
     let deepAnalysis =
       result?.payload?.data?.deep_analysis
 
-    if (
-      conversationKey &&
-      deepAnalysis?.analysis_job_id
-    ) {
+    if (deepAnalysis?.analysis_job_id) {
       const freshness = {
         analysisJobId:
           deepAnalysis.analysis_job_id,
         conversationKey,
         revisionAtRequest,
-        domRevisionAtRequest,
         messageWatermark:
           typeof deepAnalysis.message_watermark === 'string'
             ? deepAnalysis.message_watermark
@@ -715,36 +607,51 @@
         freshness,
       )
 
-      const shouldRequeueAnalysis =
+      /*
+       * Retry explícito do vendedor ("Tentar novamente" em job failed ou
+       * "Atualizar análise" em job succeeded) é uma intenção direta: reabre
+       * o job uma única vez, sem depender de nenhuma revisão local. O
+       * requeue implícito (job failed já observado nesta sessão para o
+       * mesmo snapshot) só acontece se a captura não mudou desde a
+       * requisição.
+       */
+      const explicitRetry =
         (
           deepAnalysis.status === 'failed' &&
-          (
-            retryFailedJob ||
-            failedJobAtStart ===
-              deepAnalysis.analysis_job_id
-          )
+          retryFailedJob
         ) ||
         (
           deepAnalysis.status === 'succeeded' &&
           forceReanalysis
         )
 
-      if (
-        shouldRequeueAnalysis &&
-        isFreshnessStillCurrent(
+      const implicitRetry =
+        !explicitRetry &&
+        deepAnalysis.status === 'failed' &&
+        failedJobAtStart ===
+          deepAnalysis.analysis_job_id &&
+        isCaptureRevisionStillCurrent(
           freshness,
         )
+
+      if (
+        explicitRetry ||
+        implicitRetry
       ) {
         const retryResult =
           await sendToBackground(
             'RETRY_ANALYSIS_JOB',
-            {
-              analysis_job_id:
-                deepAnalysis.analysis_job_id,
-              allow_succeeded:
-                deepAnalysis.status ===
-                  'succeeded',
-            },
+            deepAnalysis.status === 'succeeded'
+              ? {
+                  analysis_job_id:
+                    deepAnalysis.analysis_job_id,
+                  allow_succeeded:
+                    true,
+                }
+              : {
+                  analysis_job_id:
+                    deepAnalysis.analysis_job_id,
+                },
           )
 
         const retried =
@@ -771,6 +678,13 @@
 
           result.payload.data.deep_analysis =
             deepAnalysis
+
+          // O job reaberto passa a responder pelo watermark devolvido pelo
+          // backend; o status seguinte é comparado com ele.
+          freshness.messageWatermark =
+            typeof deepAnalysis.message_watermark === 'string'
+              ? deepAnalysis.message_watermark
+              : freshness.messageWatermark
 
           clearFailedSnapshot(
             freshness,
@@ -813,19 +727,6 @@
           )
         : null
 
-    if (
-      analysisJobId &&
-      freshness &&
-      !isFreshnessStillCurrent(
-        freshness,
-      )
-    ) {
-      return buildSyntheticSupersededResponse(
-        analysisJobId,
-        freshness,
-      )
-    }
-
     const result =
       await sendToBackground(
         'GET_ANALYSIS_JOB_STATUS',
@@ -845,17 +746,13 @@
       result?.payload?.ok &&
       data?.status === 'succeeded' &&
       freshness &&
-      (
-        !isFreshnessStillCurrent(
-          freshness,
-        ) ||
-        (
-          freshness.messageWatermark &&
-          data.message_watermark !==
-            freshness.messageWatermark
-        )
-      )
+      freshness.messageWatermark &&
+      typeof data.message_watermark === 'string' &&
+      data.message_watermark !==
+        freshness.messageWatermark
     ) {
+      // O job terminou sobre outro snapshot de mensagens: o resultado não
+      // corresponde ao que esta análise pediu.
       return buildSyntheticSupersededResponse(
         analysisJobId,
         freshness,

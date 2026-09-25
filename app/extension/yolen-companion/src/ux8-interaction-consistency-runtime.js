@@ -1,5 +1,3 @@
-/* global browser, chrome */
-
 ;(function initUx8InteractionConsistencyRuntime(root) {
   const PANEL_ID = 'yolen-companion-panel'
   const UX8_PANEL_SELECTOR =
@@ -14,8 +12,6 @@
     '[data-yolen-seller-message-box]'
   const ANALYZE_ACTION_SELECTOR =
     '[data-yolen-action="analyze-conversation"]'
-  const ANALYSIS_RETRY_FALLBACK_KEY =
-    '__yolenUx8AnalysisRetryFallbackInstalled'
   const EDITABLE_SELECTOR = [
     'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([readonly]):not([disabled])',
     'textarea:not([readonly]):not([disabled])',
@@ -30,167 +26,6 @@
     return document.querySelector(
       UX8_PANEL_SELECTOR,
     )
-  }
-
-  function getCompanionRuntime() {
-    if (
-      typeof browser !== 'undefined' &&
-      browser.runtime?.sendMessage
-    ) {
-      return browser.runtime
-    }
-
-    if (
-      typeof chrome !== 'undefined' &&
-      chrome.runtime?.sendMessage
-    ) {
-      return chrome.runtime
-    }
-
-    return (
-      root.browser?.runtime ||
-      root.chrome?.runtime ||
-      root.window?.browser?.runtime ||
-      root.window?.chrome?.runtime ||
-      null
-    )
-  }
-
-  // Retry seller-facing é uma intenção explícita do vendedor e não pode
-  // depender do revisionamento efêmero do DOM do WhatsApp. O yolen-api.js
-  // já tenta reabrir um job failed, mas a sua guarda histórica de freshness
-  // inclui messageDomRevision; se o WhatsApp virtualizar/remontar nodes
-  // durante a própria chamada ANALYZE_CONVERSATION, a reabertura pode ser
-  // pulada e a UI volta a mostrar o mesmo job failed apesar do clique.
-  //
-  // Este wrapper roda antes dos demais adapters. Só entra quando o payload
-  // contém retry_failed_job=true E a chamada anterior ainda devolveu
-  // deep_analysis.status=failed. Se o caminho canônico já reabriu o job e
-  // devolveu queued/running, não faz nada. Assim não há retry duplicado no
-  // caminho normal e o clique manual não fica refém de mutation de viewport.
-  function installAnalysisRetryFallback() {
-    const companionApi =
-      root.YolenCompanionApi ||
-      root.window?.YolenCompanionApi
-
-    if (
-      !companionApi ||
-      typeof companionApi.analyzeConversation !==
-        'function' ||
-      companionApi[
-        ANALYSIS_RETRY_FALLBACK_KEY
-      ] === true
-    ) {
-      return null
-    }
-
-    const originalAnalyzeConversation =
-      companionApi.analyzeConversation.bind(
-        companionApi,
-      )
-
-    companionApi.analyzeConversation =
-      async function ux8RetrySafeAnalyzeConversation(
-        payload,
-      ) {
-        const result =
-          await originalAnalyzeConversation(
-            payload,
-          )
-
-        const deepAnalysis =
-          result?.payload?.data
-            ?.deep_analysis
-
-        if (
-          payload?.retry_failed_job !== true ||
-          deepAnalysis?.status !== 'failed' ||
-          typeof deepAnalysis
-            .analysis_job_id !== 'string' ||
-          !deepAnalysis.analysis_job_id
-        ) {
-          return result
-        }
-
-        const runtime =
-          getCompanionRuntime()
-
-        if (
-          !runtime ||
-          typeof runtime.sendMessage !==
-            'function'
-        ) {
-          return result
-        }
-
-        let retryResult = null
-
-        try {
-          retryResult =
-            await runtime.sendMessage({
-              source: 'YOLEN_COMPANION',
-              action:
-                'RETRY_ANALYSIS_JOB',
-              baseUrl:
-                typeof companionApi
-                  .getBaseUrl === 'function'
-                  ? companionApi
-                      .getBaseUrl()
-                  : undefined,
-              payload: {
-                analysis_job_id:
-                  deepAnalysis
-                    .analysis_job_id,
-              },
-            })
-        } catch {
-          return result
-        }
-
-        const retried =
-          retryResult?.payload?.data
-
-        if (
-          retryResult?.ok !== true ||
-          retryResult?.payload?.ok !==
-            true ||
-          retried?.analysis_job_id !==
-            deepAnalysis.analysis_job_id ||
-          ![
-            'queued',
-            'running',
-          ].includes(
-            retried?.status,
-          )
-        ) {
-          return result
-        }
-
-        result.payload.data.deep_analysis = {
-          ...deepAnalysis,
-          status: retried.status,
-          message_watermark:
-            retried.message_watermark ||
-            deepAnalysis.message_watermark,
-        }
-
-        return result
-      }
-
-    Object.defineProperty(
-      companionApi,
-      ANALYSIS_RETRY_FALLBACK_KEY,
-      {
-        configurable: false,
-        enumerable: false,
-        value: true,
-        writable: false,
-      },
-    )
-
-    return {
-      originalAnalyzeConversation,
-    }
   }
 
   function isAnalyzeActionElement(value) {
@@ -445,7 +280,6 @@
     })
   }
 
-  installAnalysisRetryFallback()
   installAnalyzeActionHandlerCapture()
 
   // Delegação de segurança instalada antes de content-script.js. Em nodes
@@ -494,17 +328,6 @@
         return (
           typeof capturedAnalyzeClickHandler ===
           'function'
-        )
-      },
-      hasAnalysisRetryFallback() {
-        const companionApi =
-          root.YolenCompanionApi ||
-          root.window?.YolenCompanionApi
-
-        return Boolean(
-          companionApi?.[
-            ANALYSIS_RETRY_FALLBACK_KEY
-          ] === true,
         )
       },
     })

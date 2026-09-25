@@ -60,36 +60,12 @@ export const LEGACY_ARCHITECTURE_BASELINE = Object.freeze([
 
   // A5 — política de análise fora da autoridade única.
   entry({
-    id: 'A5:capture-resilience-null-base:analysis-policy',
-    gate: 'A5',
-    file: 'src/capture-resilience-null-base.js',
-    symbol: 'analysis-policy',
-    reason: 'Monkey-patch de YolenCompanionApi.analyzeConversation/getAnalysisJobStatus (hotfix de frescor/superseded) no WhatsApp.',
-    removalPhase: '5',
-  }),
-  entry({
     id: 'A5:manychat-seller-panel-runtime:analysis-policy',
     gate: 'A5',
     file: 'src/manychat-seller-panel-runtime.js',
     symbol: 'analysis-policy',
     reason: 'Polling/timeout próprios (ANALYSIS_POLL_DELAYS_MS/ANALYSIS_POLL_TIMEOUT_MS) e análise disparada por captura no ManyChat.',
     removalPhase: '7',
-  }),
-  entry({
-    id: 'A5:phase16-9-runtime-guard:analysis-policy',
-    gate: 'A5',
-    file: 'src/phase16-9-runtime-guard.js',
-    symbol: 'analysis-policy',
-    reason: 'Monkey-patch de api.analyzeConversation (guard de retry manual) no WhatsApp.',
-    removalPhase: '5',
-  }),
-  entry({
-    id: 'A5:ux8-interaction-consistency-runtime:analysis-policy',
-    gate: 'A5',
-    file: 'src/ux8-interaction-consistency-runtime.js',
-    symbol: 'analysis-policy',
-    reason: 'Monkey-patch de YolenCompanionApi.analyzeConversation (retry seller-facing) no WhatsApp.',
-    removalPhase: '5',
   }),
 
   // A6 — resumo do lead composto por monkey-patch fora do controller único.
