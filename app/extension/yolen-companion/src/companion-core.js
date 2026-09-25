@@ -20,6 +20,8 @@ function createCompanionCore(ctx) {
   // plataforma diretamente.
   const {
     IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS,
+    activeChatEpoch,
+    bridgeConfirmedGroupContext,
     cachedPhoneEpochByConversationKey,
     cachedPhonesByConversationKey,
     cachedPhonesByLookupIdentity,
@@ -27,7 +29,6 @@ function createCompanionCore(ctx) {
     findContactInfoPanel,
     getAudioBlobForTarget,
     getAutomaticContactLookupIdentity,
-    getBlobDurationSeconds,
     getBridgeStrongIdentity,
     getComposerText,
     getContactInfoPanelForEpoch,
@@ -1292,96 +1293,28 @@ function createCompanionCore(ctx) {
     return globalThis.browser?.runtime || globalThis.chrome?.runtime || null
   }
 
-  function rememberCapturedWhatsAppAudioBlob(audio) {
-    const blob = audio?.blob
-
-    if (!blob || typeof blob.arrayBuffer !== 'function' || !blob.size) {
-      return
-    }
-
-    const existingIndex = channelAdapter.capturedAudioBlobEntries.findIndex((entry) => {
-      return entry.objectUrl && entry.objectUrl === audio.objectUrl
-    })
-
-    const nextEntry = {
-      id: audio.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      blob,
-      mimeType: audio.mimeType || blob.type || '',
-      size: blob.size,
-      objectUrl: audio.objectUrl || '',
-      capturedAt: Number(audio.capturedAt) || Date.now(),
-      captureRequestId: audio.captureRequestId || null,
-      durationSeconds: null,
-      assignedTargetKey: null,
-    }
-
-    if (existingIndex >= 0) {
-      channelAdapter.capturedAudioBlobEntries = channelAdapter.capturedAudioBlobEntries.map((entry, index) => {
-        return index === existingIndex
-          ? {
-              ...entry,
-              ...nextEntry,
-              assignedTargetKey: entry.assignedTargetKey || null,
-            }
-          : entry
-      })
-    } else {
-      channelAdapter.capturedAudioBlobEntries = [...channelAdapter.capturedAudioBlobEntries, nextEntry].slice(-12)
-    }
-
-    state = {
-      ...state,
-      audioBridgeStatus: `Bridge ativo · ${channelAdapter.capturedAudioBlobEntries.length} áudio(s) capturado(s)`,
-      capturedAudioBlobCount: channelAdapter.capturedAudioBlobEntries.length,
-    }
-
-    getBlobDurationSeconds(blob).then((durationSeconds) => {
-      if (!Number.isFinite(durationSeconds)) {
-        return
-      }
-
-      channelAdapter.capturedAudioBlobEntries = channelAdapter.capturedAudioBlobEntries.map((entry) => {
-        return entry.id === nextEntry.id
-          ? {
-              ...entry,
-              durationSeconds,
-            }
-          : entry
-      })
-    })
-
-    renderPanel()
-  }
-
+  // Bridge de áudio do WhatsApp: a escuta das mensagens do page world e a
+  // guarda dos blobs capturados são do ChannelAdapter (FASE 5). O Core só
+  // reflete o status no painel.
   function listenToWhatsAppAudioBridge() {
-    window.addEventListener('message', (event) => {
-      if (event.source !== window) {
-        return
-      }
-
-      if (event.origin !== window.location.origin) {
-        return
-      }
-
-      if (event.data?.source !== 'YOLEN_COMPANION_WHATSAPP_AUDIO_BRIDGE') {
-        return
-      }
-
-      if (event.data?.action === 'BRIDGE_READY') {
+    channelAdapter.listenToAudioBridge({
+      onBridgeReady() {
         state = {
           ...state,
           audioBridgeStatus: 'Bridge de áudio ativo',
         }
 
         renderPanel()
-        return
-      }
+      },
+      onAudioCaptured({ capturedCount }) {
+        state = {
+          ...state,
+          audioBridgeStatus: `Bridge ativo · ${capturedCount} áudio(s) capturado(s)`,
+          capturedAudioBlobCount: capturedCount,
+        }
 
-      if (event.data?.action !== 'AUDIO_BLOB_CAPTURED') {
-        return
-      }
-
-      rememberCapturedWhatsAppAudioBlob(event.data.audio)
+        renderPanel()
+      },
     })
   }
 
@@ -3166,13 +3099,13 @@ function createCompanionCore(ctx) {
       }
 
       if (bridgeResult.status === 'group') {
-        channelAdapter.bridgeConfirmedGroupContext = {
+        channelAdapter.recordBridgeConfirmedGroupContext({
           conversationKey,
           stableIdentity:
             getBridgeStrongIdentity(
               bridgeResult.chatId,
             ),
-        }
+        })
 
         autoLookupAttemptedKeys.add(
           conversationKey,
@@ -3251,11 +3184,11 @@ function createCompanionCore(ctx) {
         // agora — sem isso, uma troca real para outro contato homônimo
         // (mesma chave visual) reutilizaria este telefone só porque a
         // chave bate (ver isBridgeResolvedContactAuthorizedForConversation()).
-        channelAdapter.bridgeResolvedContactContext = {
+        channelAdapter.recordBridgeResolvedContactContext({
           conversationKey,
           epoch: channelAdapter.activeChatEpoch,
           stableIdentity: resolvedIdentity,
-        }
+        })
 
         state = {
           ...state,
@@ -3554,7 +3487,7 @@ function createCompanionCore(ctx) {
   // hora — nunca adiar para panelRegionPendingHtml esperando uma
   // interação da conversa que já não existe mais.
   function hardResetConversationWorkspace() {
-    channelAdapter.capturedAudioBlobEntries = []
+    channelAdapter.resetCapturedAudio()
     messageController.clear()
     clearAutomaticAnalysisTimer()
     clearDeepAnalysisPollTimer()
@@ -3768,19 +3701,19 @@ function createCompanionCore(ctx) {
         // Reconfirmado — mesmo grupo (ou outro, mas ainda grupo): guarda o
         // chatId mais recente e mantém fail-closed até a próxima
         // ambiguidade.
-        channelAdapter.bridgeConfirmedGroupContext = {
+        channelAdapter.recordBridgeConfirmedGroupContext({
           conversationKey,
           stableIdentity:
             getBridgeStrongIdentity(
               bridgeResult.chatId,
             ),
-        }
+        })
 
         // Havia um contato resolvido persistido para esta MESMA chave e o
         // bridge acabou de provar que, na verdade, é um grupo — fronteira
         // comercial real: nada do contato anterior pode sobreviver.
         if (previousContactContext) {
-          channelAdapter.bridgeResolvedContactContext = null
+          channelAdapter.recordBridgeResolvedContactContext(null)
           cachedPhonesByConversationKey.delete(
             conversationKey,
           )
@@ -3839,13 +3772,13 @@ function createCompanionCore(ctx) {
         // Âncora usada também em runAutomaticContactLookup(): sem isto,
         // um homônimo 1:1 futuro sob a MESMA conversationKey reutilizaria
         // este telefone só pela chave visual coincidir.
-        channelAdapter.bridgeResolvedContactContext = {
+        channelAdapter.recordBridgeResolvedContactContext({
           conversationKey,
           epoch: channelAdapter.activeChatEpoch,
           stableIdentity: resolvedIdentity,
-        }
+        })
 
-        channelAdapter.bridgeConfirmedGroupContext = null
+        channelAdapter.recordBridgeConfirmedGroupContext(null)
         autoLookupAttemptedKeys.delete(
           conversationKey,
         )
@@ -3948,7 +3881,7 @@ function createCompanionCore(ctx) {
       cachedPhoneEpochByConversationKey.delete(
         conversationKey,
       )
-      channelAdapter.bridgeResolvedContactContext = null
+      channelAdapter.recordBridgeResolvedContactContext(null)
 
       if (conversationKey) {
         autoLookupAttemptedKeys.delete(
@@ -4034,7 +3967,7 @@ function createCompanionCore(ctx) {
         channelAdapter.bridgeConfirmedGroupContext &&
         !bridgeSaysGroup
       ) {
-        channelAdapter.bridgeConfirmedGroupContext = null
+        channelAdapter.recordBridgeConfirmedGroupContext(null)
 
         if (conversationKey) {
           autoLookupAttemptedKeys.delete(

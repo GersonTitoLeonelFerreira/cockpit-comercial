@@ -3300,22 +3300,123 @@ function createWhatsAppAdapter({
     composer.focus()
     return 'inserted'
   }
+
+  // Registro explícito do contexto de identidade confirmado pelo Core a
+  // partir da resposta do identity bridge (antes, o Core escrevia direto
+  // nas variáveis do adapter).
+  function recordBridgeConfirmedGroupContext(value) {
+    bridgeConfirmedGroupContext = value || null
+  }
+
+  function recordBridgeResolvedContactContext(value) {
+    bridgeResolvedContactContext = value || null
+  }
+
+  function resetCapturedAudio() {
+    capturedAudioBlobEntries = []
+  }
+
+  function rememberCapturedAudioBlob(audio) {
+    const blob = audio?.blob
+
+    if (!blob || typeof blob.arrayBuffer !== 'function' || !blob.size) {
+      return false
+    }
+
+    const existingIndex = capturedAudioBlobEntries.findIndex((entry) => {
+      return entry.objectUrl && entry.objectUrl === audio.objectUrl
+    })
+
+    const nextEntry = {
+      id: audio.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      blob,
+      mimeType: audio.mimeType || blob.type || '',
+      size: blob.size,
+      objectUrl: audio.objectUrl || '',
+      capturedAt: Number(audio.capturedAt) || Date.now(),
+      captureRequestId: audio.captureRequestId || null,
+      durationSeconds: null,
+      assignedTargetKey: null,
+    }
+
+    if (existingIndex >= 0) {
+      capturedAudioBlobEntries = capturedAudioBlobEntries.map((entry, index) => {
+        return index === existingIndex
+          ? {
+              ...entry,
+              ...nextEntry,
+              assignedTargetKey: entry.assignedTargetKey || null,
+            }
+          : entry
+      })
+    } else {
+      capturedAudioBlobEntries = [...capturedAudioBlobEntries, nextEntry].slice(-12)
+    }
+
+    getBlobDurationSeconds(blob).then((durationSeconds) => {
+      if (!Number.isFinite(durationSeconds)) {
+        return
+      }
+
+      capturedAudioBlobEntries = capturedAudioBlobEntries.map((entry) => {
+        return entry.id === nextEntry.id
+          ? {
+              ...entry,
+              durationSeconds,
+            }
+          : entry
+      })
+    })
+
+    return true
+  }
+
+  // Escuta o bridge de áudio do page world (whatsapp-audio-bridge.js) e
+  // guarda os blobs capturados; o Core recebe só eventos de status.
+  function listenToAudioBridge({
+    onBridgeReady,
+    onAudioCaptured,
+  } = {}) {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) {
+        return
+      }
+
+      if (event.origin !== window.location.origin) {
+        return
+      }
+
+      if (event.data?.source !== 'YOLEN_COMPANION_WHATSAPP_AUDIO_BRIDGE') {
+        return
+      }
+
+      if (event.data?.action === 'BRIDGE_READY') {
+        onBridgeReady?.()
+        return
+      }
+
+      if (event.data?.action !== 'AUDIO_BLOB_CAPTURED') {
+        return
+      }
+
+      if (rememberCapturedAudioBlob(event.data.audio)) {
+        onAudioCaptured?.({
+          capturedCount: capturedAudioBlobEntries.length,
+        })
+      }
+    })
+  }
   return {
+    listenToAudioBridge,
+    recordBridgeConfirmedGroupContext,
+    recordBridgeResolvedContactContext,
+    resetCapturedAudio,
     insertTextIntoEmptyComposer,
     readVisibleMessageEntries,
     IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS,
-    get capturedAudioBlobEntries() {
-      return capturedAudioBlobEntries
-    },
-    set capturedAudioBlobEntries(value) {
-      capturedAudioBlobEntries = value
-    },
     nonGroupClassifiedEpochByConversationKey,
     get bridgeConfirmedGroupContext() {
       return bridgeConfirmedGroupContext
-    },
-    set bridgeConfirmedGroupContext(value) {
-      bridgeConfirmedGroupContext = value
     },
     getBridgeStrongIdentity,
     isBridgeConfirmedGroupForConversation,
@@ -3323,14 +3424,8 @@ function createWhatsAppAdapter({
     get bridgeResolvedContactContext() {
       return bridgeResolvedContactContext
     },
-    set bridgeResolvedContactContext(value) {
-      bridgeResolvedContactContext = value
-    },
     get activeChatEpoch() {
       return activeChatEpoch
-    },
-    set activeChatEpoch(value) {
-      activeChatEpoch = value
     },
     refreshActiveChatEpoch,
     isBridgeResolvedContactAuthorizedForConversation,
@@ -3355,7 +3450,6 @@ function createWhatsAppAdapter({
     getConversationPhone,
     resolvePassivePhoneForConversation,
     getVisibleAudioTargets,
-    getBlobDurationSeconds,
     getAudioBlobForTarget,
     getSelectedChatActivitySnapshot,
     closeContactInfoPanelAndWait,
