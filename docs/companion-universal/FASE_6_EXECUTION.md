@@ -144,6 +144,29 @@ portanto não há bloqueio factual.
 - Paridade completa é da FASE 8 e homologação da FASE 9; nada disto foi
   declarado aqui. Sem live test, rollout, PR, merge ou deploy.
 
-## 8. Evidências finais
+## 8. Evidências finais (código entregue, fim da execução FASE 5 + FASE 6)
 
-Ver o relatório final da execução (comandos, códigos de saída e HEAD).
+| Comando | Resultado | Exit |
+|---|---|---|
+| `node --test …/companion-core-architecture-gates.test.mjs` | 53/53; baseline 12 (todas ManyChat legado, FASE 7); 0 violação nova | 0 |
+| `npm run test:companion` | 2378/2382; 4 falhas, todas conhecidas e vermelhas na base `0c95b769` | 1 |
+| `npm run test:companion-authorization` | 266/266 | 0 |
+| `node --test --test-force-exit …/e3-dom/*.test.mjs` | 266/266 | 0 |
+| `./node_modules/.bin/tsc --noEmit` | limpo | 0 |
+| `npm run lint` | 56 erros, os mesmos da base `0c95b769` (páginas/API não tocadas); 0 erro nos arquivos desta branch | 1 |
+| `validate-release-candidate.mjs` | PASS; ManyChat OFF em dev/prod | 0 |
+| `validate-release-candidate.mjs --e2e` | PASS; ManyChat ON só em e2e | 0 |
+| `git diff --check` | limpo | 0 |
+| `companion-known-failures-gate.mjs companion` | 4 conhecidas, 0 novas | 0 |
+| `companion-known-failures-gate.mjs e3` | 0 falhas (lista vazia) | 0 |
+| Testes focais (FASE 5 + FASE 6, 10 arquivos) | 97/97 | 0 |
+| E3 focais (corrida da inserção, Core neutro, regressão WhatsApp) | 21/21 | 0 |
+
+Falhas conhecidas restantes (fora do escopo, provadas vermelhas na base em
+worktree isolada): `Final Release autoriza somente produção e
+desenvolvimento local` (teste exige `http://localhost:3000/*`, manifest
+declara `http://localhost/*`; permissão de host é distribuição) e três de
+`app/lib` (backend): `acerto do vendedor exige ação concreta…`, `ponto de
+melhoria exige problema comprovado…` (`GROUNDING_REQUIRED` ≠
+`DIRECT_EVIDENCE_REQUIRED`) e `guardrail exige recovery completo…`
+(exceção esperada não lançada).
