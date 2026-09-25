@@ -209,3 +209,55 @@ test('safe view não expõe URL, base64 ou digest bruto', async () => {
   assert.doesNotMatch(serialized, new RegExp(AUDIO_BYTES.toString('base64')))
   assert.doesNotMatch(serialized, new RegExp(AUDIO_SHA256))
 })
+
+// FASE 6 — FETCH_MANYCHAT_AUDIO_SOURCE (getAudioSource do ManyChatAdapter):
+// só a mídia validada, só para o frame principal de app.manychat.com, sem
+// backend nem transcrição.
+test('fonte de áudio do adapter: frame principal do ManyChat recebe só a mídia validada', async () => {
+  const fetchedUrls = []
+  const result = await transport.handleAudioSourceRequest(
+    { payload: { audio_url: AUDIO_URL } },
+    { frameId: 0, url: 'https://app.manychat.com/fb3678277/chat/438324835' },
+    {
+      fetchImpl: async (url) => {
+        fetchedUrls.push(String(url))
+        return response()
+      },
+      cryptoImpl: webcrypto,
+    },
+  )
+
+  assert.equal(result.ok, true)
+  assert.equal(result.payload.ready, true)
+  assert.equal(result.payload.mime_type, 'audio/ogg')
+  assert.equal(Buffer.from(result.payload.audio_base64, 'base64').equals(AUDIO_BYTES), true)
+  assert.deepEqual(Object.keys(result.payload).sort(), ['audio_base64', 'mime_type', 'ready', 'reason', 'size_bytes'])
+  assert.deepEqual(fetchedUrls, [AUDIO_URL])
+})
+
+test('fonte de áudio do adapter: remetente fora do ManyChat, iframe ou URL fora do host validado falham fechado sem rede', async () => {
+  let fetches = 0
+  const fetchImpl = async () => {
+    fetches += 1
+    return response()
+  }
+
+  for (const sender of [
+    { frameId: 0, url: 'https://evil.example.com/' },
+    { frameId: 3, url: 'https://app.manychat.com/fb1/chat/1' },
+    {},
+  ]) {
+    const result = await transport.handleAudioSourceRequest({ payload: { audio_url: AUDIO_URL } }, sender, { fetchImpl })
+    assert.equal(result.ok, false)
+    assert.equal(result.payload.reason, 'sender_not_allowed')
+  }
+
+  const wrongHost = await transport.handleAudioSourceRequest(
+    { payload: { audio_url: 'https://cdn.example.com/audio.ogg' } },
+    { frameId: 0, url: 'https://app.manychat.com/fb1/chat/1' },
+    { fetchImpl },
+  )
+  assert.equal(wrongHost.ok, false)
+  assert.equal(wrongHost.payload.audio_base64, undefined)
+  assert.equal(fetches, 0)
+})

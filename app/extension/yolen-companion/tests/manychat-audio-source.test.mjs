@@ -26,6 +26,7 @@ function nativeNode({
   audioSrc = '',
   duration = 25.24,
   sources = [sourceNode({ src: 'https://cdn.example.com/audio.mp3' })],
+  withAudio = true,
 } = {}) {
   const audio = {
     currentSrc: audioCurrentSrc,
@@ -42,7 +43,7 @@ function nativeNode({
       return name === 'data-mid' ? mid : null
     },
     querySelectorAll(selector) {
-      if (selector === 'audio') return [audio]
+      if (selector === 'audio') return withAudio ? [audio] : []
       if (selector === 'video') return []
       if (selector === 'img') return []
       if (selector === 'canvas') return []
@@ -131,14 +132,27 @@ test('fonte não https não é elegível', () => {
 })
 
 test('mensagem de texto não entra no gate de áudio', () => {
+  // Mensagem só de texto (sem elemento <audio>): conteúdo pronto como
+  // texto, fora do gate de áudio.
   const result = audioSource.extractManyChatAudioSource(
     messageNode({
-      native: nativeNode({ text: 'mensagem textual' }),
+      native: nativeNode({ text: 'mensagem textual', withAudio: false }),
     }),
   )
 
   assert.equal(result.source_ready, false)
   assert.equal(result.reason, 'audio_content_not_ready')
+
+  // Texto + áudio no mesmo nó nativo continua fail-closed pelo gate de
+  // conteúdo (mensagem mista não validada), também fora do áudio.
+  const mixed = audioSource.extractManyChatAudioSource(
+    messageNode({
+      native: nativeNode({ text: 'mensagem textual' }),
+    }),
+  )
+
+  assert.equal(mixed.source_ready, false)
+  assert.equal(mixed.reason, 'mixed_audio_text_content_not_validated')
 })
 
 test('safe view não expõe URL bruta', () => {

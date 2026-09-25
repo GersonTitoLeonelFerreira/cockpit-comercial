@@ -486,6 +486,14 @@ async function handleManyChatAudioTranscription(message) {
 }
 
 async function handleCompanionMessage(message, sender) {
+  // FASE 6 — fonte de áudio do ManyChatAdapter (só a mídia validada).
+  if (message.action === 'FETCH_MANYCHAT_AUDIO_SOURCE') {
+    return manyChatAudioTransportTools.handleAudioSourceRequest(
+      message,
+      sender,
+    )
+  }
+
   if (message.action === 'GET_MANYCHAT_SAFE_IDENTITY') {
     return manyChatSafeIdentityTools.handleIdentityRequest(
       message,

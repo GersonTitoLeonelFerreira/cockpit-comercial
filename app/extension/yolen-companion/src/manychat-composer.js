@@ -39,10 +39,14 @@
     return true
   }
 
+  // Hardening trazido da referência congelada (STEP 2B.5-D1): o campo de
+  // intenção da MENSAGEM do próprio Companion também é um <textarea> dentro
+  // do painel da Yolen — nunca é candidato ao composer real do ManyChat.
   function isEligibleTextarea(node, documentRef) {
     if (!node || node.tagName !== 'TEXTAREA') return false
     if (node.disabled === true) return false
     if (node.readOnly === true) return false
+    if (typeof node.closest === 'function' && node.closest('#yolen-companion-panel')) return false
     return isVisible(node, documentRef)
   }
 
@@ -93,10 +97,13 @@
   // de decidir por ele), dispara os eventos que o React precisa para
   // reconhecer a mudança, e valida que o valor realmente entrou antes de
   // reportar sucesso.
+  // replaceExisting (FASE 6): só com substituição confirmada pelo vendedor
+  // (decisão do Core); sem ela, rascunho existente continua preservado.
   function applyManyChatComposerSuggestion({
     document: documentRef = root.document,
     window: windowRef = documentRef?.defaultView ?? root.window ?? root,
     text,
+    replaceExisting = false,
   } = {}) {
     const suggestion = typeof text === 'string' ? text.trim() : ''
     if (!suggestion) {
@@ -110,7 +117,11 @@
 
     const node = resolved.node
 
-    if (typeof node.value === 'string' && node.value.trim().length > 0) {
+    if (
+      typeof node.value === 'string' &&
+      node.value.trim().length > 0 &&
+      replaceExisting !== true
+    ) {
       return Object.freeze({ applied: false, reason: 'composer_not_empty' })
     }
 

@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process'
 
 const knownFailures = {
   companion: new Set([
-    'mensagem de texto não entra no gate de áudio',
     'Final Release autoriza somente produção e desenvolvimento local',
     'acerto do vendedor exige ação concreta e evidência da conversa',
     'ponto de melhoria exige problema comprovado em mensagem',

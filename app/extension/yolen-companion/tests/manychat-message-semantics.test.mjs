@@ -21,10 +21,18 @@ test('classifica incoming como fala do cliente', () => {
 
   assert.equal(result.direction, 'incoming')
   assert.equal(result.author_kind, 'customer')
-  assert.equal(result.customer_evidence_eligible, true)
-  assert.equal(result.seller_action_eligible, false)
-  assert.equal(result.automation_context_only, false)
-  assert.equal(result.reasoning_evidence_eligible, true)
+  assert.equal(result.bot_message, false)
+
+  // FASE 6: a classificação é só mecânica de plataforma (direção/autoria);
+  // elegibilidade para evidência/ação/raciocínio é decisão do Core.
+  for (const productFlag of [
+    'customer_evidence_eligible',
+    'seller_action_eligible',
+    'automation_context_only',
+    'reasoning_evidence_eligible',
+  ]) {
+    assert.equal(Object.prototype.hasOwnProperty.call(result, productFlag), false, productFlag)
+  }
 })
 
 test('classifica outgoing humano separadamente de automação', () => {
@@ -40,14 +48,12 @@ test('classifica outgoing humano separadamente de automação', () => {
   )
 
   assert.equal(human.author_kind, 'human_agent')
-  assert.equal(human.seller_action_eligible, true)
-  assert.equal(human.reasoning_evidence_eligible, true)
+  assert.equal(human.direction, 'outgoing')
+  assert.equal(human.bot_message, false)
 
   assert.equal(automation.author_kind, 'automation')
-  assert.equal(automation.automation_context_only, true)
-  assert.equal(automation.customer_evidence_eligible, false)
-  assert.equal(automation.seller_action_eligible, false)
-  assert.equal(automation.reasoning_evidence_eligible, false)
+  assert.equal(automation.direction, 'outgoing')
+  assert.equal(automation.bot_message, true)
 })
 
 test('evidência conflitante falha fechada como unknown', () => {
@@ -58,7 +64,8 @@ test('evidência conflitante falha fechada como unknown', () => {
   ]) {
     const result = semantics.classifyManyChatMessageNode(node(classes))
     assert.equal(result.author_kind, 'unknown')
-    assert.equal(result.reasoning_evidence_eligible, false)
+    assert.equal(result.direction, 'unknown')
+    assert.ok(result.reason)
   }
 })
 
