@@ -285,6 +285,9 @@ function createFakeBackground({
   methodGuidanceResult,
   messageGenerationResult,
   messageActionResult,
+  transcribeAudioResult,
+  registrationPreviewResult,
+  registrationConfirmResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
@@ -542,6 +545,43 @@ function createFakeBackground({
 
       return { ok: true, statusCode: 200, payload }
     },
+    // FASE 5 — regressão WhatsApp: transcrição de áudio e registro da
+    // conversa no histórico (valores estáticos ou funções por chamada).
+    TRANSCRIBE_AUDIO: async (requestPayload) => {
+      const payload = await (
+        typeof transcribeAudioResult === 'function'
+          ? transcribeAudioResult(requestPayload)
+          : (transcribeAudioResult ?? { ok: true, data: { text: 'Transcrição de teste.' } })
+      )
+
+      return { ok: true, statusCode: 200, payload }
+    },
+    PREVIEW_CONVERSATION_REGISTRATION: async (requestPayload) => {
+      const payload = await (
+        typeof registrationPreviewResult === 'function'
+          ? registrationPreviewResult(requestPayload)
+          : registrationPreviewResult
+      )
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: payload ?? { ok: false, error: 'Registro não configurado neste cenário de teste.' },
+      }
+    },
+    CONFIRM_CONVERSATION_REGISTRATION: async (requestPayload) => {
+      const payload = await (
+        typeof registrationConfirmResult === 'function'
+          ? registrationConfirmResult(requestPayload)
+          : registrationConfirmResult
+      )
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: payload ?? { ok: false, error: 'Registro não configurado neste cenário de teste.' },
+      }
+    },
     CREATE_LEAD: async (requestPayload) => {
       const payload = await (
         typeof createLeadResult === 'function'
@@ -712,6 +752,10 @@ export function loadCompanionComposition({
   methodGuidanceResult,
   messageGenerationResult,
   messageActionResult,
+  transcribeAudioResult,
+  registrationPreviewResult,
+  registrationConfirmResult,
+  fetchImpl,
   // withStabilityRuntimes/withSellerMessageRuntime/withLeadResolutionCache,
   // ainda passados por testes antigos, não têm mais efeito: a composição
   // carregada é sempre a do manifest (FASE 5).
@@ -737,6 +781,9 @@ export function loadCompanionComposition({
     methodGuidanceResult,
     messageGenerationResult,
     messageActionResult,
+    transcribeAudioResult,
+    registrationPreviewResult,
+    registrationConfirmResult,
   })
 
   const fakeChrome = {
@@ -765,7 +812,13 @@ export function loadCompanionComposition({
     location: dom.window.location,
     chrome: fakeChrome,
     console,
-    fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }),
+    fetch:
+      fetchImpl ??
+      (async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) })),
+    // Presentes em qualquer navegador real; usados pela captura de áudio
+    // do adapter (Blob) e pelo Core ao preparar a transcrição (FileReader).
+    Blob: dom.window.Blob,
+    FileReader: dom.window.FileReader,
     setTimeout,
     clearTimeout,
     setInterval,

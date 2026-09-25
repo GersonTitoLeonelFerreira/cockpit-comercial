@@ -269,3 +269,115 @@ Gates após a correção: arquitetura 53/53 (baseline 12, 0 da fase 5);
 0 nova; `test:companion-authorization` 266/266; `tsc` 0; lint sem erro nos
 arquivos alterados (56 erros pré-existentes em páginas/API não tocadas);
 release candidate dev/prod e `--e2e` OK; `git diff --check` limpo.
+
+## 9. Fechamento comprovado (auditoria de `988774aa`)
+
+Base efetiva: `988774aa5a394b69ea8b8a91f36944ddf233d767` (local = remoto no
+início, árvore limpa). A auditoria de `988774aa` apontou quatro pendências;
+todas foram reproduzidas antes da correção e fechadas nesta mesma FASE 5.
+
+### 9.1 Corrida da inserção (A→B, A→B→A)
+
+Reprodução no harness E3 alinhado ao manifest
+(`tests/e3-dom/suggested-message-insertion-conversation-race.test.mjs`),
+executada contra `988774aa` antes da correção: 4 cenários falharam
+(ANÁLISE com WhatsApp já em B; troca durante a verificação da escrita;
+registro atrasado de A₁ armando o envio pendente em A₂ — um envio manual em
+A₂ era registrado como uso da sugestão de A₁; MENSAGEM incluindo a mensagem
+de A no campo de B). Correção (`51d211cb`):
+
+- Core: `captureOperationContext()` / `isOperationContextCurrent()` —
+  contexto imutável (geração da fronteira + conversa + empresa + sessão)
+  revalidado depois de cada espera, antes de telemetria, registro e estado;
+  o registro usa os valores da própria operação (ciclo/mensagem/coaching),
+  nunca os da conversa atual; o envio pendente carrega o contexto da
+  operação; cópia e envio manual seguem a mesma regra.
+- MENSAGEM e resumo: geração/cópia/carga atrasadas descartadas; inclusão
+  só na conversa em que o contexto foi sincronizado.
+- Adapter: `applyMessage(text, { conversationKey, replaceExisting })` e
+  `insertTextIntoEmptyComposer(text, { conversationKey })` escrevem e
+  verificam só com a conversa esperada aberta (`conversation_changed`);
+  rascunho existente só é substituído com confirmação (`composer_not_empty`).
+- Controle positivo no mesmo arquivo: na mesma conversa/geração o envio
+  manual continua registrado como uso da sugestão.
+
+### 9.2 Eventos físicos na fronteira
+
+`onSendAttempt(decide)` entrega ao Core
+`{ kind: 'click' | 'enter', cancelable, conversationKey, draftText }` e
+recebe `{ block }`; `preventDefault/stopPropagation/stopImmediatePropagation`
+ficam no adapter (`dispatchSendAttempt`), só quando o Core bloqueia. Um único
+par de listeners atende todas as inscrições; cancelar a última remove os
+listeners. Enter com Shift/Alt/Ctrl/Meta ou em composição IME não é
+tentativa. "Enviar mesmo assim" captura contexto e rascunho confirmados e
+chama `triggerSend({ conversationKey, draftText })`, que só clica se ambos
+continuam os mesmos; o clique volta pelo mesmo `onSendAttempt`, onde o Core
+libera uma única vez (sem recursão nem envio duplicado). Tentativa numa
+conversa que o Core ainda não assumiu não aplica gate nem pendência.
+`observeHostChanges`, `onComposerDraftInput` e `listenToAudioBridge` também
+devolvem cancelamento (o MutationObserver não sai mais do adapter).
+Provas: `channel-adapter-contract.test.mjs` (jsdom) e o cenário de
+pré-envio do teste de Core neutro.
+
+### 9.3 Prova de independência do Core
+
+`companion-bootstrap.js` compõe o Core único com o `channelAdapter`
+recebido (o content script do WhatsApp só cria o adapter; `whenReady` e
+`startPlatform` são o ciclo de vida do canal). O teste
+`tests/e3-dom/core-neutral-channel-adapter.test.mjs` carrega os MESMOS
+módulos compartilhados de produção (manifest sem `whatsapp-adapter.js` e
+sem o content script do WhatsApp) e os liga a um adapter de contrato
+(`tests/e3-test-support/contract-channel-adapter.mjs`) sem nenhuma
+mecânica do WhatsApp; o único DOM é o container de montagem; acesso não
+contratado ao adapter lança erro e é registrado (0 violações). Cenários:
+inicialização/sessão/resolução/quatro áreas; evidência ausente →
+confiável; NOT_FOUND → CREATE → re-resolve; MENSAGEM gerar/copiar/incluir
+com rascunho ocupado; ANÁLISE com confirmação; pré-envio e "Enviar mesmo
+assim" único; capabilities indisponíveis (interceptação/áudio/telefone,
+inserção, montagem fail-closed); A→B→A; troca de empresa; e o caminho real
+WhatsAppAdapter + Core + views pela composição exata do manifest. A
+equivalência entre os nomes conceituais do §7 e os nomes do código está no
+cabeçalho do adapter de contrato (sem renomeação cosmética). Não substitui
+a paridade da FASE 8.
+
+Consequência corrigida pelo teste: a inclusão pela MENSAGEM não consultava
+`canApplyMessage`; agora mostra o estado canônico de campo indisponível.
+
+### 9.4 Quatro cenários reconciliados (fora da lista de falhas conhecidas)
+
+| Cenário | Causa | Decisão |
+|---|---|---|
+| `b3-commercial-reading-method-ui` "B3.3 renderiza método…" | A seção de método configurado não dizia que método e etapa do CRM são avaliações independentes | Conteúdo obrigatório (contrato funcional `PHASE_1_FUNCTIONAL_CONTRACT.md:208`, `PHASE_2_COMMERCIAL_CONFIG.md:34`) restaurado como nota na própria seção (`yolen-operational-note`, sem CSS novo) |
+| `companion-reasoning-view` "AGORA mantém decisão principal…" | O rótulo de `why_now` em AGORA derivou para "Por quê" na importação `c84b36ef` | UX validada da 16.9 (`phase16-9-real-runtime-fix-checkpoint.md:186`, commit `0f730f94`): Próximo movimento → "Por que agora" → "Ver técnica e cuidados". Rótulo aprovado restaurado; o teste passou a provar também uma única prioridade e técnica/cuidados recolhidos |
+| `companion-seller-information-view` "melhoria mostra ocorrência…" e E3 "V2 rico distribui…" | O rótulo da ação corretiva derivou para "Como melhorar" na mesma importação | Contrato de produto (`companion-seller-product-contract.md:562` "como corrigir") e UX validada `0f730f94`: rótulo "Como corrigir" restaurado. A posição (ação visível, porquê/impacto/evidência recolhidos) foi mantida como na base, sem outra mudança de layout |
+
+A lista de falhas conhecidas do E3 ficou vazia; a do `test:companion`
+ficou com 5 entradas, todas vermelhas também na base `0c95b769`
+(verificado em worktree isolada): `mensagem de texto não entra no gate de
+áudio` (`manychat-audio-source`, tratada na FASE 6), `Final Release
+autoriza somente produção e desenvolvimento local` (o teste exige
+`http://localhost:3000/*`, o manifest declara `http://localhost/*`; mudar
+permissões de host é distribuição, fora destas fases), e três de
+`app/lib` (backend, fora do escopo): `acerto do vendedor exige ação
+concreta…`, `ponto de melhoria exige problema comprovado…`
+(`GROUNDING_REQUIRED` em vez de `DIRECT_EVIDENCE_REQUIRED`) e `guardrail
+exige recovery completo…` (exceção esperada não lançada).
+
+### 9.5 Regressão WhatsApp obrigatória do Plano Mestre
+
+| Área | Evidência (composição real do manifest) |
+|---|---|
+| Criação / re-resolve | E3 `content-script-dom-lead-create-conversation-isolation` (TESTE 1–3 e isolamento A/B) |
+| Lead ativo nas quatro áreas | E3 `content-script-dom-seller-information-architecture`, `content-script-dom-integrated-seller-gate`, `core-neutral-channel-adapter` (caminho real) |
+| Pool / outra carteira / ciclo encerrado | E3 `content-script-dom-canonical-lead-actions` (IN_POOL, OWNED_BY_OTHER), `content-script-dom-canonical-resolution-eligibility` (CLOSED_CYCLE) |
+| Resumo / save / retry | E3 `content-script-dom-lead-summary` |
+| Mensagem / copy / apply | E3 `ux8-message-tab-dom`, `suggested-message-insertion-conversation-race` |
+| Registro | E3 `whatsapp-phase5-regression` (preview → confirmação, erro → nova tentativa); registro de uso da sugestão em `suggested-message-insertion-conversation-race` |
+| Enriquecimento | E3 `whatsapp-phase5-regression` (aplicado só com confirmação) |
+| A→B→A | E3 `content-script-dom-lead-resolution-boundary`, `content-script-dom-conversation-switch`, `suggested-message-insertion-conversation-race` |
+| Erros / retries | E3 `content-script-dom-analysis-request-lifecycle`, `content-script-dom-deep-analysis-delivery`, `content-script-dom-lead-summary`, `whatsapp-phase5-regression` |
+| Áudio / transcrição | E3 `whatsapp-phase5-regression` (fonte por handle opaco → `TRANSCRIBE_AUDIO`) |
+
+Resultado: E3 com 0 falhas; nenhuma falha nova no `test:companion`. Com
+isso a FASE 5 está encerrada; a FASE 6 segue na mesma execução
+(`FASE_6_EXECUTION.md`).
