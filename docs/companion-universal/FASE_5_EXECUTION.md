@@ -46,8 +46,9 @@ Preenchido com os resultados reais (comando → exit code → resultado):
 | architecture gates | exit 0 — 53/53; NEW=0, STALE=0, LEGACY=26 (14 removalPhase 5, 12 removalPhase 7) |
 | `node scripts/companion-known-failures-gate.mjs companion` | exit 0 — 9 falhas, todas conhecidas |
 | `npm run test:companion-authorization` | exit 0 — 266/266 |
-| E3 (`companion-known-failures-gate.mjs e3`) | (ver §7) |
-| `tsc --noEmit` / `npm run lint` | (ver §7) |
+| E3 (`companion-known-failures-gate.mjs e3`) | exit 0 — 3 falhas, todas conhecidas (harness divergente do manifest, ver §4.1) |
+| `tsc --noEmit` | exit 0 |
+| `npm run lint` | exit 1 — 56 erros / 103 avisos pré-existentes no repositório (fora de `dist/`: 54 erros / 51 avisos) |
 
 ## 4. Auditoria focal (antes das edições)
 
@@ -107,10 +108,121 @@ Uma instrução autoriza iniciar e terminar a fase. Checkpoints técnicos de
 ~6 arquivos de produção ou ~500 linhas líquidas são pontos internos de
 teste/revisão/commit, não fases nem entregas parciais.
 
-## 6. Avanço interno
+## 6. Avanço interno (checkpoints = commits)
 
-(atualizado a cada checkpoint)
+Checkpoints são pontos internos de teste/revisão/commit (§5), não fases.
+
+| Commit | Conteúdo |
+|---|---|
+| `e773b3c3` | Monólito `content-script.js` (17.027 linhas) dividido em `whatsapp-adapter.js` (plataforma), `companion-core.js` (produto) e bootstrap (`content-script.js`, ~200 linhas); `companion-analysis-controller.js` (A5). Manifest, allowlist de build e harness passam a carregar os módulos novos; testes estáticos leem a composição (`tests/support/whatsapp-composition-source.mjs`). Remove A11 `content-script` |
+| `d2534277` | Dono único de retry/status da análise (`yolen-api.js`); removidos os 3 wrappers A5 (ux8, null-base, phase16-9) e a reinstalação da reasoning-view; testes dos wrappers convertidos para `analysis-retry-status-owner.test.mjs`. Remove 3× A5 |
+| `73d9577a` | Controllers `companion-lead-creation-controller` (A4), `-conversation-registration-controller` (A7), `-lead-enrichment-controller` (A8), `-lead-summary-controller` (A6) |
+| `dac28357` + `ba620ee0` | MENSAGEM vira `companion-message-controller.js` (Core); cache do resumo no controller de resumo (chave = ledger do Core); `companion-core-api-composition.js` (retry + cache de resolução por empresa/identidade/geração; coordenação + rebase da captura); normalização de `data-pre-plain-text` no adapter; harness E3 = manifest; removidos `lead-summary-runtime-cache.js`, `lead-resolution-runtime-cache.js`, `lead-method-guidance-runtime.js` e o "resume cache". Remove 3× A6, 5× A9, A11 `seller-message-runtime`. `dac28357` saiu só com renomeações/remoções (o `git add` explícito falhou num caminho já removido); `ba620ee0` completa o conteúdo, sem reescrever histórico |
+| `bbfb1619` | Q6: anexos normalizados em memória no adapter; `phase16-9-runtime-guard.js` removido; reasoning-view sem fallback de DOM e composta explicitamente. Remove A11 `companion-reasoning-view` (última entrada da fase 5) |
+| `a906c608` | `companion-client-controller.js` (CLIENTE); loader do AGORA no controller de análise; dependências entre controllers lidas via `ctx` na chamada; ação "Analisar" do Core com delegação explícita (sem interceptar `EventTarget.prototype.addEventListener`) |
+| `a813c067` | Captura de áudio e contextos do identity bridge ficam no adapter (métodos explícitos; o Core não escreve variáveis do adapter) |
+| `6291c6a0` | O adapter emite eventos de canal (`observeHostChanges`, `onComposerDraftInput`, `onSendAttempt`); o Core não escuta mais o documento do WhatsApp; contrato atualizado |
+
+### 6.1 Composição final do WhatsApp (manifest `content_scripts[1]`)
+
+`yolen-api → ux8-interaction-consistency-runtime → lead-summary-expand-state
+→ message-mutations → conversation-registration-tools → capture-batch →
+capture-resilience → capture-resilience-null-base → lead-enrichment →
+companion-client-context-view → companion-lead-summary-view →
+companion-seller-information-view → companion-reasoning-view →
+companion-conversation-boundary → companion-lead-resolution-controller →
+companion-workspace-runtime → whatsapp-adapter →
+companion-analysis-controller → companion-lead-creation-controller →
+companion-conversation-registration-controller →
+companion-lead-enrichment-controller → companion-lead-summary-controller →
+companion-client-controller → companion-message-controller →
+companion-core-api-composition → companion-core → content-script →
+panel-stability-runtime → editable-field-stability-runtime → lead-automation`
+
+Fluxo: `content-script.js` (bootstrap) cria `WhatsAppAdapter` e o passa ao
+`companion-core.js` por `ctx.channelAdapter`, junto com as ferramentas
+(views, fronteira, resolução, resiliência). O Core cria os controllers e a
+composição de transporte com dependências explícitas e renderiza a View
+compartilhada (`companion-workspace-runtime` + views).
+
+### 6.2 Matriz de requisitos — estado final
+
+| Requisito | Dono no HEAD final | Evidência |
+|---|---|---|
+| Shell/lifecycle/sessão/composição | `companion-core.js` + `companion-workspace-runtime.js` | A3/A11 sem violação; bootstrap só compõe |
+| Resolução e ações de lead | `companion-lead-resolution-controller.js` (VM/outcome) + `companion-core-api-composition.js` (cache/retry) + `companion-lead-creation-controller.js` (região de ações) | `companion-core-api-composition.test.mjs`; E3 `lead-resolution-boundary` (A→B→A) |
+| Criação de lead (form/draft/validação/re-resolve/retry/dedupe) | `companion-lead-creation-controller.js` (máquina de estados, limite de re-resolve, retry, dedupe em voo); formulário/rascunho/validação em `lead-automation.js` (view) | A4 com dono Core; E3 `lead-create-conversation-isolation` |
+| MENSAGEM | `companion-message-controller.js`; escrita no campo: `whatsapp-adapter.insertTextIntoEmptyComposer` | `message-controller-contract.test.mjs`; E3 `ux8-message-tab-dom` |
+| AGORA/ANÁLISE (debounce, polling, watchdog, timeout, outdated) | `companion-analysis-controller.js`; retry/status no transporte `yolen-api.js` | A5 com dono Core; `analysis-retry-status-owner.test.mjs`; E3 de análise |
+| CLIENTE, resumo, registro, enriquecimento | `companion-client-controller.js`, `companion-lead-summary-controller.js`, `companion-conversation-registration-controller.js`, `companion-lead-enrichment-controller.js` | A6/A7/A8 com dono Core |
+| Quatro áreas na ordem now/message/analysis/client | `companion-workspace-runtime.js` (autoridade única de áreas) | A3; E3 `ux8-message-tab-dom` (teclado) |
+| Adapter WhatsApp (conversa/identidade, telefone, mensagens normalizadas, eventos, composer, áudio, mount) | `whatsapp-adapter.js` | A1/A12/A13/A14 sem violação |
+| Q6 | `message-mutations.js` (descrição pura) + `whatsapp-adapter.readVisibleMessageEntries` | E3 `attachment-capture` 6/6 (inclusive o antigo conhecido) |
+| Harness = manifest | `load-content-script.mjs` (`WHATSAPP_MANIFEST_FILES` + verificação) | A9 sem entradas |
+
+### 6.3 Correções comprovadas (comportamento que a composição antiga escondia)
+
+1. **Retry explícito da análise:** a composição efetiva de produção já
+   reabria o job em todo clique explícito, independentemente de revisões
+   locais, e reconsultava o superseded sintético. O dono único adota esse
+   comportamento, com payload `{analysis_job_id}` (+ `allow_succeeded:
+   true` só para job succeeded). Resolveu a falha histórica
+   `yolen-api-failed-job-first-retry` e a E3 "failed: mostra falha…". O
+   job reaberto passa a ser promovido pelo watermark devolvido no retry.
+2. **A → B → A com cache de resolução:** o cache por identidade compartilhava
+   a requisição em voo entre gerações de fronteira (A₂ herdaria a promise
+   presa de A₁). A composição explícita só compartilha dentro da mesma
+   geração e inclui a empresa ativa na chave; perda de sessão e troca de
+   vendedor invalidam o cache.
+3. **Refresh da mesma conversa:** a invalidação do resumo a cada captura
+   limpava a intenção digitada na MENSAGEM. A captura agora invalida só o
+   cache do resumo (a mensagem muda sozinha se o resumo mudar).
+4. **Troca de conversa no runtime de estabilidade:** era detectada pelo
+   nome exibido do lead, que muda durante a reconsulta da mesma conversa
+   (scroll zerado). O Core publica `data-yolen-conversation-key` no painel.
+5. **Anexo sem cabeçalho (Q6):** a leitura do cartão dependia de `innerText`
+   com layout; a descrição em memória usa segmentos de texto. O teste E3
+   passa a comparar o instante em horário local (o valor fixo `13:31Z` só
+   valia num runner em UTC−3).
+
+### 6.4 Testes convertidos (mesmas asserções no novo dono) e removidos
+
+- Convertidos: `analysis-scroll-freshness-*`, `phase16-9-runtime-guard`,
+  `ux8-analysis-retry-fallback` → `analysis-retry-status-owner`;
+  `lead-resolution-runtime-cache` → `companion-core-api-composition`;
+  `lead-summary-runtime-cache` → `lead-summary-controller-cache`;
+  `seller-message-runtime-contract` → `message-controller-contract`;
+  `ux8-analysis-action-resilience` → E3 `core-analyze-action-delegation`;
+  testes de `materializeAttachmentEvidence`/`installAttachmentEvidenceAdapter`
+  → descrição em memória; `deep-analysis-freshness` "stale" → status
+  autoritativo + requeue implícito bloqueado por snapshot novo.
+- Removidos com o módulo (sem produção desde a 16.9):
+  `lead-method-guidance-runtime.test.mjs` e os testes de
+  `lead-method-guidance-runtime.js` em `seller-message-contextual-presets`
+  e `lead-method-not-applicable`.
+- Delimitadores de blocos estáticos que cruzavam arquivos novos passaram a
+  terminar na própria função/controller (asserções inalteradas).
+
+### 6.5 Pendências remanescentes (fora de gate, registradas)
+
+- Nomes herdados com "WhatsApp" dentro do Core (`observeWhatsAppChanges`,
+  `getWhatsAppComposer`, `listenToWhatsAppAudioBridge`…) e orquestrações
+  do lookup de contato/identity bridge (`runAutomaticContactLookup`,
+  `runBridgeIdentityRevalidation`) que consomem apenas funções do adapter.
+  Não há seletor, host, JID nem Fiber no Core (A1).
+- Interceptação de `innerHTML` na instância do próprio painel
+  (`panel-stability-runtime.js`, `editable-field-stability-runtime.js`) e
+  hook de `HTMLMediaElement.prototype.play` no page world
+  (`whatsapp-audio-bridge.js`, captura de áudio do adapter): fora do Core e
+  sem papel de composição (contrato §26).
 
 ## 7. Evidências finais
 
-(preenchido no fechamento)
+Ver §6.2–§6.5 e o relatório final da execução. Baseline de arquitetura:
+26 → 12 entradas (0 da fase 5; 12 ManyChat da fase 7, sem aumento).
+Falhas conhecidas: companion 9 → 8; E3 3 → 1. Backend: nenhum arquivo de
+`app/api`, `app/lib` ou `supabase` alterado nesta branch; a alteração
+histórica do PR #338 em `app/api/companion/resolve-lead/route.ts` foi
+validada contra `cf50fac3` (aditiva: objeto `capabilities`; `actions`
+com as mesmas expressões; 34/34 em `route.test.mjs`) e permanece como
+exceção histórica documentada.
