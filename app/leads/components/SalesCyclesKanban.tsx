@@ -1915,6 +1915,7 @@ type VirtualizedStatusColumnProps = {
   supabase: any
   companyId: string
   currentUserId: string
+  isV2: boolean
 }
 
 function VirtualizedStatusColumn({
@@ -1942,6 +1943,7 @@ function VirtualizedStatusColumn({
   supabase,
   companyId,
   currentUserId,
+  isV2,
 }: VirtualizedStatusColumnProps) {
   const [menuState, setMenuState] = useState<{ item: PipelineItem; anchorRect: DOMRect } | null>(null)
   const [isDraggingOver, setIsDraggingOver] = useState(false)
@@ -2035,30 +2037,40 @@ function VirtualizedStatusColumn({
       <div
         style={{
           position: 'relative',
-          minWidth: 272,
-          maxWidth: 272,
-          flex: '0 0 272px',
+          minWidth: isV2 ? 284 : 272,
+          maxWidth: isV2 ? 284 : 272,
+          flex: isV2 ? '0 0 284px' : '0 0 272px',
           height: 'calc(100vh - 200px)',
           minHeight: 460,
           display: 'flex',
           flexDirection: 'column',
           background: isDraggingOver
-            ? `rgba(${statusRgb},0.04)`
-            : DS.panelBg,
-          borderRadius: 8,
+            ? `rgba(${statusRgb},0.05)`
+            : isV2
+              ? 'rgba(14,24,40,0.78)'
+              : DS.panelBg,
+          borderRadius: isV2 ? 12 : 8,
           borderTop: `2px solid ${STATUS_COLORS[status]}`,
           borderRight: isDraggingOver
             ? `1px solid rgba(${statusRgb},0.45)`
-            : `1px solid ${DS.border}`,
+            : isV2
+              ? '1px solid rgba(177,208,255,0.10)'
+              : `1px solid ${DS.border}`,
           borderBottom: isDraggingOver
             ? `1px solid rgba(${statusRgb},0.45)`
-            : `1px solid ${DS.border}`,
+            : isV2
+              ? '1px solid rgba(177,208,255,0.10)'
+              : `1px solid ${DS.border}`,
           borderLeft: isDraggingOver
             ? `1px solid rgba(${statusRgb},0.45)`
-            : `1px solid ${DS.border}`,
+            : isV2
+              ? '1px solid rgba(177,208,255,0.10)'
+              : `1px solid ${DS.border}`,
           transition: 'background 150ms ease, border-color 150ms ease',
           overflow: 'hidden',
-          boxShadow: 'none',
+          boxShadow: isV2
+            ? '0 14px 32px rgba(0,0,0,0.12)'
+            : 'none',
         }}
         onDragEnter={(e) => {
           e.preventDefault()
@@ -2093,9 +2105,13 @@ function VirtualizedStatusColumn({
             position: 'sticky',
             top: 0,
             zIndex: 10,
-            padding: '10px 12px 8px',
-            background: DS.panelBg,
-            borderBottom: `1px solid ${DS.borderSubtle}`,
+            padding: isV2 ? '12px 14px 10px' : '10px 12px 8px',
+            background: isV2
+              ? 'rgba(20,32,51,0.74)'
+              : DS.panelBg,
+            borderBottom: isV2
+              ? '1px solid rgba(177,208,255,0.08)'
+              : `1px solid ${DS.borderSubtle}`,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -2137,13 +2153,17 @@ function VirtualizedStatusColumn({
             <div
               style={{
                 color: DS.textSecondary,
-                fontSize: 12,
+                fontSize: isV2 ? 11 : 12,
                 fontWeight: 700,
                 fontVariantNumeric: 'tabular-nums',
-                background: DS.surfaceBg,
-                border: `1px solid ${DS.border}`,
-                borderRadius: 4,
-                padding: '1px 7px',
+                background: isV2
+                  ? 'rgba(11,18,32,0.62)'
+                  : DS.surfaceBg,
+                border: isV2
+                  ? '1px solid rgba(177,208,255,0.10)'
+                  : `1px solid ${DS.border}`,
+                borderRadius: isV2 ? 6 : 4,
+                padding: isV2 ? '2px 7px' : '1px 7px',
                 minWidth: 24,
                 textAlign: 'center',
               }}
@@ -2178,7 +2198,13 @@ function VirtualizedStatusColumn({
 
         <div
           className="kanban-column-scroll"
-          style={{ position: 'relative', flex: 1, overflowY: 'auto', padding: '8px 8px 14px' }}
+          style={{
+            position: 'relative',
+            flex: 1,
+            overflowY: 'auto',
+            padding: isV2 ? '10px 10px 16px' : '8px 8px 14px',
+          }}
+
         >
           {filteredCycles.length === 0 ? (
             <div
@@ -3613,9 +3639,9 @@ export default function SalesCyclesKanban({
                 flex: 1,
                 overflowX: 'auto',
                 overflowY: 'hidden',
-                padding: '12px 16px 16px',
+                padding: isV2 ? '10px 0 18px' : '12px 16px 16px',
                 display: 'flex',
-                gap: 8,
+                gap: isV2 ? 10 : 8,
                 alignItems: 'flex-start',
               }}
             >
@@ -3650,6 +3676,7 @@ export default function SalesCyclesKanban({
     supabase={supabase}
     companyId={companyId}
     currentUserId={userId}
+    isV2={isV2}
   />
 ))}
             </div>
