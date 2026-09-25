@@ -2,9 +2,6 @@ import { spawnSync } from 'node:child_process'
 
 const knownFailures = {
   companion: new Set([
-    'B3.3 renderiza método, etapa atual e seis status oficiais',
-    'AGORA mantém decisão principal e acrescenta técnica contextual sem criar nova prioridade',
-    'melhoria mostra ocorrência, importância, impacto e correção',
     'mensagem de texto não entra no gate de áudio',
     'Final Release autoriza somente produção e desenvolvimento local',
     'acerto do vendedor exige ação concreta e evidência da conversa',
@@ -12,9 +9,7 @@ const knownFailures = {
     'guardrail exige recovery completo quando a conversa sai do método',
   ]),
 
-  e3: new Set([
-    'V2 rico distribui prioridade, coaching, método, recovery e cliente nas áreas corretas',
-  ]),
+  e3: new Set([]),
 }
 
 const suites = {

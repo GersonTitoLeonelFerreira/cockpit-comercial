@@ -73,7 +73,7 @@
 
             ${whyNow ? `
               <div class="yolen-seller-detail">
-                <div class="yolen-seller-detail-label">Por quê</div>
+                <div class="yolen-seller-detail-label">Por que agora</div>
                 <div class="yolen-seller-detail-copy">${escapeHtml(whyNow)}</div>
               </div>
             ` : ''}

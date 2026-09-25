@@ -363,7 +363,7 @@
               <div class="yolen-seller-insight-type">${escapeHtml(kindLabel)}</div>
               <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
 
-              ${renderLabeledCopy('Como melhorar', howToImprove)}
+              ${renderLabeledCopy('Como corrigir', howToImprove)}
 
               ${
                 whyItMatters || impact || renderEvidence(item)
@@ -547,6 +547,9 @@
 
           ${renderMethodStages(method)}
           ${renderRecovery(method)}
+          <div class="yolen-operational-note" data-yolen-method-crm-independence>
+            Método comercial e etapa do CRM são avaliações independentes.
+          </div>
         </section>
       </details>
     `

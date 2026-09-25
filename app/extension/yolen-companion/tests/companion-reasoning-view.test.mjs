@@ -94,6 +94,19 @@ test(
       html,
       /Não inventar condição de pagamento/,
     )
+
+    // "Sem criar nova prioridade": a única prioridade continua sendo a
+    // decisão principal; técnica e cuidados ficam recolhidos (UX validada
+    // da FASE 16.9: Próximo movimento → Por que agora → Ver técnica e
+    // cuidados).
+    assert.equal(
+      (html.match(/data-yolen-alert-priority=/g) || []).length,
+      1,
+    )
+    assert.match(
+      html,
+      /Próximo movimento[\s\S]*Por que agora[\s\S]*<summary>Ver técnica e cuidados<\/summary>[\s\S]*Diagnóstico de objeção/,
+    )
   },
 )
 
