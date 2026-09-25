@@ -642,7 +642,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isAdminUser = userRole === 'admin'
   const canAccessPlatformAdmin = isPlatformAdmin
 
-  if (pathname === '/leads') {
+  if (pathname === '/ux-v2/leads') {
     return (
       <YolenShellFrame
         activeCompanyName={activeCompanyName}

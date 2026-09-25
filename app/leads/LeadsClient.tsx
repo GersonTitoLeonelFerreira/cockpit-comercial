@@ -2,10 +2,11 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import SalesCyclesKanban from './components/SalesCyclesKanban'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { getActiveCompetency, getRevenueGoal, getRevenueSummary } from '@/app/lib/services/simulator'
-import { buildMetaSummaryKpis } from '@/app/components/meta/MetaSummaryCard'
+import MetaSummaryHeader, { buildMetaSummaryKpis } from '@/app/components/meta/MetaSummaryCard'
 import MetaSummaryV2 from './components/MetaSummaryV2'
 import styles from './LeadsClientV2.module.css'
 
@@ -108,6 +109,9 @@ export default function LeadsClient({
   const supabase = React.useMemo(() => supabaseBrowser(), [])
   void supabase
   void userLabel
+
+  const pathname = usePathname()
+  const isV2 = pathname === '/ux-v2/leads'
 
   const isAdmin = role === 'admin'
 const canManageReactivation = role === 'admin' || role === 'manager'
@@ -225,8 +229,35 @@ const canManageReactivation = role === 'admin' || role === 'manager'
   }, [companyId, period])
 
   return (
-    <div className={styles.page}>
-     <div className={styles.toolbar}>
+    <div
+      className={isV2 ? styles.page : undefined}
+      style={
+        isV2
+          ? undefined
+          : {
+              color: '#edf2f7',
+              background: '#090b0f',
+              minHeight: '100vh',
+              padding: '20px 24px',
+            }
+      }
+    >
+
+     <div
+       className={isV2 ? styles.toolbar : undefined}
+       style={
+         isV2
+           ? undefined
+           : {
+               display: 'flex',
+               gap: 10,
+               alignItems: 'center',
+               flexWrap: 'wrap',
+               marginBottom: 12,
+             }
+       }
+     >
+
   {canManageReactivation ? (
     <Link
       href="/leads/reativacao"
@@ -306,15 +337,34 @@ const canManageReactivation = role === 'admin' || role === 'manager'
         ) : revenueLoading ? (
           <div style={{ fontSize: 12, color: '#546070' }}>Carregando faturamento do período...</div>
         ) : (
-          <MetaSummaryV2
-            title={goalView === 'mine' ? 'Minha meta (comparada ao Real da empresa)' : 'Empresa (todos)'}
-            kpis={buildMetaSummaryKpis(revenueTotalReal, activeGoal, revenueBDRemaining, revenueProjection)}
-          />
+          isV2 ? (
+            <MetaSummaryV2
+              title={goalView === 'mine' ? 'Minha meta (comparada ao Real da empresa)' : 'Empresa (todos)'}
+              kpis={buildMetaSummaryKpis(revenueTotalReal, activeGoal, revenueBDRemaining, revenueProjection)}
+            />
+          ) : (
+            <MetaSummaryHeader
+              title={goalView === 'mine' ? 'Minha meta (comparada ao Real da empresa)' : 'Empresa (todos)'}
+              kpis={buildMetaSummaryKpis(revenueTotalReal, activeGoal, revenueBDRemaining, revenueProjection)}
+            />
+          )
         )}
       </div>
 
 
-      <div className={styles.kanbanStage}>
+      <div
+        className={isV2 ? styles.kanbanStage : undefined}
+        style={
+          isV2
+            ? undefined
+            : {
+                marginTop: 0,
+                marginLeft: -24,
+                marginRight: -24,
+              }
+        }
+      >
+
       <SalesCyclesKanban
         userId={userId}
         companyId={companyId}
