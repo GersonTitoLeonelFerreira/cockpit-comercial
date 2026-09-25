@@ -56,6 +56,7 @@ export const WHATSAPP_MANIFEST_FILES = Object.freeze([
   'companion-lead-summary-controller.js',
   'companion-message-controller.js',
   'companion-core-api-composition.js',
+  'companion-client-controller.js',
   'companion-core.js',
   'content-script.js',
   'panel-stability-runtime.js',

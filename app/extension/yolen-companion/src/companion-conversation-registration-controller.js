@@ -6,10 +6,11 @@ function createCompanionConversationRegistrationController(ctx) {
     escapeHtml,
     getCanonicalResolutionCycleId,
     getCaptureConversationKey,
-    invalidateLeadSummaryForConversation,
-    loadCompanionLeadSummaryForCurrentCycle,
     renderPanel,
   } = ctx
+  // Dependências de outros controllers do Core: lidas via ctx no momento
+  // da chamada (os controllers são criados em sequência).
+
 
   // ---------------------------------------------------------------------
   // Registrar conversa — registro factual e manual da conversa atual no
@@ -189,12 +190,12 @@ function createCompanionConversationRegistrationController(ctx) {
     if (alreadyRegistered) {
       // Registro já existente recuperado no preview: o resumo anterior (e
       // a mensagem derivada dele) deixa de valer.
-      invalidateLeadSummaryForConversation({
+      ctx.invalidateLeadSummaryForConversation({
         cycle_id: cycleId,
         conversation_key: conversationKey,
       })
 
-      await loadCompanionLeadSummaryForCurrentCycle()
+      await ctx.loadCompanionLeadSummaryForCurrentCycle()
     }
   }
 
@@ -310,12 +311,12 @@ function createCompanionConversationRegistrationController(ctx) {
     // summary: invalida explicitamente o snapshot anterior (e a mensagem
     // derivada dele); a nova leitura faz a UI refletir o marco salvo
     // imediatamente, inclusive quando antes ela exibia o estado vazio.
-    invalidateLeadSummaryForConversation({
+    ctx.invalidateLeadSummaryForConversation({
       cycle_id: cycleId,
       conversation_key: conversationKey,
     })
 
-    await loadCompanionLeadSummaryForCurrentCycle()
+    await ctx.loadCompanionLeadSummaryForCurrentCycle()
   }
 
   function cancelCurrentConversationRegistration() {

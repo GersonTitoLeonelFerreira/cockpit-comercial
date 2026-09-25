@@ -97,18 +97,6 @@ function createCompanionCore(ctx) {
 
   const CAPTURE_INGESTION_DELAY_MS = 1200
   const CAPTURE_INGESTION_MAX_RETRY_MS = 30000
-  // Depois que uma captura é persistida com sucesso para a conversa aberta,
-  // um pequeno debounce antes de rebuscar o contexto operacional do
-  // cliente — coalesce múltiplas ingestões próximas (ex.: várias mensagens
-  // chegando em sequência) numa única requisição, em vez de uma por
-  // mensagem.
-  const COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS = 500
-  // Campos puramente derivados do relógio (tempo de espera, risco de SLA)
-  // precisam continuar corretos mesmo sem nenhuma mensagem nova chegar —
-  // este intervalo só re-renderiza o painel com os dados já carregados
-  // (recalculando localmente a partir de `generated_at`), sem nenhuma
-  // chamada de rede nova.
-  const COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS = 60000
   const MAX_MESSAGE_LEDGER_SIZE = 300
   const MAX_ANALYSIS_MESSAGE_COUNT = 80
   const MAX_RETAINED_PRE_RESOLUTION_CAPTURES = 20
@@ -150,8 +138,6 @@ function createCompanionCore(ctx) {
   let lastAcknowledgedCollapsedAttentionKey = null
   let lastRenderedDeepAnalysisResultKey = null
   let sessionRefreshTimerId = 0
-  let companionClientContextTickTimerId = 0
-  let companionClientContextRefreshTimerId = 0
   let runtimeRecoveryTimerId = 0
   let runtimeRecoveryInFlight = false
   let lastResolvedConversationKey = null
@@ -172,23 +158,9 @@ function createCompanionCore(ctx) {
     new Set()
   let messageLedgerRequiresRebase = false
   let messageLedgerMutationRevision = 0
-  // FASE 16.5 — mesmo padrão acima, mas para o AGORA seller-facing view
-  // model: identidade de escopo (cycleId/conversationKey) sozinha não
-  // basta para saber se uma resposta em voo ainda é a mais recente — uma
-  // requisição disparada ANTES de uma reanálise começar (mesmo ciclo/
-  // conversa) pode resolver DEPOIS da requisição disparada pela própria
-  // reanálise ao terminar, e sobrescrever um resultado fresco com um
-  // stale (achado do Codex, PR #283). Incrementado a cada chamada de
-  // loadAgoraDecisionStateForCurrentCycle(), qualquer que seja a
-  // conversa; só a chamada cujo requestSequence capturado ainda é o mais
-  // recente pode aplicar seu resultado.
-  let agoraDecisionStateRequestSequence = 0
   // FASE 16.6 — mesmo padrão de agoraDecisionStateRequestSequence acima,
   // para o ANÁLISE seller-facing view model.
   let analysisViewModelRequestSequence = 0
-  // FASE 16.7 — mesmo padrão acima, para o CLIENTE seller-facing view
-  // model.
-  let customerViewModelRequestSequence = 0
   let captureIngestionTimerId = 0
   let captureIngestionInFlight = false
   let captureIngestionQueued = false
@@ -233,9 +205,6 @@ function createCompanionCore(ctx) {
     },
     set lastSelectedChatActivitySnapshot(value) {
       lastSelectedChatActivitySnapshot = value
-    },
-    get loadAgoraDecisionStateForCurrentCycle() {
-      return loadAgoraDecisionStateForCurrentCycle
     },
     get loadCustomerViewModelForCurrentCycle() {
       return loadCustomerViewModelForCurrentCycle
@@ -283,9 +252,64 @@ function createCompanionCore(ctx) {
     clearAutomaticAnalysisTimer,
     clearDeepAnalysisPollTimer,
     isCurrentAnalysisOutdated,
+    loadAgoraDecisionStateForCurrentCycle,
     loadAnalysisViewModelForCurrentCycle,
     scheduleAutomaticAnalysis,
   } = analysisController
+
+  const clientControllerContext = {
+    get clientContextViewTools() {
+      return clientContextViewTools
+    },
+    get extractStatefulCommercialReading() {
+      return extractStatefulCommercialReading
+    },
+    get getCanonicalResolutionCycleId() {
+      return getCanonicalResolutionCycleId
+    },
+    get getCaptureConversationKey() {
+      return getCaptureConversationKey
+    },
+    get getCurrentConversationFingerprint() {
+      return getCurrentConversationFingerprint
+    },
+    get loadAgoraDecisionStateForCurrentCycle() {
+      return loadAgoraDecisionStateForCurrentCycle
+    },
+    get loadAnalysisViewModelForCurrentCycle() {
+      return loadAnalysisViewModelForCurrentCycle
+    },
+    get loadCompanionLeadSummaryForCurrentCycle() {
+      return loadCompanionLeadSummaryForCurrentCycle
+    },
+    get renderPanel() {
+      return renderPanel
+    },
+    get state() {
+      return state
+    },
+    set state(value) {
+      state = value
+    },
+  }
+
+  const clientController =
+    globalThis
+      .YolenCompanionClientController
+      .create(
+        clientControllerContext,
+      )
+
+  const {
+    clearCompanionClientContextRefreshTimer,
+    getCompanionClientRelationshipCardHtml,
+    getLastKnownClientCommercialReading,
+    loadCompanionClientContextForCurrentCycle,
+    loadCustomerViewModelForCurrentCycle,
+    notifyCaptureIngestedForClientContext,
+    rememberLastKnownClientCommercialReadingIfPresent,
+    startCompanionClientContextTicker,
+  } = clientController
 
   const leadSummaryControllerContext = {
     get messageController() {
@@ -601,6 +625,44 @@ function createCompanionCore(ctx) {
     preSendBypassKey: null,
   }
 
+  const ANALYZE_ACTION_SELECTOR =
+    '[data-yolen-action="analyze-conversation"]'
+
+  function handleAnalyzeActionClick() {
+    analyzeCurrentConversation({
+      automatic: false,
+      retryFailedJob:
+        Boolean(
+          state.conversationAnalysisError,
+        ) ||
+        state.deepAnalysisStatus ===
+          'failed',
+    })
+  }
+
+  // Runtimes de estabilidade do painel podem reaplicar o HTML inteiro de
+  // uma região e recriar o botão "Analisar"/"Tentar novamente" sem o
+  // listener direto do wireOnce(). A ação continua do Core: uma única
+  // delegação explícita no painel executa o MESMO handler apenas para
+  // botões ainda não religados (FASE 5 — antes, o runtime UX8 capturava a
+  // closure interceptando EventTarget.prototype.addEventListener).
+  function handleUnwiredAnalyzeActionClick(event) {
+    const action =
+      event.target?.closest?.(
+        ANALYZE_ACTION_SELECTOR,
+      )
+
+    if (
+      !action ||
+      action.__yolenWiredEvents
+        ?.has?.('click')
+    ) {
+      return
+    }
+
+    handleAnalyzeActionClick()
+  }
+
   function createPanel() {
     const existingPanel = document.getElementById(PANEL_ID)
 
@@ -617,6 +679,11 @@ function createCompanionCore(ctx) {
     // até a migração das FASES C/D — as duas convivem por camada, não por
     // sobreposição de CSS.
     panel.setAttribute('data-yolen-ux-build', 'UX8')
+
+    panel.addEventListener(
+      'click',
+      handleUnwiredAnalyzeActionClick,
+    )
 
     document.body.appendChild(panel)
 
@@ -4387,123 +4454,6 @@ function createCompanionCore(ctx) {
     )
   }
 
-  // CLIENTE representa conhecimento acumulado sobre o cliente ("o que já
-  // sabemos"), não um indicador de execução ao vivo — diferente de ANÁLISE/
-  // AGORA, que legitimamente precisam refletir só a tentativa corrente.
-  // Toda nova tentativa de análise (automática por nova mensagem, ou
-  // manual) zera conversationAnalysis de imediato, antes mesmo de saber se
-  // vai suceder — então, sem este snapshot, uma leitura comercial válida
-  // desaparece de CLIENTE a cada re-análise em voo e permanece perdida se
-  // essa nova tentativa falhar, mesmo sem nenhuma mensagem nova que a
-  // invalidasse de fato. getLastKnownClientCommercialReading() devolve o
-  // último resultado promovido com sucesso, mas só quando TODA a
-  // identidade que originou aquele resultado (company/cycle/conversation)
-  // ainda bate com o contexto atual — reavaliado a cada renderPanel(), sem
-  // esperar uma análise nova terminar. Isto cobre um caso que
-  // hardResetConversationWorkspace() (troca real de aba/conversa) não
-  // cobre: a MESMA conversation_key ser resolvida para um cycle_id
-  // diferente (ex.: resolveCurrentLead() encontrando um ciclo novo para o
-  // mesmo lead), o que não é uma "troca de conversa" no sentido de DOM/
-  // captura, mas muda de quem estamos falando comercialmente. O
-  // fingerprint sozinho não protege esse caso: mensagens idênticas podem
-  // continuar visíveis enquanto o ciclo por trás delas mudou.
-  function getLastKnownClientCommercialReading() {
-    const snapshot =
-      state.lastKnownCommercialReading
-
-    const context =
-      state.lastKnownCommercialReadingContext
-
-    if (!snapshot || !context) {
-      return null
-    }
-
-    const currentCycleId =
-      getCanonicalResolutionCycleId() ||
-      null
-
-    const currentConversationKey =
-      getCaptureConversationKey()
-
-    const currentCompanyId =
-      state.companyId ||
-      null
-
-    if (
-      context.cycleId !==
-        currentCycleId ||
-      context.conversationKey !==
-        currentConversationKey ||
-      context.companyId !==
-        currentCompanyId
-    ) {
-      return null
-    }
-
-    const currentFingerprint =
-      getCurrentConversationFingerprint()
-
-    if (
-      currentFingerprint &&
-      currentFingerprint !==
-        context.fingerprint
-    ) {
-      return null
-    }
-
-    return snapshot
-  }
-
-  // Chamado só nos pontos em que uma análise stateful válida acabou de ser
-  // aplicada a state.conversationAnalysis (sucesso do polling profundo e
-  // sucesso da resposta rápida V1/shadow) — nunca em erro/loading/timeout,
-  // então nunca grava lixo por cima de um snapshot bom anterior. Toda a
-  // identidade gravada (companyId/cycleId/conversationKey) é a da
-  // REQUISIÇÃO que originou este resultado (companyIdAtRequest/cycleId/
-  // conversationKeyAtRequest capturados no início de
-  // analyzeCurrentConversation(), nunca relidos tarde demais de state) —
-  // inclusive companyId: reler state.companyId aqui, no momento da
-  // promoção, poderia gravar um resultado iniciado na empresa A com a
-  // identidade da empresa B se a sessão ativa tivesse mudado enquanto o
-  // job ainda estava em voo. Na prática isAnalysisResponseStillCurrent()
-  // já barra esse caso antes de chegar aqui, mas a identidade gravada não
-  // pode depender só dessa checagem anterior.
-  function rememberLastKnownClientCommercialReadingIfPresent({
-    fingerprint,
-    cycleId,
-    conversationKey,
-    companyId,
-    analysis =
-      state
-        .conversationAnalysis,
-  }) {
-    const reading =
-      extractStatefulCommercialReading(
-        analysis,
-      )
-
-    if (
-      !reading ||
-      !fingerprint ||
-      !cycleId ||
-      !conversationKey
-    ) {
-      return {}
-    }
-
-    return {
-      lastKnownCommercialReading: reading,
-      lastKnownCommercialReadingContext: {
-        companyId:
-          companyId ||
-          null,
-        cycleId,
-        conversationKey,
-        fingerprint,
-      },
-    }
-  }
-
   // B4_PRE_SEND_EVALUATOR_START
   function evaluatePreSendAssessment(input) {
     const reading =
@@ -6891,649 +6841,6 @@ function createCompanionCore(ctx) {
     return clean || null
   }
 
-  // Inteligência operacional do cliente (histórico da relação, tempo de
-  // resposta, quem está aguardando quem, risco por demora). Deliberadamente
-  // independente da análise semântica acima: não depende da IA nem do
-  // estado `conversationAnalysis` — é buscada e renderizada à parte, a
-  // partir de fatos determinísticos do banco (ver
-  // app/api/companion/client-context).
-  function clearCompanionClientContextRefreshTimer() {
-    if (
-      companionClientContextRefreshTimerId
-    ) {
-      window.clearTimeout(
-        companionClientContextRefreshTimerId,
-      )
-
-      companionClientContextRefreshTimerId = 0
-    }
-  }
-
-  // Sinal real de "a captura foi persistida", disparado por
-  // runCaptureIngestion() após rememberSuccessfulCapture() — não um sleep
-  // arbitrário. Corrige tanto a primeira leitura (que pode ter ocorrido
-  // sobre um ledger ainda vazio, antes da ingestão terminar) quanto
-  // qualquer leitura posterior (nova mensagem chegando durante a
-  // conversa): as duas situações são, no fundo, "o contexto pode estar
-  // desatualizado porque uma ingestão acabou de confirmar". O pequeno
-  // debounce evita uma requisição por mensagem quando várias chegam em
-  // sequência.
-  function notifyCaptureIngestedForClientContext(
-    contextKey,
-  ) {
-    const cycleId =
-      getCanonicalResolutionCycleId()
-
-    const conversationKey =
-      getCaptureConversationKey()
-
-    if (!cycleId || !conversationKey) {
-      return
-    }
-
-    const currentContextKey = [
-      cycleId,
-      conversationKey,
-    ].join('::')
-
-    if (
-      currentContextKey !==
-      contextKey
-    ) {
-      return
-    }
-
-    clearCompanionClientContextRefreshTimer()
-
-    companionClientContextRefreshTimerId =
-      window.setTimeout(() => {
-        companionClientContextRefreshTimerId = 0
-
-        void loadCompanionClientContextForCurrentCycle(
-          {
-            force: true,
-          },
-        )
-
-        // A captura canônica confirmada pode alterar o working summary.
-        // O cache é invalidado no wrapper de ingestão e este refresh
-        // debounced evita manter na tela um resumo anterior ao novo lote.
-        void loadCompanionLeadSummaryForCurrentCycle()
-
-        // FASE 16.5 (achado do Codex, rodada 2): uma mensagem nova pode
-        // criar ou alterar um sinal operacional que Decision State usa
-        // (ex.: cliente passou a aguardar resposta) sem que nenhuma nova
-        // análise semântica tenha rodado — sem este refresh, AGORA
-        // ficaria presa na decisão calculada antes da mensagem chegar
-        // até a próxima análise bem-sucedida (que pode nunca acontecer
-        // se o vendedor não reanalisar manualmente).
-        void loadAgoraDecisionStateForCurrentCycle({
-          force: true,
-        })
-
-        // FASE 16.6 — mesmo raciocínio: um novo compromisso, objeção ou
-        // sinal de condução pode mudar sem nenhuma reanálise semântica
-        // ter rodado ainda (ex.: ledger de mensagens/mutações do ciclo
-        // afetando Cycle Memory diretamente).
-        void loadAnalysisViewModelForCurrentCycle({
-          force: true,
-        })
-
-        // FASE 16.7 — mesmo raciocínio para CLIENTE: uma preferência,
-        // padrão de comunicação ou lacuna de descoberta pode mudar sem
-        // nenhuma reanálise semântica manual ter rodado ainda.
-        void loadCustomerViewModelForCurrentCycle({
-          force: true,
-        })
-      }, COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS)
-  }
-
-  async function loadCompanionClientContextForCurrentCycle(
-    options = {},
-  ) {
-    const force =
-      options.force === true
-
-    const cycleId =
-      getCanonicalResolutionCycleId()
-
-    const conversationKey =
-      getCaptureConversationKey()
-
-    if (!cycleId || !conversationKey) {
-      state = {
-        ...state,
-        companionClientContext: {
-          status: 'idle',
-        },
-        companionClientContextCycleId:
-          null,
-        companionClientContextConversationKey:
-          null,
-      }
-
-      renderPanel()
-      return
-    }
-
-    const isSameContext =
-      state.companionClientContextCycleId ===
-        cycleId &&
-      state.companionClientContextConversationKey ===
-        conversationKey
-
-    const alreadyReady =
-      isSameContext &&
-      state.companionClientContext
-        ?.status === 'ready'
-
-    if (alreadyReady && !force) {
-      return
-    }
-
-    // Uma atualização forçada sobre dados já prontos (nova ingestão
-    // confirmada, tick periódico) acontece em silêncio: o cartão continua
-    // mostrando os últimos dados válidos em vez de piscar para o estado de
-    // carregamento a cada mensagem nova. Só a primeiríssima busca de um
-    // ciclo (ou uma busca depois de erro/idle) mostra o estado de
-    // carregamento.
-    const showLoadingState = !alreadyReady
-
-    if (showLoadingState) {
-      state = {
-        ...state,
-        companionClientContext: {
-          status: 'loading',
-        },
-        companionClientContextCycleId:
-          cycleId,
-        companionClientContextConversationKey:
-          conversationKey,
-      }
-
-      renderPanel()
-    } else {
-      state = {
-        ...state,
-        companionClientContextCycleId:
-          cycleId,
-        companionClientContextConversationKey:
-          conversationKey,
-      }
-    }
-
-    const isStillCurrentContext =
-      () =>
-        state.companionClientContextCycleId ===
-          cycleId &&
-        state.companionClientContextConversationKey ===
-          conversationKey
-
-    try {
-      const result =
-        await window.YolenCompanionApi
-          .loadClientContext({
-            cycle_id: cycleId,
-            conversation_key:
-              conversationKey,
-          })
-
-      if (!isStillCurrentContext()) {
-        return
-      }
-
-      if (
-        !result?.ok ||
-        !result.payload?.ok
-      ) {
-        if (!alreadyReady) {
-          state = {
-            ...state,
-            companionClientContext: {
-              status: 'error',
-              error:
-                result?.payload
-                  ?.error ||
-                'Não foi possível carregar o relacionamento com o cliente.',
-            },
-          }
-
-          renderPanel()
-        }
-
-        // Atualização em segundo plano que falhou: mantém os dados bons
-        // já exibidos em vez de substituí-los por um erro por causa de uma
-        // falha transitória — a próxima ingestão/tick tenta de novo.
-        return
-      }
-
-      state = {
-        ...state,
-        companionClientContext: {
-          status: 'ready',
-          data: result.payload.data,
-        },
-      }
-
-      renderPanel()
-    } catch (error) {
-      if (!isStillCurrentContext()) {
-        return
-      }
-
-      if (!alreadyReady) {
-        state = {
-          ...state,
-          companionClientContext: {
-            status: 'error',
-            error:
-              error instanceof Error &&
-              error.message
-                ? error.message
-                : 'Não foi possível carregar o relacionamento com o cliente.',
-          },
-        }
-
-        renderPanel()
-      }
-    }
-  }
-
-  // FASE 16.5 — AGORA seller-facing view model (Decision State canônico,
-  // FASE 16.3E, traduzido por app/lib/server/agora-view-model.ts).
-  // Mesmo padrão de três estados e mesmo guard de escopo
-  // (isStillCurrentContext) de loadCompanionClientContextForCurrentCycle
-  // acima — deliberadamente o mesmo desenho, não um novo: cross-
-  // conversation stale render é o mesmo risco de segurança nos dois
-  // casos (mandato §24/§25).
-  async function loadAgoraDecisionStateForCurrentCycle(
-    options = {},
-  ) {
-    const force =
-      options.force === true
-
-    // Toda chamada — mesmo a que sai cedo por falta de ciclo/conversa —
-    // invalida qualquer requisição anterior ainda em voo: identidade de
-    // escopo (cycleId/conversationKey) sozinha não prova que uma
-    // resposta é a mais recente, porque uma reanálise pode disparar uma
-    // nova chamada para o MESMO ciclo/conversa antes da anterior
-    // resolver (achado do Codex, PR #283).
-    const requestSequence =
-      ++agoraDecisionStateRequestSequence
-
-    const cycleId =
-      getCanonicalResolutionCycleId()
-
-    const conversationKey =
-      getCaptureConversationKey()
-
-    // Identidade da EMPRESA no momento da requisição (mesmo padrão de
-    // companyIdAtRequest usado por scheduleConversationAnalysis/
-    // startDeepAnalysisPolling): cycleId/conversationKey sozinhos não
-    // provam que o dado pertence à empresa ativa — uma troca de empresa
-    // ativa (loadYolenSession) enquanto o mesmo chat do WhatsApp
-    // permanece selecionado não muda, por si só, cycleId/conversationKey
-    // (achado do Codex, PR #283, rodada 3). Guardado tanto no closure
-    // (isStillCurrentContext) quanto em `state`, para que uma resposta
-    // "já pronta" (alreadyReady) de uma empresa anterior nunca seja
-    // reaproveitada silenciosamente para a empresa nova.
-    const companyIdAtRequest =
-      state.companyId ||
-      null
-
-    if (!cycleId || !conversationKey) {
-      state = {
-        ...state,
-        agoraDecisionState: {
-          status: 'idle',
-        },
-        agoraDecisionStateCycleId:
-          null,
-        agoraDecisionStateConversationKey:
-          null,
-        agoraDecisionStateCompanyId:
-          null,
-      }
-
-      renderPanel()
-      return
-    }
-
-    const isSameContext =
-      state.agoraDecisionStateCycleId ===
-        cycleId &&
-      state.agoraDecisionStateConversationKey ===
-        conversationKey &&
-      state.agoraDecisionStateCompanyId ===
-        companyIdAtRequest
-
-    const alreadyReady =
-      isSameContext &&
-      state.agoraDecisionState
-        ?.status === 'ready'
-
-    if (alreadyReady && !force) {
-      return
-    }
-
-    state = {
-      ...state,
-      agoraDecisionStateCycleId:
-        cycleId,
-      agoraDecisionStateConversationKey:
-        conversationKey,
-      agoraDecisionStateCompanyId:
-        companyIdAtRequest,
-    }
-
-    const isStillCurrentContext =
-      () =>
-        requestSequence ===
-          agoraDecisionStateRequestSequence &&
-        state.agoraDecisionStateCycleId ===
-          cycleId &&
-        state.agoraDecisionStateConversationKey ===
-          conversationKey &&
-        state.agoraDecisionStateCompanyId ===
-          companyIdAtRequest &&
-        companyIdAtRequest ===
-          (
-            state.companyId ||
-            null
-          )
-
-    try {
-      const result =
-        await window.YolenCompanionApi
-          .loadDecisionState({
-            cycle_id: cycleId,
-            conversation_key:
-              conversationKey,
-          })
-
-      if (!isStillCurrentContext()) {
-        return
-      }
-
-      if (
-        !result?.ok ||
-        !result.payload?.ok
-      ) {
-        // Igual ao client-context: uma falha transitória de busca em
-        // segundo plano nunca substitui um AGORA já pronto por um erro —
-        // fica quieto (idle) na primeira tentativa, ou mantém os dados
-        // bons já exibidos numa atualização silenciosa.
-        if (!alreadyReady) {
-          state = {
-            ...state,
-            agoraDecisionState: {
-              status: 'idle',
-            },
-          }
-
-          renderPanel()
-        }
-
-        return
-      }
-
-      state = {
-        ...state,
-        agoraDecisionState: {
-          status: 'ready',
-          data: result.payload.data,
-        },
-      }
-
-      renderPanel()
-    } catch {
-      if (!isStillCurrentContext()) {
-        return
-      }
-
-      if (!alreadyReady) {
-        state = {
-          ...state,
-          agoraDecisionState: {
-            status: 'idle',
-          },
-        }
-
-        renderPanel()
-      }
-    }
-  }
-
-  // FASE 16.7 — CLIENTE seller-facing view model (Commercial Reading
-  // canônica atual, traduzida por app/lib/server/customer-view-model.ts).
-  // Mesmo desenho de loadAnalysisViewModelForCurrentCycle acima (FASE
-  // 16.6) — três estados, requestSequence monotônico contra respostas
-  // stale, e guard de escopo por cycleId/conversationKey/companyId
-  // aplicado desde o início (mandato FASE 16.7 §33/§34: cross-
-  // conversation/cross-company stale render é o mesmo risco de
-  // segurança em qualquer aba seller-facing, e para CLIENTE é
-  // explicitamente safety-critical).
-  async function loadCustomerViewModelForCurrentCycle(
-    options = {},
-  ) {
-    const force =
-      options.force === true
-
-    const requestSequence =
-      ++customerViewModelRequestSequence
-
-    const cycleId =
-      getCanonicalResolutionCycleId()
-
-    const conversationKey =
-      getCaptureConversationKey()
-
-    const companyIdAtRequest =
-      state.companyId ||
-      null
-
-    if (!cycleId || !conversationKey) {
-      state = {
-        ...state,
-        customerViewModel: {
-          status: 'idle',
-        },
-        customerViewModelCycleId:
-          null,
-        customerViewModelConversationKey:
-          null,
-        customerViewModelCompanyId:
-          null,
-      }
-
-      renderPanel()
-      return
-    }
-
-    const isSameContext =
-      state.customerViewModelCycleId ===
-        cycleId &&
-      state.customerViewModelConversationKey ===
-        conversationKey &&
-      state.customerViewModelCompanyId ===
-        companyIdAtRequest
-
-    const alreadyReady =
-      isSameContext &&
-      state.customerViewModel
-        ?.status === 'ready'
-
-    if (alreadyReady && !force) {
-      return
-    }
-
-    state = {
-      ...state,
-      customerViewModelCycleId:
-        cycleId,
-      customerViewModelConversationKey:
-        conversationKey,
-      customerViewModelCompanyId:
-        companyIdAtRequest,
-    }
-
-    const isStillCurrentContext =
-      () =>
-        requestSequence ===
-          customerViewModelRequestSequence &&
-        state.customerViewModelCycleId ===
-          cycleId &&
-        state.customerViewModelConversationKey ===
-          conversationKey &&
-        state.customerViewModelCompanyId ===
-          companyIdAtRequest &&
-        companyIdAtRequest ===
-          (
-            state.companyId ||
-            null
-          )
-
-    try {
-      const result =
-        await window.YolenCompanionApi
-          .loadCustomerViewModel({
-            cycle_id: cycleId,
-            conversation_key:
-              conversationKey,
-          })
-
-      if (!isStillCurrentContext()) {
-        return
-      }
-
-      if (
-        !result?.ok ||
-        !result.payload?.ok
-      ) {
-        if (!alreadyReady) {
-          state = {
-            ...state,
-            customerViewModel: {
-              status: 'idle',
-            },
-          }
-
-          renderPanel()
-        }
-
-        return
-      }
-
-      state = {
-        ...state,
-        customerViewModel: {
-          status: 'ready',
-          data: result.payload.data,
-        },
-      }
-
-      renderPanel()
-    } catch {
-      if (!isStillCurrentContext()) {
-        return
-      }
-
-      if (!alreadyReady) {
-        state = {
-          ...state,
-          customerViewModel: {
-            status: 'idle',
-          },
-        }
-
-        renderPanel()
-      }
-    }
-  }
-
-  function getCompanionClientRelationshipCardHtml() {
-    if (
-      state.companionClientContext
-        ?.status === 'idle'
-    ) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-card yolen-client-relationship-card">
-        <div class="yolen-section-label">
-          Relacionamento e histórico
-        </div>
-
-        ${clientContextViewTools.renderClientContextSection(
-          state.companionClientContext,
-          Date.now(),
-        )}
-      </div>
-    `
-  }
-
-  function startCompanionClientContextTicker() {
-    if (companionClientContextTickTimerId) {
-      window.clearInterval(
-        companionClientContextTickTimerId,
-      )
-    }
-
-    companionClientContextTickTimerId =
-      window.setInterval(() => {
-        if (
-          state.companionClientContext
-            ?.status === 'ready'
-        ) {
-          renderPanel()
-        }
-
-        // FASE 16.5 (achado do Codex, rodada 2): ao contrário do
-        // client-context (cujo tempo decorrido a própria UI recalcula
-        // localmente a cada render), o AGORA seller-facing view model é
-        // uma fotografia do servidor — sem um refetch periódico, um SLA
-        // que evolui de médio para alto (ou um cliente que passa a
-        // aguardar por tempo suficiente) puramente pela passagem do
-        // tempo, sem nenhuma mensagem nova nem reanálise, deixaria AGORA
-        // presa na decisão antiga indefinidamente. Só refaz a busca
-        // quando já existe um AGORA carregado (não força a primeira
-        // busca por aqui, isso já é responsabilidade dos outros dois
-        // pontos de disparo).
-        if (
-          state.agoraDecisionState
-            ?.status === 'ready'
-        ) {
-          void loadAgoraDecisionStateForCurrentCycle({
-            force: true,
-          })
-        }
-
-        // FASE 16.6 — mesmo raciocínio de AGORA acima: ANÁLISE também é
-        // uma fotografia do servidor (Integrated Commercial Context),
-        // não recalculada ao vivo no cliente.
-        if (
-          state.analysisViewModel
-            ?.status === 'ready'
-        ) {
-          void loadAnalysisViewModelForCurrentCycle({
-            force: true,
-          })
-        }
-
-        // FASE 16.7 — mesmo raciocínio para CLIENTE: também é uma
-        // fotografia do servidor (Commercial Reading canônica atual).
-        if (
-          state.customerViewModel
-            ?.status === 'ready'
-        ) {
-          void loadCustomerViewModelForCurrentCycle({
-            force: true,
-          })
-        }
-      }, COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS)
-  }
-
   function getDetailedAnalysisAreaHtml() {
     // FASE 16.6 (recalibração seller-facing de ANÁLISE): a leitura
     // detalhada não vem mais de getActiveCommercialReading() (o
@@ -9005,20 +8312,14 @@ function createCompanionCore(ctx) {
 
     panel
       .querySelectorAll(
-        '[data-yolen-action="analyze-conversation"]',
+        ANALYZE_ACTION_SELECTOR,
       )
       .forEach((button) => {
-        wireOnce(button, 'click', () => {
-          analyzeCurrentConversation({
-            automatic: false,
-            retryFailedJob:
-              Boolean(
-                state.conversationAnalysisError,
-              ) ||
-              state.deepAnalysisStatus ===
-                'failed',
-          })
-        })
+        wireOnce(
+          button,
+          'click',
+          handleAnalyzeActionClick,
+        )
       })
 
     wireOnce(

@@ -13,13 +13,13 @@ function createCompanionAnalysisController(ctx) {
     getPendingAudioCountForCurrentConversation,
     getSelectedChatActivitySnapshot,
     getStructuredMessagesForAnalysis,
-    loadAgoraDecisionStateForCurrentCycle,
-    loadCustomerViewModelForCurrentCycle,
     registerSuggestionShownTelemetry,
-    rememberLastKnownClientCommercialReadingIfPresent,
     renderPanel,
     updatePreSendAssessmentFromDraft,
   } = ctx
+  // Dependências de outros controllers do Core: lidas via ctx no momento
+  // da chamada (os controllers são criados em sequência).
+
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
   // Override só para teste: permite exercitar o debounce real da análise
   // automática (mesmo setTimeout, mesma lógica de reagendamento contra uma
@@ -616,7 +616,7 @@ function createCompanionAnalysisController(ctx) {
               : null,
           deepAnalysisStatus: 'succeeded',
           deepAnalysisResult: data.result || null,
-          ...rememberLastKnownClientCommercialReadingIfPresent({
+          ...ctx.rememberLastKnownClientCommercialReadingIfPresent({
             fingerprint:
               conversationFingerprint,
             cycleId,
@@ -647,7 +647,7 @@ function createCompanionAnalysisController(ctx) {
         // FASE 16.7 — mesmo raciocínio para CLIENTE: uma nova leitura
         // persistida pode mudar preferências, padrões de comunicação e
         // lacunas de descoberta.
-        void loadCustomerViewModelForCurrentCycle({
+        void ctx.loadCustomerViewModelForCurrentCycle({
           force: true,
         })
 
@@ -731,7 +731,7 @@ function createCompanionAnalysisController(ctx) {
     // empresa B seria promovido lendo state.companyId (já B), gravando o
     // conhecimento de A com a identidade de B. Ver
     // isAnalysisResponseStillCurrent abaixo e
-    // rememberLastKnownClientCommercialReadingIfPresent.
+    // ctx.rememberLastKnownClientCommercialReadingIfPresent.
     const companyIdAtRequest =
       ctx.state.companyId ||
       null
@@ -987,7 +987,7 @@ function createCompanionAnalysisController(ctx) {
             isAutomatic
               ? 'Análise automática concluída.'
               : null,
-          ...rememberLastKnownClientCommercialReadingIfPresent({
+          ...ctx.rememberLastKnownClientCommercialReadingIfPresent({
             fingerprint:
               conversationFingerprint,
             cycleId,
@@ -1119,7 +1119,185 @@ function createCompanionAnalysisController(ctx) {
     }
   }
 
+  // FASE 16.5 — mesmo padrão acima, mas para o AGORA seller-facing view
+  // model: identidade de escopo (cycleId/conversationKey) sozinha não
+  // basta para saber se uma resposta em voo ainda é a mais recente — uma
+  // requisição disparada ANTES de uma reanálise começar (mesmo ciclo/
+  // conversa) pode resolver DEPOIS da requisição disparada pela própria
+  // reanálise ao terminar, e sobrescrever um resultado fresco com um
+  // stale (achado do Codex, PR #283). Incrementado a cada chamada de
+  // loadAgoraDecisionStateForCurrentCycle(), qualquer que seja a
+  // conversa; só a chamada cujo requestSequence capturado ainda é o mais
+  // recente pode aplicar seu resultado.
+  let agoraDecisionStateRequestSequence = 0
+
+  // FASE 16.5 — AGORA seller-facing view model (Decision State canônico,
+  // FASE 16.3E, traduzido por app/lib/server/agora-view-model.ts).
+  // Mesmo padrão de três estados e mesmo guard de escopo
+  // (isStillCurrentContext) de loadCompanionClientContextForCurrentCycle
+  // acima — deliberadamente o mesmo desenho, não um novo: cross-
+  // conversation stale render é o mesmo risco de segurança nos dois
+  // casos (mandato §24/§25).
+  async function loadAgoraDecisionStateForCurrentCycle(
+    options = {},
+  ) {
+    const force =
+      options.force === true
+
+    // Toda chamada — mesmo a que sai cedo por falta de ciclo/conversa —
+    // invalida qualquer requisição anterior ainda em voo: identidade de
+    // escopo (cycleId/conversationKey) sozinha não prova que uma
+    // resposta é a mais recente, porque uma reanálise pode disparar uma
+    // nova chamada para o MESMO ciclo/conversa antes da anterior
+    // resolver (achado do Codex, PR #283).
+    const requestSequence =
+      ++agoraDecisionStateRequestSequence
+
+    const cycleId =
+      getCanonicalResolutionCycleId()
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    // Identidade da EMPRESA no momento da requisição (mesmo padrão de
+    // companyIdAtRequest usado por scheduleConversationAnalysis/
+    // startDeepAnalysisPolling): cycleId/conversationKey sozinhos não
+    // provam que o dado pertence à empresa ativa — uma troca de empresa
+    // ativa (loadYolenSession) enquanto o mesmo chat do WhatsApp
+    // permanece selecionado não muda, por si só, cycleId/conversationKey
+    // (achado do Codex, PR #283, rodada 3). Guardado tanto no closure
+    // (isStillCurrentContext) quanto em `state`, para que uma resposta
+    // "já pronta" (alreadyReady) de uma empresa anterior nunca seja
+    // reaproveitada silenciosamente para a empresa nova.
+    const companyIdAtRequest =
+      ctx.state.companyId ||
+      null
+
+    if (!cycleId || !conversationKey) {
+      ctx.state = {
+        ...ctx.state,
+        agoraDecisionState: {
+          status: 'idle',
+        },
+        agoraDecisionStateCycleId:
+          null,
+        agoraDecisionStateConversationKey:
+          null,
+        agoraDecisionStateCompanyId:
+          null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    const isSameContext =
+      ctx.state.agoraDecisionStateCycleId ===
+        cycleId &&
+      ctx.state.agoraDecisionStateConversationKey ===
+        conversationKey &&
+      ctx.state.agoraDecisionStateCompanyId ===
+        companyIdAtRequest
+
+    const alreadyReady =
+      isSameContext &&
+      ctx.state.agoraDecisionState
+        ?.status === 'ready'
+
+    if (alreadyReady && !force) {
+      return
+    }
+
+    ctx.state = {
+      ...ctx.state,
+      agoraDecisionStateCycleId:
+        cycleId,
+      agoraDecisionStateConversationKey:
+        conversationKey,
+      agoraDecisionStateCompanyId:
+        companyIdAtRequest,
+    }
+
+    const isStillCurrentContext =
+      () =>
+        requestSequence ===
+          agoraDecisionStateRequestSequence &&
+        ctx.state.agoraDecisionStateCycleId ===
+          cycleId &&
+        ctx.state.agoraDecisionStateConversationKey ===
+          conversationKey &&
+        ctx.state.agoraDecisionStateCompanyId ===
+          companyIdAtRequest &&
+        companyIdAtRequest ===
+          (
+            ctx.state.companyId ||
+            null
+          )
+
+    try {
+      const result =
+        await window.YolenCompanionApi
+          .loadDecisionState({
+            cycle_id: cycleId,
+            conversation_key:
+              conversationKey,
+          })
+
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (
+        !result?.ok ||
+        !result.payload?.ok
+      ) {
+        // Igual ao client-context: uma falha transitória de busca em
+        // segundo plano nunca substitui um AGORA já pronto por um erro —
+        // fica quieto (idle) na primeira tentativa, ou mantém os dados
+        // bons já exibidos numa atualização silenciosa.
+        if (!alreadyReady) {
+          ctx.state = {
+            ...ctx.state,
+            agoraDecisionState: {
+              status: 'idle',
+            },
+          }
+
+          renderPanel()
+        }
+
+        return
+      }
+
+      ctx.state = {
+        ...ctx.state,
+        agoraDecisionState: {
+          status: 'ready',
+          data: result.payload.data,
+        },
+      }
+
+      renderPanel()
+    } catch {
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (!alreadyReady) {
+        ctx.state = {
+          ...ctx.state,
+          agoraDecisionState: {
+            status: 'idle',
+          },
+        }
+
+        renderPanel()
+      }
+    }
+  }
+
   return {
+    loadAgoraDecisionStateForCurrentCycle,
     get activeAnalysisAttempt() {
       return activeAnalysisAttempt
     },
