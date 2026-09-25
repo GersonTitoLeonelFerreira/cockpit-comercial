@@ -122,6 +122,11 @@ Checkpoints são pontos internos de teste/revisão/commit (§5), não fases.
 | `a906c608` | `companion-client-controller.js` (CLIENTE); loader do AGORA no controller de análise; dependências entre controllers lidas via `ctx` na chamada; ação "Analisar" do Core com delegação explícita (sem interceptar `EventTarget.prototype.addEventListener`) |
 | `a813c067` | Captura de áudio e contextos do identity bridge ficam no adapter (métodos explícitos; o Core não escreve variáveis do adapter) |
 | `6291c6a0` | O adapter emite eventos de canal (`observeHostChanges`, `onComposerDraftInput`, `onSendAttempt`); o Core não escuta mais o documento do WhatsApp; contrato atualizado |
+| `7922809a` | Fechamento declarado antes da auditoria (ver §8: o STATUS CONCLUIDO deste ponto **não** foi aceito) |
+| `5154d74f` | Pós-auditoria: aquisição de evidência de contato no adapter (`readConversationSnapshot`, `acquireContactEvidence`, `revalidateConversationIdentity`, `hasOpenContactDetails`, `hasAuthorizedContactDetails`, `forgetContactEvidence`, `getCurrentConversationKey`); o Core decide e mapeia resultado técnico → copy |
+| `69b0eab7` | Pós-auditoria: composer/envio pelo contrato §7 (`getComposerState`, `applyMessage`, `focusComposer`, `hasSendControl`, `triggerSend`); o Core não recebe mais o composer nem o botão Enviar |
+| `324f14b9` | Pós-auditoria: handles de áudio opacos + motivos técnicos; `getMountPoint()`; `getCapabilities()` consumido pelo Core; copy do Core/MENSAGEM/preview interpolando `platformDisplayName`; teste focal `channel-adapter-contract` |
+| (último checkpoint) | Pós-auditoria: formas literais do §7 (`busy`, `true`/`'conditional'`, `getAudioSource` → `{ok,…}`, mount `null` fail-closed) e identificadores do Core neutros de canal (`observeChannelChanges`, `processObservedChannelChange`, `observeManualChannelSend`, `listenToChannelAudio`, `insertSuggestedMessageInChannel[WithOptions]`) |
 
 ### 6.1 Composição final do WhatsApp (manifest `content_scripts[1]`)
 
@@ -205,11 +210,14 @@ compartilhada (`companion-workspace-runtime` + views).
 
 ### 6.5 Pendências remanescentes (fora de gate, registradas)
 
-- Nomes herdados com "WhatsApp" dentro do Core (`observeWhatsAppChanges`,
-  `getWhatsAppComposer`, `listenToWhatsAppAudioBridge`…) e orquestrações
-  do lookup de contato/identity bridge (`runAutomaticContactLookup`,
-  `runBridgeIdentityRevalidation`) que consomem apenas funções do adapter.
-  Não há seletor, host, JID nem Fiber no Core (A1).
+- ~~Nomes herdados com "WhatsApp" no Core e orquestração do lookup de
+  contato no Core~~ — **resolvido na correção pós-auditoria (§8)**.
+- Rótulo `WhatsApp` do campo de telefone no formulário de criação de lead
+  (`lead-automation.js`): é o rótulo do dado comercial (número WhatsApp do
+  lead no CRM), não o nome do canal de origem; mantido.
+- Rótulos de proveniência do telefone (`source` em
+  `acquireContactEvidence`, ex.: "JID da conversa selecionada") ficam no
+  adapter como metadado técnico; não são renderizados ao vendedor.
 - Interceptação de `innerHTML` na instância do próprio painel
   (`panel-stability-runtime.js`, `editable-field-stability-runtime.js`) e
   hook de `HTMLMediaElement.prototype.play` no page world
@@ -226,3 +234,38 @@ histórica do PR #338 em `app/api/companion/resolve-lead/route.ts` foi
 validada contra `cf50fac3` (aditiva: objeto `capabilities`; `actions`
 com as mesmas expressões; 34/34 em `route.test.mjs`) e permanece como
 exceção histórica documentada.
+
+## 8. Correção pós-auditoria (mesma FASE 5)
+
+A auditoria do código em `7922809a` não aceitou o STATUS CONCLUIDO. A
+mensagem da auditoria chegou truncada (sem a lista de achados); a
+correção foi conduzida por autoauditoria contra o contrato (§§5–8, 11–26,
+30–32), na mesma branch, preservando os 10 commits, sem force push, sem
+rollback e sem fase nova. Base efetiva da correção: `7922809a` (local =
+remoto no início).
+
+Requisitos que não estavam cumpridos em `7922809a` e foram corrigidos:
+
+| Requisito do contrato | Situação em `7922809a` | Correção |
+|---|---|---|
+| §5 Core sem conhecimento de painel/identidade da plataforma | Core orquestrava leitura do painel "Dados do contato", JID, epoch e identity bridge (`tryResolveViaIdentityBridge`, `findContactInfoPanel`) | Aquisição no adapter com resultados técnicos (`phone`/`phone_unavailable`/`group`/`stale`/…); Core só decide (`5154d74f`) |
+| §5/§7 Core não recebe elementos da plataforma | Core recebia o composer e o botão Enviar e fazia `textContent`, `writeTextInComposer`, `.click()` | `getComposerState`/`applyMessage`/`triggerSend` com motivos técnicos (`69b0eab7`) |
+| §7.2 `getAudioSource` | Alvos de áudio levavam `element`/`container` do WhatsApp ao Core; adapter escrevia copy de erro | Handles opacos `{index,key,durationSeconds}`; `{ok, blob, reason}`; copy no Core |
+| §7 `getMountPoint` | Core montava em `document.body` | `channelAdapter.getMountPoint()`; `null` → não renderiza |
+| §7/§8 `getCapabilities` | Inexistente | Matriz §8 no adapter; Core consulta antes de interceptar envio, ouvir áudio, inserir mensagem, buscar telefone e montar |
+| §5 copy canônica com `platformDisplayName` | Copy do Core, da MENSAGEM e do preview citava "WhatsApp" literal | Interpolação de `platform.displayName` (texto exibido no WhatsApp inalterado) |
+| §5 Core sem identificadores de plataforma | 6 funções do Core com "WhatsApp" no nome | Renomeadas para nomes de canal |
+
+Testes estáticos que citavam nomes antigos passaram a citar o novo dono
+com as mesmas invariantes (ex.: bypass desarmado sem botão agora é
+`!channelAdapter.hasSendControl()` / `!sendResult.sent`, e o
+`triggerSend` do adapter é verificado); nenhum critério foi afrouxado.
+Teste focal novo: `tests/channel-adapter-contract.test.mjs` (comportamento
+do adapter em jsdom + ausência de elementos/copy/identificadores de
+plataforma no Core + consulta de capabilities).
+
+Gates após a correção: arquitetura 53/53 (baseline 12, 0 da fase 5);
+`test:companion` 8 falhas, 8 conhecidas, 0 novas; E3 1 falha, 1 conhecida,
+0 nova; `test:companion-authorization` 266/266; `tsc` 0; lint sem erro nos
+arquivos alterados (56 erros pré-existentes em páginas/API não tocadas);
+release candidate dev/prod e `--e2e` OK; `git diff --check` limpo.

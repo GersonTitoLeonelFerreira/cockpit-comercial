@@ -422,6 +422,19 @@ Referência de forma: `platform-contract.js` (`yolen-universal-conversation-v1`,
 
 Regra: o adapter exclui o próprio painel Yolen da busca do composer.
 
+**Estado na FASE 5 (WhatsApp):** implementados no `whatsapp-adapter.js`
+com as formas acima: `platform`, `getComposerState()` (`busy` = composer
+com texto), `applyMessage(text)` (escrita + verificação 8×50 ms;
+`composer_not_found` / `apply_verification_failed`), `getMountPoint()`
+(`document.body`; `null` → Core não renderiza), `getCapabilities()`
+(`true`/`'conditional'`, matriz do §8) e `getAudioSource(handle)`
+(`{ ok, blob, durationSeconds, reason }`, handles opacos sem DOM).
+Operações físicas complementares de pré-envio: `focusComposer()`,
+`hasSendControl()`, `triggerSend()` (`send_control_not_found` /
+`send_failed`). O Core não recebe elementos da plataforma, consulta as
+capabilities antes de oferecer a ação e interpola `platform.displayName`
+na copy. Provado por `tests/channel-adapter-contract.test.mjs`.
+
 #### `getMountPoint()`
 | Aspecto | Contrato |
 |---|---|
@@ -509,9 +522,9 @@ comprovadamente não oferece), **UNKNOWN** (sem evidência suficiente).
 | 1 | `canProvideTrustedPhone` | CONDITIONAL | `getConversationPhone`, `resolvePassivePhoneForConversation`, identity bridge (JID), `runAutomaticContactLookup`; falha em grupo/self/sem dado | CONDITIONAL | `manychat-phone-evidence.js` (@24f25c7): `phone_unavailable` / `phone_ambiguous` fail-closed; ausente na base `b5d877` |
 | 2 | `canProvideDisplayName` | CONDITIONAL | `getConversationTitle`/header; `looksLikePhone` impede uso como nome | UNKNOWN | `manychat-dom-reader.getContact` existe, mas o bootstrap só declara seletores `conversationRoot` e `messages` — TO BE VERIFIED |
 | 3 | `canReadMessages` | SUPPORTED | `buildReliableMessageFromNode`, ledger, `message-mutations.js` | SUPPORTED | `manychat-dom-reader`, `manychat-message-*` |
-| 4 | `canObserveConversationChanges` | SUPPORTED | `observeWhatsAppChanges`, epoch do bridge | SUPPORTED | reader `conversation_changed` autoritativo |
-| 5 | `canApplyMessage` | SUPPORTED | `insertIntoWhatsAppComposer` | SUPPORTED | `manychat-composer.js` `applyManyChatComposerSuggestion` |
-| 6 | `canInterceptSend` | SUPPORTED | `interceptPreSendAttempt`, `observeManualWhatsAppSend` | UNKNOWN | nenhum código de interceptação — TO BE VERIFIED |
+| 4 | `canObserveConversationChanges` | SUPPORTED | adapter `observeHostChanges` (consumido por `observeChannelChanges` no Core), epoch do bridge | SUPPORTED | reader `conversation_changed` autoritativo |
+| 5 | `canApplyMessage` | SUPPORTED | adapter `getComposerState`/`applyMessage` (FASE 5) | SUPPORTED | `manychat-composer.js` `applyManyChatComposerSuggestion` |
+| 6 | `canInterceptSend` | SUPPORTED | adapter `onSendAttempt`; Core `interceptPreSendAttempt`, `observeManualChannelSend` | UNKNOWN | nenhum código de interceptação — TO BE VERIFIED |
 | 7 | `canReadAudio` | SUPPORTED | `whatsapp-audio-bridge.js`, `getAudioBlobForTarget` | SUPPORTED | `manychat-audio-source.js`, `manychat-audio-dispatch-runtime.js`, background transport |
 | 8 | `canRequestContactDetails` | SUPPORTED | `runAutomaticContactLookup` abre/fecha "Dados do contato" | UNKNOWN | sem evidência — TO BE VERIFIED |
 | 9 | `canClassifyGroupOrSelf` | SUPPORTED | identity bridge (grupo), `isSelfConversationTitle` | UNKNOWN | sem evidência no runtime — TO BE VERIFIED |

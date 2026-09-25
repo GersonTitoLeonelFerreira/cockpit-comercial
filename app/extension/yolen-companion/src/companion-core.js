@@ -19,7 +19,7 @@ function createCompanionCore(ctx) {
   // Operações físicas do canal (ChannelAdapter): o Core nunca consulta a
   // plataforma diretamente.
   const {
-    getAudioBlobForTarget,
+    getAudioSource,
     getComposerText,
     getLatestOutgoingVisibleMessageText,
     getSelectedChatActivitySnapshot,
@@ -33,16 +33,17 @@ function createCompanionCore(ctx) {
   const platformDisplayName =
     channelAdapter.platform?.displayName || ''
 
-  // Capabilities do canal (contrato §8): SUPPORTED e CONDITIONAL
-  // habilitam a ação; ausência/UNSUPPORTED/UNKNOWN leva ao mesmo estado
-  // canônico de indisponibilidade em qualquer canal.
+  // Capabilities do canal (contrato §7 getCapabilities/§8): `true`
+  // (SUPPORTED) e 'conditional' (CONDITIONAL) habilitam a ação; ausência
+  // ou `false` leva ao mesmo estado canônico de indisponibilidade em
+  // qualquer canal.
   function hasChannelCapability(capability) {
     const value =
       channelAdapter.getCapabilities?.()?.[capability]
 
     return (
-      value === 'SUPPORTED' ||
-      value === 'CONDITIONAL'
+      value === true ||
+      value === 'conditional'
     )
   }
 
@@ -657,6 +658,17 @@ function createCompanionCore(ctx) {
       return existingPanel
     }
 
+    // Ponto de montagem fornecido pelo canal (contrato §7/§22); sem mount
+    // o Core não renderiza (fail-closed).
+    const mountPoint =
+      hasChannelCapability('canProvideMountPoint')
+        ? channelAdapter.getMountPoint()
+        : null
+
+    if (!mountPoint) {
+      return null
+    }
+
     const panel = document.createElement('aside')
     panel.id = PANEL_ID
     panel.className = ROOT_CLASS
@@ -672,8 +684,7 @@ function createCompanionCore(ctx) {
       handleUnwiredAnalyzeActionClick,
     )
 
-    // Ponto de montagem fornecido pelo canal (contrato §7/§22).
-    channelAdapter.getMountPoint().appendChild(panel)
+    mountPoint.appendChild(panel)
 
     return panel
   }
@@ -1283,7 +1294,7 @@ function createCompanionCore(ctx) {
   // Bridge de áudio do WhatsApp: a escuta das mensagens do page world e a
   // guarda dos blobs capturados são do ChannelAdapter (FASE 5). O Core só
   // reflete o status no painel.
-  function listenToWhatsAppAudioBridge() {
+  function listenToChannelAudio() {
     if (!hasChannelCapability('canReadAudio')) {
       return
     }
@@ -2796,9 +2807,9 @@ function createCompanionCore(ctx) {
     renderPanel()
 
     try {
-      const audioCapture = await getAudioBlobForTarget(nextTarget)
+      const audioCapture = await getAudioSource(nextTarget)
 
-      if (!audioCapture?.blob) {
+      if (!audioCapture?.ok) {
         throw new Error(
           `Não foi possível associar o arquivo ao áudio correto. Duração visível: ${
             Number.isFinite(nextTarget.durationSeconds)
@@ -3060,7 +3071,7 @@ function createCompanionCore(ctx) {
       ) {
         autoContactLookupConversationRefreshPending =
           false
-        processObservedWhatsAppChange()
+        processObservedChannelChange()
       }
     }
   }
@@ -3494,7 +3505,7 @@ function createCompanionCore(ctx) {
     return messageMutationDetected
   }
 
-  function processObservedWhatsAppChange() {
+  function processObservedChannelChange() {
     const messageMutationDetected =
       refreshConversationSnapshot()
 
@@ -5422,11 +5433,11 @@ function createCompanionCore(ctx) {
     `
   }
 
-  async function insertSuggestedMessageInWhatsApp() {
-    return insertSuggestedMessageInWhatsAppWithOptions()
+  async function insertSuggestedMessageInChannel() {
+    return insertSuggestedMessageInChannelWithOptions()
   }
 
-  async function insertSuggestedMessageInWhatsAppWithOptions(
+  async function insertSuggestedMessageInChannelWithOptions(
     options = {},
   ) {
     if (isCurrentAnalysisOutdated()) {
@@ -5466,7 +5477,7 @@ function createCompanionCore(ctx) {
     }
 
     if (
-      composerState.hasText &&
+      composerState.busy &&
       options.replaceExisting !== true
     ) {
       const confirmed = window.confirm(
@@ -7629,7 +7640,7 @@ function createCompanionCore(ctx) {
       panel.querySelector('[data-yolen-action="insert-suggested-message"]'),
       'click',
       () => {
-        insertSuggestedMessageInWhatsApp()
+        insertSuggestedMessageInChannel()
       },
     )
 
@@ -7693,6 +7704,10 @@ function createCompanionCore(ctx) {
 
   function renderPanel() {
     const panel = createPanel()
+
+    if (!panel) {
+      return
+    }
 
     // Identidade canônica da conversa exibida (FASE 5): runtimes de
     // estabilidade do painel distinguem troca real de conversa de um
@@ -9206,7 +9221,7 @@ function createCompanionCore(ctx) {
     return true
   }
 
-  function observeManualWhatsAppSend() {
+  function observeManualChannelSend() {
     const observerKey =
       '__yolenCompanionManualSendObserverInstalled'
 
@@ -9355,7 +9370,7 @@ function createCompanionCore(ctx) {
 
     renderPanel()
 
-    await insertSuggestedMessageInWhatsAppWithOptions({
+    await insertSuggestedMessageInChannelWithOptions({
       replaceExisting: true,
     })
   }
@@ -9852,7 +9867,7 @@ function createCompanionCore(ctx) {
     }, SESSION_REFRESH_INTERVAL_MS)
   }
 
-  function observeWhatsAppChanges() {
+  function observeChannelChanges() {
     // Evento de canal (ChannelAdapter): a página da plataforma mudou fora
     // do painel da Yolen. O Core decide o que reler e quando.
     channelAdapter.observeHostChanges(({
@@ -9891,10 +9906,10 @@ function createCompanionCore(ctx) {
       }
 
       window.clearTimeout(
-        observeWhatsAppChanges.timeoutId,
+        observeChannelChanges.timeoutId,
       )
 
-      observeWhatsAppChanges.timeoutId =
+      observeChannelChanges.timeoutId =
       window.setTimeout(() => {
         if (autoContactLookupInFlight) {
           const latestVisibleConversationKey =
@@ -9917,12 +9932,12 @@ function createCompanionCore(ctx) {
           return
         }
 
-        processObservedWhatsAppChange()
+        processObservedChannelChange()
       }, 600)
     })
   }
 
-  observeWhatsAppChanges.timeoutId = 0
+  observeChannelChanges.timeoutId = 0
 
   // B7_RUNTIME_HARDENING_START
   async function recoverCompanionRuntime(
@@ -10042,17 +10057,17 @@ function createCompanionCore(ctx) {
     createPanel,
     captureSessionFromHash,
     observeCompanionSessionHash,
-    listenToWhatsAppAudioBridge,
+    listenToChannelAudio,
     refreshConversationSnapshot,
     observeComposerDraftForPreSend,
     startCompanionClientContextTicker,
     loadPanelCollapsedPreference,
     renderPanel,
     loadYolenSession,
-    observeManualWhatsAppSend,
+    observeManualChannelSend,
     observePreSendGateActions,
     startSessionAutoRefresh,
-    observeWhatsAppChanges,
+    observeChannelChanges,
     observeRuntimeRecovery,
   }
 }

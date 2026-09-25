@@ -37,7 +37,7 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
     finishLookupIndex,
   )
   const replayRefreshIndex = lookupBlock.indexOf(
-    'processObservedWhatsAppChange()',
+    'processObservedChannelChange()',
     replayPendingIndex,
   )
 
@@ -54,10 +54,10 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
   )
 
   const observerStart = contentScript.indexOf(
-    'function observeWhatsAppChanges()',
+    'function observeChannelChanges()',
   )
   const observerEnd = contentScript.indexOf(
-    'observeWhatsAppChanges.timeoutId = 0',
+    'observeChannelChanges.timeoutId = 0',
     observerStart,
   )
 
@@ -81,7 +81,7 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
   // outra dentro do callback debounced, que é a suprimida por este
   // invariante. Buscar a partir de immediateClearIndex pula a primeira
   // (anterior a ela) e alcança a segunda, que é a única relevante para o
-  // "ciclo visual único" — nunca reagendar processObservedWhatsAppChange()
+  // "ciclo visual único" — nunca reagendar processObservedChannelChange()
   // enquanto o próprio lookup automático ainda está em voo.
   const suppressionIndex = observerBlock.indexOf(
     'if (autoContactLookupInFlight) {',
@@ -92,7 +92,7 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
     suppressionIndex,
   )
   const observerRefreshIndex = observerBlock.indexOf(
-    'processObservedWhatsAppChange()',
+    'processObservedChannelChange()',
     suppressionIndex,
   )
 

@@ -88,8 +88,8 @@ test(
       sliceCoreWithChannelEvent(
         contentScript,
         getBlock(
-          'function observeWhatsAppChanges()',
-          'observeWhatsAppChanges.timeoutId = 0',
+          'function observeChannelChanges()',
+          'observeChannelChanges.timeoutId = 0',
         ),
         'function observeHostChanges(',
       )
@@ -115,8 +115,8 @@ test(
       sliceCoreWithChannelEvent(
         contentScript,
         getBlock(
-          'function observeWhatsAppChanges()',
-          'observeWhatsAppChanges.timeoutId = 0',
+          'function observeChannelChanges()',
+          'observeChannelChanges.timeoutId = 0',
         ),
         'function observeHostChanges(',
       )

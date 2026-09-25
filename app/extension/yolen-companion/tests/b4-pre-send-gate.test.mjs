@@ -142,7 +142,7 @@ test('bloqueio usa cancelamento somente no gate', () => {
 
 test('Shift Enter e modificadores permanecem fora do gate', () => {
   const observerStart = contentScript.indexOf(
-    'function observeManualWhatsAppSend()',
+    'function observeManualChannelSend()',
   )
 
   assert.ok(observerStart >= 0)
@@ -187,7 +187,7 @@ test('Revisar mensagem não modifica o draft', () => {
 test('Usar sugestão reutiliza inserção e não o envio', () => {
   assert.match(
     gateSource,
-    /insertSuggestedMessageInWhatsAppWithOptions\(\{\s*replaceExisting:\s*true/,
+    /insertSuggestedMessageInChannelWithOptions\(\{\s*replaceExisting:\s*true/,
   )
 
   assert.match(

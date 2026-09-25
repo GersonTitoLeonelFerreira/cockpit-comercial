@@ -493,12 +493,12 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
   test('processamento observado agenda a ingestão depois de atualizar o ledger', () => {
   const processingStart =
     contentScript.indexOf(
-      '  function processObservedWhatsAppChange()',
+      '  function processObservedChannelChange()',
     )
 
   const processingEnd =
     contentScript.indexOf(
-      '\n  function observeWhatsAppChanges()',
+      '\n  function observeChannelChanges()',
       processingStart,
     )
 
@@ -805,12 +805,12 @@ test('captura usa corpo selecionável e chave estável', () => {
 
     const processingStart =
       contentScript.indexOf(
-        '  function processObservedWhatsAppChange()',
+        '  function processObservedChannelChange()',
       )
 
     const processingEnd =
       contentScript.indexOf(
-        '\n  function observeWhatsAppChanges()',
+        '\n  function observeChannelChanges()',
         processingStart,
       )
 

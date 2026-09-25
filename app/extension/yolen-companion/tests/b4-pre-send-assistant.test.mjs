@@ -740,7 +740,7 @@ test(
 
     assert.match(
       contentScript,
-      /observeWhatsAppChanges\(\)[\s\S]*observeComposerDraftForPreSend\(\)[\s\S]*observeManualWhatsAppSend\(\)/,
+      /observeChannelChanges\(\)[\s\S]*observeComposerDraftForPreSend\(\)[\s\S]*observeManualChannelSend\(\)/,
     )
 
     assert.match(

@@ -277,7 +277,7 @@ test('start() só escuta o bridge de identidade — não injeta mais nada para e
     '\n  start()',
   )
 
-  const audioListenIndex = startBlock.indexOf('listenToWhatsAppAudioBridge()')
+  const audioListenIndex = startBlock.indexOf('listenToChannelAudio()')
   const audioInjectIndex = startBlock.indexOf('injectWhatsAppAudioBridge()')
   const identityListenIndex = startBlock.indexOf('listenToWhatsAppIdentityBridge()')
 

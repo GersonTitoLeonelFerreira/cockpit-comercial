@@ -9,12 +9,12 @@ test(
   () => {
     const processingStart =
       contentScript.indexOf(
-        'function processObservedWhatsAppChange()',
+        'function processObservedChannelChange()',
       )
 
     const observerStart =
       contentScript.indexOf(
-        'function observeWhatsAppChanges()',
+        'function observeChannelChanges()',
         processingStart,
       )
 

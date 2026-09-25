@@ -76,7 +76,7 @@ test(
       sliceCoreWithChannelEvent(
         contentScript,
         getBlock(
-          'function observeManualWhatsAppSend',
+          'function observeManualChannelSend',
           'function reviewCurrentPreSendDraft',
         ),
         'function onSendAttempt(',
@@ -112,7 +112,7 @@ test(
       sliceCoreWithChannelEvent(
         contentScript,
         getBlock(
-          'function observeManualWhatsAppSend',
+          'function observeManualChannelSend',
           'function reviewCurrentPreSendDraft',
         ),
         'function onSendAttempt(',
@@ -138,7 +138,7 @@ test(
       sliceCoreWithChannelEvent(
         contentScript,
         getBlock(
-          'function observeManualWhatsAppSend',
+          'function observeManualChannelSend',
           'function reviewCurrentPreSendDraft',
         ),
         'function onSendAttempt(',
@@ -416,7 +416,7 @@ test(
     for (
       const functionName of [
         'getWhatsAppSendButton',
-        'observeManualWhatsAppSend',
+        'observeManualChannelSend',
         'observePreSendGateActions',
         'observeComposerDraftForPreSend',
       ]

@@ -104,7 +104,7 @@ test('instrumenta os seis fatos de interação com sugestão', () => {
 
   const insertStart =
     contentScript.indexOf(
-      'async function insertSuggestedMessageInWhatsApp()',
+      'async function insertSuggestedMessageInChannel()',
     )
 
   const insertEnd =

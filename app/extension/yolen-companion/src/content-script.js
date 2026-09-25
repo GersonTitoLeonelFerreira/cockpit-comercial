@@ -151,15 +151,15 @@
   const {
     captureSessionFromHash,
     createPanel,
-    listenToWhatsAppAudioBridge,
+    listenToChannelAudio,
     loadPanelCollapsedPreference,
     loadYolenSession,
     observeCompanionSessionHash,
     observeComposerDraftForPreSend,
-    observeManualWhatsAppSend,
+    observeManualChannelSend,
     observePreSendGateActions,
     observeRuntimeRecovery,
-    observeWhatsAppChanges,
+    observeChannelChanges,
     refreshConversationSnapshot,
     renderPanel,
     startCompanionClientContextTicker,
@@ -180,7 +180,7 @@
 
     await loadPanelCollapsedPreference()
 
-    listenToWhatsAppAudioBridge()
+    listenToChannelAudio()
     injectWhatsAppAudioBridge()
     listenToWhatsAppIdentityBridge()
     createPanel()
@@ -188,11 +188,11 @@
     await captureSessionFromHash()
     observeCompanionSessionHash()
     refreshConversationSnapshot()
-    observeWhatsAppChanges()
+    observeChannelChanges()
     observeRuntimeRecovery()
     observeComposerDraftForPreSend()
     observePreSendGateActions()
-    observeManualWhatsAppSend()
+    observeManualChannelSend()
     startSessionAutoRefresh()
     startCompanionClientContextTicker()
     loadYolenSession({

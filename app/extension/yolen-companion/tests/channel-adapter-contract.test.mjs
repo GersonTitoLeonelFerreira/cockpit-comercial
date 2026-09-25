@@ -90,17 +90,17 @@ test('§7: adapter declara platform, getMountPoint e getCapabilities (§8)', () 
   assert.deepEqual(
     { ...adapter.getCapabilities() },
     {
-      canProvideTrustedPhone: 'CONDITIONAL',
-      canProvideDisplayName: 'CONDITIONAL',
-      canReadMessages: 'SUPPORTED',
-      canObserveConversationChanges: 'SUPPORTED',
-      canApplyMessage: 'SUPPORTED',
-      canInterceptSend: 'SUPPORTED',
-      canReadAudio: 'SUPPORTED',
-      canRequestContactDetails: 'SUPPORTED',
-      canClassifyGroupOrSelf: 'SUPPORTED',
-      canDetectDeletedOrEdited: 'SUPPORTED',
-      canProvideMountPoint: 'SUPPORTED',
+      canProvideTrustedPhone: 'conditional',
+      canProvideDisplayName: 'conditional',
+      canReadMessages: true,
+      canObserveConversationChanges: true,
+      canApplyMessage: true,
+      canInterceptSend: true,
+      canReadAudio: true,
+      canRequestContactDetails: true,
+      canClassifyGroupOrSelf: true,
+      canDetectDeletedOrEdited: true,
+      canProvideMountPoint: true,
     },
   )
 })
@@ -112,7 +112,7 @@ test('§7: getComposerState/applyMessage devolvem estado e motivos técnicos, nu
 
   assert.deepEqual(
     { ...state },
-    { available: true, busy: false, reason: null, hasText: false },
+    { available: true, busy: false, reason: null },
   )
 
   const result = await adapter.applyMessage(
@@ -129,7 +129,8 @@ test('§7: getComposerState/applyMessage devolvem estado e motivos técnicos, nu
 
   const withDraft = createAdapter({ composerDraft: 'Rascunho' })
 
-  assert.equal(withDraft.adapter.getComposerState().hasText, true)
+  // busy = composer já contém texto (contrato §7).
+  assert.equal(withDraft.adapter.getComposerState().busy, true)
 })
 
 test('§6: sem composer, motivos técnicos composer_not_found; sem botão, send_control_not_found', async () => {
@@ -157,9 +158,12 @@ test('§7: elementos da plataforma não são exportados ao Core', () => {
     'getWhatsAppComposer',
     'getWhatsAppSendButton',
     'writeTextInComposer',
+    'getAudioBlobForTarget',
   ]) {
     assert.equal(adapter[name], undefined, name)
   }
+
+  assert.equal(typeof adapter.getAudioSource, 'function')
 
   const handlesBlock = sliceFunction(
     adapterSource,
@@ -186,7 +190,21 @@ test('§5: Core não recebe elementos, não monta no body e não cita a platafor
     assert.equal(coreSource.includes(forbidden), false, forbidden)
   }
 
-  assert.match(coreSource, /channelAdapter\.getMountPoint\(\)\.appendChild\(panel\)/)
+  const createPanelBlock = sliceFunction(coreSource, 'function createPanel() {')
+
+  assert.match(createPanelBlock, /channelAdapter\.getMountPoint\(\)/)
+  assert.match(createPanelBlock, /if \(!mountPoint\) \{\s*return null\s*\}/)
+  assert.match(createPanelBlock, /mountPoint\.appendChild\(panel\)/)
+
+  // Identificadores do Core são neutros de canal (comentários à parte).
+  const coreCode = coreSource
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+
+  assert.deepEqual(
+    coreCode.match(/\b\w*WhatsApp\w*\b/g) || [],
+    [],
+  )
   assert.match(coreSource, /channelAdapter\.getCapabilities\?\.\(\)/)
 
   // Nenhum literal de copy do Core ou do controller de MENSAGEM cita o
@@ -211,11 +229,12 @@ test('§5: Core não recebe elementos, não monta no body e não cita a platafor
 
 test('§8: Core consulta capabilities antes de oferecer interceptação, áudio, inserção e telefone', () => {
   for (const [marker, capability] of [
-    ['function observeManualWhatsAppSend() {', 'canInterceptSend'],
+    ['function observeManualChannelSend() {', 'canInterceptSend'],
     ['function observeComposerDraftForPreSend() {', 'canInterceptSend'],
-    ['function listenToWhatsAppAudioBridge() {', 'canReadAudio'],
-    ['async function insertSuggestedMessageInWhatsAppWithOptions(', 'canApplyMessage'],
+    ['function listenToChannelAudio() {', 'canReadAudio'],
+    ['async function insertSuggestedMessageInChannelWithOptions(', 'canApplyMessage'],
     ['async function runAutomaticContactLookup(conversationKey) {', 'canProvideTrustedPhone'],
+    ['function createPanel() {', 'canProvideMountPoint'],
   ]) {
     assert.match(
       sliceFunction(coreSource, marker),

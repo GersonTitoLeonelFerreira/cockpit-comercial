@@ -2233,7 +2233,7 @@ function createWhatsAppAdapter({
 
   // Contrato §7 (getAudioSource): o Core recebe só handles opacos
   // ({index, key, durationSeconds}); container/elemento de áudio do
-  // WhatsApp ficam aqui e são resolvidos de volta em getAudioBlobForTarget.
+  // WhatsApp ficam aqui e são resolvidos de volta em getAudioSource.
   const audioTargetsByHandle = new WeakMap()
 
   function getVisibleAudioTargets() {
@@ -2598,7 +2598,18 @@ function createWhatsAppAdapter({
     return null
   }
 
-  async function getAudioBlobForTarget(handle) {
+  // Contrato §7.2 getAudioSource: { ok, blob, durationSeconds, reason }.
+  async function getAudioSource(handle) {
+    const result = await captureAudioForTarget(handle)
+
+    return {
+      ...result,
+      ok: Boolean(result.blob),
+      durationSeconds: handle?.durationSeconds,
+    }
+  }
+
+  async function captureAudioForTarget(handle) {
     const target = resolveAudioTargetHandle(handle)
 
     if (!target) {
@@ -3275,17 +3286,16 @@ function createWhatsAppAdapter({
         available: false,
         busy: false,
         reason: 'composer_not_found',
-        hasText: false,
       }
     }
 
+    // busy = o composer já contém texto (contrato §7).
     return {
       available: true,
-      busy: false,
-      reason: null,
-      hasText: Boolean(
+      busy: Boolean(
         normalizeMessageText(composer.textContent),
       ),
+      reason: null,
     }
   }
 
@@ -3397,21 +3407,22 @@ function createWhatsAppAdapter({
     return document.body
   }
 
-  // Contrato §8: matriz de capabilities do WhatsApp (SUPPORTED /
-  // CONDITIONAL). O Core consulta estas capabilities antes de oferecer a
-  // ação; o fluxo é o mesmo em qualquer canal que as tenha.
+  // Contrato §7 getCapabilities / §8: matriz de capabilities do WhatsApp
+  // (`true` = SUPPORTED, 'conditional' = CONDITIONAL). O Core consulta
+  // estas capabilities antes de oferecer a ação; o fluxo é o mesmo em
+  // qualquer canal que as tenha.
   const WHATSAPP_CAPABILITIES = Object.freeze({
-    canProvideTrustedPhone: 'CONDITIONAL',
-    canProvideDisplayName: 'CONDITIONAL',
-    canReadMessages: 'SUPPORTED',
-    canObserveConversationChanges: 'SUPPORTED',
-    canApplyMessage: 'SUPPORTED',
-    canInterceptSend: 'SUPPORTED',
-    canReadAudio: 'SUPPORTED',
-    canRequestContactDetails: 'SUPPORTED',
-    canClassifyGroupOrSelf: 'SUPPORTED',
-    canDetectDeletedOrEdited: 'SUPPORTED',
-    canProvideMountPoint: 'SUPPORTED',
+    canProvideTrustedPhone: 'conditional',
+    canProvideDisplayName: 'conditional',
+    canReadMessages: true,
+    canObserveConversationChanges: true,
+    canApplyMessage: true,
+    canInterceptSend: true,
+    canReadAudio: true,
+    canRequestContactDetails: true,
+    canClassifyGroupOrSelf: true,
+    canDetectDeletedOrEdited: true,
+    canProvideMountPoint: true,
   })
 
   function getCapabilities() {
@@ -4444,7 +4455,7 @@ function createWhatsAppAdapter({
     injectWhatsAppAudioBridge,
     listenToWhatsAppIdentityBridge,
     getVisibleAudioTargets,
-    getAudioBlobForTarget,
+    getAudioSource,
     getSelectedChatActivitySnapshot,
     getComposerState,
     applyMessage,
