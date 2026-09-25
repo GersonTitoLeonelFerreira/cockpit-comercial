@@ -460,12 +460,41 @@ test('adapter só com mecânica de plataforma: sem copy/estado/ações comerciai
   }
 })
 
-test('FASE 6 não antecipa a FASE 7: o adapter não entra em nenhum content script do manifest', () => {
+// FASE 7 — composição correta: o adapter entra SOMENTE na composição
+// ManyChat (nunca no WhatsApp), antes do bootstrap compartilhado e do
+// content script do canal, que só age com o kill switch ligado; a fonte
+// normal do kill switch continua false (ON só no build e2e).
+test('FASE 7: o adapter entra somente na composição ManyChat, atrás do kill switch e do bootstrap compartilhado', () => {
   const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'))
-  const loaded = (manifest.content_scripts ?? []).flatMap((entry) => entry.js ?? [])
+  const withAdapter = (manifest.content_scripts ?? []).filter((entry) =>
+    (entry.js ?? []).includes('src/manychat-channel-adapter.js'),
+  )
 
-  assert.equal(loaded.includes('src/manychat-channel-adapter.js'), false)
-  assert.equal(loaded.includes('src/manychat-phone-evidence.js'), false)
+  assert.equal(withAdapter.length, 1)
+  const [entry] = withAdapter
+  assert.deepEqual(entry.matches, ['https://app.manychat.com/*'])
+  assert.equal(entry.world, undefined)
+  assert.equal(entry.run_at, 'document_idle')
+
+  const js = entry.js
+  const index = (file) => js.indexOf(`src/${file}`)
+  for (const file of ['manychat-surface.js', 'manychat-dom-reader.js', 'manychat-composer.js', 'manychat-phone-evidence.js', 'manychat-audio-source.js']) {
+    assert.ok(index(file) >= 0 && index(file) < index('manychat-channel-adapter.js'), file)
+  }
+  assert.ok(index('manychat-channel-adapter.js') < index('companion-core.js'))
+  assert.ok(index('companion-core.js') < index('companion-bootstrap.js'))
+  assert.ok(index('companion-bootstrap.js') < index('manychat-feature-flags.js'))
+  assert.ok(index('manychat-feature-flags.js') < index('manychat-content-script.js'))
+  assert.equal(js.some((file) => file.includes('whatsapp-')), false)
+  assert.equal(js.includes('src/content-script.js'), false)
+
+  for (const other of manifest.content_scripts.filter((candidate) => candidate !== entry)) {
+    assert.equal((other.js ?? []).includes('src/manychat-channel-adapter.js'), false)
+    assert.equal((other.js ?? []).includes('src/manychat-phone-evidence.js'), false)
+  }
+
+  const normalFlags = readFileSync(new URL('../src/manychat-feature-flags.js', import.meta.url), 'utf8')
+  assert.match(normalFlags, /const MANYCHAT_CAPTURE_ENABLED = false/)
 })
 
 test('composer: o campo de intenção do próprio painel Yolen nunca é candidato ao composer do ManyChat', async () => {

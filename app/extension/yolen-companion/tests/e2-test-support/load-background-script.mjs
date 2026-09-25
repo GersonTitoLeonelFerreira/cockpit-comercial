@@ -110,6 +110,7 @@ export function loadBackgroundScript({ fetchFn, initialStorage } = {}) {
   vm.runInContext(readSource('capture-transport.js'), sandbox, { filename: 'capture-transport.js' })
   vm.runInContext(readSource('manychat-audio-background-transport.js'), sandbox, { filename: 'manychat-audio-background-transport.js' })
   vm.runInContext(readSource('manychat-safe-identity-background.js'), sandbox, { filename: 'manychat-safe-identity-background.js' })
+  vm.runInContext(readSource('companion-background-privacy.js'), sandbox, { filename: 'companion-background-privacy.js' })
   vm.runInContext(readSource('background.js'), sandbox, { filename: 'background.js' })
 
   return {

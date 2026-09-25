@@ -12,8 +12,9 @@
 //
 // Nada aqui conhece a plataforma (WhatsApp/ManyChat).
 
-// NOT_FOUND e NO_PHONE_DETECTED são estados transitórios (o lead pode ter
-// acabado de ser criado — eventual consistency) e nunca entram no cache.
+// NOT_FOUND, NO_PHONE_DETECTED e CONTACT_NOT_LINKED são estados
+// transitórios (o lead pode ter acabado de ser criado ou vinculado —
+// eventual consistency) e nunca entram no cache.
 function isCacheableResolution(result) {
   return Boolean(
     result?.ok === true &&
@@ -21,7 +22,8 @@ function isCacheableResolution(result) {
     typeof result.payload === 'object' &&
     result.payload.status &&
     result.payload.status !== 'NO_PHONE_DETECTED' &&
-    result.payload.status !== 'NOT_FOUND',
+    result.payload.status !== 'NOT_FOUND' &&
+    result.payload.status !== 'CONTACT_NOT_LINKED',
   )
 }
 
@@ -37,6 +39,15 @@ function normalizeDisplayName(value) {
 }
 
 function buildResolutionIdentity(payload) {
+  // FASE 7 — identidade externa segura (§10.4 caso A): chave própria, nunca
+  // confundida com telefone nem com nome exibido.
+  const platform = String(payload?.platform || '').trim().toLowerCase()
+  const platformContactKey = String(payload?.platform_contact_key || '').trim()
+
+  if (platform && platformContactKey) {
+    return `ext:${platform}:${platformContactKey}`
+  }
+
   const phone = normalizePhone(payload?.phone)
 
   if (phone) {
@@ -48,7 +59,8 @@ function buildResolutionIdentity(payload) {
   return displayName ? `name:${displayName}` : null
 }
 
-// Cache de resolução por empresa + identidade (telefone ou nome exibido).
+// Cache de resolução por empresa + identidade (identidade externa segura,
+// telefone ou nome exibido).
 // - resultados estáveis ficam em cache até clear() (botão "Atualizar");
 // - a requisição em voo só é compartilhada dentro da MESMA geração de
 //   fronteira de conversa (boundaryToken): no A → B → A, A₂ sempre dispara

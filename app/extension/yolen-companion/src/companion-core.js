@@ -522,6 +522,33 @@ function createCompanionCore(ctx) {
     retryLeadLinkAfterCreation,
   } = leadCreationController
 
+  // FASE 7 — vínculo manual de identidade externa (CONTACT_NOT_LINKED):
+  // controller único do Core, sem runtime paralelo por canal.
+  const contactLinkController =
+    globalThis
+      .YolenCompanionContactLinkController
+      .create({
+        escapeHtml,
+        channelAdapter,
+        get renderPanel() {
+          return renderPanel
+        },
+        get resolveCurrentLead() {
+          return resolveCurrentLead
+        },
+        captureOperationContext,
+        isOperationContextCurrent,
+        clearLeadResolutionCache: () =>
+          coreApiComposition.clearLeadResolutionCache(),
+        get state() {
+          return state
+        },
+      })
+
+  const {
+    getContactLinkHtml,
+  } = contactLinkController
+
   const autoLookupAttemptedKeys = new Set()
   const lastIngestedCaptureKeys = new Map()
 
@@ -548,6 +575,10 @@ function createCompanionCore(ctx) {
     conversationKey: null,
     conversationPhone: null,
     phoneSource: null,
+    // FASE 7 — identidade externa segura da conversa atual ({platform,
+    // key}), vinda do ChannelAdapter. Evidência de vínculo, nunca telefone.
+    conversationExternalIdentity: null,
+    captureConversationKey: null,
     contactLookupIdentity: null,
     isSelfConversation: false,
     isGroupConversation: false,
@@ -1893,6 +1924,13 @@ function createCompanionCore(ctx) {
   }
 
   function getCaptureConversationKey() {
+    // Canal que declara uma chave estável de captura (ex.: ManyChat, cuja
+    // conversa não expõe título nem telefone garantido) usa essa chave;
+    // os demais seguem a chave derivada de telefone/título.
+    if (state.captureConversationKey) {
+      return state.captureConversationKey
+    }
+
     const canonicalPhone =
       state.leadResolution?.phone ||
       state.leadResolution?.lead?.phone ||
@@ -3001,14 +3039,54 @@ function createCompanionCore(ctx) {
       )
   }
 
+  // Evidência de contato suficiente para consultar a Yolen (§10.4):
+  // telefone confiável ou identidade externa segura.
+  function hasCurrentContactEvidence() {
+    return Boolean(
+      state.conversationPhone ||
+      state.conversationExternalIdentity,
+    )
+  }
+
+  // Identidade externa segura aceita pelo Core: plataforma + chave opaca.
+  // Nunca é interpretada como telefone ou nome.
+  function normalizeExternalIdentity(identity) {
+    const platform =
+      typeof identity?.platform === 'string'
+        ? identity.platform.trim().toLowerCase()
+        : ''
+
+    const key =
+      typeof identity?.key === 'string'
+        ? identity.key.trim()
+        : ''
+
+    if (!platform || !key) {
+      return null
+    }
+
+    const channel =
+      identity?.channel === 'whatsapp'
+        ? 'whatsapp'
+        : null
+
+    return Object.freeze({
+      platform,
+      key,
+      channel,
+    })
+  }
+
   async function runAutomaticContactLookup(conversationKey) {
     if (autoContactLookupInFlight) {
       return
     }
 
+    // A aquisição de evidência não depende da capability de telefone: a
+    // identidade externa segura (§10.4 caso A) chega pelo mesmo contrato
+    // mesmo quando o canal não comprova telefone.
     if (
       !state.connected ||
-      !hasChannelCapability('canProvideTrustedPhone') ||
       state.isSelfConversation ||
       state.isGroupConversation ||
       state.conversationPhone
@@ -3106,11 +3184,24 @@ function createCompanionCore(ctx) {
         return
       }
 
-      if (evidence.outcome === 'phone') {
+      const acquiredExternalIdentity =
+        normalizeExternalIdentity(
+          evidence.externalIdentity,
+        )
+
+      // Telefone só é aceito de um canal que declara poder comprová-lo
+      // (§8 canProvideTrustedPhone); a identidade externa segue valendo.
+      if (
+        evidence.outcome === 'phone' &&
+        hasChannelCapability('canProvideTrustedPhone')
+      ) {
         state = {
           ...state,
           conversationPhone: evidence.phone,
           phoneSource: evidence.source,
+          conversationExternalIdentity:
+            acquiredExternalIdentity ||
+            state.conversationExternalIdentity,
           autoLookupStatus: null,
         }
 
@@ -3121,6 +3212,29 @@ function createCompanionCore(ctx) {
             conversationKey
           lastResolvedContactLookupIdentity =
             evidence.lookupIdentity
+
+          resolveCurrentLead()
+        }
+
+        return
+      }
+
+      // Sem telefone, mas com identidade externa segura: resolve o vínculo
+      // existente (§10.4 caso A). Sem vínculo, sem telefone → o próprio
+      // resultado vira NO_CONTACT_EVIDENCE (caso C), nunca criação.
+      if (acquiredExternalIdentity) {
+        state = {
+          ...state,
+          conversationExternalIdentity:
+            acquiredExternalIdentity,
+          autoLookupStatus: null,
+        }
+
+        renderPanel()
+
+        if (state.connected) {
+          lastResolvedConversationKey =
+            conversationKey
 
           resolveCurrentLead()
         }
@@ -3414,10 +3528,22 @@ function createCompanionCore(ctx) {
       contactLookupIdentity,
     } = snapshot
 
+    const channelProvidesTrustedPhone =
+      hasChannelCapability('canProvideTrustedPhone')
+
     const phoneResult = {
-      phone: snapshot.phone,
-      source: snapshot.phoneSource,
+      phone: channelProvidesTrustedPhone
+        ? snapshot.phone
+        : null,
+      source: channelProvidesTrustedPhone
+        ? snapshot.phoneSource
+        : null,
     }
+
+    const snapshotExternalIdentity =
+      normalizeExternalIdentity(
+        snapshot.externalIdentity,
+      )
 
     const contactEvidenceStale =
       snapshot.contactEvidenceStale
@@ -3505,6 +3631,14 @@ function createCompanionCore(ctx) {
         phoneResult.phone,
       phoneSource:
         phoneResult.source,
+      conversationExternalIdentity:
+        snapshotExternalIdentity,
+      captureConversationKey:
+        typeof snapshot.captureConversationKey ===
+          'string' &&
+        snapshot.captureConversationKey
+          ? snapshot.captureConversationKey
+          : null,
       contactLookupIdentity,
       isSelfConversation,
       isGroupConversation,
@@ -3550,7 +3684,8 @@ function createCompanionCore(ctx) {
 
     if (
       state.connected &&
-      phoneResult.phone &&
+      (phoneResult.phone ||
+        snapshotExternalIdentity) &&
       conversationKey &&
       lastResolvedConversationKey !==
         conversationKey
@@ -3712,7 +3847,7 @@ function createCompanionCore(ctx) {
       return 'Lead não consultado'
     }
 
-    if (!state.conversationPhone) {
+    if (!hasCurrentContactEvidence()) {
       return 'Telefone não detectado'
     }
 
@@ -3745,7 +3880,7 @@ function createCompanionCore(ctx) {
       return 'Conecte a Yolen para consultar o vínculo comercial.'
     }
 
-    if (!state.conversationPhone) {
+    if (!hasCurrentContactEvidence()) {
       return escapeHtml(
         state.autoLookupStatus ||
           'O Companion tentará abrir os dados do contato automaticamente para localizar o telefone.',
@@ -6820,7 +6955,11 @@ function createCompanionCore(ctx) {
         ?.lead_display
         ?.name ||
       state.conversationTitle ||
-      'Nenhuma conversa detectada'
+      // Canal sem nome confiável (Q4): a conversa existe, só não há nome
+      // comprovado para exibir.
+      (state.conversationKey
+        ? 'Conversa aberta'
+        : 'Nenhuma conversa detectada')
     )
   }
 
@@ -6845,7 +6984,7 @@ function createCompanionCore(ctx) {
       return 'Conecte a Yolen para ativar o Companion nesta conversa.'
     }
 
-    if (!state.conversationPhone) {
+    if (!hasCurrentContactEvidence()) {
       return (
         state.autoLookupStatus ||
         'Identificando o contato automaticamente...'
@@ -7528,7 +7667,8 @@ function createCompanionCore(ctx) {
         '</div>',
 
         '<div class="yolen-inline-actions yolen-contact-actions">',
-          getLeadActionButton(),
+          getContactLinkHtml() ||
+            getLeadActionButton(),
         '</div>',
 
       '</div>',
@@ -7618,6 +7758,55 @@ function createCompanionCore(ctx) {
           }
         })
       })
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="contact-link-start"]'),
+      'click',
+      () => {
+        contactLinkController.startContactLink()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="contact-link-search"]'),
+      'click',
+      () => {
+        const input =
+          panel.querySelector('[data-yolen-link-query]')
+
+        void contactLinkController.searchContactLink(
+          input ? input.value : '',
+        )
+      },
+    )
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="contact-link-select"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          contactLinkController.selectContactLinkLead(
+            button.getAttribute('data-yolen-link-index'),
+          )
+        })
+      })
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="contact-link-cancel"]'),
+      'click',
+      () => {
+        contactLinkController.cancelContactLinkSelection()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="contact-link-confirm"]'),
+      'click',
+      () => {
+        void contactLinkController.confirmContactLink()
+      },
+    )
 
     panel
       .querySelectorAll(
@@ -8042,6 +8231,11 @@ function createCompanionCore(ctx) {
       renderPanel()
     }
 
+    // Sessão recuperada depois de ausente/perdida: a conversa aberta
+    // precisa ser (re)consultada — nada disso roda desconectado.
+    const wasConnected =
+      state.connected
+
     try {
       const result = await window.YolenCompanionApi.getMe()
 
@@ -8189,7 +8383,7 @@ function createCompanionCore(ctx) {
       renderPanel()
 
       if (options.resolveLeadAfterLoad === true && !state.isSelfConversation) {
-        if (state.conversationPhone) {
+        if (hasCurrentContactEvidence()) {
           resolveCurrentLead()
         } else if (state.conversationKey) {
           runAutomaticContactLookup(
@@ -8197,14 +8391,25 @@ function createCompanionCore(ctx) {
           )
         }
       } else if (
-        companyChanged &&
+        (companyChanged || !wasConnected) &&
         !state.isSelfConversation &&
-        state.conversationPhone
+        hasCurrentContactEvidence()
       ) {
         // A resolução da empresa anterior foi invalidada acima e qualquer
         // resolve em voo pertence à boundary antiga: resolve de novo sob
         // a boundary da empresa nova.
         resolveCurrentLead()
+      } else if (
+        (companyChanged || !wasConnected) &&
+        !state.isSelfConversation &&
+        state.conversationKey
+      ) {
+        // Sessão recuperada (ou nova empresa) numa conversa cuja evidência
+        // ainda não foi adquirida: a aquisição só roda conectada, então é
+        // aqui que ela começa.
+        runAutomaticContactLookup(
+          state.conversationKey,
+        )
       }
     } catch (error) {
       state = {
@@ -8412,7 +8617,13 @@ function createCompanionCore(ctx) {
       return
     }
 
-    if (!state.conversationPhone) {
+    // §10.4 — ordem canônica: identidade externa segura primeiro; sem
+    // vínculo, fallback por telefone confiável; só telefone → telefone; sem
+    // evidência → nenhuma consulta e nenhuma criação.
+    if (
+      !state.conversationPhone &&
+      !state.conversationExternalIdentity
+    ) {
       state = {
         ...state,
         leadResolutionLoading: false,
@@ -8429,6 +8640,9 @@ function createCompanionCore(ctx) {
 
     const phoneAtRequest =
       state.conversationPhone
+
+    const externalIdentityAtRequest =
+      state.conversationExternalIdentity
 
     const keyAtRequest =
       state.conversationKey
@@ -8503,27 +8717,91 @@ function createCompanionCore(ctx) {
           ) &&
         state.conversationPhone ===
           phoneAtRequest &&
+        (state.conversationExternalIdentity?.key ??
+          null) ===
+          (externalIdentityAtRequest?.key ??
+            null) &&
         state.conversationKey ===
           keyAtRequest
       )
     }
 
+    const requestResolution = (payload) => {
+      return coreApiComposition
+        .resolveLead(
+          {
+            ...payload,
+            conversation_key: keyAtRequest,
+          },
+          {
+            companyId:
+              state.companyId || null,
+            boundaryToken:
+              boundaryTokenAtRequest.generation,
+          },
+        )
+    }
+
+    const requestPhoneResolution = () => {
+      return requestResolution({
+        phone: phoneAtRequest,
+        display_name: titleAtRequest,
+      })
+    }
+
     try {
-      const result =
-        await coreApiComposition
-          .resolveLead(
-            {
-              phone: phoneAtRequest,
-              display_name: titleAtRequest,
-              conversation_key: keyAtRequest,
-            },
-            {
-              companyId:
-                state.companyId || null,
-              boundaryToken:
-                boundaryTokenAtRequest.generation,
-            },
-          )
+      let result = null
+
+      if (externalIdentityAtRequest) {
+        result =
+          await requestResolution({
+            platform:
+              externalIdentityAtRequest.platform,
+            platform_contact_key:
+              externalIdentityAtRequest.key,
+          })
+
+        const identityViewModel =
+          result?.ok &&
+          result.payload?.ok
+            ? leadResolutionController
+                .createDomainResolutionViewModel(
+                  result.payload,
+                )
+            : null
+
+        const identityOutcome =
+          identityViewModel
+            ? leadResolutionController
+                .deriveCanonicalResolutionOutcome(
+                  identityViewModel,
+                  {
+                    hasTrustedPhone:
+                      Boolean(phoneAtRequest),
+                  },
+                )
+            : null
+
+        // Identidade não vinculada + telefone confiável → fallback por
+        // telefone (§10.4 caso B). Erros de rede/auth/backend nunca viram
+        // fallback: seguem como erro abaixo.
+        if (
+          identityOutcome
+            ?.requires_phone_fallback ===
+            true &&
+          phoneAtRequest
+        ) {
+          if (!requestStillCurrent()) {
+            return
+          }
+
+          result =
+            await requestPhoneResolution()
+        }
+      } else {
+        result =
+          await requestPhoneResolution()
+      }
 
       if (
         !result?.ok ||

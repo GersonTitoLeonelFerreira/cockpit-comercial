@@ -147,7 +147,7 @@
   // ou {ready:false, reason}. `phone` só existe no valor de retorno desta
   // chamada síncrona — o chamador é responsável por nunca persistir,
   // logar ou reencaminhar esse valor além da chamada privilegiada de
-  // resolve-lead em phone mode (ver manychat-capture-runtime.js).
+  // resolve-lead em phone mode (feita pelo Companion Core via adapter).
   function resolveTrustedPhone(documentRef = root.document) {
     const distinctValues = collectCandidatePhones(documentRef)
 

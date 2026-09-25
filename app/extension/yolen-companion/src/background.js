@@ -1,4 +1,4 @@
-/* global browser, chrome, YolenCompanionCaptureTransport, YolenManyChatAudioBackgroundTransport, YolenManyChatSafeIdentityBackground */
+/* global browser, chrome, YolenCompanionCaptureTransport, YolenManyChatAudioBackgroundTransport, YolenManyChatSafeIdentityBackground, YolenCompanionBackgroundPrivacy */
 
 const SESSION_STORAGE_KEY = 'yolen_companion_session'
 const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
@@ -18,6 +18,22 @@ const manyChatAudioTransportTools =
 const manyChatSafeIdentityTools =
   globalThis.YolenManyChatSafeIdentityBackground ||
   YolenManyChatSafeIdentityBackground
+
+const backgroundPrivacyTools =
+  globalThis.YolenCompanionBackgroundPrivacy ||
+  YolenCompanionBackgroundPrivacy
+
+if (!backgroundPrivacyTools) {
+  throw new Error(
+    'Módulo de privacidade de resolução do Companion não carregado.',
+  )
+}
+
+// FASE 7 — INV-6/Q3: respostas de resolução/criação para o content script
+// ManyChat saem daqui já reduzidas à allowlist (ver
+// companion-background-privacy.js).
+const backgroundPrivacy =
+  backgroundPrivacyTools.createBackgroundPrivacy()
 
 if (!captureTransportTools) {
   throw new Error(
@@ -807,7 +823,21 @@ async function handleMessage(message, sender) {
   }
 
   if (message.source === 'YOLEN_COMPANION') {
-    return handleCompanionMessage(message, sender)
+    const prepared =
+      backgroundPrivacy.prepareRequest(message, sender)
+
+    if (prepared.response) {
+      return prepared.response
+    }
+
+    const response =
+      await handleCompanionMessage(prepared.message, sender)
+
+    return backgroundPrivacy.sanitizeResponse(
+      prepared.message,
+      sender,
+      response,
+    )
   }
 
   if (message.source === 'YOLEN_COMPANION_BRIDGE') {

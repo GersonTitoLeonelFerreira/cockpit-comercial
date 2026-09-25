@@ -32,7 +32,7 @@
   const DISPLAY_NAME = 'ManyChat'
 
   // Seletores validados ao vivo (A → B → A com autoria/identidade/conteúdo/
-  // áudio reais) — os mesmos de manychat-capture-bootstrap.js. Canal e
+  // áudio reais) — os mesmos do runtime ManyChat anterior. Canal e
   // atribuição continuam fora (sem evidência de DOM).
   const VALIDATED_SELECTORS = Object.freeze({
     conversationRoot: 'div[data-test-id="chat-messages-list"]',
@@ -253,10 +253,11 @@
       const needsIdentityRevalidation = pendingIdentityRevalidation
       pendingIdentityRevalidation = false
 
-      const trustedPhone =
+      const currentEvidence =
         conversationKey && contactEvidence?.conversationKey === conversationKey
-          ? contactEvidence.trustedPhone
+          ? contactEvidence
           : null
+      const trustedPhone = currentEvidence?.trustedPhone ?? null
 
       return {
         // Sem nome confiável comprovado (Q4): nenhum nome visível é
@@ -272,6 +273,12 @@
         contactLookupIdentity: conversationKey || '',
         phone: trustedPhone?.phone ?? null,
         phoneSource: trustedPhone?.source ?? null,
+        // Identidade externa segura já confirmada nesta instância: é
+        // evidência de vínculo, nunca telefone nem nome.
+        externalIdentity: currentEvidence?.externalIdentity ?? null,
+        // Chave estável de captura da conversa (a mesma conversation_key
+        // da superfície ManyChat), nunca telefone.
+        captureConversationKey: conversationKey || null,
       }
     }
 

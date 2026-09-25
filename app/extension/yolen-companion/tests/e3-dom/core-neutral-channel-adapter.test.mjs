@@ -400,7 +400,7 @@ test('pré-envio: o Core decide sobre a tentativa normalizada; "Enviar mesmo ass
   assert.deepEqual(controls.violations, [])
 })
 
-test('capabilities indisponíveis: sem interceptação, áudio, inserção nem busca de telefone — mesmo estado canônico', async () => {
+test('capabilities indisponíveis: sem interceptação, áudio, inserção nem telefone — mesmo estado canônico', async () => {
   const limited = {
     canProvideTrustedPhone: false,
     canProvideDisplayName: false,
@@ -426,8 +426,46 @@ test('capabilities indisponíveis: sem interceptação, áudio, inserção nem b
 
   assert.deepEqual(controls.subscriptionCounts, { host: 1, draft: 0, send: 0 })
   assert.equal(controls.calls.some((call) => call.name === 'listenToAudioBridge'), false)
-  assert.equal(controls.calls.some((call) => call.name === 'acquireContactEvidence'), false)
+  // FASE 7 (§10.4): a aquisição de evidência não depende da capability de
+  // telefone (a identidade externa segura chega pelo mesmo contrato); sem
+  // identidade e sem telefone, nada é consultado.
+  assert.equal(controls.calls.some((call) => call.name === 'acquireContactEvidence'), true)
   assert.equal(resolveLeadCalls(calls).length, 0)
+  assert.deepEqual(controls.violations, [])
+})
+
+test('§10.4: identidade externa segura sem telefone resolve o vínculo existente; telefone de canal sem capability é ignorado', async () => {
+  const limited = { ...ALL_CAPABILITIES, canProvideTrustedPhone: false }
+  const EXTERNAL = { platform: 'contrato', key: 'contrato:contact:opaque-a' }
+
+  const { document, calls, controls } = startNeutralCompanion({
+    capabilities: limited,
+    conversations: {
+      // O canal até "vê" um telefone, mas não declara poder comprová-lo.
+      'conv-a': conversation('conv-a', { phoneEvidence: 'trusted', externalIdentity: EXTERNAL }),
+    },
+    resolutionsByIdentity: { [EXTERNAL.key]: resolutionFor(PHONE_A, CYCLE_A, 'Lead Por Identidade') },
+  })
+
+  await waitFor(() => panelText(document).includes('Lead Por Identidade'))
+  const resolves = resolveLeadCalls(calls).map((call) => ({ ...call.payload }))
+  assert.deepEqual(resolves, [{ platform: 'contrato', platform_contact_key: EXTERNAL.key }])
+  assert.ok(resolves.every((payload) => !('phone' in payload)), 'nenhum telefone sem capability')
+  assert.deepEqual(controls.violations, [])
+})
+
+test('§10.4: identidade não vinculada + telefone confiável → fallback por telefone; NOT_FOUND oferece criação só com telefone', async () => {
+  const EXTERNAL = { platform: 'contrato', key: 'contrato:contact:opaque-b' }
+  const { document, calls, controls } = startNeutralCompanion({
+    conversations: { 'conv-a': conversation('conv-a', { phoneEvidence: 'acquired', externalIdentity: EXTERNAL }) },
+    resolutionsByPhone: { [PHONE_A]: defaultLeadResolution({ phone: PHONE_A, status: 'NOT_FOUND', lead: null, cycle: null }) },
+  })
+
+  await waitFor(() => document.querySelector('[data-yolen-lead-create-form]'))
+  const resolves = resolveLeadCalls(calls).map((call) => ({ ...call.payload }))
+  assert.equal(resolves[0].platform_contact_key, EXTERNAL.key)
+  assert.equal(resolves.at(-1).phone, PHONE_A)
+  assert.equal(createLeadCalls(calls).length, 0)
   assert.deepEqual(controls.violations, [])
 })
 

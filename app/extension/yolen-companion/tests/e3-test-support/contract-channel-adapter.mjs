@@ -103,8 +103,8 @@ function buildMessage(conversation, entry, index, observedAt) {
 }
 
 // conversations: { [key]: { key, title, phone, phoneEvidence:
-//   'trusted' | 'pending' | 'absent', messages: [{ id, text, direction }],
-//   draft } }
+//   'trusted' | 'acquired' | 'pending' | 'absent', externalIdentity?: { platform, key },
+//   messages: [{ id, text, direction }], draft } }
 export function createContractChannelAdapter({
   document,
   conversations,
@@ -118,6 +118,8 @@ export function createContractChannelAdapter({
   const draftListeners = new Set()
   const sendDeciders = new Set()
   let current = conversations[initialKey] || null
+  const acquiredIdentityKeys = new Set()
+  const acquiredPhoneKeys = new Set()
 
   const sent = []
 
@@ -182,7 +184,14 @@ export function createContractChannelAdapter({
     },
 
     readConversationSnapshot() {
-      const trusted = current?.phoneEvidence === 'trusted'
+      // 'acquired': telefone só existe depois da aquisição (junto com a
+      // identidade), como no ManyChat.
+      const trusted =
+        current?.phoneEvidence === 'trusted' ||
+        (current?.phoneEvidence === 'acquired' && acquiredPhoneKeys.has(current.key))
+      // Identidade externa segura (FASE 7, §10.4): só depois de adquirida
+      // nesta conversa, como um canal real.
+      const identity = current && acquiredIdentityKeys.has(current.key) ? current.externalIdentity ?? null : null
 
       return {
         conversationTitle: current?.title ?? '',
@@ -195,6 +204,7 @@ export function createContractChannelAdapter({
         contactLookupIdentity: current?.title ?? '',
         phone: trusted ? current.phone : null,
         phoneSource: trusted ? 'Evidência do canal' : null,
+        externalIdentity: identity,
       }
     },
 
@@ -209,17 +219,24 @@ export function createContractChannelAdapter({
         return { outcome: 'stale' }
       }
 
-      if (current.phoneEvidence === 'trusted') {
+      const externalIdentity = current.externalIdentity ?? null
+      if (externalIdentity) {
+        acquiredIdentityKeys.add(current.key)
+      }
+
+      if (current.phoneEvidence === 'trusted' || current.phoneEvidence === 'acquired') {
+        acquiredPhoneKeys.add(current.key)
         return {
           outcome: 'phone',
           phone: current.phone,
           source: 'Evidência do canal',
           lookupIdentity: current.title,
+          externalIdentity,
         }
       }
 
       onLookupAttemptConsumed?.()
-      return { outcome: 'phone_unavailable' }
+      return { outcome: 'phone_unavailable', externalIdentity }
     },
 
     async revalidateConversationIdentity() {

@@ -4,5 +4,6 @@ importScripts(
   'capture-transport.js',
   'manychat-audio-background-transport.js',
   'manychat-safe-identity-background.js',
+  'companion-background-privacy.js',
   'background.js',
 )

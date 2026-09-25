@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { createContext, runInContext } from 'node:vm'
 import test from 'node:test'
 
@@ -9,6 +10,9 @@ import {
   assertAllowlistMatchesManifest,
   toProductionManifest,
 } from '../scripts/build-package.mjs'
+
+const require = createRequire(import.meta.url)
+const backgroundPrivacy = require('../src/companion-background-privacy.js')
 
 const BACKGROUND_SOURCE = readFileSync(
   new URL('../src/background.js', import.meta.url),
@@ -121,6 +125,7 @@ function createBackgroundHarness({ mediaReady = true } = {}) {
         return { ...payload, device_key: deviceKey }
       },
     },
+    YolenCompanionBackgroundPrivacy: backgroundPrivacy,
     YolenManyChatSafeIdentityBackground: {
       async handleIdentityRequest() {
         return {
@@ -201,6 +206,7 @@ test('manifest mantém background correto e ativa somente o runtime mínimo Many
     'src/capture-transport.js',
     'src/manychat-audio-background-transport.js',
     'src/manychat-safe-identity-background.js',
+    'src/companion-background-privacy.js',
     'src/background.js',
   ])
   assert.equal(MANIFEST.host_permissions.includes(MANYCHAT_MEDIA_HOST), true)
@@ -213,28 +219,52 @@ test('manifest mantém background correto e ativa somente o runtime mínimo Many
       !block.world,
   )
   assert.equal(manyChatBlocks.length, 1)
+  // FASE 7 — o ManyChat compõe o MESMO bootstrap/Core/controllers/views
+  // do WhatsApp com o ManyChatAdapter, atrás do kill switch.
   assert.deepEqual(manyChatBlocks[0].js, [
+    'src/yolen-api.js',
+    'src/ux8-interaction-consistency-runtime.js',
+    'src/lead-summary-expand-state.js',
+    'src/message-mutations.js',
+    'src/conversation-registration-tools.js',
+    'src/capture-batch.js',
+    'src/capture-resilience.js',
+    'src/capture-resilience-null-base.js',
+    'src/lead-enrichment.js',
+    'src/companion-client-context-view.js',
+    'src/companion-lead-summary-view.js',
+    'src/companion-seller-information-view.js',
+    'src/companion-reasoning-view.js',
+    'src/companion-conversation-boundary.js',
+    'src/companion-lead-resolution-controller.js',
+    'src/companion-workspace-runtime.js',
     'src/platform-contract.js',
     'src/manychat-surface.js',
-    'src/manychat-context-evidence-probe.js',
     'src/manychat-message-semantics.js',
     'src/manychat-message-identity.js',
     'src/manychat-message-content.js',
     'src/manychat-message-profile.js',
     'src/manychat-dom-reader.js',
-    'src/manychat-adapter.js',
-    'src/capture-batch.js',
-    'src/companion-client-context-view.js',
-    'src/companion-seller-information-view.js',
-    'src/manychat-feature-flags.js',
-    'src/manychat-capture-runtime.js',
     'src/manychat-composer.js',
-    'src/manychat-panel-mount.js',
-    'src/manychat-seller-panel-runtime.js',
-    'src/manychat-contact-link-runtime.js',
-    'src/manychat-capture-bootstrap.js',
+    'src/manychat-phone-evidence.js',
     'src/manychat-audio-source.js',
-    'src/manychat-audio-dispatch-runtime.js',
+    'src/manychat-channel-adapter.js',
+    'src/companion-analysis-controller.js',
+    'src/companion-lead-creation-controller.js',
+    'src/companion-contact-link-controller.js',
+    'src/companion-conversation-registration-controller.js',
+    'src/companion-lead-enrichment-controller.js',
+    'src/companion-lead-summary-controller.js',
+    'src/companion-message-controller.js',
+    'src/companion-core-api-composition.js',
+    'src/companion-client-controller.js',
+    'src/companion-core.js',
+    'src/companion-bootstrap.js',
+    'src/manychat-feature-flags.js',
+    'src/manychat-content-script.js',
+    'src/panel-stability-runtime.js',
+    'src/editable-field-stability-runtime.js',
+    'src/lead-automation.js',
   ])
 
   assert.equal(
@@ -248,8 +278,9 @@ test('allowlist e manifest PROD incluem app, mídia e runtime ManyChat', () => {
   assert.doesNotThrow(() => assertAllowlistMatchesManifest(MANIFEST))
   for (const file of [
     'src/manychat-audio-background-transport.js',
-    'src/manychat-audio-dispatch-runtime.js',
     'src/manychat-audio-source.js',
+    'src/manychat-channel-adapter.js',
+    'src/manychat-content-script.js',
     'src/manychat-message-content.js',
     'src/manychat-message-identity.js',
     'src/manychat-message-semantics.js',

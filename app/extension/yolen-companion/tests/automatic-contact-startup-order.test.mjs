@@ -4,8 +4,10 @@ import { readWhatsAppCompositionSource } from './support/whatsapp-composition-so
 
 const contentScript = readWhatsAppCompositionSource()
 
+// FASE 7 (§10.4): a evidência que libera a resolução no startup é telefone
+// confiável OU identidade externa segura — nunca nenhuma das duas.
 test(
-  'startup resolve o lead somente depois de obter o telefone',
+  'startup resolve o lead somente depois de obter evidência de contato',
   () => {
     const start = contentScript.indexOf(
       'if (options.resolveLeadAfterLoad === true && !state.isSelfConversation) {',
@@ -24,7 +26,7 @@ test(
     )
 
     const phoneGate = block.indexOf(
-      'if (state.conversationPhone) {',
+      'if (hasCurrentContactEvidence()) {',
     )
     const resolve = block.indexOf(
       'resolveCurrentLead()',
@@ -51,5 +53,16 @@ test(
       block,
       /else if \(state\.conversationKey\)/,
     )
+
+    const helperStart = contentScript.indexOf(
+      'function hasCurrentContactEvidence() {',
+    )
+    assert.notEqual(helperStart, -1)
+    const helper = contentScript.slice(
+      helperStart,
+      contentScript.indexOf('\n  }', helperStart),
+    )
+    assert.match(helper, /state\.conversationPhone/)
+    assert.match(helper, /state\.conversationExternalIdentity/)
   },
 )

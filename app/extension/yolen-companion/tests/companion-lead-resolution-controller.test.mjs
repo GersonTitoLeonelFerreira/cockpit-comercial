@@ -130,6 +130,7 @@ test('payload legacy vira ViewModel allowlisted com cycle, display, capabilities
     can_open_cycle: true,
     can_register_conversation: false,
     can_enrich_lead: false,
+    can_link_lead: false,
   })
   assert.deepEqual({ ...viewModel.flags }, { is_closed: false, is_owned_by_me: true, is_pool: false })
 })
@@ -185,6 +186,7 @@ test('capabilities booleanas conhecidas preservadas; canônicas têm prioridade 
     can_open_cycle: true,
     can_register_conversation: true,
     can_enrich_lead: true,
+    can_link_lead: false,
   })
 
   const legacyCreate = controller.createDomainResolutionViewModel(legacyPayload({
@@ -703,11 +705,11 @@ test('contexto de resolução é invalidado nos resets e só é preservado na me
   assertClearsResolvedContext(
     sliceBetween(
       contentScriptSource,
-      'if (!state.conversationPhone) {',
+      '!state.conversationExternalIdentity',
       'const phoneAtRequest',
       resolveStart,
     ),
-    'resolveCurrentLead() sem telefone',
+    'resolveCurrentLead() sem telefone nem identidade externa',
   )
 
   assertClearsResolvedContext(
@@ -1396,7 +1398,9 @@ const RAW_RESOLUTION_ADAPTERS = {
   // ENRICHMENT: lead.id / lead.phone.
   getLeadEnrichmentCandidates: /resolution\?\.lead\?\.phone/,
   getLeadEnrichmentCandidateKey: /state\.leadResolution\?\.lead\?\.id/,
-  applyLeadEnrichmentCandidate: /resolution\.lead\.id/,
+  // FASE 7: canal sanitizado (ManyChat) não recebe lead.id; o background
+  // reinjeta a referência privada — daí o acesso opcional.
+  applyLeadEnrichmentCandidate: /resolution\.lead\?\.id/,
   // CREATE URL: create_lead_url carrega telefone/nome (PII).
   wirePanelInteractions: /state\.leadResolution\?\.actions\?\.create_lead_url/,
   // PRESERVATION: mesma resolução raw mantida no refresh da boundary atual.

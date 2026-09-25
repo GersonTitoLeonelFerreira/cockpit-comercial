@@ -511,6 +511,17 @@
     return sendToBackground('CREATE_LEAD', payload)
   }
 
+  // FASE 7 — vínculo manual de identidade externa (first-link): busca de
+  // leads vinculáveis e confirmação. Só FIRST_LINK_EXTERNAL_IDENTITY
+  // (nunca relink); company/actor são derivados do token no servidor.
+  async function searchLinkableLeads(payload) {
+    return sendToBackground('SEARCH_LINKABLE_LEADS', payload)
+  }
+
+  async function firstLinkExternalIdentity(payload) {
+    return sendToBackground('FIRST_LINK_EXTERNAL_IDENTITY', payload)
+  }
+
   async function applyLeadEnrichment(payload) {
     return sendToBackground(
       'APPLY_LEAD_ENRICHMENT',
@@ -934,6 +945,8 @@
     resolveLead,
     getLastLeadLookupContext,
     createLead,
+    searchLinkableLeads,
+    firstLinkExternalIdentity,
     applyLeadEnrichment,
     analyzeConversation,
     applySuggestion,

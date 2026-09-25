@@ -231,11 +231,40 @@ function createCompanionLeadEnrichmentController(ctx) {
     )
   }
 
+  // FASE 7 — canal com resolução sanitizada (INV-6): o background entrega
+  // só a semântica de presença de cada campo (§19.3) e reinjeta a
+  // referência privada do lead ao aplicar.
+  function getPrivateEnrichmentContext(resolution) {
+    const context =
+      resolution?.enrichment_context
+
+    return context &&
+      context.available === true &&
+      context.fields &&
+      typeof context.fields === 'object'
+      ? context
+      : null
+  }
+
+  function hasEnrichableLeadReference(resolution) {
+    return Boolean(
+      resolution?.lead?.id ||
+      getPrivateEnrichmentContext(resolution),
+    )
+  }
+
   function getLeadEnrichmentCandidates() {
     // Raw somente para campos cadastrais do lead (lead.id / lead.phone),
     // deliberadamente fora do ViewModel; status/ciclo vêm do canônico.
     const resolution =
       ctx.state.leadResolution
+
+    const privateContext =
+      resolution?.lead?.id
+        ? null
+        : getPrivateEnrichmentContext(
+            resolution,
+          )
 
     const isNewLead =
       getCanonicalResolutionStatus() ===
@@ -244,7 +273,9 @@ function createCompanionLeadEnrichmentController(ctx) {
     const isOwnedLead =
       getCanonicalResolutionStatus() ===
         'OWNED_BY_ME' &&
-      resolution?.lead?.id &&
+      hasEnrichableLeadReference(
+        resolution,
+      ) &&
       getCanonicalResolutionCycleId()
 
     if (
@@ -297,6 +328,20 @@ function createCompanionLeadEnrichmentController(ctx) {
 
     return candidates.flatMap(
       (candidate) => {
+        if (privateContext) {
+          // Valor atual privado: só campos ausentes são oferecidos (nada
+          // cadastrado é sobrescrito sem comparação explícita).
+          return privateContext.fields[
+            candidate.field
+          ] === 'missing'
+            ? [{
+                ...candidate,
+                current_value: null,
+                comparison: 'missing',
+              }]
+            : []
+        }
+
         const currentValue =
           getCurrentLeadEnrichmentValue(
             candidate.field,
@@ -359,7 +404,9 @@ function createCompanionLeadEnrichmentController(ctx) {
         : []
 
     return [
-      ctx.state.leadResolution?.lead?.id || '',
+      ctx.state.leadResolution?.lead?.id ||
+        getCanonicalResolutionCycleId() ||
+        '',
       candidate?.field || '',
       candidate?.normalized_value || '',
       candidate?.current_value || '',
@@ -438,7 +485,9 @@ function createCompanionLeadEnrichmentController(ctx) {
     if (
       getCanonicalResolutionStatus() !==
         'OWNED_BY_ME' ||
-      !resolution?.lead?.id ||
+      !hasEnrichableLeadReference(
+        resolution,
+      ) ||
       !cycleId
     ) {
       return
@@ -508,8 +557,11 @@ function createCompanionLeadEnrichmentController(ctx) {
         await window
           .YolenCompanionApi
           .applyLeadEnrichment({
+            // Canal sanitizado: o background reinjeta a referência
+            // privada a partir do cycle_id autorizado.
             lead_id:
-              resolution.lead.id,
+              resolution.lead?.id ??
+              null,
             cycle_id:
               cycleId,
             field:

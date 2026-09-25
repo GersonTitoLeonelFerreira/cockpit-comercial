@@ -58,6 +58,7 @@ test(
         'src/capture-transport.js',
         'src/manychat-audio-background-transport.js',
         'src/manychat-safe-identity-background.js',
+        'src/companion-background-privacy.js',
         'src/background.js',
       ],
     )
@@ -87,6 +88,11 @@ test(
         "'manychat-safe-identity-background.js'",
       )
 
+    const privacyIndex =
+      serviceWorker.indexOf(
+        "'companion-background-privacy.js'",
+      )
+
     const backgroundIndex =
       serviceWorker.indexOf(
         "'background.js'",
@@ -107,8 +113,13 @@ test(
     )
 
     assert.ok(
-      backgroundIndex >
+      privacyIndex >
         safeIdentityIndex,
+    )
+
+    assert.ok(
+      backgroundIndex >
+        privacyIndex,
     )
   },
 )
@@ -189,33 +200,57 @@ test(
     assert.equal(earlyIsolatedBlock.css, undefined)
 
     assert.ok(idleIsolatedBlock)
+    // FASE 7 — mesmo bootstrap/Core/controllers/views do WhatsApp com o
+    // ManyChatAdapter, atrás do kill switch (manychat-feature-flags.js).
     assert.deepEqual(idleIsolatedBlock.js, [
+      'src/yolen-api.js',
+      'src/ux8-interaction-consistency-runtime.js',
+      'src/lead-summary-expand-state.js',
+      'src/message-mutations.js',
+      'src/conversation-registration-tools.js',
+      'src/capture-batch.js',
+      'src/capture-resilience.js',
+      'src/capture-resilience-null-base.js',
+      'src/lead-enrichment.js',
+      'src/companion-client-context-view.js',
+      'src/companion-lead-summary-view.js',
+      'src/companion-seller-information-view.js',
+      'src/companion-reasoning-view.js',
+      'src/companion-conversation-boundary.js',
+      'src/companion-lead-resolution-controller.js',
+      'src/companion-workspace-runtime.js',
       'src/platform-contract.js',
       'src/manychat-surface.js',
-      'src/manychat-context-evidence-probe.js',
       'src/manychat-message-semantics.js',
       'src/manychat-message-identity.js',
       'src/manychat-message-content.js',
       'src/manychat-message-profile.js',
       'src/manychat-dom-reader.js',
-      'src/manychat-adapter.js',
-      'src/capture-batch.js',
-      'src/companion-client-context-view.js',
-      'src/companion-seller-information-view.js',
-      'src/manychat-feature-flags.js',
-      'src/manychat-capture-runtime.js',
       'src/manychat-composer.js',
-      'src/manychat-panel-mount.js',
-      'src/manychat-seller-panel-runtime.js',
-      'src/manychat-contact-link-runtime.js',
-      'src/manychat-capture-bootstrap.js',
+      'src/manychat-phone-evidence.js',
       'src/manychat-audio-source.js',
-      'src/manychat-audio-dispatch-runtime.js',
+      'src/manychat-channel-adapter.js',
+      'src/companion-analysis-controller.js',
+      'src/companion-lead-creation-controller.js',
+      'src/companion-contact-link-controller.js',
+      'src/companion-conversation-registration-controller.js',
+      'src/companion-lead-enrichment-controller.js',
+      'src/companion-lead-summary-controller.js',
+      'src/companion-message-controller.js',
+      'src/companion-core-api-composition.js',
+      'src/companion-client-controller.js',
+      'src/companion-core.js',
+      'src/companion-bootstrap.js',
+      'src/manychat-feature-flags.js',
+      'src/manychat-content-script.js',
+      'src/panel-stability-runtime.js',
+      'src/editable-field-stability-runtime.js',
+      'src/lead-automation.js',
     ])
     // styles.css é o MESMO CSS já usado pelo painel do WhatsApp
     // (#yolen-companion-panel é position:fixed relativo à viewport, então
     // funciona de forma idêntica em qualquer página) — reaproveitado aqui
     // em vez de duplicado.
-    assert.deepEqual(idleIsolatedBlock.css, ['src/styles.css'])
+    assert.deepEqual(idleIsolatedBlock.css, ['src/styles.css', 'src/lead-automation.css'])
   },
 )

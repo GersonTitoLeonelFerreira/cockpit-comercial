@@ -51,6 +51,7 @@ export const WHATSAPP_MANIFEST_FILES = Object.freeze([
   'whatsapp-adapter.js',
   'companion-analysis-controller.js',
   'companion-lead-creation-controller.js',
+  'companion-contact-link-controller.js',
   'companion-conversation-registration-controller.js',
   'companion-lead-enrichment-controller.js',
   'companion-lead-summary-controller.js',
@@ -272,6 +273,9 @@ export function defaultAgoraDecisionState(overrides = {}) {
 
 function createFakeBackground({
   resolutionsByPhone = {},
+  resolutionsByIdentity = {},
+  extraHandlers = {},
+  wrapSendMessage,
   clientContextResult,
   decisionStateResult,
   analysisViewModelResult,
@@ -323,6 +327,30 @@ function createFakeBackground({
       }
     },
     RESOLVE_LEAD: async (payload) => {
+      // FASE 7 — modo identidade externa (§10.4): mesmo contrato do backend
+      // (platform + platform_contact_key, sem telefone). Sem vínculo
+      // configurado, o backend real responde CONTACT_NOT_LINKED.
+      if (payload?.platform && payload?.platform_contact_key) {
+        const configuredIdentity = resolutionsByIdentity[payload.platform_contact_key]
+        const identityResolution =
+          typeof configuredIdentity === 'function'
+            ? await configuredIdentity(payload)
+            : (configuredIdentity ?? defaultLeadResolution({
+                status: 'CONTACT_NOT_LINKED',
+                user_message: 'Este contato ainda não está vinculado a nenhum lead da Yolen. Selecione o lead correto para vincular.',
+                lead: null,
+                cycle: null,
+                phone: null,
+                actions: { can_analyze_conversation: false, can_apply_suggestion: false, can_link_lead: true },
+                flags: { is_owned_by_me: false, is_pool: false, is_closed: false },
+                capabilities: { can_create_lead: false, can_open_cycle: false },
+              }))
+        if (identityResolution?.__transport) {
+          return identityResolution.__transport
+        }
+        return { ok: true, statusCode: 200, payload: identityResolution }
+      }
+
       const phoneDigits = String(payload?.phone ?? '').replace(/\D/g, '')
       const configured = resolutionsByPhone[phoneDigits]
       // Mesmo padrão de clientContextResult/leadSummaryResult: um valor
@@ -600,13 +628,24 @@ function createFakeBackground({
     },
   }
 
-  const sendMessage = async (message) => {
-    calls.push(message)
+  Object.assign(handlers, extraHandlers)
+
+  const dispatch = async (message) => {
     const handler = handlers[message.action]
     if (handler) {
       return handler(message.payload)
     }
     return { ok: true, statusCode: 200, payload: { ok: true } }
+  }
+
+  // wrapSendMessage permite a um harness de canal compor o mesmo caminho
+  // do background real (ex.: privacidade por remetente) em volta do
+  // transporte controlado.
+  const deliver = typeof wrapSendMessage === 'function' ? wrapSendMessage(dispatch) : dispatch
+
+  const sendMessage = async (message) => {
+    calls.push(message)
+    return deliver(message)
   }
 
   return { sendMessage, calls }
@@ -739,6 +778,11 @@ export function loadCompanionComposition({
   installIdentityBridgeResponder = false,
   initialHtml,
   resolutionsByPhone,
+  resolutionsByIdentity,
+  extraHandlers,
+  wrapSendMessage,
+  sourceOverrides = {},
+  beforeLoad,
   clientContextResult,
   decisionStateResult,
   analysisViewModelResult,
@@ -768,6 +812,9 @@ export function loadCompanionComposition({
 
   const background = createFakeBackground({
     resolutionsByPhone,
+    resolutionsByIdentity,
+    extraHandlers,
+    wrapSendMessage,
     clientContextResult,
     decisionStateResult,
     analysisViewModelResult,
@@ -788,7 +835,15 @@ export function loadCompanionComposition({
 
   const fakeChrome = {
     runtime: {
-      sendMessage: background.sendMessage,
+      // Mesma API dupla do chrome.runtime real (MV3): Promise ou callback.
+      sendMessage: (message, callback) => {
+        const response = background.sendMessage(message)
+        if (typeof callback === 'function') {
+          response.then(callback)
+          return undefined
+        }
+        return response
+      },
       onMessage: { addListener() {} },
     },
     storage: {
@@ -859,9 +914,16 @@ export function loadCompanionComposition({
     }
   }
 
+  if (typeof beforeLoad === 'function') {
+    beforeLoad({ dom, sandbox })
+  }
+
   for (const file of files) {
     mirrorYolenGlobals()
-    vm.runInContext(readSource(file), sandbox, { filename: file })
+    // sourceOverrides reproduz o staging do build (ex.: o pacote e2e grava
+    // outra fonte no MESMO pathname do manifest).
+    const source = sourceOverrides[file] ?? readSource(file)
+    vm.runInContext(source, sandbox, { filename: file })
     mirrorYolenGlobals()
   }
 
