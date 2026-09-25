@@ -1243,7 +1243,14 @@ function formatTerminalCurrency(value: number | null | undefined) {
   }).format(numericValue)
 }
 
-function TerminalKanbanCard({ item }: { item: PipelineItem }) {
+function TerminalKanbanCard({
+  item,
+  isV2,
+}: {
+  item: PipelineItem
+  isV2: boolean
+}) {
+
   const isWon = item.status === 'ganho'
   const color = isWon ? STATUS_COLORS.ganho : STATUS_COLORS.perdido
   const rgb = isWon ? STATUS_RGB.ganho : STATUS_RGB.perdido
@@ -1259,14 +1266,20 @@ function TerminalKanbanCard({ item }: { item: PipelineItem }) {
   return (
     <article
       style={{
-        border: `1px solid rgba(${rgb},0.14)`,
+        border: isV2
+          ? '1px solid rgba(177,208,255,0.09)'
+          : `1px solid rgba(${rgb},0.14)`,
         borderLeft: `2px solid rgba(${rgb},0.65)`,
-        borderRadius: DS.radius,
-        padding: 8,
-        background: 'rgba(16,18,27,0.92)',
-        boxShadow: 'none',
+        borderRadius: isV2 ? 10 : DS.radius,
+        padding: isV2 ? 10 : 8,
+        background: isV2
+          ? 'rgba(17,27,44,0.92)'
+          : 'rgba(16,18,27,0.92)',
+        boxShadow: isV2
+          ? '0 6px 18px rgba(0,0,0,0.10)'
+          : 'none',
         display: 'grid',
-        gap: 6,
+        gap: isV2 ? 7 : 6,
       }}
     >
       <div
@@ -1358,10 +1371,14 @@ function TerminalKanbanCard({ item }: { item: PipelineItem }) {
         onClick={openLead}
         style={{
           width: '100%',
-          padding: '5px 8px',
-          borderRadius: DS.radius,
-          border: `1px solid rgba(${rgb},0.14)`,
-          background: 'transparent',
+          padding: isV2 ? '6px 8px' : '5px 8px',
+          borderRadius: isV2 ? 7 : DS.radius,
+          border: isV2
+            ? '1px solid rgba(177,208,255,0.10)'
+            : `1px solid rgba(${rgb},0.14)`,
+          background: isV2
+            ? 'rgba(35,89,217,0.06)'
+            : 'transparent',
           color: DS.textSecondary,
           cursor: 'pointer',
           fontSize: 10,
@@ -1397,6 +1414,7 @@ function KanbanCard({
   currentUserId,
   slaRules,
   nowTick,
+  isV2,
 }: {
   item: PipelineItem
   isSaving: boolean
@@ -1411,6 +1429,7 @@ function KanbanCard({
   currentUserId: string
   slaRules: Record<Status, SLARuleDB | null>
   nowTick: Date
+  isV2: boolean
 }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const [showQuickActionModal, setShowQuickActionModal] = useState(false)
@@ -1462,18 +1481,48 @@ function KanbanCard({
   return (
     <div
       style={{
-        background: isSelected ? 'rgba(59,130,246,0.07)' : DS.cardBg,
-        borderTop: `1px solid ${isSelected ? 'rgba(59,130,246,0.35)' : DS.border}`,
-        borderRight: `1px solid ${isSelected ? 'rgba(59,130,246,0.35)' : DS.border}`,
-        borderBottom: `1px solid ${isSelected ? 'rgba(59,130,246,0.35)' : DS.border}`,
-        borderLeft: `3px solid ${STATUS_COLORS[item.status]}`,
-        borderRadius: DS.radius,
-        padding: '8px 10px 8px 8px',
+        background: isSelected
+          ? isV2
+            ? 'rgba(35,89,217,0.14)'
+            : 'rgba(59,130,246,0.07)'
+          : isV2
+            ? 'rgba(17,27,44,0.92)'
+            : DS.cardBg,
+        borderTop: `1px solid ${
+          isSelected
+            ? 'rgba(59,130,246,0.35)'
+            : isV2
+              ? 'rgba(177,208,255,0.09)'
+              : DS.border
+        }`,
+        borderRight: `1px solid ${
+          isSelected
+            ? 'rgba(59,130,246,0.35)'
+            : isV2
+              ? 'rgba(177,208,255,0.09)'
+              : DS.border
+        }`,
+        borderBottom: `1px solid ${
+          isSelected
+            ? 'rgba(59,130,246,0.35)'
+            : isV2
+              ? 'rgba(177,208,255,0.09)'
+              : DS.border
+        }`,
+        borderLeft: `${isV2 ? 2 : 3}px solid ${STATUS_COLORS[item.status]}`,
+        borderRadius: isV2 ? 10 : DS.radius,
+        padding: isV2 ? '8px 10px 8px 9px' : '8px 10px 8px 8px',
         cursor: isSaving ? 'not-allowed' : 'grab',
-        transition: 'box-shadow 150ms ease, background 150ms ease',
+        transition: 'box-shadow 150ms ease, background 150ms ease, border-color 150ms ease',
         position: 'relative',
         overflow: 'hidden',
-        boxShadow: isHovered ? '0 2px 8px rgba(0,0,0,0.45)' : DS.shadowCard,
+        boxShadow: isHovered
+          ? isV2
+            ? '0 8px 20px rgba(0,0,0,0.20)'
+            : '0 2px 8px rgba(0,0,0,0.45)'
+          : isV2
+            ? '0 1px 0 rgba(255,255,255,0.015)'
+            : DS.shadowCard,
       }}
       draggable
       onDragStart={(e) => {
@@ -1484,7 +1533,15 @@ function KanbanCard({
       onMouseLeave={() => setIsHovered(false)}
     >
       <div
-        style={{ position: 'absolute', top: 6, right: 6, cursor: 'pointer', opacity: isSelected || isHovered ? 1 : 0.35, transition: 'opacity 120ms ease' }}
+        style={{
+          position: 'absolute',
+          top: isV2 ? 8 : 6,
+          right: isV2 ? 8 : 6,
+          cursor: 'pointer',
+          opacity: isSelected || isHovered ? 1 : isV2 ? 0.45 : 0.35,
+          transition: 'opacity 120ms ease',
+        }}
+
         onClick={(e) => {
           e.stopPropagation()
           onToggleSelect(item.id)
@@ -1504,13 +1561,31 @@ function KanbanCard({
       </div>
 
       <div
-        style={{ cursor: 'pointer', marginRight: 18, overflow: 'hidden', minWidth: 0 }}
+        style={{
+          cursor: 'pointer',
+          marginRight: isV2 ? 20 : 18,
+          overflow: 'hidden',
+          minWidth: 0,
+        }}
+
         onClick={() => {
           window.location.href = `/sales-cycles/${item.id}`
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 12.5, color: DS.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
+          <div
+            style={{
+              fontWeight: isV2 ? 700 : 600,
+              fontSize: isV2 ? 13 : 12.5,
+              color: DS.textPrimary,
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              letterSpacing: '-0.01em',
+            }}
+          >
+
             {item.name}
           </div>
           {supportsOperationalSLA(item.status) && (
@@ -1533,10 +1608,29 @@ function KanbanCard({
           )}
         </div>
 
-        <div style={{ fontSize: 11, color: DS.textSecondary, fontVariantNumeric: 'tabular-nums' }}>{item.phone || '—'}</div>
+        <div
+          style={{
+            fontSize: isV2 ? 10.5 : 11,
+            color: isV2 ? DS.textMuted : DS.textSecondary,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {item.phone || '—'}
+        </div>
+
 
         {supportsOperationalAgenda(item.status) && item.next_action && (
-          <div style={{ fontSize: 10.5, color: DS.textMuted, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div
+            style={{
+              fontSize: 10.5,
+              color: isV2 ? DS.textSecondary : DS.textMuted,
+              marginTop: isV2 ? 4 : 3,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+
             {item.next_action}
           </div>
         )}
@@ -1567,7 +1661,20 @@ function KanbanCard({
   </div>
 )}
 
-<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 6 }}>
+<div
+  style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: isV2 ? 6 : 6,
+    paddingTop: isV2 ? 5 : 0,
+    borderTop: isV2
+      ? '1px solid rgba(177,208,255,0.07)'
+      : 'none',
+    gap: 6,
+  }}
+>
+
           {agendaState !== 'none' ? (
             <div
               style={{
@@ -2225,10 +2332,14 @@ function VirtualizedStatusColumn({
               Nenhum lead nesta etapa
             </div>
           ) : (
-            <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'grid', gap: isV2 ? 7 : 6 }}>
               {filteredCycles.map((item) =>
   isTerminalStatus(item.status) ? (
-    <TerminalKanbanCard key={item.id} item={item} />
+    <TerminalKanbanCard
+      key={item.id}
+      item={item}
+      isV2={isV2}
+    />
   ) : (
     <KanbanCard
       key={item.id}
@@ -2245,6 +2356,7 @@ function VirtualizedStatusColumn({
       currentUserId={currentUserId}
       slaRules={slaRules}
       nowTick={nowTick}
+      isV2={isV2}
     />
   ),
 )}
