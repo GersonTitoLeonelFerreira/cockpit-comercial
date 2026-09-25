@@ -126,7 +126,7 @@ Checkpoints são pontos internos de teste/revisão/commit (§5), não fases.
 | `5154d74f` | Pós-auditoria: aquisição de evidência de contato no adapter (`readConversationSnapshot`, `acquireContactEvidence`, `revalidateConversationIdentity`, `hasOpenContactDetails`, `hasAuthorizedContactDetails`, `forgetContactEvidence`, `getCurrentConversationKey`); o Core decide e mapeia resultado técnico → copy |
 | `69b0eab7` | Pós-auditoria: composer/envio pelo contrato §7 (`getComposerState`, `applyMessage`, `focusComposer`, `hasSendControl`, `triggerSend`); o Core não recebe mais o composer nem o botão Enviar |
 | `324f14b9` | Pós-auditoria: handles de áudio opacos + motivos técnicos; `getMountPoint()`; `getCapabilities()` consumido pelo Core; copy do Core/MENSAGEM/preview interpolando `platformDisplayName`; teste focal `channel-adapter-contract` |
-| (último checkpoint) | Pós-auditoria: formas literais do §7 (`busy`, `true`/`'conditional'`, `getAudioSource` → `{ok,…}`, mount `null` fail-closed) e identificadores do Core neutros de canal (`observeChannelChanges`, `processObservedChannelChange`, `observeManualChannelSend`, `listenToChannelAudio`, `insertSuggestedMessageInChannel[WithOptions]`) |
+| `6f7596ae` | Pós-auditoria: formas literais do §7 (`busy`, `true`/`'conditional'`, `getAudioSource` → `{ok,…}`, mount `null` fail-closed) e identificadores do Core neutros de canal (`observeChannelChanges`, `processObservedChannelChange`, `observeManualChannelSend`, `listenToChannelAudio`, `insertSuggestedMessageInChannel[WithOptions]`) |
 
 ### 6.1 Composição final do WhatsApp (manifest `content_scripts[1]`)
 
