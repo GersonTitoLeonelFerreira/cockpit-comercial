@@ -1,25 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
+import {
+  readWhatsAppCompositionSource,
+  readContactLookupFlow,
+} from './support/whatsapp-composition-source.mjs'
 
 const contentScript = readWhatsAppCompositionSource()
 
 test('busca automatica do contato executa um unico ciclo visual', () => {
-  const lookupStart = contentScript.indexOf(
-    'async function runAutomaticContactLookup(conversationKey)',
-  )
-  const lookupEnd = contentScript.indexOf(
-    'function hardResetConversationWorkspace()',
-    lookupStart,
-  )
+  // FASE 5: aquisição da evidência (adapter) seguida da decisão (Core).
+  const lookupBlock = readContactLookupFlow(contentScript)
 
-  assert.notEqual(lookupStart, -1)
-  assert.notEqual(lookupEnd, -1)
-
-  const lookupBlock = contentScript.slice(
-    lookupStart,
-    lookupEnd,
-  )
+  assert.ok(lookupBlock)
 
   const closeIndex = lookupBlock.indexOf(
     'closeContactInfoPanelAndWait()',

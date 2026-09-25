@@ -3434,7 +3434,24 @@ function createWhatsAppAdapter({
         return
       }
 
-      onChange()
+      // Antes de qualquer gate do Core: uma troca estrutural real
+      // (#main/header remontados) é detectada em tempo real (ACTIVE CHAT
+      // EPOCH), e o painel "Dados do contato" é registrado pelo epoch em
+      // que é observado aqui — nunca pelo epoch de quem primeiro precisar
+      // lê-lo (evita atribuir o painel de um homônimo à conversa nova).
+      const previousActiveChatEpoch =
+        activeChatEpoch
+
+      refreshActiveChatEpoch()
+
+      refreshContactInfoPanelStructuralContext(
+        activeChatEpoch,
+      )
+
+      onChange({
+        conversationInstanceChanged:
+          activeChatEpoch !== previousActiveChatEpoch,
+      })
     })
 
     observer.observe(observedRoot, {
@@ -3513,57 +3530,699 @@ function createWhatsAppAdapter({
       true,
     )
   }
+  // ---------------------------------------------------------------------
+  // Identidade e evidência de contato (FASE 5 — contrato §6/§7:
+  // getCurrentConversation / getContactEvidence / requestVisibleContactDetails
+  // / subscribeToConversationChanges). Toda a mecânica do WhatsApp — identity
+  // bridge (page world), epoch estrutural da conversa ativa, contextos de
+  // grupo/contato confirmados, caches de telefone, leitura passiva de JID,
+  // título como telefone e o painel "Dados do contato" — vive aqui. O Core
+  // recebe apenas resultados técnicos e decide estado, copy, tentativas e
+  // resolução. Os dados da conversa conhecida pelo Core entram por callbacks
+  // (isCurrentConversation / getKnownConversationTitle), nunca por leitura
+  // do estado do Core.
+
+  function getCurrentConversationKey() {
+    return getConversationKey(
+      getConversationTitle(),
+    )
+  }
+
+  function isVisibleConversation(
+    conversationKey,
+    fallbackTitle,
+  ) {
+    return (
+      getConversationKey(
+        getMainHeaderPrimaryTitle() ||
+        fallbackTitle,
+      ) === conversationKey
+    )
+  }
+
+  function hasOpenContactDetails() {
+    return Boolean(findContactInfoPanel())
+  }
+
+  function hasAuthorizedContactDetails() {
+    return getContactInfoPanelForEpoch(
+      activeChatEpoch,
+    ).authorized
+  }
+
+  function forgetContactEvidence(conversationKey) {
+    cachedPhonesByConversationKey.delete(
+      conversationKey,
+    )
+  }
+
+  // Fonte mais forte que o fallback passivo por JID de DOM (que só vê
+  // atributos, não o modelo real do WhatsApp): pede a identidade da
+  // conversa ativa ao whatsapp-identity-bridge (page world) e valida o
+  // resultado contra a conversa que originou o pedido antes de aplicar —
+  // o pedido é assíncrono (postMessage) e a conversa pode ter trocado
+  // enquanto ele estava em voo.
+  async function tryResolveViaIdentityBridge(
+    conversationKey,
+    expectedTitle,
+    isCurrentConversation,
+  ) {
+    if (!conversationKey) {
+      return {
+        status: 'unavailable',
+      }
+    }
+
+    const identity = await requestActiveChatIdentity(
+      IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS,
+    )
+
+    if (!identity) {
+      return {
+        status: 'unavailable',
+      }
+    }
+
+    if (
+      !isCurrentConversation(
+        conversationKey,
+      ) ||
+      !isVisibleConversation(
+        conversationKey,
+        expectedTitle,
+      )
+    ) {
+      return {
+        status: 'unavailable',
+      }
+    }
+
+    if (identity.isGroup === true) {
+      return {
+        status: 'group',
+        // chatId aqui é o JID real do grupo (identity.chatId, lido do
+        // Fiber do WhatsApp) — a única identidade estruturalmente única
+        // que esta confirmação de grupo pode oferecer. Nunca cai para
+        // título: dois chats homônimos sem data-id/avatar no momento da
+        // leitura produziriam o mesmo título, mas nunca o mesmo chatId.
+        chatId:
+          typeof identity.chatId === 'string' &&
+          identity.chatId
+            ? identity.chatId
+            : null,
+      }
+    }
+
+    const phone = validateBridgeIdentityPhone(identity)
+
+    if (!phone) {
+      return {
+        status: 'unavailable',
+      }
+    }
+
+    return {
+      status: 'resolved',
+      phone,
+      // chatId aqui é o JID real do contato (identity.chatId, lido do
+      // Fiber) — a única identidade estruturalmente única que este
+      // resultado pode oferecer. Dois contatos 1:1 homônimos sem
+      // data-id/avatar no momento da leitura produzem o mesmo
+      // conversationKey visual, mas nunca o mesmo chatId.
+      chatId:
+        typeof identity.chatId === 'string' &&
+        identity.chatId
+          ? identity.chatId
+          : null,
+      source: 'Identidade ativa do WhatsApp',
+    }
+  }
+
+  // Leitura da conversa aberta (getCurrentConversation) com a evidência de
+  // telefone disponível agora, já descartando evidência que não pertence
+  // mais à instância estrutural atual da conversa. Devolve só dados
+  // técnicos; o Core decide fronteira, reset e resolução.
+  function readConversationSnapshot() {
+    const conversationTitle =
+      getConversationTitle()
+
+    const conversationKey =
+      getConversationKey(
+        conversationTitle,
+      )
+
+    // Reavalia o epoch estrutural (ver ACTIVE CHAT EPOCH) antes de
+    // qualquer decisão — garante o valor já estabelecido mesmo quando
+    // refreshActiveChatEpoch() ainda não rodou pelo evento de mudança
+    // (ex.: primeiro snapshot da sessão).
+    refreshActiveChatEpoch()
+
+    const isSelfConversation =
+      isSelfConversationTitle(
+        conversationTitle,
+      )
+
+    // Além de decidir isGroupConversation, também é o sinal de que uma
+    // evidência de grupo persistida (bridgeConfirmedGroupContext) já não
+    // corresponde à conversa que o DOM mostra agora — mesmo quando
+    // conversationKey não mudou (homônimos).
+    const bridgeSaysGroup =
+      isBridgeConfirmedGroupForConversation(
+        conversationKey,
+      )
+
+    const isGroupConversation =
+      bridgeSaysGroup ||
+      isGroupConversationHeader()
+
+    // Ausência de identidade forte no DOM nunca prova troca de conversa —
+    // bridgeSaysGroup fica fail-closed. Só o bridge pode desambiguar: o
+    // Core agenda a revalidação quando a única razão de ainda confiar na
+    // classificação de grupo guardada é a ambiguidade.
+    const needsIdentityRevalidation =
+      isBridgeConfirmedGroupContextAmbiguous()
+
+    // Fronteira estrutural para um telefone bridge-resolved cacheado: o
+    // epoch decide sozinho, de forma síncrona, se a instância estrutural
+    // mudou desde que este telefone foi resolvido; se mudou, a associação
+    // stale é descartada agora.
+    const bridgeResolvedContactStale =
+      Boolean(bridgeResolvedContactContext) &&
+      bridgeResolvedContactContext.conversationKey ===
+        conversationKey &&
+      !isBridgeResolvedContactAuthorizedForConversation(
+        conversationKey,
+      )
+
+    if (bridgeResolvedContactStale) {
+      cachedPhonesByConversationKey.delete(
+        conversationKey,
+      )
+      cachedPhoneEpochByConversationKey.delete(
+        conversationKey,
+      )
+      recordBridgeResolvedContactContext(null)
+    }
+
+    const cachedPhoneEpoch =
+      cachedPhoneEpochByConversationKey.get(
+        conversationKey,
+      )
+
+    const cachedPhoneStale =
+      cachedPhonesByConversationKey.has(
+        conversationKey,
+      ) &&
+      cachedPhoneEpoch !== activeChatEpoch
+
+    if (cachedPhoneStale) {
+      cachedPhonesByConversationKey.delete(
+        conversationKey,
+      )
+      cachedPhoneEpochByConversationKey.delete(
+        conversationKey,
+      )
+    }
+
+    const contactLookupIdentity =
+      getAutomaticContactLookupIdentity(
+        conversationTitle,
+      )
+
+    const phoneResult =
+      isGroupConversation
+        ? {
+            phone: null,
+            source: null,
+          }
+        : getConversationPhone(
+            conversationTitle,
+            conversationKey,
+          )
+
+    // A evidência de grupo vale apenas para a conversa em que o identity
+    // bridge a produziu; deixa de valer assim que não corresponde mais à
+    // conversa ATUAL (troca real ou homônimo com identidade diferente).
+    let groupEvidenceDropped = false
+
+    if (
+      bridgeConfirmedGroupContext &&
+      !bridgeSaysGroup
+    ) {
+      recordBridgeConfirmedGroupContext(null)
+      groupEvidenceDropped = true
+    }
+
+    return {
+      conversationTitle,
+      conversationKey,
+      isSelfConversation,
+      isGroupConversation,
+      needsIdentityRevalidation,
+      contactEvidenceStale:
+        bridgeResolvedContactStale ||
+        cachedPhoneStale,
+      groupEvidenceDropped,
+      contactLookupIdentity,
+      phone: phoneResult.phone,
+      phoneSource: phoneResult.source,
+    }
+  }
+
+  // getContactEvidence + requestVisibleContactDetails: busca o telefone da
+  // conversa pela fonte mais forte disponível (identity bridge → JID
+  // passivo no DOM → título → painel "Dados do contato" já aberto pelo
+  // vendedor). O Core recebe um resultado técnico:
+  //   stale | group | phone | phone_unavailable |
+  //   contact_details_phone_missing | contact_details_close_failed
+  // e controla a política de tentativa por callbacks chamados nos mesmos
+  // pontos em que a tentativa é consumida/liberada.
+  async function acquireContactEvidence({
+    conversationKey,
+    lookupTitle,
+    contactDetailsTimeoutMs,
+    isCurrentConversation,
+    getKnownConversationTitle,
+    onLookupAttemptConsumed,
+    onLookupAttemptReleased,
+  }) {
+    const lookupIdentity =
+      getAutomaticContactLookupIdentity(
+        lookupTitle,
+      )
+
+    // Capturado ANTES do pedido: se uma troca estrutural real acontecer
+    // enquanto o bridge está em voo (ver ACTIVE CHAT EPOCH), o epoch muda
+    // mesmo quando conversationKey textual colide com a conversa nova
+    // (homônimo).
+    const requestEpoch = activeChatEpoch
+
+    const bridgeResult =
+      await tryResolveViaIdentityBridge(
+        conversationKey,
+        lookupTitle,
+        isCurrentConversation,
+      )
+
+    if (activeChatEpoch !== requestEpoch) {
+      // A conversa mudou de instância estrutural enquanto o pedido estava
+      // em voo — descarta sem consumir a tentativa.
+      return {
+        outcome: 'stale',
+      }
+    }
+
+    if (bridgeResult.status === 'group') {
+      recordBridgeConfirmedGroupContext({
+        conversationKey,
+        stableIdentity:
+          getBridgeStrongIdentity(
+            bridgeResult.chatId,
+          ),
+      })
+
+      onLookupAttemptConsumed()
+
+      return {
+        outcome: 'group',
+      }
+    }
+
+    if (bridgeResult.status === 'resolved') {
+      const resolvedIdentity =
+        getBridgeStrongIdentity(
+          bridgeResult.chatId,
+        )
+
+      // Revalidação de corrida para homônimos: se o DOM já mostra uma
+      // identidade forte AGORA e ela diverge do chatId desta resposta, a
+      // resposta descreve outro chat — descarta sem aplicar nada e sem
+      // consumir a tentativa.
+      const currentStrongIdentityNow =
+        getSelectedChatStrongIdentity()
+
+      if (
+        currentStrongIdentityNow &&
+        resolvedIdentity &&
+        currentStrongIdentityNow !==
+          resolvedIdentity
+      ) {
+        return {
+          outcome: 'stale',
+        }
+      }
+
+      // O bridge acabou de provar que esta conversa NÃO é grupo — só
+      // agora getConversationPhone() pode aceitar o título desta conversa,
+      // NESTE epoch, como fonte fraca de telefone.
+      nonGroupClassifiedEpochByConversationKey.set(
+        conversationKey,
+        activeChatEpoch,
+      )
+
+      onLookupAttemptConsumed()
+
+      cachedPhonesByConversationKey.set(
+        conversationKey,
+        bridgeResult.phone,
+      )
+
+      cachedPhoneEpochByConversationKey.set(
+        conversationKey,
+        activeChatEpoch,
+      )
+
+      // Ancora o telefone à identidade forte provada para ESTA
+      // conversationKey e ao epoch vigente.
+      recordBridgeResolvedContactContext({
+        conversationKey,
+        epoch: activeChatEpoch,
+        stableIdentity: resolvedIdentity,
+      })
+
+      return {
+        outcome: 'phone',
+        phone: bridgeResult.phone,
+        source: bridgeResult.source,
+        lookupIdentity,
+      }
+    }
+
+    // Etapa passiva: JIDs já presentes no DOM da conversa atual. Nenhuma
+    // navegação, nenhum clique.
+    const passiveResult =
+      resolvePassivePhoneForConversation({
+        conversationKey,
+        title: lookupTitle,
+      })
+
+    if (passiveResult) {
+      // A leitura síncrona pode já ter atravessado uma troca A -> B desde
+      // que este lookup foi agendado.
+      if (
+        !isCurrentConversation(
+          conversationKey,
+        ) ||
+        !isVisibleConversation(
+          conversationKey,
+          getKnownConversationTitle(),
+        )
+      ) {
+        return {
+          outcome: 'stale',
+        }
+      }
+
+      onLookupAttemptConsumed()
+
+      cachedPhonesByConversationKey.set(
+        conversationKey,
+        passiveResult.phone,
+      )
+
+      cachedPhoneEpochByConversationKey.set(
+        conversationKey,
+        activeChatEpoch,
+      )
+
+      return {
+        outcome: 'phone',
+        phone: passiveResult.phone,
+        source: passiveResult.source,
+        lookupIdentity,
+      }
+    }
+
+    // O bridge teve sua chance completa e não confirmou grupo: a fonte
+    // mais fraca (título parece telefone) está autorizada neste epoch.
+    const titleResult =
+      getConversationPhone(
+        lookupTitle,
+        conversationKey,
+      )
+
+    if (titleResult.phone) {
+      if (
+        !isCurrentConversation(
+          conversationKey,
+        ) ||
+        !isVisibleConversation(
+          conversationKey,
+          getKnownConversationTitle(),
+        )
+      ) {
+        return {
+          outcome: 'stale',
+        }
+      }
+
+      onLookupAttemptConsumed()
+
+      return {
+        outcome: 'phone',
+        phone: titleResult.phone,
+        source: titleResult.source,
+        lookupIdentity,
+      }
+    }
+
+    const contactPanelForRequest =
+      getContactInfoPanelForEpoch(
+        requestEpoch,
+      )
+
+    const hadContactPanelOpen =
+      contactPanelForRequest.authorized
+
+    if (!hadContactPanelOpen) {
+      // A Yolen não altera a navegação do WhatsApp para buscar o dado: a
+      // tentativa é consumida (sem retry ilimitado) e só volta a valer
+      // quando o vendedor abrir o painel de contato.
+      onLookupAttemptConsumed()
+
+      return {
+        outcome: 'phone_unavailable',
+      }
+    }
+
+    onLookupAttemptConsumed()
+
+    const phone =
+      await waitForContactPanelPhone(
+        contactDetailsTimeoutMs,
+      )
+
+    if (activeChatEpoch !== requestEpoch) {
+      // O painel começou a ser lido em outra instância estrutural da
+      // conversa: nada do que apareceu pode ser aplicado.
+      onLookupAttemptReleased()
+
+      return {
+        outcome: 'stale',
+      }
+    }
+
+    if (!hadContactPanelOpen) {
+      const panelClosed =
+        await closeContactInfoPanelAndWait()
+
+      if (!panelClosed) {
+        return {
+          outcome: 'contact_details_close_failed',
+        }
+      }
+    }
+
+    if (
+      !isCurrentConversation(
+        conversationKey,
+      ) ||
+      !isVisibleConversation(
+        conversationKey,
+        getKnownConversationTitle(),
+      )
+    ) {
+      return {
+        outcome: 'stale',
+      }
+    }
+
+    if (!phone) {
+      return {
+        outcome: 'contact_details_phone_missing',
+      }
+    }
+
+    cachedPhonesByConversationKey.set(
+      conversationKey,
+      phone,
+    )
+
+    cachedPhoneEpochByConversationKey.set(
+      conversationKey,
+      activeChatEpoch,
+    )
+
+    cachedPhonesByLookupIdentity.set(
+      lookupIdentity,
+      phone,
+    )
+
+    return {
+      outcome: 'phone',
+      phone,
+      source: hadContactPanelOpen
+        ? 'Dados do contato'
+        : 'Dados do contato automático',
+      lookupIdentity,
+    }
+  }
+
+  // Revalidação da identidade pelo bridge quando a classificação de grupo
+  // guardada ficou ambígua. Resultado técnico:
+  //   stale | unavailable | group { contactReplacedByGroup } |
+  //   resolved { identityChanged }
+  async function revalidateConversationIdentity({
+    conversationKey,
+    title,
+    isCurrentConversation,
+  }) {
+    const requestEpoch = activeChatEpoch
+
+    const bridgeResult =
+      await tryResolveViaIdentityBridge(
+        conversationKey,
+        title,
+        isCurrentConversation,
+      )
+
+    if (
+      !isCurrentConversation(
+        conversationKey,
+      ) ||
+      activeChatEpoch !== requestEpoch
+    ) {
+      return {
+        outcome: 'stale',
+      }
+    }
+
+    const previousContactContext =
+      bridgeResolvedContactContext?.conversationKey ===
+      conversationKey
+        ? bridgeResolvedContactContext
+        : null
+
+    const hadGroupContextForKey = Boolean(
+      bridgeConfirmedGroupContext?.conversationKey ===
+        conversationKey,
+    )
+
+    if (bridgeResult.status === 'group') {
+      recordBridgeConfirmedGroupContext({
+        conversationKey,
+        stableIdentity:
+          getBridgeStrongIdentity(
+            bridgeResult.chatId,
+          ),
+      })
+
+      // Havia um contato resolvido para esta MESMA chave e o bridge provou
+      // que é um grupo: nada do contato anterior pode sobreviver.
+      if (previousContactContext) {
+        recordBridgeResolvedContactContext(null)
+        cachedPhonesByConversationKey.delete(
+          conversationKey,
+        )
+      }
+
+      return {
+        outcome: 'group',
+        contactReplacedByGroup:
+          Boolean(previousContactContext),
+      }
+    }
+
+    if (bridgeResult.status === 'resolved') {
+      // Provado que NÃO é grupo — libera o título como fonte fraca neste
+      // epoch. 'unavailable' NÃO libera (continua fail-closed).
+      nonGroupClassifiedEpochByConversationKey.set(
+        conversationKey,
+        activeChatEpoch,
+      )
+
+      const resolvedIdentity =
+        getBridgeStrongIdentity(
+          bridgeResult.chatId,
+        )
+
+      // Só é uma troca REAL de identidade se havia classificação guardada
+      // para esta chave (grupo, ou contato com identidade forte DIFERENTE
+      // da agora provada) — uma reconfirmação não é fronteira.
+      const identityChanged =
+        hadGroupContextForKey ||
+        (Boolean(
+          previousContactContext?.stableIdentity,
+        ) &&
+          Boolean(resolvedIdentity) &&
+          previousContactContext.stableIdentity !==
+            resolvedIdentity)
+
+      cachedPhonesByConversationKey.set(
+        conversationKey,
+        bridgeResult.phone,
+      )
+
+      cachedPhoneEpochByConversationKey.set(
+        conversationKey,
+        activeChatEpoch,
+      )
+
+      recordBridgeResolvedContactContext({
+        conversationKey,
+        epoch: activeChatEpoch,
+        stableIdentity: resolvedIdentity,
+      })
+
+      recordBridgeConfirmedGroupContext(null)
+
+      return {
+        outcome: 'resolved',
+        identityChanged,
+      }
+    }
+
+    return {
+      outcome: 'unavailable',
+    }
+  }
+
   return {
+    // Identificador estável do canal e nome de exibição (contrato §7).
+    platform: Object.freeze({
+      id: 'whatsapp',
+      displayName: 'WhatsApp',
+    }),
+    acquireContactEvidence,
+    forgetContactEvidence,
+    getCurrentConversationKey,
+    hasAuthorizedContactDetails,
+    hasOpenContactDetails,
+    readConversationSnapshot,
+    revalidateConversationIdentity,
     observeHostChanges,
     onComposerDraftInput,
     onSendAttempt,
     listenToAudioBridge,
-    recordBridgeConfirmedGroupContext,
-    recordBridgeResolvedContactContext,
     resetCapturedAudio,
     insertTextIntoEmptyComposer,
     readVisibleMessageEntries,
-    IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS,
-    nonGroupClassifiedEpochByConversationKey,
-    get bridgeConfirmedGroupContext() {
-      return bridgeConfirmedGroupContext
-    },
-    getBridgeStrongIdentity,
-    isBridgeConfirmedGroupForConversation,
-    isBridgeConfirmedGroupContextAmbiguous,
-    get bridgeResolvedContactContext() {
-      return bridgeResolvedContactContext
-    },
-    get activeChatEpoch() {
-      return activeChatEpoch
-    },
-    refreshActiveChatEpoch,
-    isBridgeResolvedContactAuthorizedForConversation,
-    cachedPhonesByConversationKey,
-    cachedPhoneEpochByConversationKey,
-    cachedPhonesByLookupIdentity,
     waitForWhatsAppApp,
     injectWhatsAppAudioBridge,
     listenToWhatsAppIdentityBridge,
-    requestActiveChatIdentity,
-    validateBridgeIdentityPhone,
-    getSelectedChatStrongIdentity,
-    getConversationKey,
-    getAutomaticContactLookupIdentity,
-    getMainHeaderPrimaryTitle,
-    isGroupConversationHeader,
-    findContactInfoPanel,
-    refreshContactInfoPanelStructuralContext,
-    getContactInfoPanelForEpoch,
-    isSelfConversationTitle,
-    getConversationTitle,
-    getConversationPhone,
-    resolvePassivePhoneForConversation,
     getVisibleAudioTargets,
     getAudioBlobForTarget,
     getSelectedChatActivitySnapshot,
-    closeContactInfoPanelAndWait,
-    waitForContactPanelPhone,
     getWhatsAppComposer,
     writeTextInComposer,
     getComposerText,

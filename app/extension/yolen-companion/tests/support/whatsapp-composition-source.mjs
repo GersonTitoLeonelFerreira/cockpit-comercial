@@ -84,3 +84,43 @@ export function sliceCoreWithChannelEvent(source, coreBlock, adapterMarker) {
 
   return adapterBlock ? `${coreBlock}\n${adapterBlock}` : ''
 }
+
+// FASE 5 — identidade/evidência de contato (contrato §6/§7): a aquisição
+// da evidência vive no adapter (acquireContactEvidence /
+// readConversationSnapshot) e a decisão no Core (runAutomaticContactLookup
+// / refreshConversationSnapshot). O "fluxo" é a parte do adapter seguida da
+// parte do Core, na ordem em que executam.
+function sliceCoreFunction(source, marker, endMarker) {
+  const start = source.indexOf(marker)
+  const end = source.indexOf(endMarker, start)
+
+  return start === -1 || end === -1 ? '' : source.slice(start, end)
+}
+
+export function readContactLookupFlow(source) {
+  const adapterPart = sliceFunction(
+    source,
+    'async function acquireContactEvidence({',
+  )
+  const corePart = sliceCoreFunction(
+    source,
+    'async function runAutomaticContactLookup(conversationKey)',
+    'function hardResetConversationWorkspace()',
+  )
+
+  return adapterPart && corePart ? `${adapterPart}\n${corePart}` : ''
+}
+
+export function readConversationSnapshotFlow(source) {
+  const adapterPart = sliceFunction(
+    source,
+    'function readConversationSnapshot() {',
+  )
+  const corePart = sliceCoreFunction(
+    source,
+    'function refreshConversationSnapshot()',
+    'function getConnectionLabel()',
+  )
+
+  return adapterPart && corePart ? `${adapterPart}\n${corePart}` : ''
+}

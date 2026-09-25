@@ -1,25 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
+import {
+  readWhatsAppCompositionSource,
+  readContactLookupFlow,
+  sliceFunction,
+} from './support/whatsapp-composition-source.mjs'
 
 const contentScript = readWhatsAppCompositionSource()
 
+// FASE 5: aquisição da evidência no adapter + decisão no Core.
 function getLookupBlock() {
-  const start = contentScript.indexOf(
-    'async function runAutomaticContactLookup(conversationKey)',
-  )
-  const end = contentScript.indexOf(
-    'function hardResetConversationWorkspace()',
-    start,
-  )
+  const block = readContactLookupFlow(contentScript)
 
-  assert.notEqual(start, -1)
-  assert.notEqual(end, -1)
+  assert.ok(block)
 
-  return contentScript.slice(
-    start,
-    end,
-  )
+  return block
 }
 
 test(
@@ -41,7 +36,7 @@ test(
     )
 
     const failClosedEnd = block.indexOf(
-      '\n      }\n',
+      '\n    }\n',
       failClosedIndex,
     )
 
@@ -53,14 +48,21 @@ test(
       failClosedEnd,
     )
 
+    // O adapter falha fechado (sem navegar) consumindo a tentativa; o
+    // Core traduz o resultado técnico na copy e marca a chave tentada.
     assert.match(
       failClosedBlock,
-      /A Yolen não altera a navegação do WhatsApp/,
+      /return/,
     )
 
     assert.match(
       failClosedBlock,
-      /return/,
+      /onLookupAttemptConsumed\(\)/,
+    )
+
+    assert.match(
+      failClosedBlock,
+      /outcome: 'phone_unavailable'/,
     )
 
     assert.doesNotMatch(
@@ -69,9 +71,19 @@ test(
     )
 
     assert.match(
-      failClosedBlock,
-      /autoLookupAttemptedKeys\.add\(\s*conversationKey/,
+      block,
+      /phone_unavailable:\s*`Telefone ainda não disponível para identificação automática\. A Yolen não altera a navegação do \$\{platformDisplayName\}/,
     )
+
+    assert.match(
+      block,
+      /onLookupAttemptConsumed: \(\) => \{\s*autoLookupAttemptedKeys\.add\(\s*conversationKey/,
+    )
+
+  // FASE 5: copy canônica do Core interpola o nome do canal declarado pelo
+  // adapter (contrato §5); para o WhatsApp o texto exibido é o mesmo.
+  assert.match(contentScript, /displayName: 'WhatsApp'/)
+
 
     // Mas isso não pode travar a conversa para sempre: reentrar quando o
     // vendedor abriu o painel manualmente precisa continuar possível.
@@ -97,9 +109,15 @@ test(
     // getContactInfoPanelForEpoch()/refreshContactInfoPanelStructuralContext().
     // Um painel stale de uma conversa anterior (mesmo nó DOM, epoch
     // diferente) não pode mais liberar reentrada só por existir.
+    // FASE 5: a pergunta "o painel pertence ao epoch da conversa atual"
+    // é do adapter (hasAuthorizedContactDetails).
     assert.match(
       reentryGuardBlock,
-      /!contactPanelAtLookupStart\.authorized/,
+      /!channelAdapter\.hasAuthorizedContactDetails\(\)/,
+    )
+    assert.match(
+      sliceFunction(contentScript, 'function hasAuthorizedContactDetails() {'),
+      /getContactInfoPanelForEpoch\(\s*activeChatEpoch,?\s*\)\.authorized/,
     )
   },
 )

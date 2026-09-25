@@ -16,7 +16,11 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
+import {
+  readWhatsAppCompositionSource,
+  readContactLookupFlow,
+  sliceFunction,
+} from './support/whatsapp-composition-source.mjs'
 
 const bridgeSource = readFileSync(
   new URL('../src/whatsapp-identity-bridge.js', import.meta.url),
@@ -213,24 +217,33 @@ test('content-script: validateBridgeIdentityPhone reusa PHONE_JID_DOMAINS (mesma
 })
 
 test('content-script: tryResolveViaIdentityBridge revalida conversationKey (ao vivo e via state) antes de aceitar qualquer resultado', () => {
-  const block = blockBetween(
+  // FASE 5: tryResolveViaIdentityBridge vive no adapter; a conversa
+  // conhecida pelo Core entra por callback (isCurrentConversation →
+  // state.conversationKey no Core) e a leitura ao vivo é do adapter
+  // (isVisibleConversation).
+  const block = sliceFunction(
     contentScript,
     'async function tryResolveViaIdentityBridge(',
-    'function getVisibleMessagesCount(',
+  )
+  const visibleBlock = sliceFunction(
+    contentScript,
+    'function isVisibleConversation(',
   )
 
-  assert.match(block, /state\.conversationKey !==\s*conversationKey/)
-  assert.match(block, /currentConversationKey !==\s*conversationKey/)
-  assert.match(block, /getConversationKey\(/)
-  assert.match(block, /getMainHeaderPrimaryTitle\(\)/)
+  assert.match(block, /!isCurrentConversation\(\s*conversationKey,?\s*\)/)
+  assert.match(block, /!isVisibleConversation\(\s*conversationKey,/)
+  assert.match(visibleBlock, /getConversationKey\(/)
+  assert.match(visibleBlock, /getMainHeaderPrimaryTitle\(\)/)
+  assert.match(visibleBlock, /=== conversationKey/)
+  assert.match(
+    contentScript,
+    /isCurrentConversation: \(key\) =>\s*state\.conversationKey === key/,
+  )
 })
 
 test('content-script: runAutomaticContactLookup consulta o bridge ANTES do fallback JID de DOM e do painel de contato', () => {
-  const block = blockBetween(
-    contentScript,
-    'async function runAutomaticContactLookup(conversationKey)',
-    'function hardResetConversationWorkspace()',
-  )
+  // FASE 5: aquisição da evidência (adapter) seguida da decisão (Core).
+  const block = readContactLookupFlow(contentScript)
 
   const bridgeIndex = block.indexOf('tryResolveViaIdentityBridge(')
   const passiveIndex = block.indexOf('resolvePassivePhoneForConversation(')
