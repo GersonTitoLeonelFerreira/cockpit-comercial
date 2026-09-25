@@ -9,6 +9,8 @@
     '[data-pre-plain-text]'
   const ATTACHMENT_SCOPE_BOUNDARY_SELECTOR =
     'main, [role="application"], #app'
+  const ATTACHMENT_BUBBLE_SELECTOR =
+    '.message-in, .message-out, [data-id]'
   const MAX_ATTACHMENT_SCOPE_ANCESTOR_DEPTH = 6
   const ATTACHMENT_MARKER_SELECTOR = [
     'a[download]',
@@ -721,14 +723,41 @@
     ).join('\n')
   }
 
-  function materializeAttachmentEvidence(
+  // FASE 5 / Q6 — descrição de anexo EM MEMÓRIA. Antes, a evidência do
+  // anexo era materializada como <span> sintético dentro do nó do WhatsApp
+  // (materializeAttachmentEvidence + MutationObserver instalado no load, e
+  // os fallbacks de companion-reasoning-view.js/phase16-9-runtime-guard.js).
+  // Agora o adapter do canal pede a descrição e monta o texto capturado sem
+  // escrever no DOM da plataforma.
+  function buildAttachmentEvidenceText(
+    baseText,
+    fileName,
+  ) {
+    return [
+      baseText,
+      `[Arquivo: ${fileName}]`,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  function describeAttachmentEvidence(
     messageNode,
   ) {
     if (
       !messageNode ||
       messageNode.nodeType !== 1
     ) {
-      return false
+      return null
+    }
+
+    const fileName =
+      findAttachmentFileName(
+        messageNode,
+      )
+
+    if (!fileName) {
+      return null
     }
 
     const scope =
@@ -736,211 +765,329 @@
         messageNode,
       )
 
-    const fileName =
-      findAttachmentFileName(
+    return {
+      fileName,
+      evidenceText:
+        buildAttachmentEvidenceText(
+          getNonQuotedSelectableText(
+            scope,
+          ),
+          fileName,
+        ),
+    }
+  }
+
+  function getCanonicalAttachmentMessageNodes(
+    bubble,
+  ) {
+    if (!bubble?.querySelectorAll) {
+      return []
+    }
+
+    return Array.from(
+      bubble.querySelectorAll(
+        ATTACHMENT_MESSAGE_SELECTOR,
+      ),
+    ).filter((node) => {
+      return !node.closest?.(
+        QUOTED_MESSAGE_SELECTOR,
+      )
+    })
+  }
+
+  // Bolha segura: o ancestral mais próximo (.message-in/.message-out/
+  // [data-id]) cuja ÚNICA mensagem canônica é messageNode — nunca uma bolha
+  // que agrupe outra mensagem (sem contaminação entre vizinhas).
+  function findSafeAttachmentBubble(
+    messageNode,
+  ) {
+    let current =
+      messageNode?.parentElement || null
+
+    while (current) {
+      if (
+        current.matches?.(
+          ATTACHMENT_SCOPE_BOUNDARY_SELECTOR,
+        )
+      ) {
+        return null
+      }
+
+      if (
+        current.matches?.(
+          ATTACHMENT_BUBBLE_SELECTOR,
+        )
+      ) {
+        const nodes =
+          getCanonicalAttachmentMessageNodes(
+            current,
+          )
+
+        return nodes.length === 1 &&
+          nodes[0] === messageNode
+          ? current
+          : null
+      }
+
+      current = current.parentElement
+    }
+
+    return null
+  }
+
+  function cloneBubbleForAttachmentRead(
+    bubble,
+    {
+      removeCanonicalMessages = false,
+    } = {},
+  ) {
+    if (!bubble?.cloneNode) {
+      return null
+    }
+
+    const clone = bubble.cloneNode(true)
+
+    if (removeCanonicalMessages) {
+      clone
+        .querySelectorAll?.(
+          ATTACHMENT_MESSAGE_SELECTOR,
+        )
+        .forEach((element) => {
+          element.remove?.()
+        })
+    }
+
+    clone
+      .querySelectorAll?.(
+        QUOTED_MESSAGE_SELECTOR,
+      )
+      .forEach((element) => {
+        element.remove?.()
+      })
+
+    return clone
+  }
+
+  // Cartão do documento renderizado fora do limite ancestral de
+  // findAttachmentScopeForMessage, mas dentro da MESMA bolha segura.
+  function describeBubbleAttachmentEvidence(
+    messageNode,
+  ) {
+    const direct =
+      describeAttachmentEvidence(
         messageNode,
       )
 
-    const existingEvidence =
-      messageNode.querySelector?.(
-        `[${ATTACHMENT_EVIDENCE_ATTRIBUTE}]`,
+    if (direct) {
+      return direct
+    }
+
+    const bubble =
+      findSafeAttachmentBubble(
+        messageNode,
       )
+
+    if (!bubble) {
+      return null
+    }
+
+    const outside =
+      cloneBubbleForAttachmentRead(
+        bubble,
+        {
+          removeCanonicalMessages: true,
+        },
+      )
+
+    // Legenda (texto selecionável) não é cartão de arquivo: uma menção a
+    // "arquivo.pdf" digitada pelo cliente nunca vira anexo.
+    outside
+      ?.querySelectorAll?.(
+        SELECTABLE_MESSAGE_TEXT_SELECTOR,
+      )
+      .forEach((element) => {
+        element.remove?.()
+      })
+
+    let fileName = null
+
+    for (const segment of readTextSegments(outside)) {
+      fileName =
+        fileName ||
+        extractAttachmentFileName(segment)
+    }
 
     if (!fileName) {
-      existingEvidence?.remove?.()
-      return false
+      return null
     }
 
-    const baseText =
-      getNonQuotedSelectableText(
-        scope,
-      )
-
-    const evidenceText = [
-      baseText,
-      `[Arquivo: ${fileName}]`,
-    ]
-      .filter(Boolean)
-      .join('\n')
-
-    if (
-      existingEvidence?.textContent ===
-      evidenceText
-    ) {
-      return false
+    return {
+      fileName,
+      evidenceText:
+        buildAttachmentEvidenceText(
+          getNonQuotedSelectableText(
+            findAttachmentScopeForMessage(
+              messageNode,
+            ),
+          ),
+          fileName,
+        ),
     }
-
-    const evidence =
-      existingEvidence ||
-      messageNode.ownerDocument
-        ?.createElement?.('span')
-
-    if (!evidence) {
-      return false
-    }
-
-    evidence.setAttribute(
-      ATTACHMENT_EVIDENCE_ATTRIBUTE,
-      'true',
-    )
-    evidence.setAttribute(
-      'data-testid',
-      'selectable-text',
-    )
-    evidence.setAttribute(
-      'aria-hidden',
-      'true',
-    )
-    evidence.style.display = 'none'
-    evidence.textContent = evidenceText
-
-    if (!existingEvidence) {
-      messageNode.appendChild(evidence)
-    }
-
-    return true
   }
 
-  function scanAttachmentEvidenceRoot(
-    node,
-  ) {
-    if (!node || node.nodeType !== 1) {
-      return 0
+  // Segmentos de texto visível (um por nó de texto), independentes de
+  // layout: innerText só separa blocos num navegador com layout.
+  function readTextSegments(element) {
+    const segments = []
+
+    const visit = (node) => {
+      if (!node) {
+        return
+      }
+
+      if (node.nodeType === 3) {
+        const value =
+          normalizeText(node.textContent)
+
+        if (value) {
+          segments.push(value)
+        }
+
+        return
+      }
+
+      node.childNodes?.forEach?.(visit)
     }
 
-    const messageNodes =
-      collectAttachmentMessageNodes(
-        node,
-      )
+    visit(element)
 
-    const owner =
-      node.closest?.(
-        ATTACHMENT_MESSAGE_SELECTOR,
-      )
-
-    if (
-      owner &&
-      !messageNodes.includes(owner)
-    ) {
-      messageNodes.push(owner)
-    }
-
-    const relatedMessage =
-      findUniqueAttachmentMessageNode(
-        node,
-      )
-
-    if (
-      relatedMessage &&
-      !messageNodes.includes(
-        relatedMessage,
-      )
-    ) {
-      messageNodes.push(
-        relatedMessage,
-      )
-    }
-
-    return messageNodes.reduce(
-      (count, messageNode) => {
-        return (
-          count +
-          (materializeAttachmentEvidence(
-            messageNode,
-          )
-            ? 1
-            : 0)
-        )
-      },
-      0,
-    )
+    return segments
   }
 
-  function installAttachmentEvidenceAdapter(
-    target = root,
+  // Bolha só de anexo (sem nenhum nó canônico): exige arquivo + marcador
+  // de documento ou metadata visual (tipo e tamanho/páginas) + horário.
+  // A data vem do adapter (vizinhos cronológicos).
+  function describeAttachmentOnlyBubble(
+    bubble,
   ) {
-    const document =
-      target?.document
-
-    const MutationObserverClass =
-      target?.MutationObserver
-
     if (
-      !document?.documentElement ||
-      typeof MutationObserverClass !==
-        'function'
+      !bubble?.querySelector ||
+      bubble.closest?.(
+        QUOTED_MESSAGE_SELECTOR,
+      ) ||
+      getCanonicalAttachmentMessageNodes(
+        bubble,
+      ).length !== 0
     ) {
       return null
     }
 
-    const installationKey =
-      '__yolenAttachmentEvidenceAdapter'
-
-    if (target[installationKey]) {
-      return target[installationKey]
-    }
-
-    scanAttachmentEvidenceRoot(
-      document.documentElement,
-    )
-
-    const observer =
-      new MutationObserverClass(
-        (mutations) => {
-          mutations.forEach(
-            (mutation) => {
-              scanAttachmentEvidenceRoot(
-                mutation.target,
-              )
-
-              mutation.addedNodes
-                ?.forEach?.((addedNode) => {
-                  scanAttachmentEvidenceRoot(
-                    addedNode,
-                  )
-                })
-            },
-          )
-        },
+    const clone =
+      cloneBubbleForAttachmentRead(
+        bubble,
       )
 
-    observer.observe(
-      document.documentElement,
-      {
-        attributes: true,
-        attributeFilter: [
-          'aria-label',
-          'data-icon',
-          'data-testid',
-          'download',
-          'title',
-        ],
-        childList: true,
-        subtree: true,
-      },
-    )
+    const segments =
+      clone
+        ? readTextSegments(clone)
+        : []
 
-    const installedState = {
-      observer,
-      scan() {
-        return scanAttachmentEvidenceRoot(
-          document.documentElement,
+    const text = segments.join('\n')
+
+    let fileName = null
+
+    const attributeElements = [
+      bubble,
+      ...Array.from(
+        bubble.querySelectorAll(
+          '[download], [title], [aria-label]',
+        ),
+      ),
+    ]
+
+    for (const element of attributeElements) {
+      if (
+        fileName ||
+        element.closest?.(
+          QUOTED_MESSAGE_SELECTOR,
         )
-      },
+      ) {
+        continue
+      }
+
+      for (const attribute of [
+        'download',
+        'title',
+        'aria-label',
+      ]) {
+        fileName =
+          fileName ||
+          extractAttachmentFileName(
+            element.getAttribute?.(
+              attribute,
+            ),
+          )
+      }
     }
 
-    Object.defineProperty(
-      target,
-      installationKey,
-      {
-        configurable: false,
-        enumerable: false,
-        value: installedState,
-        writable: false,
-      },
-    )
+    for (const segment of segments) {
+      fileName =
+        fileName ||
+        extractAttachmentFileName(segment)
+    }
 
-    return installedState
+    if (!fileName) {
+      return null
+    }
+
+    const hasDocumentMarker =
+      Boolean(
+        bubble.querySelector(
+          ATTACHMENT_MARKER_SELECTOR,
+        ),
+      )
+
+    const hasFileMetadata =
+      /\b(?:pdf|docx?|xlsx?|pptx?|csv|txt|rtf|zip|rar|7z|jpg|jpeg|png|webp|gif|heic|mp4|mov|avi|mp3|wav|ogg|m4a)\b/i.test(
+        text,
+      ) &&
+      (
+        /\b\d+(?:[.,]\d+)?\s*(?:bytes?|kb|kib|mb|mib|gb|gib)\b/i.test(
+          text,
+        ) ||
+        /\b\d+\s*p[aá]ginas?\b/i.test(
+          text,
+        )
+      )
+
+    if (
+      !hasDocumentMarker &&
+      !hasFileMetadata
+    ) {
+      return null
+    }
+
+    const lastTime =
+      Array.from(
+        String(text || '').matchAll(
+          /(?:^|\D)([01]?\d|2[0-3]):([0-5]\d)(?!\d)/g,
+        ),
+      ).at(-1)
+
+    if (!lastTime) {
+      return null
+    }
+
+    return {
+      fileName,
+      time:
+        `${String(lastTime[1]).padStart(2, '0')}:${lastTime[2]}`,
+      evidenceText:
+        buildAttachmentEvidenceText(
+          '',
+          fileName,
+        ),
+    }
   }
 
   function areCapturedMessagesEqual(
@@ -1083,30 +1230,20 @@
     buildStableCaptureConversationKey,
     cleanCapturedMessageText,
     extractAttachmentFileName,
+    describeAttachmentEvidence,
+    describeAttachmentOnlyBubble,
+    describeBubbleAttachmentEvidence,
     findAttachmentFileName,
     getLatestDateMessageBlock,
     inferCapturedMessageDirection,
-    installAttachmentEvidenceAdapter,
     isDeletedMessageText,
-    materializeAttachmentEvidence,
     pickCapturedMessageText,
     prepareCapturedMessageTextForAnalysis,
     readCapturedElementText,
-    scanAttachmentEvidenceRoot,
   })
 
   root.YolenCompanionMessageMutations =
     api
-
-  if (
-    root?.document &&
-    typeof root?.MutationObserver ===
-      'function'
-  ) {
-    installAttachmentEvidenceAdapter(
-      root,
-    )
-  }
 
   if (
     typeof module !== 'undefined' &&

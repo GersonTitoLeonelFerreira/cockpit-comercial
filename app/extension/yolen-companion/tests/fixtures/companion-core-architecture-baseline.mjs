@@ -125,14 +125,4 @@ export const LEGACY_ARCHITECTURE_BASELINE = Object.freeze([
     reason: 'Carregadores próprios de LOAD_CLIENT_CONTEXT/LOAD_DECISION_STATE/LOAD_*_VIEW_MODEL/LOAD_METHOD_GUIDANCE.',
     removalPhase: '7',
   }),
-
-  // A11 — WhatsApp misturando plataforma e Core seller-facing.
-  entry({
-    id: 'A11:companion-reasoning-view:mixed-core-platform-runtime',
-    gate: 'A11',
-    file: 'src/companion-reasoning-view.js',
-    symbol: 'mixed-core-platform-runtime',
-    reason: 'View seller-facing que também observa/lê o DOM do WhatsApp ([data-pre-plain-text], bolhas de anexo).',
-    removalPhase: '5',
-  }),
 ])

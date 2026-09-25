@@ -152,7 +152,6 @@ export const SHARED_RUNTIME_FILES = [
   'src/platform-contract.js',
   'src/message-mutations.js',
   'src/panel-stability-runtime.js',
-  'src/phase16-9-runtime-guard.js',
   'src/styles.css',
   'src/ux8-interaction-consistency-runtime.js',
   'src/whatsapp-adapter.js',

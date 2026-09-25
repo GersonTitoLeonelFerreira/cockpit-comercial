@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
 import test from 'node:test'
-import vm from 'node:vm'
 
 import {
   buildWhatsAppPageHtml,
@@ -12,38 +10,6 @@ import {
 
 const HEADER_TITLE = '+55 11 98888-7777'
 const FILE_NAME = 'GRADE ATUALIZADA EM 12-08-26 (1).pdf'
-const PHASE_16_9_RUNTIME_SOURCE =
-  fs.readFileSync(
-    new URL(
-      '../../src/phase16-9-runtime-guard.js',
-      import.meta.url,
-    ),
-    'utf8',
-  )
-
-function installPhase169RuntimeGuard(window) {
-  const sandbox = {
-    window,
-    document: window.document,
-    MutationObserver:
-      window.MutationObserver,
-    Node: window.Node,
-    console,
-  }
-
-  sandbox.globalThis = sandbox
-
-  vm.createContext(sandbox)
-  vm.runInContext(
-    PHASE_16_9_RUNTIME_SOURCE,
-    sandbox,
-    {
-      filename:
-        'phase16-9-runtime-guard.js',
-    },
-  )
-}
-
 function buildDocumentMessageHtml({
   id = 'msg-pdf-1',
   caption = null,
@@ -244,16 +210,12 @@ test('runtime final captura cartão PDF sem data-pre-plain-text usando data cron
     messagesHtml,
   })
 
-  const {
-    calls,
-    window,
-  } = loadContentScript({
+  // Q6 (FASE 5): a bolha só de anexo é normalizada em memória pelo adapter
+  // WhatsApp da composição real do manifest — sem runtime extra e sem nó
+  // sintético no DOM.
+  const { calls, document } = loadContentScript({
     initialHtml,
   })
-
-  installPhase169RuntimeGuard(
-    window,
-  )
 
   const captured = await waitFor(() => {
     const message = findCapturedMessage(
@@ -270,7 +232,20 @@ test('runtime final captura cartão PDF sem data-pre-plain-text usando data cron
   assert.equal(captured.direction, 'outgoing')
   assert.equal(captured.content_type, 'text')
   assert.equal(captured.is_deleted, false)
-  assert.equal(captured.occurred_at, '2026-09-12T13:31:00.000Z')
+  // 10:31 do cartão + 12/09/2026 dos vizinhos, no fuso local do navegador
+  // (o WhatsApp exibe horário local). Antes, o valor fixo '...T13:31:00Z'
+  // só batia num runner em UTC−3.
+  assert.equal(
+    captured.occurred_at,
+    new Date(2026, 8, 12, 10, 31).toISOString(),
+  )
+  assert.equal(
+    document.querySelectorAll(
+      '[data-yolen-attachment-evidence], [data-yolen-phase16-9-attachment-message], [data-yolen-attachment-synthetic-message], [data-yolen-attachment-bubble-bridge]',
+    ).length,
+    0,
+    'nenhum nó sintético é escrito no DOM do WhatsApp',
+  )
 })
 
 test('content-script preserva legenda e registra o documento como fato já entregue', async () => {

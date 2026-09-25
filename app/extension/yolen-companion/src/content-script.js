@@ -26,9 +26,16 @@
     globalThis
       .YolenCompanionClientContextView
 
+  // View seller-facing composta explicitamente com o raciocínio comercial
+  // (companion-reasoning-view.js) — antes, a view de raciocínio sobrescrevia
+  // o global da view base.
   const sellerInformationViewTools =
     globalThis
-      .YolenCompanionSellerInformationView
+      .YolenCompanionReasoningView
+      ?.enhanceSellerInformationView(
+        globalThis
+          .YolenCompanionSellerInformationView,
+      )
 
   const leadSummaryViewTools =
     globalThis

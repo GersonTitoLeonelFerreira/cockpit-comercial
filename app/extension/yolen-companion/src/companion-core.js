@@ -7851,7 +7851,7 @@ function createCompanionCore(ctx) {
   // do lead precisa estar pronto E pertencer EXATAMENTE a este cycle e a
   // esta conversationKey de captura — nunca a um cycle/conversationKey
   // anterior ainda não invalidado. Não exige working_summary aqui: essa é
-  // uma decisão do próprio seller-message-runtime.js (via syncContext),
+  // uma decisão do próprio controller de MENSAGEM (companion-message-controller.js, via syncContext),
   // não desta camada — esta é só isolamento/ownership de contexto, não
   // regra de disponibilidade de conteúdo.
   function isSellerMessageMountEligible() {
@@ -7877,7 +7877,7 @@ function createCompanionCore(ctx) {
   }
 
   // UX8 FASE C: superfície própria do composer seller-facing. Nesta fase
-  // é só o mount estrutural — seller-message-runtime.js já procura o
+  // é só o mount estrutural — companion-message-controller.js já procura o
   // mount do composer em qualquer lugar do documento (e não se importa
   // se o painel-pai está com [hidden]), então bastou mover este div para
   // cá; o runtime não precisou mudar. O design fiel

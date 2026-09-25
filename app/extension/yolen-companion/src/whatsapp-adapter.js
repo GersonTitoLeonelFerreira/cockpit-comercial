@@ -1719,10 +1719,20 @@ function createWhatsAppAdapter({
     const hasAudio =
       messageContainerHasAudio(container)
 
-      const text =
-      getCapturedMessageBodyText(
-        node,
-      )
+    // Q6 (FASE 5): anexo (documento/arquivo) descrito em memória — o
+    // texto capturado passa a ser "legenda + [Arquivo: nome]" sem escrever
+    // nenhum marcador no DOM do WhatsApp.
+    const attachment =
+      messageMutationTools
+        ?.describeBubbleAttachmentEvidence
+        ?.(node) || null
+
+    const text =
+      attachment
+        ? attachment.evidenceText
+        : getCapturedMessageBodyText(
+            node,
+          )
 
     if (!text && !hasAudio) {
       return null
@@ -1811,7 +1821,204 @@ function createWhatsAppAdapter({
         })
       })
 
+    // Q6 (FASE 5): bolhas só de anexo, que o WhatsApp renderiza sem
+    // nenhum nó [data-pre-plain-text], viram mensagens normalizadas em
+    // memória (identidade = data-id da bolha; data = vizinhos cronológicos;
+    // horário/arquivo = cartão visível). Nada é escrito no DOM.
+    const seenMessageIds =
+      new Set(
+        entries.map((entry) => entry.messageId),
+      )
+
+    main
+      .querySelectorAll(
+        '[data-id]',
+      )
+      .forEach((bubble) => {
+        const messageId =
+          bubble.getAttribute?.('data-id')?.trim()
+
+        if (
+          !messageId ||
+          seenMessageIds.has(messageId)
+        ) {
+          return
+        }
+
+        const message =
+          buildAttachmentOnlyMessageFromBubble(
+            bubble,
+            messageId,
+            main,
+            observedAt,
+          )
+
+        if (!message) {
+          return
+        }
+
+        seenMessageIds.add(messageId)
+
+        entries.push({
+          messageId,
+          deleted: false,
+          message,
+        })
+      })
+
     return entries
+  }
+
+  function parseDateFromPrePlainText(value) {
+    const text = String(value || '')
+
+    const match =
+      text.match(
+        /\d{1,2}:\d{2}(?::\d{2})?\s*,\s*(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})/,
+      ) ||
+      text.match(
+        /(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})\s*,\s*\d{1,2}:\d{2}/,
+      )
+
+    if (!match) {
+      return null
+    }
+
+    const day = Number(match[1])
+    const month = Number(match[2])
+    let year = Number(match[3])
+
+    if (year < 100) {
+      year += 2000
+    }
+
+    const date = new Date(year, month - 1, day)
+
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day
+    ) {
+      return null
+    }
+
+    return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`
+  }
+
+  // Data de uma bolha sem cabeçalho: a das mensagens canônicas vizinhas
+  // (anterior e/ou seguinte). Se as duas existirem e divergirem, não há
+  // prova da data — a bolha não é capturada.
+  function inferAttachmentDateFromNeighbors(bubble, main) {
+    const DOCUMENT_POSITION_PRECEDING = 2
+    const DOCUMENT_POSITION_FOLLOWING = 4
+
+    let precedingDate = null
+    let followingDate = null
+
+    for (const node of main.querySelectorAll('[data-pre-plain-text]')) {
+      if (
+        bubble.contains?.(node) ||
+        node.closest?.(
+          '[data-testid*="quoted" i], [data-testid*="reply" i], [aria-label*="quoted" i], [aria-label*="mensagem citada" i], [aria-label*="resposta" i]',
+        )
+      ) {
+        continue
+      }
+
+      const date =
+        parseDateFromPrePlainText(
+          readPrePlainTextAttribute(node),
+        )
+
+      if (!date) {
+        continue
+      }
+
+      const position =
+        node.compareDocumentPosition?.(bubble) || 0
+
+      if (position & DOCUMENT_POSITION_FOLLOWING) {
+        precedingDate = date
+        continue
+      }
+
+      if (position & DOCUMENT_POSITION_PRECEDING) {
+        followingDate = date
+        break
+      }
+    }
+
+    if (
+      precedingDate &&
+      followingDate &&
+      precedingDate !== followingDate
+    ) {
+      return null
+    }
+
+    return precedingDate || followingDate || null
+  }
+
+  function buildAttachmentOnlyMessageFromBubble(
+    bubble,
+    messageId,
+    main,
+    observedAt,
+  ) {
+    const descriptor =
+      messageMutationTools
+        ?.describeAttachmentOnlyBubble
+        ?.(bubble) || null
+
+    if (!descriptor) {
+      return null
+    }
+
+    const date =
+      inferAttachmentDateFromNeighbors(
+        bubble,
+        main,
+      )
+
+    if (!date) {
+      return null
+    }
+
+    const outgoing =
+      isOutgoingMessageNode(bubble)
+
+    const prePlainText =
+      `[${descriptor.time}, ${date}] ${outgoing ? 'Yolen' : 'Cliente'}: `
+
+    const timestamp =
+      parseWhatsAppMessageTimestamp(
+        prePlainText,
+      )
+
+    if (!timestamp) {
+      return null
+    }
+
+    return {
+      id: messageId,
+      timestampMs:
+        timestamp.timestampMs,
+      timestampLabel:
+        timestamp.timestampLabel,
+      dateKey: timestamp.dateKey,
+      direction:
+        outgoing
+          ? 'outgoing'
+          : 'incoming',
+      sender:
+        getMessageSenderFromPrePlainText(
+          prePlainText,
+        ),
+      text:
+        descriptor.evidenceText,
+      hasAudio: false,
+      observedAt,
+    }
   }
 
   function buildDeletedMessageSnapshotFromNode(

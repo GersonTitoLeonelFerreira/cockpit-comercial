@@ -13,7 +13,6 @@ const knownFailures = {
   ]),
 
   e3: new Set([
-    'runtime final captura cartão PDF sem data-pre-plain-text usando data cronológica dos vizinhos',
     'V2 rico distribui prioridade, coaching, método, recovery e cliente nas áreas corretas',
   ]),
 }

@@ -45,7 +45,6 @@ export const WHATSAPP_MANIFEST_FILES = Object.freeze([
   'companion-lead-summary-view.js',
   'companion-seller-information-view.js',
   'companion-reasoning-view.js',
-  'phase16-9-runtime-guard.js',
   'companion-conversation-boundary.js',
   'companion-lead-resolution-controller.js',
   'companion-workspace-runtime.js',
