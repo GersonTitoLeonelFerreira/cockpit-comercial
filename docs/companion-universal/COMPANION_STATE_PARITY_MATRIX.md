@@ -206,7 +206,7 @@ Total documentado: **71 linhas de cenário** — os 64 cenários obrigatórios, 
 |---|---|---|---|---|
 | Telefone da conversa | Trusted evidence em memória | Trusted evidence em memória (DOM fail-closed) | Recebe para resolve/create | Nunca de `subscriber_id`/`wa_id` |
 | Telefone cadastrado | Não necessário | Não recebe | Mantém | Semântica `same/missing/different_private` |
-| `lead_id` | Não recebe no `DomainResolutionViewModel` | Não recebe no `DomainResolutionViewModel` | Deriva por `cycle_id` ou identificador autorizado | Não cruza apenas para ser devolvido |
+| `lead_id` | Não recebe no `DomainResolutionViewModel` | Não recebe no `DomainResolutionViewModel` (FASE 7: o content ManyChat não recebe `lead_id` algum; o background reinjeta pelo `cycle_id`) | Deriva por `cycle_id` ou identificador autorizado | Não cruza apenas para ser devolvido |
 | Lead name / owner name / cycle status | Allowlist sanitizada, nullable conforme autorização server-side | Mesma allowlist sanitizada, nullable conforme autorização server-side | Autoriza/omite | Nenhuma diferença de schema por canal (Q3 DECIDIDA) |
 | Payload de resolução | `DomainResolutionViewModel` allowlisted | Mesmo `DomainResolutionViewModel` allowlisted | Mantém raw privilegiado server-side | Nenhum spread de payload bruto; raw phone/PII não atravessam |
 | Identidade de plataforma | JID (opaco) | `platform_contact_key` (opaco) | Recebe | Nunca exibida; nunca telefone; válida para resolver vínculo existente, nunca para criação |
@@ -216,6 +216,14 @@ Total documentado: **71 linhas de cenário** — os 64 cenários obrigatórios, 
 ---
 
 ## 8. Backend/action parity
+
+FASE 7: a coluna ManyChat descreve a referência congelada @24f25c7; a
+composição atual do ManyChat usa exatamente as ações da coluna WhatsApp
+pelo mesmo Core (resolução por identidade e fallback por telefone em
+`RESOLVE_LEAD`, `CREATE_LEAD`, `APPLY_LEAD_ENRICHMENT`, `TRANSCRIBE_AUDIO`
+com a fonte obtida por `FETCH_MANYCHAT_AUDIO_SOURCE`, e o vínculo manual
+`SEARCH_LINKABLE_LEADS`/`FIRST_LINK_EXTERNAL_IDENTITY` pelo controller único
+do Core).
 
 | Operação conceitual | WhatsApp (base) | ManyChat (@24f25c7) | Alvo |
 |---|---|---|---|

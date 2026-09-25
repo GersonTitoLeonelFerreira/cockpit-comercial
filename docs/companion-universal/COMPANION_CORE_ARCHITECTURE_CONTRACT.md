@@ -608,6 +608,17 @@ identificador autorizado para chamadas server-side posteriores.
 O backend não é alterado nesta fase; a implementação posterior deve
 normalizar o payload atual para esta allowlist antes de entregá-lo ao Core.
 
+**Implementação — FASE 7:** para remetentes `app.manychat.com`, o
+background reduz `RESOLVE_LEAD`/`CREATE_LEAD` a esta allowlist em
+`companion-background-privacy.js` (`sanitizeResolutionPayload`, sem spread):
+ficam fora `phone`, `phone_variants`, `display_name`, `lead` bruto,
+`lead_profile`, `owner_user_id`, `current_group_id`, `next_action*` e URLs
+com PII (`create_lead_url`). O enriquecimento recebe só a semântica de
+presença por campo (`enrichment_context.fields`: `present`/`missing`,
+§19.3); a referência privada do lead fica na memória do background por
+aba + `cycle_id` e é reinjetada em `APPLY_LEAD_ENRICHMENT`. O WhatsApp
+mantém o payload atual (dívida preexistente, fora do escopo da FASE 7).
+
 **Proibido:** usar elegibilidade de captura
 (`isCaptureResolutionEligible`) como decisão de estado seller-facing
 (padrão encontrado em `manychat-capture-runtime.js` → `resolution.ready`).
@@ -767,6 +778,20 @@ Notas:
 - Esta regra não enfraquece nenhum item de privacidade do §9/§23: a
   `platformIdentity` só trafega até o transporte/backend autorizado e a
   resposta continua sanitizada por allowlist.
+
+**Implementação — FASE 7:** `resolveCurrentLead` (Core) tenta primeiro
+`RESOLVE_LEAD {platform, platform_contact_key}` quando há identidade
+externa segura; `CONTACT_NOT_LINKED` + `trustedPhone` → segunda consulta
+`{phone, display_name}` (caso B); só telefone → telefone; nenhuma das duas
+→ nenhuma consulta. Erros de rede/autenticação/backend continuam erros
+(nunca `CONTACT_NOT_LINKED`/`NOT_FOUND` nem fallback). A aquisição de
+evidência não depende de `canProvideTrustedPhone`; um telefone só é
+aceito de canal que declara essa capability. O cache de resolução usa
+chave própria `ext:<platform>:<key>` e não guarda `CONTACT_NOT_LINKED`.
+O vínculo manual (`CONTACT_NOT_LINKED` + `can_link_lead`) é do controller
+único `companion-contact-link-controller.js` (busca → seleção →
+confirmação → `FIRST_LINK_EXTERNAL_IDENTITY` → nova resolução), com
+revalidação da identidade pelo adapter imediatamente antes do vínculo.
 
 ---
 
@@ -1061,6 +1086,13 @@ Controller único no Core. Hoje existem dois contratos (WhatsApp:
 contrato de Core; rotas privilegiadas podem diferir apenas por
 privacidade/autorização (§24).
 
+**FASE 7:** convergido. WhatsApp e ManyChat usam o mesmo
+`companion-lead-enrichment-controller.js` e a mesma ação
+`APPLY_LEAD_ENRICHMENT` (`/api/companion/enrich-lead`). No canal
+sanitizado o controller oferece só campos `missing` (nada cadastrado é
+sobrescrito sem comparação) e o background reinjeta o `lead_id` pelo
+`cycle_id` autorizado.
+
 ---
 
 ## 20. Conversation Boundary / stale contract
@@ -1202,6 +1234,12 @@ opcionais antigas não têm mais efeito). `lead-method-guidance-runtime.js`
 foi removido (ausente de qualquer manifest desde a FASE 16.9). As entradas
 A9 da baseline foram removidas. A divergência do harness ManyChat pertence
 à FASE 7.
+
+**Estado na FASE 7 (ManyChat):** resolvido. `load-manychat-composition.mjs`
+declara `MANYCHAT_BRIDGE_FILES` e `MANYCHAT_MANIFEST_FILES` com as listas
+e a ordem exatas dos content scripts isolated do ManyChat e falha o
+carregamento se divergirem do manifest; o E3 ManyChat roda a composição
+efetiva (inclusive o staging da flag e2e no mesmo pathname do build).
 
 ---
 
@@ -1379,6 +1417,15 @@ implementar:
 7. entrada removida do baseline **nunca pode voltar**;
 8. ao final da reconstrução o baseline deve estar **VAZIO**;
 9. a Definition of Done exige **ZERO architecture debt allowlisted**.
+
+**FASE 7:** baseline **VAZIO**. As 12 entradas restantes (A2/A3/A5/A10,
+todas do runtime seller-facing legado do ManyChat) saíram com a remoção
+real de `manychat-capture-bootstrap.js`, `manychat-seller-panel-runtime.js`
+e `manychat-contact-link-runtime.js` (e dos runtimes que só eles usavam:
+`manychat-capture-runtime.js`, `manychat-panel-mount.js`,
+`manychat-audio-dispatch-runtime.js`). Nenhum detector foi alterado nem
+reclassificado; os self-tests continuam provando que cada gate acusa
+violações sintéticas.
 
 #### Baseline não é permissão
 
