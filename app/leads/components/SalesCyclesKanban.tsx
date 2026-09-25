@@ -3372,7 +3372,7 @@ export default function SalesCyclesKanban({
     <div
       style={{
         background: DS.contentBg,
-        minHeight: '100vh',
+        minHeight: isV2 ? 0 : '100vh',
         color: DS.textPrimary,
         display: 'flex',
         flexDirection: 'column',
