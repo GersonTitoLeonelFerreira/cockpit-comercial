@@ -171,8 +171,11 @@ test('a composição dos quatro tabpanels pertence ao workspace canônico', () =
 })
 
 test('existe exatamente um mount seller-facing em todo o content-script.js, dentro de getSellerMessageAreaHtml()', () => {
+  // FASE 5: a composição inclui o controller de MENSAGEM do Core, que
+  // localiza o mount ([data-yolen-seller-message-mount]) para montar o
+  // composer; a declaração do mount no HTML continua sendo única.
   const allMountOccurrences = contentScript.match(
-    /data-yolen-seller-message-mount/g,
+    /<[^<>]*\bdata-yolen-seller-message-mount\b[^<>]*>/g,
   )
 
   assert.equal(

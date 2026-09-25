@@ -10,7 +10,6 @@
 //      campo nunca é enviado como true sem o vendedor ter confirmado).
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 

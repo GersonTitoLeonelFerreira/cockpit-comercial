@@ -47,7 +47,6 @@
   let resumeGuardUntil = 0
   let resumeGuardTimerId = 0
   let windowWasBlurred = false
-  const cachedLeadResolutions = new Map()
   let scrollSnapshot = {
     top: 0,
     distanceFromBottom: 0,
@@ -78,6 +77,18 @@
   }
 
   function getConversationLabel(targetPanel) {
+    // Identidade canônica publicada pelo Core no painel. O texto exibido
+    // do lead é só um fallback: ele muda durante a reconsulta da MESMA
+    // conversa (nome do lead → título) e não pode ser lido como troca.
+    const conversationKey =
+      targetPanel?.getAttribute?.(
+        'data-yolen-conversation-key',
+      )
+
+    if (typeof conversationKey === 'string') {
+      return conversationKey.trim()
+    }
+
     return String(
       targetPanel
         ?.querySelector('.yolen-lead-name')
@@ -89,71 +100,6 @@
 
   function isResumeGuardActive() {
     return Date.now() < resumeGuardUntil
-  }
-
-  function getLeadResolutionCacheKey(payload) {
-    const phone = String(
-      payload?.phone || '',
-    ).trim()
-    const displayName = String(
-      payload?.display_name || '',
-    )
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLocaleLowerCase('pt-BR')
-
-    if (!phone && !displayName) {
-      return null
-    }
-
-    return `${phone}::${displayName}`
-  }
-
-  function installResumeLeadResolutionCache() {
-    const api = root.YolenCompanionApi
-
-    if (
-      !api ||
-      typeof api.resolveLead !== 'function' ||
-      api.__resumeLeadResolutionCacheInstalled === true
-    ) {
-      return
-    }
-
-    const originalResolveLead =
-      api.resolveLead.bind(api)
-
-    api.resolveLead = async function resolveLeadWithResumeCache(payload) {
-      const key =
-        getLeadResolutionCacheKey(payload)
-
-      if (
-        isResumeGuardActive() &&
-        key &&
-        cachedLeadResolutions.has(key)
-      ) {
-        return cachedLeadResolutions.get(key)
-      }
-
-      const result =
-        await originalResolveLead(payload)
-
-      if (
-        key &&
-        result?.ok &&
-        result?.payload?.ok &&
-        result?.payload?.data
-      ) {
-        cachedLeadResolutions.set(
-          key,
-          result,
-        )
-      }
-
-      return result
-    }
-
-    api.__resumeLeadResolutionCacheInstalled = true
   }
 
   function captureScroll(targetPanel) {
@@ -1225,7 +1171,6 @@
     },
   )
 
-  installResumeLeadResolutionCache()
 
   panel = getPanel()
 

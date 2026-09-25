@@ -1,13 +1,168 @@
 ;(function initYolenCompanionLeadSummaryController(root) {
+
+// Cache do working summary do lead (FASE 5). Antes era o wrapper
+// lead-summary-runtime-cache.js sobre YolenCompanionApi.loadLeadSummary,
+// chaveado por uma assinatura do DOM '#main' do WhatsApp. Agora é do
+// controller de resumo, chaveado por cycle_id + conversation_key + a
+// assinatura do snapshot de mensagens do ledger canônico do Core
+// (independente de canal). Somente resumo utilizável vira "ready";
+// requisições simultâneas do mesmo snapshot compartilham a mesma promise.
+function createLeadSummaryCache() {
+  const readyCache = new Map()
+  const inFlightCache = new Map()
+
+  function normalize(value) {
+    return typeof value === 'string' ? value.trim() : ''
+  }
+
+  function getConversationPrefix(payload) {
+    const cycleId = normalize(payload?.cycle_id)
+    const conversationKey = normalize(payload?.conversation_key)
+
+    return cycleId && conversationKey
+      ? `${cycleId}::${conversationKey}::`
+      : null
+  }
+
+  function buildCacheKey(payload, snapshotSignature) {
+    const prefix = getConversationPrefix(payload)
+
+    return prefix
+      ? `${prefix}${String(snapshotSignature ?? '')}`
+      : null
+  }
+
+  function hasUsableSummary(result) {
+    if (!result?.ok || !result?.payload?.ok) {
+      return false
+    }
+
+    const data = result.payload.data
+
+    if (!data || typeof data !== 'object') {
+      return false
+    }
+
+    const workingSummary = normalize(data.working_summary)
+    const savedSummary = normalize(data.summary?.summary)
+
+    return Boolean(workingSummary || savedSummary)
+  }
+
+  function clearConversation(payload) {
+    const prefix = getConversationPrefix(payload)
+
+    if (!prefix) {
+      return
+    }
+
+    for (const key of [...readyCache.keys()]) {
+      if (key.startsWith(prefix)) {
+        readyCache.delete(key)
+      }
+    }
+
+    for (const key of [...inFlightCache.keys()]) {
+      if (key.startsWith(prefix)) {
+        inFlightCache.delete(key)
+      }
+    }
+  }
+
+  function load(payload, snapshotSignature, loader) {
+    const cacheKey = buildCacheKey(payload, snapshotSignature)
+
+    if (!cacheKey) {
+      return Promise.resolve(loader(payload))
+    }
+
+    if (readyCache.has(cacheKey)) {
+      return Promise.resolve(readyCache.get(cacheKey))
+    }
+
+    if (inFlightCache.has(cacheKey)) {
+      return inFlightCache.get(cacheKey)
+    }
+
+    const request = Promise.resolve(loader(payload))
+      .then((result) => {
+        // Um retorno vazio não é um estado definitivo. Ele pode acontecer
+        // nos poucos instantes entre criar o lead, vincular a conversa e a
+        // captura canônica chegar ao ciclo. Se for cacheado como "ready",
+        // o Companion continua dizendo que não existe histórico mesmo
+        // depois de as mensagens já estarem no banco.
+        if (hasUsableSummary(result)) {
+          readyCache.set(cacheKey, result)
+        } else {
+          readyCache.delete(cacheKey)
+        }
+
+        return result
+      })
+      .finally(() => {
+        if (inFlightCache.get(cacheKey) === request) {
+          inFlightCache.delete(cacheKey)
+        }
+      })
+
+    inFlightCache.set(cacheKey, request)
+
+    return request
+  }
+
+  // Salvamento confirmado substitui o cache pelo resumo persistido, sem
+  // recompor.
+  function replaceAfterSave(payload, snapshotSignature, result) {
+    clearConversation(payload)
+
+    const cacheKey = buildCacheKey(payload, snapshotSignature)
+
+    if (cacheKey && hasUsableSummary(result)) {
+      readyCache.set(cacheKey, result)
+    }
+  }
+
+  return Object.freeze({
+    load,
+    replaceAfterSave,
+    clearConversation,
+    size() {
+      return readyCache.size
+    },
+  })
+}
+
 function createCompanionLeadSummaryController(ctx) {
   // Dependências explícitas do Core (funções e referências estáveis).
   // Estado mutável do Core é lido via ctx.<nome> no momento do uso.
   const {
     getCanonicalResolutionCycleId,
     getCaptureConversationKey,
+    getLeadSummarySnapshotSignature,
     leadSummaryViewTools,
+    messageController,
     renderPanel,
   } = ctx
+
+  const leadSummaryCache = createLeadSummaryCache()
+
+  // Invalidação explícita do resumo de uma conversa: captura confirmada,
+  // registro confirmado ou registro já existente recuperado no preview.
+  // Registro (ação explícita do vendedor) descarta também a mensagem
+  // sugerida derivada do resumo anterior. Captura confirmada só invalida o
+  // cache: se o resumo recarregado mudar, o contexto da mensagem muda junto
+  // (a chave inclui o resumo); se não mudar, a intenção já digitada pelo
+  // vendedor na MESMA conversa é preservada.
+  function invalidateLeadSummaryForConversation(
+    payload,
+    { clearMessage = true } = {},
+  ) {
+    leadSummaryCache.clearConversation(payload)
+
+    if (clearMessage) {
+      messageController.clear(payload)
+    }
+  }
 
   // Carrega o working summary factual do lead. A rota combina memória
   // persistente, registros históricos confirmados e mensagens canônicas;
@@ -21,8 +176,7 @@ function createCompanionLeadSummaryController(ctx) {
       getCaptureConversationKey()
 
     if (!cycleId || !conversationKey) {
-      window.YolenCompanionSellerMessageRuntime
-        ?.clear?.()
+      messageController.clear()
 
       ctx.state = {
         ...ctx.state,
@@ -59,10 +213,15 @@ function createCompanionLeadSummaryController(ctx) {
       ctx.state.companionLeadSummaryConversationKey === conversationKey
 
     try {
-      const result = await window.YolenCompanionApi.loadLeadSummary({
-        cycle_id: cycleId,
-        conversation_key: conversationKey,
-      })
+      const result = await leadSummaryCache.load(
+        {
+          cycle_id: cycleId,
+          conversation_key: conversationKey,
+        },
+        getLeadSummarySnapshotSignature(),
+        (payload) =>
+          window.YolenCompanionApi.loadLeadSummary(payload),
+      )
 
       if (!isStillCurrentContext()) {
         return
@@ -93,8 +252,7 @@ function createCompanionLeadSummaryController(ctx) {
 
       renderPanel()
 
-      window.YolenCompanionSellerMessageRuntime
-        ?.syncContext?.(
+      messageController.syncContext(
           {
             cycle_id: cycleId,
             conversation_key: conversationKey,
@@ -184,6 +342,15 @@ function createCompanionLeadSummaryController(ctx) {
         return
       }
 
+      leadSummaryCache.replaceAfterSave(
+        {
+          cycle_id: cycleId,
+          conversation_key: conversationKey,
+        },
+        getLeadSummarySnapshotSignature(),
+        result,
+      )
+
       const previousSummaryData =
         ctx.state.companionLeadSummary?.data || {}
       const persistedSummary =
@@ -255,11 +422,13 @@ function createCompanionLeadSummaryController(ctx) {
     loadCompanionLeadSummaryForCurrentCycle,
     handleSaveLeadSummaryClick,
     getCompanionLeadSummaryCardHtml,
+    invalidateLeadSummaryForConversation,
   }
 }
 
 const api = Object.freeze({
   create: createCompanionLeadSummaryController,
+  createLeadSummaryCache,
 })
 
 root.YolenCompanionLeadSummaryController = api

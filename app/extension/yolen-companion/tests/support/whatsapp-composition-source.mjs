@@ -24,6 +24,8 @@ export const WHATSAPP_COMPOSITION_FILES = Object.freeze([
   'src/companion-conversation-registration-controller.js',
   'src/companion-lead-enrichment-controller.js',
   'src/companion-lead-summary-controller.js',
+  'src/companion-message-controller.js',
+  'src/companion-core-api-composition.js',
   'src/content-script.js',
 ])
 

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
@@ -78,8 +77,10 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
     observerEnd,
   )
 
+  // FASE 5: a limpeza imediata do composer de MENSAGEM é a chamada
+  // explícita ao controller de MENSAGEM do Core.
   const immediateClearIndex = observerBlock.indexOf(
-    'YolenCompanionSellerMessageRuntime',
+    'messageController.clear()',
   )
   // A checagem de "if (autoContactLookupInFlight) {" aparece DUAS vezes
   // neste bloco: uma no callback bruto do MutationObserver (ACTIVE CHAT

@@ -5,15 +5,23 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { JSDOM } from 'jsdom'
 
-const source = readFileSync(
-  fileURLToPath(
-    new URL(
-      '../src/seller-message-runtime.js',
-      import.meta.url,
-    ),
-  ),
-  'utf8',
-)
+// FASE 5: o antigo seller-message-runtime.js virou o controller de
+// MENSAGEM do Core (companion-message-controller.js). A escrita no campo de
+// mensagem do WhatsApp é do adapter (whatsapp-adapter.js,
+// insertTextIntoEmptyComposer) e a sincronização com o resumo do lead é
+// feita explicitamente pelo controller de resumo do Core
+// (companion-lead-summary-controller.js) — sem wrapper de
+// YolenCompanionApi.loadLeadSummary.
+const readSrc = (name) =>
+  readFileSync(
+    fileURLToPath(new URL(`../src/${name}`, import.meta.url)),
+    'utf8',
+  )
+
+const controllerSource = readSrc('companion-message-controller.js')
+const adapterSource = readSrc('whatsapp-adapter.js')
+const summaryControllerSource = readSrc('companion-lead-summary-controller.js')
+const source = controllerSource
 
 test('mensagem só é gerada por ação explícita depois de uma intenção', () => {
   assert.match(
@@ -48,7 +56,20 @@ test('inserção protege rascunho já existente no WhatsApp', () => {
     source,
     /O campo do WhatsApp já contém texto\./,
   )
-  assert.match(source, /normalize\(composer\.textContent\)/)
+  assert.match(
+    adapterSource,
+    /normalizeComposerDraftText\(composer\.textContent\)/,
+  )
+  assert.match(adapterSource, /return 'composer_not_empty'/)
+})
+
+test('controller de MENSAGEM não conhece o DOM da plataforma nem envolve a API', () => {
+  assert.doesNotMatch(controllerSource, /#main|conversation-compose-box|data-testid/)
+  assert.doesNotMatch(controllerSource, /\.loadLeadSummary\s*=/)
+  assert.doesNotMatch(
+    controllerSource,
+    /(?:root|window|globalThis)\.YolenCompanionApi/,
+  )
 })
 
 function createRuntimeHarness({
@@ -147,7 +168,7 @@ function createRuntimeHarness({
   }
 
   const sandbox = {
-    YolenCompanionApi: api,
+    window: dom.window,
     chrome: {
       runtime: {
         async sendMessage(message) {
@@ -179,12 +200,72 @@ function createRuntimeHarness({
   sandbox.globalThis = sandbox
 
   vm.createContext(sandbox)
-  vm.runInContext(source, sandbox, {
-    filename: 'seller-message-runtime.js',
+  vm.runInContext(adapterSource, sandbox, {
+    filename: 'whatsapp-adapter.js',
   })
+  vm.runInContext(controllerSource, sandbox, {
+    filename: 'companion-message-controller.js',
+  })
+  vm.runInContext(summaryControllerSource, sandbox, {
+    filename: 'companion-lead-summary-controller.js',
+  })
+
+  const adapter =
+    sandbox.YolenCompanionWhatsAppAdapter.create()
+
+  const messageController =
+    sandbox.YolenCompanionMessageController.create({
+      insertIntoComposer: adapter.insertTextIntoEmptyComposer,
+      getBaseUrl: () => api.getBaseUrl(),
+    })
+
+  // Contexto mínimo do Core para o controller de resumo real: conversa
+  // atual (cycle_id/conversation_key) e estado. selectConversation()
+  // reproduz o que o Core faz numa troca real (hardReset → clear()).
+  const core = {
+    cycleId: null,
+    conversationKey: null,
+    state: {},
+  }
+
+  sandbox.window.YolenCompanionApi = api
+
+  const summaryController =
+    sandbox.YolenCompanionLeadSummaryController.create({
+      getCanonicalResolutionCycleId: () => core.cycleId,
+      getCaptureConversationKey: () => core.conversationKey,
+      getLeadSummarySnapshotSignature: () => 'snapshot',
+      leadSummaryViewTools: {
+        renderLeadSummarySection: () => '',
+      },
+      messageController,
+      renderPanel() {},
+      get state() {
+        return core.state
+      },
+      set state(value) {
+        core.state = value
+      },
+    })
+
+  function selectConversation({ cycle_id, conversation_key }) {
+    if (
+      core.conversationKey &&
+      core.conversationKey !== conversation_key
+    ) {
+      messageController.clear()
+    }
+
+    core.cycleId = cycle_id
+    core.conversationKey = conversation_key
+
+    return summaryController
+      .loadCompanionLeadSummaryForCurrentCycle()
+  }
 
   return {
     api,
+    selectConversation,
     copied,
     composer,
     document: dom.window.document,
@@ -201,7 +282,7 @@ async function settleRuntime() {
 }
 
 async function generateMessage(harness) {
-  await harness.api.loadLeadSummary({
+  await harness.selectConversation({
     cycle_id: 'cycle-1',
     conversation_key: 'whatsapp:5511999999999',
   })
@@ -347,11 +428,11 @@ test('resposta atrasada de outra conversa não substitui o cliente atual', async
     },
   })
 
-  const firstLoad = harness.api.loadLeadSummary({
+  const firstLoad = harness.selectConversation({
     cycle_id: 'cycle-1',
     conversation_key: 'whatsapp:cliente-a',
   })
-  const secondLoad = harness.api.loadLeadSummary({
+  const secondLoad = harness.selectConversation({
     cycle_id: 'cycle-1',
     conversation_key: 'whatsapp:cliente-b',
   })
@@ -451,7 +532,7 @@ test('troca A -> B remove imediatamente a mensagem de A enquanto B ainda carrega
     },
   })
 
-  await harness.api.loadLeadSummary({
+  await harness.selectConversation({
     cycle_id: 'cycle-a',
     conversation_key: 'whatsapp:cliente-a',
   })
@@ -485,7 +566,7 @@ test('troca A -> B remove imediatamente a mensagem de A enquanto B ainda carrega
   )
 
   const loadConversationB =
-    harness.api.loadLeadSummary({
+    harness.selectConversation({
       cycle_id: 'cycle-b',
       conversation_key: 'whatsapp:cliente-b',
     })

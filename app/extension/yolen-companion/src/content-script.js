@@ -10,6 +10,14 @@
     globalThis
       .YolenCompanionCaptureBatch
 
+  const captureResilienceTools =
+    globalThis
+      .YolenCompanionCaptureResilience
+
+  const nullBaseRebaseTools =
+    globalThis
+      .YolenCompanionNullBaseRebase
+
   const leadEnrichmentTools =
     globalThis
       .YolenCompanionLeadEnrichment
@@ -54,6 +62,12 @@
     )
   }
 
+  if (!captureResilienceTools || !nullBaseRebaseTools) {
+    throw new Error(
+      'Módulos de resiliência da captura do Companion não carregados.',
+    )
+  }
+
   if (!clientContextViewTools) {
     throw new Error(
       'Módulo de inteligência operacional do cliente não carregado.',
@@ -94,7 +108,11 @@
   const whatsAppAdapter =
     globalThis
       .YolenCompanionWhatsAppAdapter
-      .create()
+      .create({
+        normalizePrePlainText:
+          captureResilienceTools
+            .normalizeWhatsAppPrePlainText,
+      })
 
   const {
     waitForWhatsAppApp,
@@ -111,12 +129,14 @@
       .create({
         channelAdapter: whatsAppAdapter,
         captureBatchTools,
+        captureResilienceTools,
         clientContextViewTools,
         conversationBoundaryRuntime,
         leadEnrichmentTools,
         leadResolutionController,
         leadSummaryViewTools,
         messageMutationTools,
+        nullBaseRebaseTools,
         sellerInformationViewTools,
         workspaceRuntime,
       })

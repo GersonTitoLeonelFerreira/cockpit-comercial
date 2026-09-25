@@ -40,9 +40,6 @@
       ],
       "js": [
         "src/yolen-api.js",
-        "src/lead-resolution-runtime-cache.js",
-        "src/lead-summary-runtime-cache.js",
-        "src/seller-message-runtime.js",
         "src/ux8-interaction-consistency-runtime.js",
         "src/lead-summary-expand-state.js",
         "src/message-mutations.js",
@@ -65,6 +62,8 @@
         "src/companion-conversation-registration-controller.js",
         "src/companion-lead-enrichment-controller.js",
         "src/companion-lead-summary-controller.js",
+        "src/companion-message-controller.js",
+        "src/companion-core-api-composition.js",
         "src/companion-core.js",
         "src/content-script.js",
         "src/panel-stability-runtime.js",

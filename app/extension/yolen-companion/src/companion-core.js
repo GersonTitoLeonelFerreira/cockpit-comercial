@@ -4,12 +4,14 @@ function createCompanionCore(ctx) {
   const {
     channelAdapter,
     captureBatchTools,
+    captureResilienceTools,
     clientContextViewTools,
     conversationBoundaryRuntime,
     leadEnrichmentTools,
     leadResolutionController,
     leadSummaryViewTools,
     messageMutationTools,
+    nullBaseRebaseTools,
     sellerInformationViewTools,
     workspaceRuntime,
   } = ctx
@@ -39,6 +41,7 @@ function createCompanionCore(ctx) {
     getVisibleAudioTargets,
     getWhatsAppComposer,
     getWhatsAppSendButton,
+    insertTextIntoEmptyComposer,
     isBridgeConfirmedGroupContextAmbiguous,
     isBridgeConfirmedGroupForConversation,
     isBridgeResolvedContactAuthorizedForConversation,
@@ -56,6 +59,33 @@ function createCompanionCore(ctx) {
     waitForContactPanelPhone,
     writeTextInComposer,
   } = channelAdapter
+
+  let lastSessionUserId = null
+
+  // Políticas de transporte compostas explicitamente (retry + cache de
+  // resolução; coordenação de versões + rebase de base nula na captura).
+  const coreApiComposition =
+    globalThis
+      .YolenCompanionCoreApiComposition
+      .create({
+        getApi: () => window.YolenCompanionApi,
+        captureResilienceTools,
+        nullBaseRebaseTools,
+      })
+
+  // Controller de MENSAGEM (Core): a escrita no campo do canal é a única
+  // dependência de plataforma e vem do ChannelAdapter.
+  const messageController =
+    globalThis
+      .YolenCompanionMessageController
+      .create({
+        insertIntoComposer:
+          insertTextIntoEmptyComposer,
+        getBaseUrl: () =>
+          window.YolenCompanionApi
+            ?.getBaseUrl
+            ?.(),
+      })
   const PANEL_ID = 'yolen-companion-panel'
   const ROOT_CLASS = 'yolen-companion-root'
   const SESSION_REFRESH_INTERVAL_MS = 60000
@@ -258,6 +288,12 @@ function createCompanionCore(ctx) {
   } = analysisController
 
   const leadSummaryControllerContext = {
+    get messageController() {
+      return messageController
+    },
+    get getLeadSummarySnapshotSignature() {
+      return getLeadSummarySnapshotSignature
+    },
     get getCanonicalResolutionCycleId() {
       return getCanonicalResolutionCycleId
     },
@@ -288,6 +324,7 @@ function createCompanionCore(ctx) {
   const {
     getCompanionLeadSummaryCardHtml,
     handleSaveLeadSummaryClick,
+    invalidateLeadSummaryForConversation,
     loadCompanionLeadSummaryForCurrentCycle,
   } = leadSummaryController
 
@@ -350,6 +387,9 @@ function createCompanionCore(ctx) {
   } = leadEnrichmentController
 
   const conversationRegistrationControllerContext = {
+    get invalidateLeadSummaryForConversation() {
+      return invalidateLeadSummaryForConversation
+    },
     get escapeHtml() {
       return escapeHtml
     },
@@ -1732,6 +1772,43 @@ function createCompanionCore(ctx) {
     })
   }
 
+  // Assinatura do snapshot de mensagens do ledger canônico (FASE 5):
+  // muda quando uma mensagem entra, muda, é transcrita ou é excluída. É a
+  // chave de frescor do cache do resumo do lead — antes derivada do DOM
+  // '#main' do WhatsApp por lead-summary-runtime-cache.js.
+  function getLeadSummarySnapshotSignature() {
+    const lines =
+      getSortedLedgerMessages()
+        .map((message) =>
+          [
+            message.id || '',
+            String(message.timestampMs ?? ''),
+            message.direction || '',
+            message.text || '',
+            message.hasAudio ? 'audio' : '',
+          ].join('\u001f'),
+        )
+
+    const deletedIds =
+      Array.from(deletedMessageIds).sort()
+
+    const material = [
+      String(lines.length),
+      ...lines,
+      'deleted',
+      ...deletedIds,
+    ].join('\u001e')
+
+    let hash = 2166136261
+
+    for (let index = 0; index < material.length; index += 1) {
+      hash ^= material.charCodeAt(index)
+      hash = Math.imul(hash, 16777619)
+    }
+
+    return `${lines.length}:${deletedIds.length}:${(hash >>> 0).toString(16)}`
+  }
+
   function getLatestDateMessageBlock(
     messages,
   ) {
@@ -2452,8 +2529,7 @@ function createCompanionCore(ctx) {
             plan.batches
           ) {
             const result =
-              await window
-                .YolenCompanionApi
+              await coreApiComposition
                 .ingestCapturedMessages(
                   payload,
                 )
@@ -2480,6 +2556,15 @@ function createCompanionCore(ctx) {
 
               throw requestError
             }
+
+            // Captura confirmada: o resumo do lead em cache deixa de valer
+            // para esta conversa, mesmo sem mudança visível.
+            invalidateLeadSummaryForConversation(
+              payload,
+              {
+                clearMessage: false,
+              },
+            )
 
             const responseHasConflict =
               rememberConfirmedCaptureVersions(
@@ -3403,8 +3488,7 @@ function createCompanionCore(ctx) {
   // interação da conversa que já não existe mais.
   function hardResetConversationWorkspace() {
     channelAdapter.capturedAudioBlobEntries = []
-    window.YolenCompanionSellerMessageRuntime
-      ?.clear?.()
+    messageController.clear()
     clearAutomaticAnalysisTimer()
     clearDeepAnalysisPollTimer()
     clearAnalysisWatchdogTimer()
@@ -8786,6 +8870,9 @@ function createCompanionCore(ctx) {
             cachedPhonesByConversationKey.delete(currentKey)
           }
 
+          // "Atualizar" é a invalidação explícita do cache de resolução.
+          coreApiComposition.clearLeadResolutionCache()
+
           lastResolvedConversationKey = null
           refreshConversationSnapshot()
           loadYolenSession({ showLoading: true })
@@ -9019,6 +9106,15 @@ function createCompanionCore(ctx) {
   function renderPanel() {
     const panel = createPanel()
 
+    // Identidade canônica da conversa exibida (FASE 5): runtimes de
+    // estabilidade do painel distinguem troca real de conversa de um
+    // refresh da MESMA conversa por este atributo, nunca pelo texto
+    // exibido (o nome do lead muda durante uma reconsulta).
+    panel.setAttribute(
+      'data-yolen-conversation-key',
+      state.conversationKey || '',
+    )
+
     const collapsed =
       panelCollapsed === true
 
@@ -9165,8 +9261,7 @@ function createCompanionCore(ctx) {
 
     wirePanelInteractions(panel)
 
-    window.YolenCompanionSellerMessageRuntime
-      ?.render?.()
+    messageController.render()
   }
 
   function escapeHtml(value) {
@@ -9217,6 +9312,11 @@ function createCompanionCore(ctx) {
       const result = await window.YolenCompanionApi.getMe()
 
       if (!result?.ok || !result.payload?.ok) {
+        // Sessão perdida: nenhuma resolução anterior pode ser reaproveitada
+        // (antes: clearSession() envolvido por lead-resolution-runtime-cache).
+        coreApiComposition.clearLeadResolutionCache()
+        lastSessionUserId = null
+
         state = {
           ...state,
           connected: false,
@@ -9236,6 +9336,20 @@ function createCompanionCore(ctx) {
 
       const previousCompanyId =
         state.companyId
+
+      // Resoluções são relativas ao vendedor (OWNED_BY_ME etc.): troca de
+      // usuário da sessão invalida o cache de resolução.
+      const nextUserId =
+        result.payload.user?.id || null
+
+      if (
+        lastSessionUserId !== null &&
+        nextUserId !== lastSessionUserId
+      ) {
+        coreApiComposition.clearLeadResolutionCache()
+      }
+
+      lastSessionUserId = nextUserId
 
       const nextCompanyId =
         result.payload.active_company?.id ||
@@ -9662,12 +9776,20 @@ function createCompanionCore(ctx) {
 
     try {
       const result =
-        await window.YolenCompanionApi
-          .resolveLead({
-            phone: phoneAtRequest,
-            display_name: titleAtRequest,
-            conversation_key: keyAtRequest,
-          })
+        await coreApiComposition
+          .resolveLead(
+            {
+              phone: phoneAtRequest,
+              display_name: titleAtRequest,
+              conversation_key: keyAtRequest,
+            },
+            {
+              companyId:
+                state.companyId || null,
+              boundaryToken:
+                boundaryTokenAtRequest.generation,
+            },
+          )
 
       if (
         !result?.ok ||
@@ -11275,8 +11397,7 @@ function createCompanionCore(ctx) {
         // A identidade visível do WhatsApp já mudou. A mensagem/intenção
         // do cliente anterior não pode permanecer clicável nem durante o
         // debounce de 600 ms que estabiliza o DOM da nova conversa.
-        window.YolenCompanionSellerMessageRuntime
-          ?.clear?.()
+        messageController.clear()
       }
 
       window.clearTimeout(
@@ -11302,8 +11423,7 @@ function createCompanionCore(ctx) {
             autoContactLookupConversationRefreshPending =
               true
 
-            window.YolenCompanionSellerMessageRuntime
-              ?.clear?.()
+            messageController.clear()
           }
 
           return

@@ -12,21 +12,11 @@
   }
 
   root.YolenCompanionNullBaseRebase = api
-
-  if (
-    root.window === root &&
-    root.YolenCompanionApi
-  ) {
-    api.installNullBaseRebaseHotfix(root)
-  }
 })(
   typeof globalThis !== 'undefined'
     ? globalThis
     : this,
   function createYolenCompanionNullBaseRebase() {
-    const API_PATCH = Symbol.for(
-      'yolen.companion.capture-resilience.null-base-rebase',
-    )
     const MAX_TRACKED_CONVERSATIONS = 100
     const MAX_TRACKED_MESSAGES_PER_CONVERSATION = 500
 
@@ -58,13 +48,6 @@
       return (
         value === null ||
         value === undefined
-      )
-    }
-
-    function isSuccessfulResult(result) {
-      return Boolean(
-        result?.ok === true &&
-          result?.payload?.ok === true,
       )
     }
 
@@ -270,79 +253,8 @@
       }
     }
 
-    function installNullBaseRebaseHotfix(
-      target,
-    ) {
-      const companionApi =
-        target?.YolenCompanionApi
-
-      if (
-        !companionApi ||
-        typeof companionApi
-          .ingestCapturedMessages !==
-          'function'
-      ) {
-        return null
-      }
-
-      if (companionApi[API_PATCH]) {
-        return companionApi[API_PATCH]
-      }
-
-      const tracker =
-        createNullBaseRebaseTracker()
-      const originalIngestCapturedMessages =
-        companionApi
-          .ingestCapturedMessages
-          .bind(companionApi)
-
-      companionApi.ingestCapturedMessages =
-        async function nullBaseAwareIngestion(
-          payload,
-        ) {
-          const prepared =
-            tracker.preparePayload(payload)
-
-          const result =
-            await originalIngestCapturedMessages(
-              prepared.payload,
-            )
-
-          if (isSuccessfulResult(result)) {
-            tracker.recordResponse(
-              prepared.payload
-                ?.conversation_key,
-              prepared.nullBaseMessageKeys,
-              result.payload
-                ?.message_results,
-            )
-          }
-
-          return result
-        }
-
-      const installedState = {
-        tracker,
-        originalIngestCapturedMessages,
-      }
-
-      Object.defineProperty(
-        companionApi,
-        API_PATCH,
-        {
-          configurable: false,
-          enumerable: false,
-          value: installedState,
-          writable: false,
-        },
-      )
-
-      return installedState
-    }
-
     return {
       createNullBaseRebaseTracker,
-      installNullBaseRebaseHotfix,
     }
   },
 )

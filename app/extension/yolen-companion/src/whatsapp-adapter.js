@@ -1,5 +1,20 @@
 ;(function initYolenCompanionWhatsAppAdapter(root) {
-function createWhatsAppAdapter() {
+function createWhatsAppAdapter({
+  normalizePrePlainText,
+} = {}) {
+  // Normalização explícita do cabeçalho `data-pre-plain-text` (formatos de
+  // data/hora do WhatsApp) — antes feita por um patch global em
+  // Element.prototype.getAttribute (capture-resilience.js).
+  function readPrePlainTextAttribute(element) {
+    const value =
+      element?.getAttribute?.(
+        'data-pre-plain-text',
+      )
+
+    return typeof normalizePrePlainText === 'function'
+      ? normalizePrePlainText(value)
+      : value
+  }
 
   function sleep(ms) {
     return new Promise((resolve) => {
@@ -1456,10 +1471,7 @@ function createWhatsAppAdapter() {
           )
 
     return (
-      source
-        ?.getAttribute?.(
-          'data-pre-plain-text',
-        )
+      readPrePlainTextAttribute(source)
         ?.trim() || ''
     )
   }
@@ -1947,9 +1959,9 @@ function createWhatsAppAdapter() {
     }
 
     const prePlainText =
-      container.getAttribute?.('data-pre-plain-text') ||
-      container.querySelector?.('[data-pre-plain-text]')?.getAttribute?.(
-        'data-pre-plain-text',
+      readPrePlainTextAttribute(container) ||
+      readPrePlainTextAttribute(
+        container.querySelector?.('[data-pre-plain-text]'),
       ) ||
       ''
 
@@ -2977,7 +2989,112 @@ function createWhatsAppAdapter() {
     return null
   }
 
+
+  // Escrita do texto sugerido pela aba MENSAGEM no campo de mensagem do
+  // WhatsApp (FASE 5: mecânica de plataforma que antes vivia no runtime de
+  // mensagem). Só preenche um campo vazio, nunca envia. Devolve um código:
+  // inserted | composer_unavailable | composer_not_empty | insert_failed |
+  // insert_unconfirmed. O Core decide o feedback seller-facing.
+  function findEmptyDraftComposer() {
+    const main =
+      document.querySelector('#main')
+
+    const scope =
+      main?.querySelector('footer') ||
+      main
+
+    if (!scope) {
+      return null
+    }
+
+    const preferred = [
+      '[data-testid="conversation-compose-box-input"]',
+      '[contenteditable="true"][role="textbox"]',
+      '[contenteditable="true"]',
+    ]
+
+    for (const selector of preferred) {
+      const candidate = scope.querySelector(selector)
+
+      if (
+        candidate &&
+        !candidate.closest(`#${PANEL_ID}`)
+      ) {
+        return candidate
+      }
+    }
+
+    return null
+  }
+
+  function normalizeComposerDraftText(value) {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  function insertTextIntoEmptyComposer(text) {
+    const composer = findEmptyDraftComposer()
+
+    if (!composer) {
+      return 'composer_unavailable'
+    }
+
+    if (normalizeComposerDraftText(composer.textContent)) {
+      composer.focus()
+      return 'composer_not_empty'
+    }
+
+    composer.focus()
+
+    let inserted = false
+
+    try {
+      if (typeof document.execCommand === 'function') {
+        inserted =
+          document.execCommand(
+            'insertText',
+            false,
+            text,
+          ) === true
+      }
+    } catch {
+      inserted = false
+    }
+
+    if (!inserted) {
+      try {
+        composer.textContent = text
+        composer.dispatchEvent(
+          new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertText',
+            data: text,
+          }),
+        )
+      } catch {
+        return 'insert_failed'
+      }
+    }
+
+    const currentText =
+      normalizeComposerDraftText(composer.textContent)
+    const expected =
+      normalizeComposerDraftText(text)
+
+    if (
+      !currentText ||
+      currentText.slice(0, 40) !==
+        expected.slice(0, 40)
+    ) {
+      return 'insert_unconfirmed'
+    }
+
+    composer.focus()
+    return 'inserted'
+  }
   return {
+    insertTextIntoEmptyComposer,
     readVisibleMessageEntries,
     IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS,
     get capturedAudioBlobEntries() {

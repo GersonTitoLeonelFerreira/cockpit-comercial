@@ -6,7 +6,7 @@ import { readWhatsAppCompositionSource } from './support/whatsapp-composition-so
 const [contentScript, summaryView, sellerRuntime, styles] = await Promise.all([
   Promise.resolve(readWhatsAppCompositionSource()),
   readFile('app/extension/yolen-companion/src/companion-lead-summary-view.js', 'utf8'),
-  readFile('app/extension/yolen-companion/src/seller-message-runtime.js', 'utf8'),
+  readFile('app/extension/yolen-companion/src/companion-message-controller.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/styles.css', 'utf8'),
 ])
 

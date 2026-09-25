@@ -25,7 +25,6 @@ import {
   buildWhatsAppPageHtml,
   ingestCalls,
   loadContentScript,
-  resolveLeadCalls,
   waitFor,
 } from '../e3-test-support/load-content-script.mjs'
 
@@ -101,13 +100,14 @@ async function switchConversationAndWait({ document, calls, title, messageId, pr
   const headerTitleSpan = document.querySelector('header span[title]')
   const conversationBody = document.getElementById('conversation-body')
 
-  const resolveLeadCountBefore = resolveLeadCalls(calls).length
-
   headerTitleSpan.setAttribute('title', title)
   headerTitleSpan.textContent = title
   conversationBody.innerHTML = buildMessageHtml({ id: messageId, prePlainText, text })
 
-  await waitFor(() => resolveLeadCalls(calls).length > resolveLeadCountBefore)
+  // FASE 5: o cache de resolução do Core (composição de produção) pode
+  // reaproveitar a resolução estável de uma conversa já vista, sem novo
+  // RESOLVE_LEAD. A troca é confirmada pela captura da mensagem nova, que
+  // só é ingerida depois da resolução aplicada ao contexto atual.
   await waitFor(() => {
     const lastIngest = ingestCalls(calls).at(-1)
     return Boolean(

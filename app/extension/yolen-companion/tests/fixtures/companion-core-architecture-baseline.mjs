@@ -68,74 +68,6 @@ export const LEGACY_ARCHITECTURE_BASELINE = Object.freeze([
     removalPhase: '7',
   }),
 
-  // A6 — resumo do lead composto por monkey-patch fora do controller único.
-  entry({
-    id: 'A6:lead-method-guidance-runtime:lead-summary-controller',
-    gate: 'A6',
-    file: 'src/lead-method-guidance-runtime.js',
-    symbol: 'lead-summary-controller',
-    reason: 'Wrapper de api.loadLeadSummary (orientação de método); carregado só pelo harness, ausente do manifest.',
-    removalPhase: '5',
-  }),
-  entry({
-    id: 'A6:lead-summary-runtime-cache:lead-summary-controller',
-    gate: 'A6',
-    file: 'src/lead-summary-runtime-cache.js',
-    symbol: 'lead-summary-controller',
-    reason: 'Wrapper de api.loadLeadSummary/saveLeadSummary (cache e refresh pós-save) no WhatsApp.',
-    removalPhase: '5',
-  }),
-  entry({
-    id: 'A6:seller-message-runtime:lead-summary-controller',
-    gate: 'A6',
-    file: 'src/seller-message-runtime.js',
-    symbol: 'lead-summary-controller',
-    reason: 'Wrapper de api.loadLeadSummary para alimentar a MENSAGEM no WhatsApp.',
-    removalPhase: '5',
-  }),
-
-  // A9 — harness de integração diverge da composição do manifest.
-  entry({
-    id: 'A9:load-content-script:extra:lead-method-guidance-runtime.js',
-    gate: 'A9',
-    file: 'src/lead-method-guidance-runtime.js',
-    symbol: 'harness-loads-module-absent-from-manifest:load-content-script:not-in-any-manifest',
-    reason: 'tests/e3-test-support/load-content-script.mjs carrega módulo que nenhum content_script do manifest carrega.',
-    removalPhase: '5',
-  }),
-  entry({
-    id: 'A9:load-content-script:missing:lead-summary-expand-state.js',
-    gate: 'A9',
-    file: 'src/lead-summary-expand-state.js',
-    symbol: 'manifest-module-omitted-by-harness:load-content-script',
-    reason: 'Manifest WhatsApp carrega o módulo; o harness de integração não.',
-    removalPhase: '5',
-  }),
-  entry({
-    id: 'A9:load-content-script:missing:lead-summary-runtime-cache.js',
-    gate: 'A9',
-    file: 'src/lead-summary-runtime-cache.js',
-    symbol: 'manifest-module-omitted-by-harness:load-content-script',
-    reason: 'Manifest WhatsApp carrega o módulo (monkey-patch de loadLeadSummary); o harness de integração não.',
-    removalPhase: '5',
-  }),
-  entry({
-    id: 'A9:load-content-script:missing:phase16-9-runtime-guard.js',
-    gate: 'A9',
-    file: 'src/phase16-9-runtime-guard.js',
-    symbol: 'manifest-module-omitted-by-harness:load-content-script',
-    reason: 'Manifest WhatsApp carrega o módulo (guard de retry e bolhas de anexo); o harness de integração não.',
-    removalPhase: '5',
-  }),
-  entry({
-    id: 'A9:load-content-script:missing:ux8-interaction-consistency-runtime.js',
-    gate: 'A9',
-    file: 'src/ux8-interaction-consistency-runtime.js',
-    symbol: 'manifest-module-omitted-by-harness:load-content-script',
-    reason: 'Manifest WhatsApp carrega o módulo (wrapper de analyzeConversation); o harness de integração não.',
-    removalPhase: '5',
-  }),
-
   // A10 — runtime seller-facing paralelo no ManyChat (por responsabilidade).
   entry({
     id: 'A10:manychat-capture-bootstrap:parallel-commercial-action',
@@ -201,14 +133,6 @@ export const LEGACY_ARCHITECTURE_BASELINE = Object.freeze([
     file: 'src/companion-reasoning-view.js',
     symbol: 'mixed-core-platform-runtime',
     reason: 'View seller-facing que também observa/lê o DOM do WhatsApp ([data-pre-plain-text], bolhas de anexo).',
-    removalPhase: '5',
-  }),
-  entry({
-    id: 'A11:seller-message-runtime:mixed-core-platform-runtime',
-    gate: 'A11',
-    file: 'src/seller-message-runtime.js',
-    symbol: 'mixed-core-platform-runtime',
-    reason: 'MENSAGEM seller-facing e composer físico do WhatsApp (#main/footer) no mesmo módulo.',
     removalPhase: '5',
   }),
 ])

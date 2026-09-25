@@ -7,10 +7,12 @@
 // cada mutation, e os dois runtimes reinserindo/removendo o mesmo composer
 // formavam um loop de MutationObserver/microtasks.
 //
-// Carrega os DOIS runtimes reais (seller-message-runtime.js e
-// ux8-interaction-consistency-runtime.js) na MESMA sandbox, na mesma ordem
-// relativa do manifest.json, para provar o comportamento combinado — um
-// teste isolado de cada runtime não veria a disputa entre os dois.
+// Carrega os DOIS módulos reais (companion-message-controller.js — o antigo
+// seller-message-runtime.js, FASE 5 — e ux8-interaction-consistency-
+// runtime.js) na MESMA sandbox, na mesma ordem relativa do manifest.json,
+// para provar o comportamento combinado — um teste isolado de cada um não
+// veria a disputa entre os dois. O contexto do resumo chega ao controller
+// por syncContext(), exatamente como o controller de resumo do Core faz.
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -20,8 +22,8 @@ import vm from 'node:vm'
 import { JSDOM } from 'jsdom'
 
 const SRC_DIR = fileURLToPath(new URL('../../src/', import.meta.url))
-const SELLER_MESSAGE_RUNTIME_SOURCE = readFileSync(
-  `${SRC_DIR}seller-message-runtime.js`,
+const MESSAGE_CONTROLLER_SOURCE = readFileSync(
+  `${SRC_DIR}companion-message-controller.js`,
   'utf8',
 )
 const UX8_RUNTIME_SOURCE = readFileSync(
@@ -111,17 +113,24 @@ function buildHarness() {
   sandbox.globalThis = sandbox
 
   vm.createContext(sandbox)
-  vm.runInContext(SELLER_MESSAGE_RUNTIME_SOURCE, sandbox, {
-    filename: 'seller-message-runtime.js',
-  })
   vm.runInContext(UX8_RUNTIME_SOURCE, sandbox, {
     filename: 'ux8-interaction-consistency-runtime.js',
   })
+  vm.runInContext(MESSAGE_CONTROLLER_SOURCE, sandbox, {
+    filename: 'companion-message-controller.js',
+  })
+
+  const messageController =
+    sandbox.YolenCompanionMessageController.create({
+      insertIntoComposer: () => 'composer_unavailable',
+      getBaseUrl: () => api.getBaseUrl(),
+    })
 
   return {
     api,
     dom,
     document: dom.window.document,
+    messageController,
   }
 }
 
@@ -136,14 +145,19 @@ async function flushDom(times = 4) {
 test(
   'UX8: mount dedicado some com contexto seller ativo — composer não recria no fallback legado, guidance permanece, sem loop, e composer volta quando o mount reaparece',
   async () => {
-    const { api, dom, document } = buildHarness()
+    const { api, dom, document, messageController } = buildHarness()
 
     // 1) Contexto seller já existe: o composer monta dentro do mount
     // dedicado normalmente.
-    await api.loadLeadSummary({
+    const summaryPayload = {
       cycle_id: 'cycle-1',
       conversation_key: 'whatsapp:5511999999999',
-    })
+    }
+    const summary = await api.loadLeadSummary(summaryPayload)
+    messageController.syncContext(
+      summaryPayload,
+      summary.payload.data,
+    )
     await flushDom()
 
     const mount = document.querySelector(MOUNT_SELECTOR)

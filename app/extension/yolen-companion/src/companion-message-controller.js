@@ -1,21 +1,19 @@
-;(function initSellerMessageRuntime(root) {
-  const api = root.YolenCompanionApi
-
-  if (
-    !api ||
-    typeof api.loadLeadSummary !== 'function' ||
-    api.__sellerMessageWrapped === true
-  ) {
-    return
-  }
-
-  const originalLoadLeadSummary =
-    api.loadLeadSummary.bind(api)
-
+;(function initYolenCompanionMessageController(root) {
+// Controller de MENSAGEM do Core (FASE 5). Dono do estado da mensagem
+// sugerida por contexto (cycle_id + conversation_key + resumo), da
+// intenção do vendedor, da geração explícita, do HTML do composer da aba
+// MENSAGEM e das ações Incluir/Copiar. Não conhece o DOM da plataforma: a
+// escrita no campo de mensagem do canal é a dependência explícita
+// insertIntoComposer (ChannelAdapter), que devolve um código de resultado.
+// A sincronização com o resumo do lead é explícita: o controller de resumo
+// chama syncContext() quando o resumo fica pronto e o Core chama clear()
+// na troca de conversa — nenhum wrapper de YolenCompanionApi.
+function createCompanionMessageController({
+  insertIntoComposer,
+  getBaseUrl,
+} = {}) {
   const stateByContext = new Map()
   let currentContext = null
-  let latestRequestedContextKey = null
-  let latestRequestId = 0
   let renderQueued = false
 
   function getRuntime() {
@@ -116,8 +114,6 @@
 
     if (!requestKey) {
       currentContext = null
-      latestRequestedContextKey = null
-      latestRequestId += 1
       stateByContext.clear()
       removeVisibleComposer()
       return
@@ -140,8 +136,6 @@
       currentContext = null
       removeVisibleComposer()
     }
-
-    latestRequestId += 1
   }
 
   function getState(context) {
@@ -433,8 +427,8 @@
         source: 'YOLEN_COMPANION',
         action: 'LOAD_METHOD_GUIDANCE',
         baseUrl:
-          typeof api.getBaseUrl === 'function'
-            ? api.getBaseUrl()
+          typeof getBaseUrl === 'function'
+            ? getBaseUrl() ?? null
             : null,
         payload: {
           operation: 'generate_message',
@@ -502,43 +496,20 @@
     queueRender()
   }
 
-  function getWhatsAppComposer() {
-    const main =
-      document.querySelector('#main')
-
-    const scope =
-      main?.querySelector('footer') ||
-      main
-
-    if (!scope) {
-      return null
-    }
-
-    const preferred = [
-      '[data-testid="conversation-compose-box-input"]',
-      '[contenteditable="true"][role="textbox"]',
-      '[contenteditable="true"]',
-    ]
-
-    for (const selector of preferred) {
-      const candidate = scope.querySelector(selector)
-
-      if (
-        candidate &&
-        !candidate.closest('#yolen-companion-panel')
-      ) {
-        return candidate
-      }
-    }
-
-    return null
-  }
-
-  function normalize(value) {
-    return String(value || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-  }
+  // Resultado da escrita no campo de mensagem do canal (ChannelAdapter) →
+  // feedback seller-facing. Nunca envia: só preenche um campo vazio.
+  const INSERT_FEEDBACK = Object.freeze({
+    composer_unavailable:
+      'Não encontrei o campo de mensagem do WhatsApp. Use Copiar.',
+    composer_not_empty:
+      'O campo do WhatsApp já contém texto. Envie ou limpe o rascunho antes de incluir a sugestão.',
+    insert_failed:
+      'Não foi possível incluir automaticamente. Use Copiar.',
+    insert_unconfirmed:
+      'Não foi possível confirmar a inserção. Use Copiar.',
+    inserted:
+      'Mensagem incluída no WhatsApp. Revise antes de enviar.',
+  })
 
   function insertIntoWhatsApp() {
     const state = getState(currentContext)
@@ -547,76 +518,15 @@
       return
     }
 
-    const composer = getWhatsAppComposer()
-
-    if (!composer) {
-      state.feedback =
-        'Não encontrei o campo de mensagem do WhatsApp. Use Copiar.'
-      queueRender()
-      return
-    }
-
-    if (normalize(composer.textContent)) {
-      state.feedback =
-        'O campo do WhatsApp já contém texto. Envie ou limpe o rascunho antes de incluir a sugestão.'
-      queueRender()
-      composer.focus()
-      return
-    }
-
-    composer.focus()
-
-    let inserted = false
-
-    try {
-      if (typeof document.execCommand === 'function') {
-        inserted =
-          document.execCommand(
-            'insertText',
-            false,
-            state.message,
-          ) === true
-      }
-    } catch {
-      inserted = false
-    }
-
-    if (!inserted) {
-      try {
-        composer.textContent = state.message
-        composer.dispatchEvent(
-          new InputEvent('input', {
-            bubbles: true,
-            inputType: 'insertText',
-            data: state.message,
-          }),
-        )
-      } catch {
-        state.feedback =
-          'Não foi possível incluir automaticamente. Use Copiar.'
-        queueRender()
-        return
-      }
-    }
-
-    const currentText = normalize(composer.textContent)
-    const expected = normalize(state.message)
-
-    if (
-      !currentText ||
-      currentText.slice(0, 40) !==
-        expected.slice(0, 40)
-    ) {
-      state.feedback =
-        'Não foi possível confirmar a inserção. Use Copiar.'
-      queueRender()
-      return
-    }
+    const outcome =
+      typeof insertIntoComposer === 'function'
+        ? insertIntoComposer(state.message)
+        : 'composer_unavailable'
 
     state.feedback =
-      'Mensagem incluída no WhatsApp. Revise antes de enviar.'
+      INSERT_FEEDBACK[outcome] ||
+      INSERT_FEEDBACK.insert_failed
     queueRender()
-    composer.focus()
   }
 
   async function copyMessage() {
@@ -649,68 +559,10 @@
     }
 
     currentContext = context
-    latestRequestedContextKey =
-      buildRequestContextKey(payload)
     queueRender()
     return true
   }
 
-  api.loadLeadSummary = async function loadLeadSummaryWithSellerMessage(payload) {
-    const requestContextKey =
-      buildRequestContextKey(payload)
-
-    const visibleContextKey =
-      buildRequestContextKey(
-        currentContext?.payload,
-      )
-
-    latestRequestedContextKey =
-      requestContextKey
-    const requestId = latestRequestId + 1
-    latestRequestId = requestId
-
-    if (
-      !requestContextKey ||
-      (
-        visibleContextKey &&
-        visibleContextKey !==
-          requestContextKey
-      )
-    ) {
-      // A nova conversa ainda pode estar carregando, mas o vendedor já
-      // saiu da anterior. O compositor antigo deixa de existir antes do
-      // await para impossibilitar Gerar/Incluir/Copiar com contexto A.
-      currentContext = null
-      removeVisibleComposer()
-    }
-
-    const result =
-      await originalLoadLeadSummary(payload)
-    const data = result?.payload?.data
-
-    if (
-      latestRequestId !== requestId ||
-      latestRequestedContextKey !==
-      requestContextKey
-    ) {
-      return result
-    }
-
-    if (
-      result?.ok &&
-      result?.payload?.ok &&
-      data
-    ) {
-      syncContext(payload, data)
-    } else {
-      currentContext = null
-      removeVisibleComposer()
-    }
-
-    return result
-  }
-
-  api.__sellerMessageWrapped = true
 
   document.addEventListener(
     'input',
@@ -866,11 +718,25 @@
     },
   )
 
-  root.YolenCompanionSellerMessageRuntime = Object.freeze({
+  return Object.freeze({
     render: queueRender,
     syncContext,
     clear(payload) {
       clearContext(payload)
     },
   })
+}
+
+const api = Object.freeze({
+  create: createCompanionMessageController,
+})
+
+root.YolenCompanionMessageController = api
+
+if (
+  typeof module !== 'undefined' &&
+  module.exports
+) {
+  module.exports = api
+}
 })(typeof globalThis !== 'undefined' ? globalThis : window)

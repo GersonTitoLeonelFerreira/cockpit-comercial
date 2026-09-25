@@ -10,7 +10,6 @@
 // tests/e3-dom/automatic-passive-lead-resolution.test.mjs.
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 

@@ -25,8 +25,16 @@ function readSource(fileName) {
   return readFileSync(`${SRC_DIR}${fileName}`, 'utf8')
 }
 
-const DEPENDENCY_FILES = [
+// FASE 5 — composição EXATA do content script WhatsApp do manifest.json
+// (mesma lista, mesma ordem). Antes, o harness carregava um subconjunto
+// próprio (e um módulo ausente de qualquer manifest), com runtimes
+// opcionais por flag — o E3 testava uma composição diferente da de
+// produção. assertHarnessMatchesManifest() falha o carregamento se esta
+// lista divergir do manifest.
+export const WHATSAPP_MANIFEST_FILES = Object.freeze([
   'yolen-api.js',
+  'ux8-interaction-consistency-runtime.js',
+  'lead-summary-expand-state.js',
   'message-mutations.js',
   'conversation-registration-tools.js',
   'capture-batch.js',
@@ -37,6 +45,7 @@ const DEPENDENCY_FILES = [
   'companion-lead-summary-view.js',
   'companion-seller-information-view.js',
   'companion-reasoning-view.js',
+  'phase16-9-runtime-guard.js',
   'companion-conversation-boundary.js',
   'companion-lead-resolution-controller.js',
   'companion-workspace-runtime.js',
@@ -46,8 +55,33 @@ const DEPENDENCY_FILES = [
   'companion-conversation-registration-controller.js',
   'companion-lead-enrichment-controller.js',
   'companion-lead-summary-controller.js',
+  'companion-message-controller.js',
+  'companion-core-api-composition.js',
   'companion-core.js',
-]
+  'content-script.js',
+  'panel-stability-runtime.js',
+  'editable-field-stability-runtime.js',
+  'lead-automation.js',
+])
+
+const MANIFEST_PATH = fileURLToPath(new URL('../../manifest.json', import.meta.url))
+
+function assertHarnessMatchesManifest() {
+  const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'))
+  const entry = manifest.content_scripts.find(
+    (candidate) =>
+      !candidate.world &&
+      candidate.matches.some((match) => match.includes('web.whatsapp.com')),
+  )
+  const manifestFiles = (entry?.js || []).map((file) => file.replace(/^src\//, ''))
+
+  if (JSON.stringify(manifestFiles) !== JSON.stringify(WHATSAPP_MANIFEST_FILES)) {
+    throw new Error(
+      'E3 harness diverge do manifest WhatsApp: ' +
+        JSON.stringify({ manifestFiles, harness: WHATSAPP_MANIFEST_FILES }),
+    )
+  }
+}
 
 export function escapeHtml(value) {
   return String(value)
@@ -300,12 +334,10 @@ function createFakeBackground({
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
-    // Uma única action real (LOAD_METHOD_GUIDANCE) atende dois runtimes
-    // diferentes (só relevantes com withSellerMessageRuntime: true):
-    // lead-method-guidance-runtime.js pede o próximo passo (sem
-    // `operation` no payload) e seller-message-runtime.js pede a geração
-    // da mensagem (`operation: 'generate_message'`) — distinguidos aqui
-    // como o próprio backend real distingue.
+    // Uma única action real (LOAD_METHOD_GUIDANCE) atende a geração da
+    // mensagem pelo controller de MENSAGEM (`operation: 'generate_message'`)
+    // e, sem `operation`, o próximo passo de método — distinguidos aqui como
+    // o próprio backend real distingue.
     LOAD_METHOD_GUIDANCE: async (requestPayload) => {
       if (requestPayload?.operation === 'generate_message') {
         const data = await (
@@ -525,27 +557,6 @@ function createFakeBackground({
   return { sendMessage, calls }
 }
 
-// Carregados só quando `withStabilityRuntimes: true` — os dois runtimes de
-// estabilidade (Onda 6) e lead-automation.js (Onda 7), na mesma ordem em
-// que o manifest.json real os injeta DEPOIS de content-script.js.
-const STABILITY_RUNTIME_FILES = [
-  'panel-stability-runtime.js',
-  'editable-field-stability-runtime.js',
-  'lead-automation.js',
-]
-
-// Carregados só quando `withSellerMessageRuntime: true` (UX8 FASE C) —
-// os dois runtimes que envolvem YolenCompanionApi.loadLeadSummary ANTES
-// de content-script.js chamá-lo pela primeira vez, na mesma ordem
-// relativa em que o manifest.json real os injeta (logo depois de
-// yolen-api.js, antes de qualquer outra dependência). Sem isso, o mount
-// do composer ([data-yolen-seller-message-mount], agora na aba MENSAGEM)
-// nunca teria seu conteúdo real montado nestes testes — só a estrutura
-// estática do painel seria exercitada.
-const SELLER_MESSAGE_RUNTIME_FILES = [
-  'lead-method-guidance-runtime.js',
-  'seller-message-runtime.js',
-]
 
 // getConversationPhone() só aceita título/cabeçalho como telefone (fonte
 // fraca) depois que o identity bridge PROVA afirmativamente que a conversa
@@ -664,10 +675,12 @@ export function loadContentScript({
   getMeResult,
   methodGuidanceResult,
   messageGenerationResult,
-  withStabilityRuntimes = false,
-  withSellerMessageRuntime = false,
-  withLeadResolutionCache = false,
+  // withStabilityRuntimes/withSellerMessageRuntime/withLeadResolutionCache,
+  // ainda passados por testes antigos, não têm mais efeito: a composição
+  // carregada é sempre a do manifest (FASE 5).
 } = {}) {
+  assertHarnessMatchesManifest()
+
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
   installDefaultIdentityBridgeResponder(dom.window)
   const background = createFakeBackground({
@@ -728,74 +741,35 @@ export function loadContentScript({
   }
   sandbox.globalThis = sandbox
 
-  if (withStabilityRuntimes) {
-    sandbox.requestAnimationFrame = (callback) => dom.window.requestAnimationFrame(callback)
-    sandbox.cancelAnimationFrame = (handle) => dom.window.cancelAnimationFrame(handle)
-    sandbox.addEventListener = (...args) => dom.window.addEventListener(...args)
-    sandbox.removeEventListener = (...args) => dom.window.removeEventListener(...args)
-    sandbox.dispatchEvent = (...args) => dom.window.dispatchEvent(...args)
-  }
+  sandbox.requestAnimationFrame = (callback) => dom.window.requestAnimationFrame(callback)
+  sandbox.cancelAnimationFrame = (handle) => dom.window.cancelAnimationFrame(handle)
+  sandbox.addEventListener = (...args) => dom.window.addEventListener(...args)
+  sandbox.removeEventListener = (...args) => dom.window.removeEventListener(...args)
+  sandbox.dispatchEvent = (...args) => dom.window.dispatchEvent(...args)
 
   vm.createContext(sandbox)
 
-  for (const dependency of DEPENDENCY_FILES) {
-    vm.runInContext(readSource(dependency), sandbox, { filename: dependency })
+  // Num navegador real `window === globalThis`; no vm, `globalThis` é o
+  // sandbox e `window` é o Window do jsdom. Os módulos publicam/leem seus
+  // globais Yolen* ora em `root` (globalThis), ora em `window`: antes e
+  // depois de cada arquivo os globais Yolen* são espelhados nos dois
+  // lados, reproduzindo a identidade do navegador para toda a composição.
+  function mirrorYolenGlobals() {
+    for (const source of [sandbox.window, sandbox]) {
+      const target = source === sandbox ? sandbox.window : sandbox
 
-    if (
-      (withSellerMessageRuntime || withLeadResolutionCache) &&
-      dependency === 'yolen-api.js'
-    ) {
-      // yolen-api.js expõe `window.YolenCompanionApi = {...}` (window
-      // literal). lead-resolution-runtime-cache.js, lead-method-guidance-runtime.js
-      // e seller-message-runtime.js leem `root.YolenCompanionApi`, onde
-      // `root` é `typeof globalThis !== 'undefined' ? globalThis : window`
-      // — dentro de um vm.createContext, `globalThis` É o próprio objeto do
-      // sandbox, um objeto DIFERENTE de `sandbox.window` (o Window real do
-      // jsdom). Num navegador de verdade `window === globalThis`, então
-      // essa distinção nunca existe; aqui, sem esta ponte, `root.YolenCompanionApi`
-      // seria `undefined` e nenhum desses runtimes instalaria seu wrap
-      // (early-return silencioso). Como é o MESMO objeto (não uma cópia),
-      // a mutação de `api.resolveLead`/`api.loadLeadSummary` feita pelos
-      // runtimes continua visível em `window.YolenCompanionApi.resolveLead`
-      // — exatamente o que content-script.js chama.
-      sandbox.YolenCompanionApi = sandbox.window.YolenCompanionApi
-
-      if (withLeadResolutionCache) {
-        // Mesma posição relativa do manifest.json real: logo depois de
-        // yolen-api.js, antes de qualquer outro runtime que também
-        // envolva a API. Sem carregar isto, os testes e3 chamam
-        // window.YolenCompanionApi.resolveLead() diretamente no mock —
-        // nunca exercitando o cache por identidade (phone/display_name)
-        // que existe de verdade em produção entre yolen-api.js e
-        // content-script.js (o ponto cego que motivou a FASE 15.1).
-        vm.runInContext(
-          readSource('lead-resolution-runtime-cache.js'),
-          sandbox,
-          { filename: 'lead-resolution-runtime-cache.js' },
-        )
-      }
-
-      if (withSellerMessageRuntime) {
-        for (const runtimeFile of SELLER_MESSAGE_RUNTIME_FILES) {
-          vm.runInContext(readSource(runtimeFile), sandbox, { filename: runtimeFile })
+      for (const name of Object.keys(source)) {
+        if (name.startsWith('Yolen') && target[name] !== source[name]) {
+          target[name] = source[name]
         }
-
-        // seller-message-runtime.js expõe sua API pública via
-        // `root.YolenCompanionSellerMessageRuntime = Object.freeze({...})`
-        // (root-scoped); content-script.js lê essa mesma API via
-        // `window.YolenCompanionSellerMessageRuntime` — a ponte inversa da
-        // acima, pelo mesmo motivo.
-        sandbox.window.YolenCompanionSellerMessageRuntime =
-          sandbox.YolenCompanionSellerMessageRuntime
       }
     }
   }
-  vm.runInContext(readSource('content-script.js'), sandbox, { filename: 'content-script.js' })
 
-  if (withStabilityRuntimes) {
-    for (const runtimeFile of STABILITY_RUNTIME_FILES) {
-      vm.runInContext(readSource(runtimeFile), sandbox, { filename: runtimeFile })
-    }
+  for (const file of WHATSAPP_MANIFEST_FILES) {
+    mirrorYolenGlobals()
+    vm.runInContext(readSource(file), sandbox, { filename: file })
+    mirrorYolenGlobals()
   }
 
   return {

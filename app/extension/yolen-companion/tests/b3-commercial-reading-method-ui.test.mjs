@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 

@@ -1,24 +1,26 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import test from 'node:test'
-import vm from 'node:vm'
+import { createRequire } from 'node:module'
 
-const source = readFileSync(
-  fileURLToPath(
-    new URL('../src/lead-resolution-runtime-cache.js', import.meta.url),
-  ),
-  'utf8',
-)
+// FASE 5 — o cache de resolução por identidade (antes
+// lead-resolution-runtime-cache.js, monkey-patch de
+// YolenCompanionApi.resolveLead/clearSession + listener global de clique) é
+// agora parte da composição explícita do Core
+// (companion-core-api-composition.js). O Core invalida o cache no botão
+// "Atualizar" e quando a sessão é perdida/troca de vendedor.
+const require = createRequire(import.meta.url)
+const composition = require('../src/companion-core-api-composition.js')
+const captureResilience = require('../src/capture-resilience.js')
+const nullBaseRebase = require('../src/capture-resilience-null-base.js')
 
-function createHarness({ resolveImpl } = {}) {
+function createHarness({ resolveImpl, ingestImpl } = {}) {
   let resolveCount = 0
-  let clearSessionCount = 0
-  const listeners = new Map()
+  const ingestPayloads = []
 
   const defaultResolveImpl = (payload) => ({
     ok: true,
     payload: {
+      ok: true,
       status: 'OWNED_BY_ME',
       lead: { id: 'lead-1', name: payload.display_name || 'Lead' },
       cycle: { id: 'cycle-1' },
@@ -30,39 +32,34 @@ function createHarness({ resolveImpl } = {}) {
       resolveCount += 1
       return (resolveImpl || defaultResolveImpl)(payload, resolveCount)
     },
-    async clearSession() {
-      clearSessionCount += 1
-      return { ok: true }
+    async ingestCapturedMessages(payload) {
+      ingestPayloads.push(payload)
+      return ingestImpl
+        ? ingestImpl(payload, ingestPayloads.length)
+        : { ok: true, payload: { ok: true, message_results: [] } }
     },
   }
 
-  const sandbox = {
-    YolenCompanionApi: api,
-    document: {
-      addEventListener(type, listener) {
-        listeners.set(type, listener)
-      },
-    },
-    console,
-    Map,
-    Promise,
-    String,
-  }
-  sandbox.globalThis = sandbox
-
-  vm.createContext(sandbox)
-  vm.runInContext(source, sandbox, {
-    filename: 'lead-resolution-runtime-cache.js',
+  const core = composition.create({
+    getApi: () => api,
+    captureResilienceTools: captureResilience,
+    nullBaseRebaseTools: nullBaseRebase,
   })
 
   return {
-    api,
-    listeners,
+    api: {
+      // Mesma chamada que o Core faz em resolveCurrentLead().
+      resolveLead: (payload, options = {}) =>
+        core.resolveLead(payload, {
+          companyId: 'company-1',
+          boundaryToken: 1,
+          ...options,
+        }),
+    },
+    core,
+    ingestPayloads,
     get resolveCount() {
       return resolveCount
-    },
-    get clearSessionCount() {
-      return clearSessionCount
     },
   }
 }
@@ -98,31 +95,86 @@ test('refresh explícito limpa o cache e permite nova consulta', async () => {
 
   await harness.api.resolveLead({ phone: '5511999999999', display_name: 'Larissa' })
 
-  const clickListener = harness.listeners.get('click')
-  assert.equal(typeof clickListener, 'function')
-
-  clickListener({
-    target: {
-      closest(selector) {
-        return selector === '[data-yolen-action="refresh"]' ? {} : null
-      },
-    },
-  })
+  // O Core chama clearLeadResolutionCache() no clique de "Atualizar".
+  harness.core.clearLeadResolutionCache()
 
   await harness.api.resolveLead({ phone: '5511999999999', display_name: 'Larissa' })
 
   assert.equal(harness.resolveCount, 2)
 })
 
-test('clearSession também invalida resolução anterior', async () => {
+test('empresa ativa diferente nunca reaproveita a resolução da anterior', async () => {
   const harness = createHarness()
 
-  await harness.api.resolveLead({ phone: '5511999999999', display_name: 'Larissa' })
-  await harness.api.clearSession()
-  await harness.api.resolveLead({ phone: '5511999999999', display_name: 'Larissa' })
+  await harness.api.resolveLead(
+    { phone: '5511999999999', display_name: 'Larissa' },
+    { companyId: 'company-1' },
+  )
+  await harness.api.resolveLead(
+    { phone: '5511999999999', display_name: 'Larissa' },
+    { companyId: 'company-2' },
+  )
 
-  assert.equal(harness.clearSessionCount, 1)
   assert.equal(harness.resolveCount, 2)
+})
+
+test('A → B → A: nova geração de fronteira não herda a requisição presa de A₁', async () => {
+  let releaseFirst
+  const harness = createHarness({
+    resolveImpl: (payload, callNumber) =>
+      callNumber === 1
+        ? new Promise((resolve) => {
+            releaseFirst = () =>
+              resolve({
+                ok: true,
+                payload: { ok: true, status: 'OWNED_BY_ME', lead: { id: 'lead-old' } },
+              })
+          })
+        : {
+            ok: true,
+            payload: { ok: true, status: 'OWNED_BY_ME', lead: { id: 'lead-current' } },
+          },
+  })
+
+  const first = harness.api.resolveLead(
+    { phone: '5511999999999' },
+    { boundaryToken: 1 },
+  )
+  const sameGeneration = harness.api.resolveLead(
+    { phone: '5511999999999' },
+    { boundaryToken: 1 },
+  )
+  const nextGeneration = await harness.api.resolveLead(
+    { phone: '5511999999999' },
+    { boundaryToken: 3 },
+  )
+
+  assert.equal(harness.resolveCount, 2)
+  assert.equal(nextGeneration.payload.lead.id, 'lead-current')
+
+  releaseFirst()
+  assert.equal((await first).payload.lead.id, 'lead-old')
+  assert.equal(await sameGeneration, await first)
+})
+
+test('falha transitória de rede é repetida antes de chegar ao Core', async () => {
+  const harness = createHarness({
+    resolveImpl: (payload, callNumber) =>
+      callNumber === 1
+        ? { ok: false, statusCode: 503, payload: { ok: false } }
+        : {
+            ok: true,
+            payload: { ok: true, status: 'OWNED_BY_ME', lead: { id: 'lead-1' } },
+          },
+  })
+
+  const result = await harness.core.resolveLead(
+    { phone: '5511999999999' },
+    { companyId: 'company-1', boundaryToken: 1 },
+  )
+
+  assert.equal(harness.resolveCount, 2)
+  assert.equal(result.payload.status, 'OWNED_BY_ME')
 })
 
 // FASE 15.1 — hotfix pós-merge: NOT_FOUND é um estado TRANSITÓRIO (o lead
@@ -143,8 +195,9 @@ test('NOT_FOUND não é cacheado e pode virar OWNED_BY_ME na consulta seguinte',
       ok: true,
       payload:
         callNumber === 1
-          ? { status: 'NOT_FOUND' }
+          ? { ok: true, status: 'NOT_FOUND' }
           : {
+              ok: true,
               status: 'OWNED_BY_ME',
               lead: { id: 'lead-1', name: payload.display_name || 'Lead' },
               cycle: { id: 'cycle-1' },
@@ -197,4 +250,38 @@ test('resultado positivo continua deduplicado mesmo depois de um NOT_FOUND anter
     'a segunda consulta ao MESMO telefone com resultado positivo continua deduplicada — só NOT_FOUND deixa de ser cacheado',
   )
   assert.equal(second, first)
+})
+
+test('Core invalida o cache no "Atualizar", na perda de sessão e na troca de vendedor', async () => {
+  const { readWhatsAppCompositionSource } = await import(
+    './support/whatsapp-composition-source.mjs'
+  )
+  const source = readWhatsAppCompositionSource()
+
+  assert.match(
+    source,
+    /"Atualizar" é a invalidação explícita do cache de resolução\.\s*coreApiComposition\.clearLeadResolutionCache\(\)/,
+  )
+  assert.match(
+    source,
+    /Sessão perdida[\s\S]{0,200}coreApiComposition\.clearLeadResolutionCache\(\)/,
+  )
+  assert.match(
+    source,
+    /nextUserId !== lastSessionUserId[\s\S]{0,80}coreApiComposition\.clearLeadResolutionCache\(\)/,
+  )
+})
+
+test('ingestão passa pela composição explícita (coordenação + rebase) até a API', async () => {
+  const harness = createHarness()
+
+  const payload = {
+    conversation_key: 'phone:5511999999999',
+    messages: [],
+  }
+
+  const result = await harness.core.ingestCapturedMessages(payload)
+
+  assert.equal(result.ok, true)
+  assert.equal(harness.ingestPayloads.length, 1)
 })

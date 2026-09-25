@@ -13,13 +13,6 @@
 
   root.YolenCompanionCaptureResilience =
     api
-
-  if (
-    root.window === root &&
-    root.YolenCompanionApi
-  ) {
-    api.installCaptureResilience(root)
-  }
 })(
   typeof globalThis !== 'undefined'
     ? globalThis
@@ -30,14 +23,6 @@
     const DEFAULT_RETRY_DELAY_MS = 1000
     const MAX_RETRY_DELAY_MS = 30000
     const MAX_TRACKED_CONVERSATIONS = 100
-    const GET_ATTRIBUTE_PATCH =
-      Symbol.for(
-        'yolen.companion.capture-resilience.get-attribute',
-      )
-    const API_PATCH =
-      Symbol.for(
-        'yolen.companion.capture-resilience.api',
-      )
 
     function normalizeRequiredText(value) {
       if (typeof value !== 'string') {
@@ -613,162 +598,8 @@
       return value
     }
 
-    function installTimestampAttributePatch(
-      target = root,
-    ) {
-      const prototype =
-        target.Element?.prototype
-
-      if (
-        !prototype ||
-        typeof prototype.getAttribute !==
-          'function'
-      ) {
-        return false
-      }
-
-      if (prototype[GET_ATTRIBUTE_PATCH]) {
-        return true
-      }
-
-      const originalGetAttribute =
-        prototype.getAttribute
-
-      Object.defineProperty(
-        prototype,
-        'getAttribute',
-        {
-          configurable: true,
-          writable: true,
-          value(name) {
-            const value =
-              originalGetAttribute.call(
-                this,
-                name,
-              )
-
-            return name ===
-              'data-pre-plain-text'
-              ? normalizeWhatsAppPrePlainText(
-                  value,
-                )
-              : value
-          },
-        },
-      )
-
-      Object.defineProperty(
-        prototype,
-        GET_ATTRIBUTE_PATCH,
-        {
-          configurable: false,
-          enumerable: false,
-          value: true,
-          writable: false,
-        },
-      )
-
-      return true
-    }
-
-    function installCaptureResilience(
-      target = root,
-    ) {
-      const companionApi =
-        target.YolenCompanionApi
-
-      if (!companionApi) {
-        return null
-      }
-
-      installTimestampAttributePatch(
-        target,
-      )
-
-      if (companionApi[API_PATCH]) {
-        return companionApi[API_PATCH]
-      }
-
-      const coordinator =
-        createCaptureCoordinator()
-
-      const originalResolveLead =
-        companionApi.resolveLead.bind(
-          companionApi,
-        )
-
-      const originalIngestCapturedMessages =
-        companionApi
-          .ingestCapturedMessages
-          .bind(companionApi)
-
-      companionApi.resolveLead =
-        function resilientResolveLead(
-          payload,
-        ) {
-          return resolveLeadWithRetry(
-            originalResolveLead,
-            payload,
-            {
-              baseDelayMs:
-                DEFAULT_RETRY_DELAY_MS,
-              maxAttempts: Infinity,
-              maxDelayMs:
-                MAX_RETRY_DELAY_MS,
-            },
-          )
-        }
-
-      companionApi.ingestCapturedMessages =
-        async function resilientIngestion(
-          payload,
-        ) {
-          const preparedPayload =
-            coordinator.preparePayload(
-              payload,
-            )
-
-          const result =
-            await originalIngestCapturedMessages(
-              preparedPayload,
-            )
-
-          if (isSuccessfulResult(result)) {
-            coordinator.recordResponse(
-              preparedPayload
-                ?.conversation_key,
-              result.payload
-                ?.message_results,
-            )
-          }
-
-          return result
-        }
-
-      const installedState = {
-        coordinator,
-        originalResolveLead,
-        originalIngestCapturedMessages,
-      }
-
-      Object.defineProperty(
-        companionApi,
-        API_PATCH,
-        {
-          configurable: false,
-          enumerable: false,
-          value: installedState,
-          writable: false,
-        },
-      )
-
-      return installedState
-    }
-
     return {
       createCaptureCoordinator,
-      installCaptureResilience,
-      installTimestampAttributePatch,
       isRetryableResult,
       normalizeWhatsAppPrePlainText,
       resolveLeadWithRetry,

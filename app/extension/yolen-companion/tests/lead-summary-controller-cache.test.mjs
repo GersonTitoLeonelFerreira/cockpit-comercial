@@ -1,47 +1,29 @@
+// FASE 5 — cache do working summary do lead no controller de resumo do
+// Core (companion-lead-summary-controller.js). Antes era o wrapper
+// lead-summary-runtime-cache.js sobre YolenCompanionApi.loadLeadSummary
+// (chave derivada do DOM '#main' do WhatsApp, invalidação por wrappers de
+// save/registro/captura). Agora a chave vem do ledger canônico do Core
+// (getLeadSummarySnapshotSignature) e a invalidação é explícita.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import test from 'node:test'
-import vm from 'node:vm'
 
-const source = readFileSync(
-  fileURLToPath(
-    new URL('../src/lead-summary-runtime-cache.js', import.meta.url),
-  ),
-  'utf8',
-)
+const require = createRequire(import.meta.url)
+const summaryControllerModule =
+  require('../src/companion-lead-summary-controller.js')
+
+const payload = {
+  cycle_id: 'cycle-1',
+  conversation_key: 'whatsapp:5511999999999',
+}
 
 function createHarness() {
-  let visibleText = 'Mensagem inicial'
+  let snapshot = 'ledger-1'
   let loadCount = 0
   let saveCount = 0
-  let confirmCount = 0
-  let captureCount = 0
-  let methodClearCount = 0
   let sellerClearCount = 0
-
-  const messageNode = {
-    textContent: visibleText,
-    getAttribute(name) {
-      return name === 'data-pre-plain-text'
-        ? '[10:00, 25/08/2026] Cliente: '
-        : null
-    },
-    closest() {
-      return {
-        getAttribute(name) {
-          return name === 'data-id' ? 'msg-1' : null
-        },
-      }
-    },
-  }
-
-  const main = {
-    querySelectorAll() {
-      messageNode.textContent = visibleText
-      return [messageNode]
-    },
-  }
+  let state = {}
 
   const api = {
     async loadLeadSummary() {
@@ -56,7 +38,7 @@ function createHarness() {
         },
       }
     },
-    async saveLeadSummary(payload) {
+    async saveLeadSummary(request) {
       saveCount += 1
       return {
         ok: true,
@@ -64,81 +46,49 @@ function createHarness() {
           ok: true,
           data: {
             summary: {
-              summary: payload.summary,
+              summary: request.summary,
               version: saveCount,
             },
           },
         },
       }
     },
-    async previewConversationRegistration() {
-      return {
-        ok: true,
-        payload: {
-          ok: true,
-          data: {
-            already_registered: true,
-          },
-        },
-      }
-    },
-    async confirmConversationRegistration() {
-      confirmCount += 1
-      return {
-        ok: true,
-        payload: {
-          ok: true,
-          data: {
-            registration_id: 'registration-1',
-          },
-        },
-      }
-    },
-    async ingestCapturedMessages() {
-      captureCount += 1
-      return {
-        ok: true,
-        payload: {
-          ok: true,
-        },
-      }
-    },
   }
 
-  const sandbox = {
-    YolenCompanionApi: api,
-    YolenCompanionLeadMethodGuidanceRuntime: {
-      clear() {
-        methodClearCount += 1
-      },
+  globalThis.window = { YolenCompanionApi: api }
+
+  const controller = summaryControllerModule.create({
+    getCanonicalResolutionCycleId: () => payload.cycle_id,
+    getCaptureConversationKey: () => payload.conversation_key,
+    getLeadSummarySnapshotSignature: () => snapshot,
+    leadSummaryViewTools: {
+      renderLeadSummarySection: () => '',
     },
-    YolenCompanionSellerMessageRuntime: {
+    messageController: {
       clear() {
         sellerClearCount += 1
       },
+      syncContext() {},
     },
-    document: {
-      querySelector(selector) {
-        return selector === '#main' ? main : null
-      },
+    renderPanel() {},
+    get state() {
+      return state
     },
-    console,
-    Promise,
-    Map,
-    Math,
-    String,
-  }
-  sandbox.globalThis = sandbox
-
-  vm.createContext(sandbox)
-  vm.runInContext(source, sandbox, {
-    filename: 'lead-summary-runtime-cache.js',
+    set state(value) {
+      state = value
+    },
   })
 
+  async function load() {
+    await controller.loadCompanionLeadSummaryForCurrentCycle()
+    return state.companionLeadSummary
+  }
+
   return {
-    api,
-    setVisibleText(value) {
-      visibleText = value
+    controller,
+    load,
+    setSnapshot(value) {
+      snapshot = value
     },
     get loadCount() {
       return loadCount
@@ -146,126 +96,136 @@ function createHarness() {
     get saveCount() {
       return saveCount
     },
-    get confirmCount() {
-      return confirmCount
-    },
-    get captureCount() {
-      return captureCount
-    },
-    get methodClearCount() {
-      return methodClearCount
-    },
     get sellerClearCount() {
       return sellerClearCount
     },
   }
 }
 
-const payload = {
-  cycle_id: 'cycle-1',
-  conversation_key: 'whatsapp:5511999999999',
-}
+test.afterEach(() => {
+  delete globalThis.window
+})
 
 test('não recompõe o resumo ao reabrir o mesmo snapshot', async () => {
   const harness = createHarness()
 
-  const first = await harness.api.loadLeadSummary(payload)
-  const second = await harness.api.loadLeadSummary(payload)
+  const first = await harness.load()
+  const second = await harness.load()
 
   assert.equal(harness.loadCount, 1)
-  assert.equal(first.payload.data.working_summary, 'Resumo 1')
-  assert.equal(second.payload.data.working_summary, 'Resumo 1')
+  assert.equal(first.data.working_summary, 'Resumo 1')
+  assert.equal(second.data.working_summary, 'Resumo 1')
 })
 
-test('mensagem visível nova muda o snapshot e permite nova composição', async () => {
+test('mensagem nova no ledger muda o snapshot e permite nova composição', async () => {
   const harness = createHarness()
 
-  await harness.api.loadLeadSummary(payload)
-  harness.setVisibleText('Mensagem nova do cliente')
-  const refreshed = await harness.api.loadLeadSummary(payload)
+  await harness.load()
+  harness.setSnapshot('ledger-2')
+  const refreshed = await harness.load()
 
   assert.equal(harness.loadCount, 2)
-  assert.equal(refreshed.payload.data.working_summary, 'Resumo 2')
+  assert.equal(refreshed.data.working_summary, 'Resumo 2')
 })
 
 test('requisições simultâneas do mesmo snapshot compartilham a mesma composição', async () => {
-  const harness = createHarness()
+  const cache = summaryControllerModule.createLeadSummaryCache()
+  let loadCount = 0
+  const loader = async () => {
+    loadCount += 1
+    return {
+      ok: true,
+      payload: { ok: true, data: { working_summary: 'Resumo' } },
+    }
+  }
 
   const [first, second] = await Promise.all([
-    harness.api.loadLeadSummary(payload),
-    harness.api.loadLeadSummary(payload),
+    cache.load(payload, 'ledger-1', loader),
+    cache.load(payload, 'ledger-1', loader),
   ])
 
-  assert.equal(harness.loadCount, 1)
-  assert.equal(first.payload.data.working_summary, second.payload.data.working_summary)
+  assert.equal(loadCount, 1)
+  assert.equal(first, second)
+})
+
+test('resumo vazio não entra no cache', async () => {
+  const cache = summaryControllerModule.createLeadSummaryCache()
+  let loadCount = 0
+  const loader = async () => {
+    loadCount += 1
+    return { ok: true, payload: { ok: true, data: { working_summary: '' } } }
+  }
+
+  await cache.load(payload, 'ledger-1', loader)
+  await cache.load(payload, 'ledger-1', loader)
+
+  assert.equal(loadCount, 2)
 })
 
 test('salvar substitui o cache pelo resumo confirmado sem recompor', async () => {
   const harness = createHarness()
 
-  await harness.api.loadLeadSummary(payload)
-  const saved = await harness.api.saveLeadSummary({
-    ...payload,
-    summary: 'Resumo confirmado pelo vendedor',
-  })
-  const reopened = await harness.api.loadLeadSummary(payload)
+  await harness.load()
+  await harness.controller.handleSaveLeadSummaryClick(
+    'Resumo confirmado pelo vendedor',
+  )
+  const reopened = await harness.load()
 
   assert.equal(harness.saveCount, 1)
   assert.equal(harness.loadCount, 1)
   assert.equal(
-    saved.payload.data.summary.summary,
+    reopened.data.summary.summary,
     'Resumo confirmado pelo vendedor',
   )
-  assert.equal(
-    reopened.payload.data.summary.summary,
-    'Resumo confirmado pelo vendedor',
-  )
-  assert.equal(harness.methodClearCount, 1)
   assert.equal(harness.sellerClearCount, 0)
 })
 
-test('registro confirmado invalida resumo e caches derivados', async () => {
+test('registro confirmado/recuperado invalida resumo e a mensagem derivada', async () => {
   const harness = createHarness()
 
-  await harness.api.loadLeadSummary(payload)
-  await harness.api.confirmConversationRegistration(payload)
-  const refreshed = await harness.api.loadLeadSummary(payload)
+  await harness.load()
+  harness.controller.invalidateLeadSummaryForConversation(payload)
+  const refreshed = await harness.load()
 
-  assert.equal(harness.confirmCount, 1)
   assert.equal(harness.loadCount, 2)
-  assert.equal(
-    refreshed.payload.data.working_summary,
-    'Resumo 2',
-  )
-  assert.equal(harness.methodClearCount, 1)
+  assert.equal(refreshed.data.working_summary, 'Resumo 2')
   assert.equal(harness.sellerClearCount, 1)
 })
 
-test('registro já existente recuperado no preview também invalida cache', async () => {
+test('captura confirmada invalida resumo stale mesmo sem mudança de snapshot e preserva a intenção do vendedor', async () => {
   const harness = createHarness()
 
-  await harness.api.loadLeadSummary(payload)
-  await harness.api.previewConversationRegistration(payload)
-  await harness.api.loadLeadSummary(payload)
+  await harness.load()
+  harness.controller.invalidateLeadSummaryForConversation(payload, {
+    clearMessage: false,
+  })
+  const refreshed = await harness.load()
 
   assert.equal(harness.loadCount, 2)
-  assert.equal(harness.methodClearCount, 1)
-  assert.equal(harness.sellerClearCount, 1)
+  assert.equal(refreshed.data.working_summary, 'Resumo 2')
+  assert.equal(harness.sellerClearCount, 0)
 })
 
-test('captura confirmada invalida resumo stale mesmo sem mudança no DOM', async () => {
-  const harness = createHarness()
-
-  await harness.api.loadLeadSummary(payload)
-  await harness.api.ingestCapturedMessages(payload)
-  const refreshed = await harness.api.loadLeadSummary(payload)
-
-  assert.equal(harness.captureCount, 1)
-  assert.equal(harness.loadCount, 2)
-  assert.equal(
-    refreshed.payload.data.working_summary,
-    'Resumo 2',
+test('registro e captura chamam a invalidação explícita do controller de resumo', () => {
+  const registration = readFileSync(
+    new URL(
+      '../src/companion-conversation-registration-controller.js',
+      import.meta.url,
+    ),
+    'utf8',
   )
-  assert.equal(harness.methodClearCount, 1)
-  assert.equal(harness.sellerClearCount, 1)
+  const core = readFileSync(
+    new URL('../src/companion-core.js', import.meta.url),
+    'utf8',
+  )
+
+  assert.equal(
+    registration.match(/invalidateLeadSummaryForConversation\(\{/g)?.length,
+    2,
+    'preview já registrado + registro confirmado',
+  )
+  assert.match(
+    core,
+    /invalidateLeadSummaryForConversation\(\s*payload,\s*\{\s*clearMessage: false,/,
+  )
 })
