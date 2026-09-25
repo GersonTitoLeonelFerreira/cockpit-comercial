@@ -62,3 +62,25 @@ export function sliceMessageLedgerSynchronization(source, coreBlock) {
 
   return adapterBlock ? `${coreBlock}\n${adapterBlock}` : ''
 }
+
+// Um bloco de função de 2 espaços (do marcador até o fechamento `\n  }\n`).
+// FASE 5: eventos de canal (escuta do documento da plataforma) passaram do
+// Core para o adapter; asserções sobre "o listener" avaliam a parte do
+// Core somada à função do adapter que ela consome.
+export function sliceFunction(source, marker) {
+  const start = source.indexOf(marker)
+
+  if (start === -1) {
+    return ''
+  }
+
+  const end = source.indexOf('\n  }\n', start)
+
+  return end === -1 ? '' : source.slice(start, end + 4)
+}
+
+export function sliceCoreWithChannelEvent(source, coreBlock, adapterMarker) {
+  const adapterBlock = sliceFunction(source, adapterMarker)
+
+  return adapterBlock ? `${coreBlock}\n${adapterBlock}` : ''
+}

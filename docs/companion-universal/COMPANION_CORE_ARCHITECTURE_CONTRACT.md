@@ -25,6 +25,7 @@
 | Campo | Valor |
 |---|---|
 | Versão | 1.1.0 (FASE 2.1 — hardening: resolução sem telefone, migration baseline, decision schedule, Q5) |
+| Atualizações sem mudança de versão | FASE 5 — Q6 decidida (§31), harness = manifest (§25), estado da composição explícita (§26), regra operacional (§33); registro em `FASE_5_EXECUTION.md` |
 | Fase | FASE 2 / 2.1 — Contrato arquitetural definitivo |
 | Data de início da reconstrução | 2026-09-23 |
 | Branch de reconstrução | `claude/companion-core-rebuild` |
@@ -1169,7 +1170,7 @@ runtime; evidência de DOM fail-closed) é preservada.
 - Ordem diferente que altere monkey-patches/globals = **architecture gate
   failure**.
 
-Divergências conhecidas (não corrigidas nesta fase; FASE 3 cria as travas):
+Divergências conhecidas até a FASE 4 (a FASE 3 criou as travas):
 
 - `lead-method-guidance-runtime.js` carregado por
   `tests/e3-test-support/load-content-script.mjs`, nunca presente no
@@ -1180,6 +1181,15 @@ Divergências conhecidas (não corrigidas nesta fase; FASE 3 cria as travas):
 - ordem de carga do harness do content script diferente da ordem do
   manifest.
 
+**Estado na FASE 5 (WhatsApp):** resolvido. O harness E3
+(`load-content-script.mjs`) declara `WHATSAPP_MANIFEST_FILES` com a lista e
+a ordem exatas do `content_scripts` WhatsApp e falha o carregamento se
+divergir do manifest; todos os módulos são sempre carregados (as flags
+opcionais antigas não têm mais efeito). `lead-method-guidance-runtime.js`
+foi removido (ausente de qualquer manifest desde a FASE 16.9). As entradas
+A9 da baseline foram removidas. A divergência do harness ManyChat pertence
+à FASE 7.
+
 ---
 
 ## 26. Dependency composition rule
@@ -1188,7 +1198,7 @@ A arquitetura alvo **NÃO** depende de monkey-patch para composição de
 controllers do Core. Preferência obrigatória: **composição explícita por
 dependências/interfaces**.
 
-Padrões conhecidos na base (não refatorados nesta fase):
+Padrões conhecidos na base até a FASE 4 (estado atual logo abaixo):
 
 - `window.YolenCompanionApi` embrulhado em cadeia
   (`loadLeadSummary` por `lead-summary-runtime-cache` e
@@ -1205,6 +1215,29 @@ Padrões conhecidos na base (não refatorados nesta fase):
   mensagem de anexo é do adapter e não escreve no DOM da plataforma
   (**UNKNOWN / TO BE VERIFIED** se existe alternativa sem escrita — ver
   §31, Q6).
+
+**Estado na FASE 5 (composição WhatsApp):**
+
+- nenhum módulo do manifest WhatsApp reatribui métodos de
+  `YolenCompanionApi`: retry/status da análise são do transporte
+  (`yolen-api.js`, dono único); retry + cache de resolução e coordenação/
+  rebase da captura são compostos explicitamente pelo Core
+  (`companion-core-api-composition.js`); cache do resumo é do
+  `companion-lead-summary-controller.js`; a MENSAGEM é o
+  `companion-message-controller.js`, sincronizado explicitamente;
+- nenhum protótipo do DOM é interceptado pela composição: a normalização de
+  `data-pre-plain-text` é explícita no adapter (antes,
+  `Element.prototype.getAttribute`) e a ação "Analisar" é do Core, com
+  delegação no próprio painel (antes, `EventTarget.prototype.addEventListener`);
+- `companion-reasoning-view.js` não sobrescreve mais o global da view: o
+  bootstrap compõe `enhanceSellerInformationView(base)`;
+- nenhum nó sintético é escrito no DOM do WhatsApp (Q6 decidida, §31);
+- permanecem, fora do Core: a interceptação de `innerHTML` na INSTÂNCIA do
+  próprio painel da Yolen (`panel-stability-runtime.js`,
+  `editable-field-stability-runtime.js`; não é protótipo nem DOM da
+  plataforma) e o hook de `HTMLMediaElement.prototype.play` no page world
+  (`whatsapp-audio-bridge.js`), mecanismo de captura de áudio do adapter
+  WhatsApp, sem papel de composição do Core.
 
 ---
 
@@ -1422,7 +1455,7 @@ outra fase (ex.: "Q4 ainda está UNKNOWN" **não** bloqueia a FASE 3).
 | **Q3** | Campos autorizados do `DomainResolutionViewModel` | **DECIDED — FASE 4B.4:** mesma allowlist sanitizada em WhatsApp e ManyChat; `lead_display.name`, `ownership_display.owner_name` e `cycle.status` são nullable/omitíveis conforme autorização server-side; sem raw phone, lead_id ou payload bruto | Implementação do contrato de resolução sanitizado na **FASE 4** | Não |
 | **Q4** | Capabilities ManyChat UNKNOWN (display name confiável, interceptação de envio, pedir detalhes de contato, grupo/self, deleção/edição, última mensagem enviada) | SCHEDULED | Resolvida **por evidência técnica** na **FASE 6** (ManyChatAdapter); não inventar antes | Não |
 | **Q5** | Política de escrita de `address` no enrichment | **DECIDED** (FASE 2.1) — DECIDED / OUT OF SCOPE FOR WRITE: `address` detectável como contexto, não confirmável/gravável; 7 campos graváveis preservados (§19.1) | — | Não |
-| **Q6** | Alternativa à escrita sintética no DOM do WhatsApp para mensagens de anexo (`phase16-9-runtime-guard.js`) | SCHEDULED | Conclusão da **FASE 5** (WhatsAppAdapter sobre o Core) | Não |
+| **Q6** | Alternativa à escrita sintética no DOM do WhatsApp para mensagens de anexo (`phase16-9-runtime-guard.js`) | **DECIDED — FASE 5:** normalização EM MEMÓRIA no WhatsAppAdapter. `message-mutations.js` descreve o anexo sem escrever no DOM (`describeAttachmentEvidence`, `describeBubbleAttachmentEvidence`, `describeAttachmentOnlyBubble`); o adapter produz "legenda + `[Arquivo: nome]`" para mensagens canônicas (inclusive cartão fora do escopo ancestral, dentro da mesma bolha segura) e transforma bolhas só de anexo (sem `data-pre-plain-text`) em mensagens com identidade `data-id`, data dos vizinhos cronológicos (divergência = não captura) e horário/arquivo do cartão (exige marcador de documento ou metadata). `phase16-9-runtime-guard.js` e o fallback de `companion-reasoning-view.js` foram removidos | — | Não |
 
 ---
 
@@ -1451,3 +1484,15 @@ A reconstrução cumpre este contrato quando:
 10. Resolução sem telefone confiável funciona por identidade externa
     segura (§10.4 caso A) e criação de lead exige `trustedPhone` em todos
     os canais (§11.1).
+
+---
+
+## 33. Regra operacional de execução de fases (FASE 5)
+
+Uma instrução autoriza iniciar e terminar a fase inteira. Checkpoints
+técnicos de ~6 arquivos de produção ou ~500 linhas líquidas são pontos
+internos de teste, revisão e commit — não são fases, entregas parciais nem
+pausas para aprovação, e não recebem sufixos (4.1, 4B.5K, 5A…). Um
+bloqueio real só interrompe a fase depois de concluído tudo o que é
+independente dele, com o estado recuperável e a única ação externa
+necessária declarada.

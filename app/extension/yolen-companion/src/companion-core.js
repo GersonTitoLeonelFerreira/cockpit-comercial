@@ -20,8 +20,6 @@ function createCompanionCore(ctx) {
   // plataforma diretamente.
   const {
     IDENTITY_BRIDGE_RESPONSE_TIMEOUT_MS,
-    activeChatEpoch,
-    bridgeConfirmedGroupContext,
     cachedPhoneEpochByConversationKey,
     cachedPhonesByConversationKey,
     cachedPhonesByLookupIdentity,
@@ -46,10 +44,8 @@ function createCompanionCore(ctx) {
     isBridgeConfirmedGroupContextAmbiguous,
     isBridgeConfirmedGroupForConversation,
     isBridgeResolvedContactAuthorizedForConversation,
-    isComposerEnterTarget,
     isGroupConversationHeader,
     isSelfConversationTitle,
-    isWhatsAppSendButtonTarget,
     nonGroupClassifiedEpochByConversationKey,
     readVisibleMessageEntries,
     refreshActiveChatEpoch,
@@ -1320,20 +1316,6 @@ function createCompanionCore(ctx) {
 
   function onlyDigits(value) {
     return String(value || '').replace(/\D/g, '')
-  }
-
-  function isLikelyPhone(value) {
-    const digits = onlyDigits(value)
-
-    if (digits.length < 10 || digits.length > 13) {
-      return false
-    }
-
-    if (/^(\d)\1+$/.test(digits)) {
-      return false
-    }
-
-    return true
   }
 
   // Fonte mais forte que o fallback passivo por JID de DOM (que só vê
@@ -5197,24 +5179,14 @@ function createCompanionCore(ctx) {
 
     globalThis[observerKey] = true
 
-    document.addEventListener(
-      'input',
-      (event) => {
-        if (
-          !isComposerEnterTarget(
-            event.target,
-          )
-        ) {
-          return
-        }
-
+    // Evento de canal (ChannelAdapter): rascunho digitado no campo de
+    // mensagem da plataforma.
+    channelAdapter.onComposerDraftInput(
+      (draftText) => {
         updatePreSendAssessmentFromDraft(
-          event.target
-            ?.textContent ||
-          '',
+          draftText,
         )
       },
-      true,
     )
   }
 
@@ -9862,17 +9834,11 @@ function createCompanionCore(ctx) {
 
     globalThis[observerKey] = true
 
-    window.addEventListener(
-      'click',
+    // Evento de canal (ChannelAdapter): tentativa de envio manual pela
+    // plataforma (botão enviar ou Enter no campo de mensagem). A decisão
+    // de interceptar (gate pré-envio) e o registro são do Core.
+    channelAdapter.onSendAttempt(
       (event) => {
-        if (
-          !isWhatsAppSendButtonTarget(
-            event.target,
-          )
-        ) {
-          return
-        }
-
         if (
           interceptPreSendAttempt(
             event,
@@ -9883,38 +9849,6 @@ function createCompanionCore(ctx) {
 
         scheduleManualSendRegistration()
       },
-      true,
-    )
-
-    window.addEventListener(
-      'keydown',
-      (event) => {
-        if (
-          event.key !== 'Enter' ||
-          event.shiftKey ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.metaKey ||
-          event.isComposing ||
-          event.keyCode === 229 ||
-          !isComposerEnterTarget(
-            event.target,
-          )
-        ) {
-          return
-        }
-
-        if (
-          interceptPreSendAttempt(
-            event,
-          )
-        ) {
-          return
-        }
-
-        scheduleManualSendRegistration()
-      },
-      true,
     )
   }
   function reviewCurrentPreSendDraft() {
@@ -10551,29 +10485,9 @@ function createCompanionCore(ctx) {
   }
 
   function observeWhatsAppChanges() {
-    const observedRoot =
-      document.body ||
-      document.documentElement
-
-    const observer = new MutationObserver((mutations) => {
-      const hasRelevantMutation = mutations.some((mutation) => {
-        const target = mutation.target
-
-        const targetElement =
-          target instanceof Element
-            ? target
-            : target.parentElement
-
-        if (!targetElement) {
-          return false
-        }
-
-        return !targetElement.closest(`#${PANEL_ID}`)
-      })
-
-      if (!hasRelevantMutation) {
-        return
-      }
+    // Evento de canal (ChannelAdapter): a página da plataforma mudou fora
+    // do painel da Yolen. O Core decide o que reler e quando.
+    channelAdapter.observeHostChanges(() => {
 
       // Antes de QUALQUER gate (debounce, lookup em voo): uma troca
       // estrutural real (#main/header remontados) precisa ser detectada
@@ -10665,17 +10579,6 @@ function createCompanionCore(ctx) {
 
         processObservedWhatsAppChange()
       }, 600)
-    })
-
-    observer.observe(observedRoot, {
-      attributes: true,
-      attributeFilter: [
-        'aria-selected',
-        'data-id',
-      ],
-      childList: true,
-      subtree: true,
-      characterData: true,
     })
   }
 

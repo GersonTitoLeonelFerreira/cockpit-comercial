@@ -3406,7 +3406,117 @@ function createWhatsAppAdapter({
       }
     })
   }
+
+  // Eventos de canal emitidos ao Core (FASE 5): o adapter é quem escuta o
+  // documento da plataforma; o Core recebe só o evento normalizado.
+  function observeHostChanges(onChange) {
+    const observedRoot =
+      document.body ||
+      document.documentElement
+
+    const observer = new MutationObserver((mutations) => {
+      const hasRelevantMutation = mutations.some((mutation) => {
+        const target = mutation.target
+
+        const targetElement =
+          target instanceof Element
+            ? target
+            : target.parentElement
+
+        if (!targetElement) {
+          return false
+        }
+
+        return !targetElement.closest(`#${PANEL_ID}`)
+      })
+
+      if (!hasRelevantMutation) {
+        return
+      }
+
+      onChange()
+    })
+
+    observer.observe(observedRoot, {
+      attributes: true,
+      attributeFilter: [
+        'aria-selected',
+        'data-id',
+      ],
+      childList: true,
+      subtree: true,
+      characterData: true,
+    })
+
+    return observer
+  }
+
+  function onComposerDraftInput(onDraft) {
+    document.addEventListener(
+      'input',
+      (event) => {
+        if (
+          !isComposerEnterTarget(
+            event.target,
+          )
+        ) {
+          return
+        }
+
+        onDraft(
+          event.target
+            ?.textContent ||
+          '',
+        )
+      },
+      true,
+    )
+  }
+
+  function onSendAttempt(onAttempt) {
+    window.addEventListener(
+      'click',
+      (event) => {
+        if (
+          !isWhatsAppSendButtonTarget(
+            event.target,
+          )
+        ) {
+          return
+        }
+
+        onAttempt(event)
+      },
+      true,
+    )
+
+    window.addEventListener(
+      'keydown',
+      (event) => {
+        if (
+          event.key !== 'Enter' ||
+          event.shiftKey ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.isComposing ||
+          event.keyCode === 229 ||
+          !isComposerEnterTarget(
+            event.target,
+          )
+        ) {
+          return
+        }
+
+        onAttempt(event)
+      },
+      true,
+    )
+  }
   return {
+    observeHostChanges,
+    onComposerDraftInput,
+    onSendAttempt,
     listenToAudioBridge,
     recordBridgeConfirmedGroupContext,
     recordBridgeResolvedContactContext,
@@ -3457,8 +3567,6 @@ function createWhatsAppAdapter({
     getWhatsAppComposer,
     writeTextInComposer,
     getComposerText,
-    isWhatsAppSendButtonTarget,
-    isComposerEnterTarget,
     getLatestOutgoingVisibleMessageText,
     getWhatsAppSendButton,
   }

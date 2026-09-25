@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
+import {
+  readWhatsAppCompositionSource,
+  sliceCoreWithChannelEvent,
+} from './support/whatsapp-composition-source.mjs'
 
 const contentScript = readWhatsAppCompositionSource()
 
@@ -144,9 +147,14 @@ test('Shift Enter e modificadores permanecem fora do gate', () => {
 
   assert.ok(observerStart >= 0)
 
-  const observer = contentScript.slice(
-    observerStart,
-    observerStart + 1800,
+  // FASE 5: os listeners de envio vivem no adapter (onSendAttempt).
+  const observer = sliceCoreWithChannelEvent(
+    contentScript,
+    contentScript.slice(
+      observerStart,
+      observerStart + 1800,
+    ),
+    'function onSendAttempt(',
   )
 
   assert.match(observer, /event\.shiftKey/)

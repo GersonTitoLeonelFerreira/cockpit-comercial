@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
+import {
+  readWhatsAppCompositionSource,
+  sliceCoreWithChannelEvent,
+} from './support/whatsapp-composition-source.mjs'
 
 const contentScript =
   readWhatsAppCompositionSource()
@@ -80,9 +83,15 @@ test(
   'observer continua vivo quando o WhatsApp substitui o app interno',
   () => {
     const block =
-      getBlock(
-        'function observeWhatsAppChanges()',
-        'observeWhatsAppChanges.timeoutId = 0',
+      // FASE 5: o MutationObserver do documento da plataforma vive no
+      // adapter (observeHostChanges); o Core só reage ao evento de canal.
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeWhatsAppChanges()',
+          'observeWhatsAppChanges.timeoutId = 0',
+        ),
+        'function observeHostChanges(',
       )
 
     assert.match(
@@ -101,9 +110,15 @@ test(
   'mutações do próprio painel continuam ignoradas',
   () => {
     const block =
-      getBlock(
-        'function observeWhatsAppChanges()',
-        'observeWhatsAppChanges.timeoutId = 0',
+      // FASE 5: o MutationObserver do documento da plataforma vive no
+      // adapter (observeHostChanges); o Core só reage ao evento de canal.
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeWhatsAppChanges()',
+          'observeWhatsAppChanges.timeoutId = 0',
+        ),
+        'function observeHostChanges(',
       )
 
     assert.match(

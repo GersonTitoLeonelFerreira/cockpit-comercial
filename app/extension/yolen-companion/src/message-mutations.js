@@ -414,59 +414,6 @@
     return messageNodes
   }
 
-  function findUniqueAttachmentMessageNode(
-    node,
-  ) {
-    if (!node || node.nodeType !== 1) {
-      return null
-    }
-
-    const directOwner =
-      node.closest?.(
-        ATTACHMENT_MESSAGE_SELECTOR,
-      )
-
-    if (directOwner) {
-      return directOwner
-    }
-
-    let current = node
-
-    for (
-      let depth = 0;
-      current &&
-      depth <=
-        MAX_ATTACHMENT_SCOPE_ANCESTOR_DEPTH;
-      depth += 1
-    ) {
-      if (
-        depth > 0 &&
-        current.matches?.(
-          ATTACHMENT_SCOPE_BOUNDARY_SELECTOR,
-        )
-      ) {
-        return null
-      }
-
-      const messageNodes =
-        collectAttachmentMessageNodes(
-          current,
-        )
-
-      if (messageNodes.length === 1) {
-        return messageNodes[0]
-      }
-
-      if (messageNodes.length > 1) {
-        return null
-      }
-
-      current = current.parentElement
-    }
-
-    return null
-  }
-
   function findAttachmentScopeForMessage(
     messageNode,
   ) {

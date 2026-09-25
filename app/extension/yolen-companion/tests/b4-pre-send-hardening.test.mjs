@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
+import {
+  readWhatsAppCompositionSource,
+  sliceCoreWithChannelEvent,
+} from './support/whatsapp-composition-source.mjs'
 
 const contentScript = readWhatsAppCompositionSource()
 
@@ -69,9 +72,14 @@ test(
   'listener de envio é instalado uma única vez',
   () => {
     const block =
-      getBlock(
-        'function observeManualWhatsAppSend',
-        'function reviewCurrentPreSendDraft',
+      // FASE 5: listeners de envio vivem no adapter (onSendAttempt).
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeManualWhatsAppSend',
+          'function reviewCurrentPreSendDraft',
+        ),
+        'function onSendAttempt(',
       )
 
     assert.match(
@@ -100,9 +108,14 @@ test(
   'Enter durante composição IME não entra no gate',
   () => {
     const block =
-      getBlock(
-        'function observeManualWhatsAppSend',
-        'function reviewCurrentPreSendDraft',
+      // FASE 5: listeners de envio vivem no adapter (onSendAttempt).
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeManualWhatsAppSend',
+          'function reviewCurrentPreSendDraft',
+        ),
+        'function onSendAttempt(',
       )
 
     assert.match(
@@ -121,9 +134,14 @@ test(
   'Shift Enter e modificadores continuam fora do gate',
   () => {
     const block =
-      getBlock(
-        'function observeManualWhatsAppSend',
-        'function reviewCurrentPreSendDraft',
+      // FASE 5: listeners de envio vivem no adapter (onSendAttempt).
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeManualWhatsAppSend',
+          'function reviewCurrentPreSendDraft',
+        ),
+        'function onSendAttempt(',
       )
 
     assert.match(block, /event\.shiftKey/)
