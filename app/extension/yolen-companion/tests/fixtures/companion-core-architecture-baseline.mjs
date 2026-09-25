@@ -228,14 +228,6 @@ export const LEGACY_ARCHITECTURE_BASELINE = Object.freeze([
     removalPhase: '5',
   }),
   entry({
-    id: 'A11:content-script:monolithic-core-platform-runtime',
-    gate: 'A11',
-    file: 'src/content-script.js',
-    symbol: 'monolithic-core-platform-runtime',
-    reason: 'Monólito WhatsApp com plataforma (#main, bridges, DOM) + Core seller-facing (SELLER_AREAS, lead creation, áreas).',
-    removalPhase: '5',
-  }),
-  entry({
     id: 'A11:seller-message-runtime:mixed-core-platform-runtime',
     gate: 'A11',
     file: 'src/seller-message-runtime.js',

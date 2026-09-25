@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const require = createRequire(import.meta.url)
 const MODULE_PATH = fileURLToPath(
@@ -24,10 +25,7 @@ const EXTENSION_ROOT = fileURLToPath(
 )
 
 const contentScriptSource =
-  readFileSync(
-    `${EXTENSION_ROOT}src/content-script.js`,
-    'utf8',
-  )
+  readWhatsAppCompositionSource()
 
 const manifest =
   JSON.parse(
@@ -940,9 +938,11 @@ test('eligibility de análise e aplicação usa resolução canônica', () => {
       'function canAnalyzeCurrentConversation()',
     )
 
+  // FASE 5: canAnalyzeCurrentConversation vive no controller de análise;
+  // o bloco termina no fechamento da própria função.
   const analyzeEnd =
     contentScriptSource.indexOf(
-      'function isOpenSuggestionStatus(',
+      '\n  }\n',
       analyzeStart,
     )
 

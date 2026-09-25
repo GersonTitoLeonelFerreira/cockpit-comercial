@@ -40,6 +40,9 @@ const DEPENDENCY_FILES = [
   'companion-conversation-boundary.js',
   'companion-lead-resolution-controller.js',
   'companion-workspace-runtime.js',
+  'whatsapp-adapter.js',
+  'companion-analysis-controller.js',
+  'companion-core.js',
 ]
 
 export function escapeHtml(value) {

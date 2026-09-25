@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const api = readFileSync(
   new URL('../src/yolen-api.js', import.meta.url),
@@ -12,10 +13,7 @@ const background = readFileSync(
   'utf8',
 )
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 test('telemetria C1 passa pela API e background autenticado da extensão', () => {
   assert.match(

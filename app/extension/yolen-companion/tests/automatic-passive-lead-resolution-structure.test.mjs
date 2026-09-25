@@ -12,11 +12,9 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 function blockBetween(startMarker, endMarker, fromIndex = 0) {
   const start = contentScript.indexOf(startMarker, fromIndex)
@@ -183,7 +181,7 @@ test('não há nova navegação sintética em lugar nenhum do arquivo: nenhuma f
     blockBetween('function extractPhoneFromJid(', 'function isProfileOrContactPanelText(') +
     blockBetween('function getSelectedChatDataId(', 'function getSelectedChatStableIdentity(') +
     blockBetween('function collectPhoneJidCandidatesInMain(', 'function resolvePassivePhoneForConversation(') +
-    blockBetween('function resolvePassivePhoneForConversation(', 'function getVisibleMessagesCount(')
+    blockBetween('function resolvePassivePhoneForConversation(', 'function isVisibleDomElement(')
 
   assert.doesNotMatch(newFunctionsBlock, /\.click\(/)
   assert.doesNotMatch(newFunctionsBlock, /dispatchEvent/)

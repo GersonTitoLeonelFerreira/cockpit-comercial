@@ -2,10 +2,11 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const require = createRequire(import.meta.url)
 const sellerView = require('../src/companion-seller-information-view.js')
-const contentScript = readFileSync(new URL('../src/content-script.js', import.meta.url), 'utf8')
+const contentScript = readWhatsAppCompositionSource()
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
 function fact(summary) {

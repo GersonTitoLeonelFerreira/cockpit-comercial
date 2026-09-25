@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const [contentScript, summaryView, sellerRuntime, styles] = await Promise.all([
-  readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
+  Promise.resolve(readWhatsAppCompositionSource()),
   readFile('app/extension/yolen-companion/src/companion-lead-summary-view.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/seller-message-runtime.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/styles.css', 'utf8'),

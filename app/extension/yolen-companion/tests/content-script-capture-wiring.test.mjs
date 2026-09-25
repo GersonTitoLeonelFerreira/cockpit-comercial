@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  sliceMessageLedgerSynchronization,
+} from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL(
-    '../src/content-script.js',
-    import.meta.url,
-  ),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 test('funções de ingestão permanecem no escopo principal do content script', () => {
   const structuredMessagesIndex =
@@ -162,10 +160,10 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
     )
 
     const synchronizeBlock =
-      contentScript.slice(
-        synchronizeStart,
-        synchronizeEnd,
-      )
+      sliceMessageLedgerSynchronization(
+      contentScript,
+      contentScript.slice(synchronizeStart, synchronizeEnd),
+    )
 
     assert.match(
       synchronizeBlock,
@@ -240,10 +238,10 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
       )
 
     const synchronizeBlock =
-      contentScript.slice(
-        synchronizeStart,
-        synchronizeEnd,
-      )
+      sliceMessageLedgerSynchronization(
+      contentScript,
+      contentScript.slice(synchronizeStart, synchronizeEnd),
+    )
 
     assert.match(
       synchronizeBlock,
@@ -1038,9 +1036,9 @@ test('Blocker 2 (re-auditoria): desaparecimento do DOM nunca gera mutação de m
   )
 
   const synchronizeBlock =
-    contentScript.slice(
-      synchronizeStart,
-      synchronizeEnd,
+    sliceMessageLedgerSynchronization(
+      contentScript,
+      contentScript.slice(synchronizeStart, synchronizeEnd),
     )
 
   // A heurística de "desaparecimento seguro" foi removida por completo:

@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const require = createRequire(import.meta.url)
 const EXTENSION_ROOT = fileURLToPath(new URL('../', import.meta.url))
@@ -20,7 +21,7 @@ const MODULE_PATH = `${EXTENSION_ROOT}src/companion-conversation-boundary.js`
 const { createConversationBoundary } = require(MODULE_PATH)
 
 const moduleSource = readFileSync(MODULE_PATH, 'utf8')
-const contentScript = readFileSync(`${EXTENSION_ROOT}src/content-script.js`, 'utf8')
+const contentScript = readWhatsAppCompositionSource()
 const manifest = JSON.parse(readFileSync(`${EXTENSION_ROOT}manifest.json`, 'utf8'))
 const buildScript = readFileSync(`${EXTENSION_ROOT}scripts/build-package.mjs`, 'utf8')
 const harness = readFileSync(`${EXTENSION_ROOT}tests/e3-test-support/load-content-script.mjs`, 'utf8')

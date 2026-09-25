@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 test('seller-message composer is explicitly synchronized after lead summary becomes ready', async () => {
-  const contentScript = await readFile(
-    'app/extension/yolen-companion/src/content-script.js',
-    'utf8',
-  )
+  const contentScript = await Promise.resolve(readWhatsAppCompositionSource())
 
   assert.match(
     contentScript,
@@ -24,10 +22,7 @@ test('seller-message runtime exposes syncContext and clears on conversation swit
       'app/extension/yolen-companion/src/seller-message-runtime.js',
       'utf8',
     ),
-    readFile(
-      'app/extension/yolen-companion/src/content-script.js',
-      'utf8',
-    ),
+    Promise.resolve(readWhatsAppCompositionSource()),
   ])
 
   assert.match(runtime, /function syncContext\(payload, data\)/)

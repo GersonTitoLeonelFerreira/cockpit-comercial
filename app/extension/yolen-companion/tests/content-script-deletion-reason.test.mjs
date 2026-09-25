@@ -23,11 +23,12 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  sliceMessageLedgerSynchronization,
+} from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 test('buildDeletedMessageSnapshotFromNode sempre marca deletionReason como explicit_deletion', () => {
   const functionStart = contentScript.indexOf(
@@ -62,8 +63,11 @@ test('buildDeletedMessageSnapshotFromNode sempre marca deletionReason como expli
 })
 
 test('reaproveitar snapshot já existente durante detecção de marcador explícito faz upgrade para explicit_deletion', () => {
+  // FASE 5: o marcador explícito do WhatsApp (isDeletedMessageNode) é lido
+  // pelo adapter, que entrega a entrada com deleted: true; o ramo que
+  // decide o snapshot fica no Core (if (entry.deleted)).
   const guardIndex = contentScript.indexOf(
-    'if (isDeletedMessageNode(node)) {',
+    'if (entry.deleted) {',
   )
 
   assert.notEqual(guardIndex, -1)
@@ -113,10 +117,10 @@ test('desaparecimento do DOM (teste B/C do Controle Mestre): mensagem que some d
 
   assert.notEqual(synchronizeEnd, -1)
 
-  const synchronizeBlock = contentScript.slice(
-    synchronizeStart,
-    synchronizeEnd,
-  )
+  const synchronizeBlock = sliceMessageLedgerSynchronization(
+      contentScript,
+      contentScript.slice(synchronizeStart, synchronizeEnd),
+    )
 
   // O único ramo que remove uma mensagem de conversationMessageLedger
   // dentro desta função é o de marcador explícito de exclusão
@@ -135,8 +139,15 @@ test('desaparecimento do DOM (teste B/C do Controle Mestre): mensagem que some d
     'conversationMessageLedger.delete só pode ser chamado uma vez, dentro do ramo de marcador explícito de exclusão',
   )
 
+  // FASE 5: o adapter traduz o marcador explícito do WhatsApp em
+  // deleted: true; o Core só remove do ledger dentro de if (entry.deleted).
+  assert.match(
+    synchronizeBlock,
+    /if \(isDeletedMessageNode\(node\)\) \{\s*entries\.push\(\{\s*messageId,\s*deleted: true,/,
+  )
+
   const explicitBranchStart = synchronizeBlock.indexOf(
-    'if (isDeletedMessageNode(node)) {',
+    'if (entry.deleted) {',
   )
 
   const onlyDeleteCallIndex = synchronizeBlock.indexOf(
@@ -235,10 +246,10 @@ test('(E) mensagem explicitamente deletada que reaparece: restore continua funci
     synchronizeStart,
   )
 
-  const synchronizeBlock = contentScript.slice(
-    synchronizeStart,
-    synchronizeEnd,
-  )
+  const synchronizeBlock = sliceMessageLedgerSynchronization(
+      contentScript,
+      contentScript.slice(synchronizeStart, synchronizeEnd),
+    )
 
   // Quando um node com o MESMO id volta a aparecer sem o marcador de
   // exclusão (isDeletedMessageNode(node) === false), o ramo normal

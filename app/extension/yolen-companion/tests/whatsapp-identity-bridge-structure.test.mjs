@@ -16,16 +16,14 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const bridgeSource = readFileSync(
   new URL('../src/whatsapp-identity-bridge.js', import.meta.url),
   'utf8',
 )
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 const manifest = JSON.parse(
   readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'),
@@ -141,7 +139,9 @@ test('BRIDGE_READY é só diagnóstico: requestActiveChatIdentity/tryResolveViaI
   const requestBlock = blockBetween(
     contentScript,
     'function requestActiveChatIdentity(',
-    'function onlyDigits(',
+    // FASE 5: o bloco agora vive no WhatsAppAdapter; a função seguinte ali
+    // é extractPhoneFromText (onlyDigits ficou no topo do adapter).
+    'function extractPhoneFromText(',
   )
 
   assert.doesNotMatch(requestBlock, /identityBridgeInstalled/)
@@ -180,7 +180,9 @@ test('content-script: pedido de identidade é request/response único (sem polli
   const requestBlock = blockBetween(
     contentScript,
     'function requestActiveChatIdentity(',
-    'function onlyDigits(',
+    // FASE 5: o bloco agora vive no WhatsAppAdapter; a função seguinte ali
+    // é extractPhoneFromText (onlyDigits ficou no topo do adapter).
+    'function extractPhoneFromText(',
   )
 
   assert.match(requestBlock, /window\.postMessage\(/)
@@ -243,7 +245,9 @@ test('P) integração do bridge não introduz click/Escape/navegação/observer 
   const block = blockBetween(
     contentScript,
     'function listenToWhatsAppIdentityBridge()',
-    'function onlyDigits(',
+    // FASE 5: listener + request vivem no WhatsAppAdapter, seguidos de
+    // extractPhoneFromText.
+    'function extractPhoneFromText(',
   )
 
   assert.doesNotMatch(block, /\.click\(/)
