@@ -500,9 +500,10 @@ test('controller está composto antes do content-script no runtime real', () => 
     /YolenCompanionLeadResolutionController/,
   )
 
+  // FASE 5/6: a exigência do módulo é do bootstrap compartilhado.
   assert.match(
     contentScriptSource,
-    /if\s*\(\s*!leadResolutionController\s*\)/,
+    /leadResolutionController = requireModule\(\s*scope\.YolenCompanionLeadResolutionController,/,
   )
 
   const whatsappEntry =

@@ -271,20 +271,33 @@ test('P) integração do bridge não introduz click/Escape/navegação/observer 
 })
 
 test('start() só escuta o bridge de identidade — não injeta mais nada para ele (o MAIN world já carrega via manifest)', () => {
+  // FASE 5/6: start() é do bootstrap compartilhado; a mecânica física do
+  // WhatsApp (bridges) é o startPlatform() do adapter, chamado depois de o
+  // Core começar a escutar o áudio do canal.
   const startBlock = blockBetween(
     contentScript,
     'async function start()',
-    '\n  start()',
+    '\n      return true\n    }',
   )
 
   const audioListenIndex = startBlock.indexOf('listenToChannelAudio()')
-  const audioInjectIndex = startBlock.indexOf('injectWhatsAppAudioBridge()')
-  const identityListenIndex = startBlock.indexOf('listenToWhatsAppIdentityBridge()')
+  const platformStartIndex = startBlock.indexOf('channelAdapter.startPlatform()')
 
   assert.ok(audioListenIndex >= 0)
-  assert.ok(audioInjectIndex > audioListenIndex)
+  assert.ok(platformStartIndex > audioListenIndex)
+
+  const platformBlock = blockBetween(
+    contentScript,
+    'startPlatform() {',
+    '\n    },',
+  )
+
+  const audioInjectIndex = platformBlock.indexOf('injectWhatsAppAudioBridge()')
+  const identityListenIndex = platformBlock.indexOf('listenToWhatsAppIdentityBridge()')
+
+  assert.ok(audioInjectIndex >= 0)
   assert.ok(identityListenIndex > audioInjectIndex)
-  assert.doesNotMatch(startBlock, /injectWhatsAppIdentityBridge/)
+  assert.doesNotMatch(startBlock + platformBlock, /injectWhatsAppIdentityBridge/)
 })
 
 test('commits de fallback (b84d300/6c0b9cb) não foram removidos: resolvePassivePhoneForConversation e a allowlist de JID continuam presentes', () => {

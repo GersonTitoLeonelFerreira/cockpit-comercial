@@ -57,7 +57,7 @@ test(
 
     const loadIndex =
       contentScript.indexOf(
-        'await loadPanelCollapsedPreference()',
+        'await companionCore.loadPanelCollapsedPreference()',
         startIndex,
       )
 

@@ -51,20 +51,28 @@ test(
       /__yolenCompanionRuntimeStarted/,
     )
 
+    // FASE 5/6: start() vive no bootstrap compartilhado
+    // (companion-bootstrap.js); o singleton continua no escopo global da
+    // aba (scope = globalThis).
     const startBlock =
       getBlock(
         'async function start()',
-        '\n  start()\n})()',
+        '\n      return true\n    }',
       )
 
     assert.match(
       startBlock,
-      /globalThis\[RUNTIME_STARTED_KEY\] ===[\s\S]*true/,
+      /scope\[RUNTIME_STARTED_KEY\] === true/,
     )
 
     assert.match(
       startBlock,
-      /globalThis\[RUNTIME_STARTED_KEY\] = true/,
+      /scope\[RUNTIME_STARTED_KEY\] = true/,
+    )
+
+    assert.match(
+      contentScript,
+      /scope = root,[\s\S]*typeof globalThis !== 'undefined'\s*\? globalThis/,
     )
   },
 )
@@ -307,7 +315,7 @@ test(
     const startBlock =
       getBlock(
         'async function start()',
-        '\n  start()\n})()',
+        '\n      return true\n    }',
       )
 
     const recoveryPosition =

@@ -3684,7 +3684,7 @@ function createWhatsAppAdapter({
     onBridgeReady,
     onAudioCaptured,
   } = {}) {
-    window.addEventListener('message', (event) => {
+    const handleAudioBridgeMessage = (event) => {
       if (event.source !== window) {
         return
       }
@@ -3711,7 +3711,13 @@ function createWhatsAppAdapter({
           capturedCount: capturedAudioBlobEntries.length,
         })
       }
-    })
+    }
+
+    window.addEventListener('message', handleAudioBridgeMessage)
+
+    return function unsubscribeAudioBridge() {
+      window.removeEventListener('message', handleAudioBridgeMessage)
+    }
   }
 
   // Eventos de canal emitidos ao Core (FASE 5): o adapter é quem escuta o
@@ -3772,29 +3778,42 @@ function createWhatsAppAdapter({
       characterData: true,
     })
 
-    return observer
+    // Cancelamento da inscrição (o MutationObserver nunca sai do adapter).
+    return function unsubscribeHostChanges() {
+      observer.disconnect()
+    }
   }
 
   function onComposerDraftInput(onDraft) {
+    const handleDraftInput = (event) => {
+      if (
+        !isComposerEnterTarget(
+          event.target,
+        )
+      ) {
+        return
+      }
+
+      onDraft(
+        event.target
+          ?.textContent ||
+        '',
+      )
+    }
+
     document.addEventListener(
       'input',
-      (event) => {
-        if (
-          !isComposerEnterTarget(
-            event.target,
-          )
-        ) {
-          return
-        }
-
-        onDraft(
-          event.target
-            ?.textContent ||
-          '',
-        )
-      },
+      handleDraftInput,
       true,
     )
+
+    return function unsubscribeComposerDraftInput() {
+      document.removeEventListener(
+        'input',
+        handleDraftInput,
+        true,
+      )
+    }
   }
 
   // Contrato §7.2 interceptSendAttempt: a detecção física (clique no botão
@@ -4580,6 +4599,13 @@ function createWhatsAppAdapter({
     }),
     getCapabilities,
     getMountPoint,
+    // Ciclo de vida do canal (bootstrap compartilhado): plataforma pronta e
+    // mecânica física própria (bridges do page world).
+    whenReady: waitForWhatsAppApp,
+    startPlatform() {
+      injectWhatsAppAudioBridge()
+      listenToWhatsAppIdentityBridge()
+    },
     acquireContactEvidence,
     forgetContactEvidence,
     getCurrentConversationKey,
