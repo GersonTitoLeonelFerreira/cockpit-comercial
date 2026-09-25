@@ -675,7 +675,28 @@ function installDefaultIdentityBridgeResponder(window) {
   })
 }
 
-export function loadContentScript({
+export function loadContentScript(options = {}) {
+  assertHarnessMatchesManifest()
+
+  return loadCompanionComposition({
+    ...options,
+    files: WHATSAPP_MANIFEST_FILES,
+    url: 'https://web.whatsapp.com/',
+    installIdentityBridgeResponder: true,
+  })
+}
+
+// FASE 5 — carregador genérico da composição do Companion (mesma sandbox
+// node:vm + jsdom e o mesmo transporte fake do background) para uma lista
+// explícita de módulos de produção. `loadContentScript` usa a composição
+// exata do manifest WhatsApp; o teste de independência do Core usa os
+// mesmos módulos compartilhados sem o WhatsAppAdapter nem o content script
+// do WhatsApp, e liga o Core a um adapter de contrato pelo bootstrap
+// compartilhado.
+export function loadCompanionComposition({
+  files,
+  url = 'https://companion.test/',
+  installIdentityBridgeResponder = false,
   initialHtml,
   resolutionsByPhone,
   clientContextResult,
@@ -695,10 +716,12 @@ export function loadContentScript({
   // ainda passados por testes antigos, não têm mais efeito: a composição
   // carregada é sempre a do manifest (FASE 5).
 } = {}) {
-  assertHarnessMatchesManifest()
+  const dom = new JSDOM(initialHtml, { url, pretendToBeVisual: true })
 
-  const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
-  installDefaultIdentityBridgeResponder(dom.window)
+  if (installIdentityBridgeResponder) {
+    installDefaultIdentityBridgeResponder(dom.window)
+  }
+
   const background = createFakeBackground({
     resolutionsByPhone,
     clientContextResult,
@@ -783,7 +806,7 @@ export function loadContentScript({
     }
   }
 
-  for (const file of WHATSAPP_MANIFEST_FILES) {
+  for (const file of files) {
     mirrorYolenGlobals()
     vm.runInContext(readSource(file), sandbox, { filename: file })
     mirrorYolenGlobals()
@@ -791,6 +814,7 @@ export function loadContentScript({
 
   return {
     dom,
+    sandbox,
     document: sandbox.document,
     window: sandbox.window,
     calls: background.calls,

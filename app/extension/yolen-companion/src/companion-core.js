@@ -101,8 +101,12 @@ function createCompanionCore(ctx) {
     globalThis
       .YolenCompanionMessageController
       .create({
-        insertIntoComposer:
-          insertTextIntoEmptyComposer,
+        // Capability do canal (§8): sem canApplyMessage, a MENSAGEM mostra
+        // o mesmo estado canônico de campo indisponível ("Use Copiar").
+        insertIntoComposer: (text, expected) =>
+          hasChannelCapability('canApplyMessage')
+            ? insertTextIntoEmptyComposer(text, expected)
+            : 'composer_unavailable',
         platformDisplayName,
         captureOperationContext: () =>
           captureOperationContext(),
