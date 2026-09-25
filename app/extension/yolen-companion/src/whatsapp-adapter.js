@@ -2181,7 +2181,7 @@ function createWhatsAppAdapter({
     ].join('::')
   }
 
-  function getVisibleAudioTargets() {
+  function collectVisibleAudioTargets() {
     const main = getMainConversationRoot()
 
     if (!main) {
@@ -2229,6 +2229,39 @@ function createWhatsAppAdapter({
     })
 
     return Array.from(detectedMessageContainers.values())
+  }
+
+  // Contrato §7 (getAudioSource): o Core recebe só handles opacos
+  // ({index, key, durationSeconds}); container/elemento de áudio do
+  // WhatsApp ficam aqui e são resolvidos de volta em getAudioBlobForTarget.
+  const audioTargetsByHandle = new WeakMap()
+
+  function getVisibleAudioTargets() {
+    return collectVisibleAudioTargets().map((target) => {
+      const handle = Object.freeze({
+        index: target.index,
+        key: target.key,
+        durationSeconds: target.durationSeconds,
+      })
+
+      audioTargetsByHandle.set(handle, target)
+
+      return handle
+    })
+  }
+
+  function resolveAudioTargetHandle(handle) {
+    if (!handle || typeof handle !== 'object') {
+      return null
+    }
+
+    return (
+      audioTargetsByHandle.get(handle) ||
+      collectVisibleAudioTargets().find(
+        (candidate) => candidate.key === handle.key,
+      ) ||
+      null
+    )
   }
 
   function isValidCapturedAudioBlobEntry(entry) {
@@ -2565,7 +2598,17 @@ function createWhatsAppAdapter({
     return null
   }
 
-  async function getAudioBlobForTarget(target) {
+  async function getAudioBlobForTarget(handle) {
+    const target = resolveAudioTargetHandle(handle)
+
+    if (!target) {
+      return {
+        blob: null,
+        capturedBlobId: null,
+        reason: 'audio_target_not_found',
+      }
+    }
+
     const audioSource = getAudioSourceFromTarget(target)
 
     if (audioSource.source) {
@@ -2657,13 +2700,12 @@ function createWhatsAppAdapter({
         }
       }
 
-      throw new Error(
-        `Não foi possível associar o arquivo ao áudio correto. Duração visível: ${
-          Number.isFinite(target.durationSeconds)
-            ? `${target.durationSeconds}s`
-            : 'não identificada'
-        }. O Companion não enviou nenhum arquivo para transcrição.`,
-      )
+      // Motivo técnico (§6); a copy para o vendedor é do Core.
+      return {
+        blob: null,
+        capturedBlobId: null,
+        reason: 'audio_source_unavailable',
+      }
     } finally {
       finishTargetedAudioCapture(requestId)
     }
@@ -3348,6 +3390,33 @@ function createWhatsAppAdapter({
     }
   }
 
+
+  // Contrato §7/§22: ponto de montagem do painel. No WhatsApp Web o painel
+  // é uma sobreposição fixa anexada ao body da página.
+  function getMountPoint() {
+    return document.body
+  }
+
+  // Contrato §8: matriz de capabilities do WhatsApp (SUPPORTED /
+  // CONDITIONAL). O Core consulta estas capabilities antes de oferecer a
+  // ação; o fluxo é o mesmo em qualquer canal que as tenha.
+  const WHATSAPP_CAPABILITIES = Object.freeze({
+    canProvideTrustedPhone: 'CONDITIONAL',
+    canProvideDisplayName: 'CONDITIONAL',
+    canReadMessages: 'SUPPORTED',
+    canObserveConversationChanges: 'SUPPORTED',
+    canApplyMessage: 'SUPPORTED',
+    canInterceptSend: 'SUPPORTED',
+    canReadAudio: 'SUPPORTED',
+    canRequestContactDetails: 'SUPPORTED',
+    canClassifyGroupOrSelf: 'SUPPORTED',
+    canDetectDeletedOrEdited: 'SUPPORTED',
+    canProvideMountPoint: 'SUPPORTED',
+  })
+
+  function getCapabilities() {
+    return WHATSAPP_CAPABILITIES
+  }
 
   // Escrita do texto sugerido pela aba MENSAGEM no campo de mensagem do
   // WhatsApp (FASE 5: mecânica de plataforma que antes vivia no runtime de
@@ -4355,6 +4424,8 @@ function createWhatsAppAdapter({
       id: 'whatsapp',
       displayName: 'WhatsApp',
     }),
+    getCapabilities,
+    getMountPoint,
     acquireContactEvidence,
     forgetContactEvidence,
     getCurrentConversationKey,

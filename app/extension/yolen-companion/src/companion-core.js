@@ -33,6 +33,19 @@ function createCompanionCore(ctx) {
   const platformDisplayName =
     channelAdapter.platform?.displayName || ''
 
+  // Capabilities do canal (contrato §8): SUPPORTED e CONDITIONAL
+  // habilitam a ação; ausência/UNSUPPORTED/UNKNOWN leva ao mesmo estado
+  // canônico de indisponibilidade em qualquer canal.
+  function hasChannelCapability(capability) {
+    const value =
+      channelAdapter.getCapabilities?.()?.[capability]
+
+    return (
+      value === 'SUPPORTED' ||
+      value === 'CONDITIONAL'
+    )
+  }
+
   let lastSessionUserId = null
 
   // Políticas de transporte compostas explicitamente (retry + cache de
@@ -54,6 +67,7 @@ function createCompanionCore(ctx) {
       .create({
         insertIntoComposer:
           insertTextIntoEmptyComposer,
+        platformDisplayName,
         getBaseUrl: () =>
           window.YolenCompanionApi
             ?.getBaseUrl
@@ -658,7 +672,8 @@ function createCompanionCore(ctx) {
       handleUnwiredAnalyzeActionClick,
     )
 
-    document.body.appendChild(panel)
+    // Ponto de montagem fornecido pelo canal (contrato §7/§22).
+    channelAdapter.getMountPoint().appendChild(panel)
 
     return panel
   }
@@ -1269,6 +1284,10 @@ function createCompanionCore(ctx) {
   // guarda dos blobs capturados são do ChannelAdapter (FASE 5). O Core só
   // reflete o status no painel.
   function listenToWhatsAppAudioBridge() {
+    if (!hasChannelCapability('canReadAudio')) {
+      return
+    }
+
     channelAdapter.listenToAudioBridge({
       onBridgeReady() {
         state = {
@@ -2778,6 +2797,17 @@ function createCompanionCore(ctx) {
 
     try {
       const audioCapture = await getAudioBlobForTarget(nextTarget)
+
+      if (!audioCapture?.blob) {
+        throw new Error(
+          `Não foi possível associar o arquivo ao áudio correto. Duração visível: ${
+            Number.isFinite(nextTarget.durationSeconds)
+              ? `${nextTarget.durationSeconds}s`
+              : 'não identificada'
+          }. O Companion não enviou nenhum arquivo para transcrição.`,
+        )
+      }
+
       const blob = audioCapture.blob
       const audioBase64 = await blobToBase64(blob)
 
@@ -2785,7 +2815,7 @@ function createCompanionCore(ctx) {
         cycle_id: cycleId,
         audio_base64: audioBase64,
         mime_type: blob.type || 'audio/webm',
-        file_name: `whatsapp-audio-${nextTarget.index + 1}.webm`,
+        file_name: `${channelAdapter.platform?.id || 'channel'}-audio-${nextTarget.index + 1}.webm`,
         audio_index: nextTarget.index,
         audio_target_key: nextTarget.key,
       })
@@ -2885,6 +2915,7 @@ function createCompanionCore(ctx) {
 
     if (
       !state.connected ||
+      !hasChannelCapability('canProvideTrustedPhone') ||
       state.isSelfConversation ||
       state.isGroupConversation ||
       state.conversationPhone
@@ -4551,7 +4582,10 @@ function createCompanionCore(ctx) {
     const observerKey =
       '__yolenCompanionPreSendDraftObserverInstalled'
 
-    if (globalThis[observerKey] === true) {
+    if (
+      globalThis[observerKey] === true ||
+      !hasChannelCapability('canInterceptSend')
+    ) {
       return
     }
 
@@ -5416,7 +5450,9 @@ function createCompanionCore(ctx) {
       `Não encontrei o campo de mensagem do ${platformDisplayName}. Copie e cole manualmente.`
 
     const composerState =
-      channelAdapter.getComposerState()
+      hasChannelCapability('canApplyMessage')
+        ? channelAdapter.getComposerState()
+        : { available: false }
 
     if (!composerState.available) {
       state = {
@@ -5719,7 +5755,7 @@ function createCompanionCore(ctx) {
             type="button"
             data-yolen-action="insert-suggested-message"
           >
-            Inserir no WhatsApp
+            Inserir no ${escapeHtml(platformDisplayName)}
           </button>
         `
         : ''
@@ -9174,7 +9210,10 @@ function createCompanionCore(ctx) {
     const observerKey =
       '__yolenCompanionManualSendObserverInstalled'
 
-    if (globalThis[observerKey] === true) {
+    if (
+      globalThis[observerKey] === true ||
+      !hasChannelCapability('canInterceptSend')
+    ) {
       return
     }
 
@@ -9974,7 +10013,7 @@ function createCompanionCore(ctx) {
       'pageshow',
       () => {
         scheduleRuntimeRecovery(
-          'WhatsApp retomado. A análise será atualizada em 8 segundos se a conversa mudou.',
+          `${platformDisplayName} retomado. A análise será atualizada em 8 segundos se a conversa mudou.`,
         )
       },
       true,

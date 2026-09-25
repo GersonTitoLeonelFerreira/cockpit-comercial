@@ -189,6 +189,7 @@ test(
     const html =
       view.renderReasoningMessagePreview(
         reasoning(),
+        { platformDisplayName: 'WhatsApp' },
       )
 
     assert.match(
@@ -203,5 +204,14 @@ test(
       html,
       /não envia automaticamente/,
     )
+
+    // FASE 5 (contrato §5): sem nome de canal, a copy não cita plataforma.
+    const neutralHtml =
+      view.renderReasoningMessagePreview(
+        reasoning(),
+      )
+
+    assert.doesNotMatch(neutralHtml, /WhatsApp/)
+    assert.match(neutralHtml, /Edite a mensagem antes de enviar/)
   },
 )

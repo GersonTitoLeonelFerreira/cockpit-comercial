@@ -124,6 +124,7 @@ function buildHarness() {
     sandbox.YolenCompanionMessageController.create({
       insertIntoComposer: () => 'composer_unavailable',
       getBaseUrl: () => api.getBaseUrl(),
+      platformDisplayName: 'WhatsApp',
     })
 
   return {

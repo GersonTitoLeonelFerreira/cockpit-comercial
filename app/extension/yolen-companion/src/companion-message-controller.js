@@ -11,6 +11,8 @@
 function createCompanionMessageController({
   insertIntoComposer,
   getBaseUrl,
+  // Nome de exibição do canal (contrato §5): só interpolado em copy.
+  platformDisplayName = '',
 } = {}) {
   const stateByContext = new Map()
   let currentContext = null
@@ -315,7 +317,7 @@ function createCompanionMessageController({
             '</div>',
             '</div>',
             '<div class="yolen-message-actions">',
-            '<button type="button" class="yolen-primary-button" data-yolen-seller-message-action="insert">Incluir no WhatsApp</button>',
+            '<button type="button" class="yolen-primary-button" data-yolen-seller-message-action="insert">Incluir no ' + escapeHtml(platformDisplayName) + '</button>',
             '<button type="button" class="yolen-secondary-button" data-yolen-seller-message-action="copy">Copiar</button>',
             '</div>',
             '<div class="yolen-message-footnote">A Yolen não envia mensagens automaticamente. Revise antes de enviar.</div>',
@@ -500,18 +502,18 @@ function createCompanionMessageController({
   // feedback seller-facing. Nunca envia: só preenche um campo vazio.
   const INSERT_FEEDBACK = Object.freeze({
     composer_unavailable:
-      'Não encontrei o campo de mensagem do WhatsApp. Use Copiar.',
+      `Não encontrei o campo de mensagem do ${platformDisplayName}. Use Copiar.`,
     composer_not_empty:
-      'O campo do WhatsApp já contém texto. Envie ou limpe o rascunho antes de incluir a sugestão.',
+      `O campo do ${platformDisplayName} já contém texto. Envie ou limpe o rascunho antes de incluir a sugestão.`,
     insert_failed:
       'Não foi possível incluir automaticamente. Use Copiar.',
     insert_unconfirmed:
       'Não foi possível confirmar a inserção. Use Copiar.',
     inserted:
-      'Mensagem incluída no WhatsApp. Revise antes de enviar.',
+      `Mensagem incluída no ${platformDisplayName}. Revise antes de enviar.`,
   })
 
-  function insertIntoWhatsApp() {
+  function insertIntoChannelComposer() {
     const state = getState(currentContext)
 
     if (!state?.message) {
@@ -663,7 +665,7 @@ function createCompanionMessageController({
       }
 
       if (action === 'insert') {
-        insertIntoWhatsApp()
+        insertIntoChannelComposer()
         return
       }
 

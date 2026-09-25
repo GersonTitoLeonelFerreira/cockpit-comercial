@@ -202,7 +202,7 @@
       `
     }
 
-    function renderReadyMessage(reasoning) {
+    function renderReadyMessage(reasoning, { platformDisplayName = '' } = {}) {
       const message = text(
         reasoning?.message?.ready_to_send,
       )
@@ -220,7 +220,7 @@
             </div>
           </div>
           <div class="yolen-seller-detail-copy">${escapeHtml(message)}</div>
-          <div class="yolen-message-footnote">Edite no WhatsApp antes de enviar. A Yolen não envia automaticamente.</div>
+          <div class="yolen-message-footnote">${platformDisplayName ? `Edite no ${escapeHtml(platformDisplayName)} antes de enviar.` : 'Edite a mensagem antes de enviar.'} A Yolen não envia automaticamente.</div>
         </section>
       `
     }
@@ -270,8 +270,8 @@
         ].join('')
       },
 
-      renderReasoningMessagePreview(reasoning) {
-        return renderReadyMessage(reasoning)
+      renderReasoningMessagePreview(reasoning, options) {
+        return renderReadyMessage(reasoning, options)
       },
 
       __reasoningWrapped: true,

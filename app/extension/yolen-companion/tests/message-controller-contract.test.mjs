@@ -44,7 +44,11 @@ test('atalhos apenas preenchem intenção e não disparam geração automática'
 })
 
 test('resultado oferece incluir e copiar sem envio automático', () => {
-  assert.match(source, /Incluir no WhatsApp/)
+  // FASE 5 (contrato §5): o rótulo interpola o nome do canal declarado
+  // pelo adapter; para o WhatsApp o texto renderizado continua
+  // "Incluir no WhatsApp" (provado no teste de runtime abaixo).
+  assert.match(source, /Incluir no ' \+ escapeHtml\(platformDisplayName\)/)
+  assert.match(adapterSource, /displayName: 'WhatsApp'/)
   assert.match(source, />Copiar</)
   assert.match(source, /navigator\.clipboard\.writeText/)
   assert.doesNotMatch(source, /sendButton\.click\(/)
@@ -54,7 +58,7 @@ test('resultado oferece incluir e copiar sem envio automático', () => {
 test('inserção protege rascunho já existente no WhatsApp', () => {
   assert.match(
     source,
-    /O campo do WhatsApp já contém texto\./,
+    /O campo do \$\{platformDisplayName\} já contém texto\./,
   )
   assert.match(
     adapterSource,
@@ -217,6 +221,7 @@ function createRuntimeHarness({
     sandbox.YolenCompanionMessageController.create({
       insertIntoComposer: adapter.insertTextIntoEmptyComposer,
       getBaseUrl: () => api.getBaseUrl(),
+      platformDisplayName: adapter.platform.displayName,
     })
 
   // Contexto mínimo do Core para o controller de resumo real: conversa
@@ -309,6 +314,13 @@ test('Incluir no WhatsApp preenche o composer vazio e nunca envia', async () => 
   const harness = createRuntimeHarness()
   await generateMessage(harness)
 
+  assert.equal(
+    harness.document.querySelector(
+      '[data-yolen-seller-message-action="insert"]',
+    ).textContent,
+    'Incluir no WhatsApp',
+  )
+
   harness.document.querySelector(
     '[data-yolen-seller-message-action="insert"]',
   ).click()
@@ -345,7 +357,7 @@ test('Incluir no WhatsApp não sobrescreve composer com rascunho', async () => {
     harness.document.querySelector(
       '[data-yolen-seller-message-box]',
     ).textContent,
-    /já contém texto/i,
+    /O campo do WhatsApp já contém texto/,
   )
 })
 

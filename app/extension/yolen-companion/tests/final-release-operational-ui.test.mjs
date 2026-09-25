@@ -83,7 +83,12 @@ test(
 
     assert.match(
       contentScript,
-      /Inserir no WhatsApp/,
+      /Inserir no \$\{escapeHtml\(platformDisplayName\)\}/,
+    )
+
+    assert.match(
+      contentScript,
+      /displayName: 'WhatsApp'/,
     )
 
     assert.doesNotMatch(
