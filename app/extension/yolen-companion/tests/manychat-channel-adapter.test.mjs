@@ -482,3 +482,139 @@ test('composer: o campo de intenção do próprio painel Yolen nunca é candidat
   assert.equal(document.querySelector('footer textarea').value, 'Mensagem para o cliente')
   assert.equal(document.querySelector('[data-yolen-seller-message-intent]').value, 'intenção')
 })
+
+// FASE 7 — isolamento do áudio (auditoria de 34c5a36a): a conversa viva e
+// a instância do contato são conferidas antes do download e depois da
+// resposta, sem depender de readConversationSnapshot nem do observador.
+function audioDom() {
+  return buildDom({
+    messages: [{ mid: 'a-1', audioUrl: 'https://manybot-files.manychat.io/a/audio-1.ogg', classes: '_typeIn_x' }],
+  })
+}
+
+function audioOk() {
+  return { ok: true, payload: { ready: true, audio_base64: Buffer.from('OggS').toString('base64'), mime_type: 'audio/ogg' } }
+}
+
+test('áudio: troca de conversa ANTES da solicitação (sem snapshot nem observador) não baixa nem devolve o áudio de A', async () => {
+  const fetched = []
+  const { adapter, setUrl } = createAdapter({
+    dom: audioDom(),
+    fetchAudioSource: async (url) => {
+      fetched.push(url)
+      return audioOk()
+    },
+  })
+
+  const [handleA] = adapter.getVisibleAudioTargets()
+  setUrl(URL_B)
+
+  const result = await adapter.getAudioSource(handleA)
+
+  assert.equal(result.ok, false)
+  assert.equal(result.blob, null)
+  assert.deepEqual(fetched, [], 'nenhum download para uma conversa que não está mais aberta')
+})
+
+test('áudio: troca de conversa DURANTE o download descarta o resultado', async () => {
+  let release
+  const { adapter, setUrl } = createAdapter({
+    dom: audioDom(),
+    fetchAudioSource: () =>
+      new Promise((resolve) => {
+        release = () => resolve(audioOk())
+      }),
+  })
+
+  const [handleA] = adapter.getVisibleAudioTargets()
+  const pending = adapter.getAudioSource(handleA)
+  await sleep(5)
+  setUrl(URL_B)
+  release()
+
+  const result = await pending
+  assert.equal(result.ok, false)
+  assert.equal(result.blob, null)
+})
+
+test('áudio: A→B→A durante o download descarta o resultado da instância A₁', async () => {
+  let release
+  const { adapter, setUrl, tickLifecycle } = createAdapter({
+    dom: audioDom(),
+    fetchAudioSource: () =>
+      new Promise((resolve) => {
+        release = () => resolve(audioOk())
+      }),
+  })
+
+  adapter.observeHostChanges(() => {})
+  const [handleA] = adapter.getVisibleAudioTargets()
+  const pending = adapter.getAudioSource(handleA)
+  await sleep(5)
+  setUrl(URL_B)
+  tickLifecycle()
+  setUrl(URL_A)
+  tickLifecycle()
+  release()
+
+  const result = await pending
+  assert.equal(result.ok, false)
+  assert.equal((await adapter.getAudioSource(handleA)).ok, false, 'o handle de A₁ não vale em A₂')
+})
+
+test('áudio: contato diferente na mesma rota (antes ou durante o download) recusa o áudio', async () => {
+  const swappedBefore = createAdapter({
+    dom: audioDom(),
+    identities: [identity(KEY_X), identity(KEY_X), identity(KEY_Y), identity(KEY_Y)],
+    fetchAudioSource: async () => audioOk(),
+  })
+  const keyBefore = swappedBefore.adapter.getCurrentConversationKey()
+  await swappedBefore.adapter.acquireContactEvidence({ conversationKey: keyBefore, isCurrentConversation: () => true })
+  const [handleX] = swappedBefore.adapter.getVisibleAudioTargets()
+  // O contato aberto passa a ser Y na mesma rota (nenhuma revalidação rodou).
+  assert.equal((await swappedBefore.adapter.getAudioSource(handleX)).ok, false)
+
+  let release
+  let identityNow = identity(KEY_X)
+  const during = createAdapter({
+    dom: audioDom(),
+    identities: [() => identityNow],
+    fetchAudioSource: () =>
+      new Promise((resolve) => {
+        release = () => resolve(audioOk())
+      }),
+  })
+  const keyDuring = during.adapter.getCurrentConversationKey()
+  await during.adapter.acquireContactEvidence({ conversationKey: keyDuring, isCurrentConversation: () => true })
+  const [handleDuring] = during.adapter.getVisibleAudioTargets()
+  const pending = during.adapter.getAudioSource(handleDuring)
+  await sleep(5)
+  identityNow = identity(KEY_Y)
+  release()
+  assert.equal((await pending).ok, false)
+})
+
+test('áudio: sem identidade confirmável a instância não é confirmada e o áudio é recusado', async () => {
+  const fetched = []
+  const { adapter } = createAdapter({
+    dom: audioDom(),
+    identities: [{ ready: false, reason: 'account_key_missing', safe: null }],
+    fetchAudioSource: async (url) => {
+      fetched.push(url)
+      return audioOk()
+    },
+  })
+
+  const [handle] = adapter.getVisibleAudioTargets()
+  const result = await adapter.getAudioSource(handle)
+  assert.equal(result.ok, false)
+  assert.deepEqual(fetched, [])
+})
+
+test('áudio (controle positivo): mesma conversa e mesmo contato confirmados entregam o áudio', async () => {
+  const { adapter } = createAdapter({ dom: audioDom(), fetchAudioSource: async () => audioOk() })
+  const [handle] = adapter.getVisibleAudioTargets()
+  const result = await adapter.getAudioSource(handle)
+  assert.equal(result.ok, true)
+  assert.equal(result.blob.size, 4)
+})

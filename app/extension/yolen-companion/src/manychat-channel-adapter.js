@@ -784,6 +784,7 @@
           url: source.source_url,
           conversationKey,
           generation,
+          identityKey: lastIdentityKey,
         }))
         targets.push(handle)
       }
@@ -803,11 +804,50 @@
       return new BlobCtor([bytes], { type: mimeType || 'audio/ogg' })
     }
 
+    function refusedAudio(reason) {
+      return { ok: false, blob: null, capturedBlobId: null, reason }
+    }
+
+    // A instância do handle continua viva? Confere a conversa ABERTA AGORA
+    // (rota + raiz), sem depender de snapshot/observador, e a geração.
+    function isAudioTargetConversationLive(target) {
+      return (
+        syncInstance() === target.conversationKey &&
+        target.generation === generation
+      )
+    }
+
+    // O contato aberto é o mesmo do handle? Sem identidade confirmável a
+    // instância não é confirmada (recusa segura).
+    async function confirmAudioTargetContact(target) {
+      const current = await readIdentitySafely()
+
+      if (!current?.key) {
+        return null
+      }
+
+      if (target.identityKey && current.key !== target.identityKey) {
+        return null
+      }
+
+      return current.key
+    }
+
     async function getAudioSource(handle) {
       const target = handle && typeof handle === 'object' ? audioTargetsByHandle.get(handle) : null
 
-      if (!target || target.generation !== generation) {
-        return { ok: false, blob: null, capturedBlobId: null, reason: 'audio_target_not_found' }
+      if (!target || !isAudioTargetConversationLive(target)) {
+        return refusedAudio('audio_target_not_found')
+      }
+
+      const contactKey = await confirmAudioTargetContact(target)
+
+      if (!contactKey || !isAudioTargetConversationLive(target)) {
+        return refusedAudio('conversation_instance_unconfirmed')
+      }
+
+      if (lastIdentityKey && lastIdentityKey !== contactKey) {
+        return refusedAudio('conversation_instance_unconfirmed')
       }
 
       let response = null
@@ -818,19 +858,20 @@
         response = null
       }
 
-      if (target.generation !== generation) {
-        return { ok: false, blob: null, capturedBlobId: null, reason: 'conversation_changed' }
+      // Depois da espera: mesma conversa viva, mesma geração e mesmo
+      // contato — senão o resultado é descartado.
+      if (
+        !isAudioTargetConversationLive(target) ||
+        (await confirmAudioTargetContact(target)) !== contactKey ||
+        !isAudioTargetConversationLive(target)
+      ) {
+        return refusedAudio('conversation_changed')
       }
 
       const payload = response?.payload
 
       if (response?.ok !== true || payload?.ready !== true || typeof payload.audio_base64 !== 'string') {
-        return {
-          ok: false,
-          blob: null,
-          capturedBlobId: null,
-          reason: payload?.reason || 'audio_source_unavailable',
-        }
+        return refusedAudio(payload?.reason || 'audio_source_unavailable')
       }
 
       return {

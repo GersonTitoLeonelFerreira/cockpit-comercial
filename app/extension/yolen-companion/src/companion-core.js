@@ -2855,8 +2855,26 @@ function createCompanionCore(ctx) {
 
     renderPanel()
 
+    // Áudio obsoleto (conversa/geração/empresa/sessão diferentes) nunca vira
+    // transcrição, captura, registro ou estado de outro contexto: só a
+    // trava de carregamento é liberada.
+    const operationContext =
+      captureOperationContext()
+
+    const releaseStaleTranscription = () => {
+      state = {
+        ...state,
+        audioTranscriptionLoading: false,
+      }
+    }
+
     try {
       const audioCapture = await getAudioSource(nextTarget)
+
+      if (!isOperationContextCurrent(operationContext)) {
+        releaseStaleTranscription()
+        return
+      }
 
       if (!audioCapture?.ok) {
         throw new Error(
@@ -2871,6 +2889,11 @@ function createCompanionCore(ctx) {
       const blob = audioCapture.blob
       const audioBase64 = await blobToBase64(blob)
 
+      if (!isOperationContextCurrent(operationContext)) {
+        releaseStaleTranscription()
+        return
+      }
+
       const result = await window.YolenCompanionApi.transcribeAudio({
         cycle_id: cycleId,
         audio_base64: audioBase64,
@@ -2879,6 +2902,11 @@ function createCompanionCore(ctx) {
         audio_index: nextTarget.index,
         audio_target_key: nextTarget.key,
       })
+
+      if (!isOperationContextCurrent(operationContext)) {
+        releaseStaleTranscription()
+        return
+      }
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data?.text) {
         throw new Error(
@@ -2929,6 +2957,11 @@ function createCompanionCore(ctx) {
         )
       }
     } catch (error) {
+      if (!isOperationContextCurrent(operationContext)) {
+        releaseStaleTranscription()
+        return
+      }
+
       state = {
         ...state,
         audioTranscriptionLoading: false,

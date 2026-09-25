@@ -170,3 +170,50 @@ declara `http://localhost/*`; permissão de host é distribuição) e três de
 melhoria exige problema comprovado…` (`GROUNDING_REQUIRED` ≠
 `DIRECT_EVIDENCE_REQUIRED`) e `guardrail exige recovery completo…`
 (exceção esperada não lançada).
+
+## 9. Correção pós-auditoria: isolamento do áudio (executada na FASE 7)
+
+Auditoria de `34c5a36a`: `getAudioSource` do ManyChatAdapter só conferia
+a conversa por meio do estado de instância sincronizado pelo
+`readConversationSnapshot`/observador. Uma troca de rota antes da
+solicitação (sem snapshot nem evento ainda), durante o download ou do
+contato na MESMA rota deixava o adapter baixar e devolver o áudio de A
+para quem pediu depois de B assumir.
+
+Correção (`src/manychat-channel-adapter.js`):
+
+- cada handle de áudio guarda conversa, geração **e** a identidade segura
+  vista na instância (`identityKey`);
+- antes do efeito: conversa viva conferida ao vivo pela rota
+  (`syncInstance()` + geração) e contato reconfirmado pela bridge segura;
+  identidade diferente da registrada → recusa sem download;
+- identidade que não pode ser confirmada (bridge indisponível) → recusa
+  segura `conversation_instance_unconfirmed`, sem download;
+- depois da resposta: conversa, geração e identidade conferidas de novo;
+  qualquer divergência → `conversation_changed`, sem blob;
+- validação de remetente/host/URL/tamanho no background preservada;
+  áudio não foi desligado.
+
+No Core (`companion-core.js`, `transcribeNextVisibleAudio`), o contexto
+imutável da operação (conversa/geração/empresa/sessão) é capturado ao
+iniciar e conferido depois de `getAudioSource`, depois da conversão
+base64, depois de `transcribeAudio` e no `catch`: um resultado tardio
+depois de invalidação de sessão ou de contexto nunca vira transcrição,
+captura, registro ou estado de outra conversa.
+
+Evidência (reprodução antes da correção):
+
+| Teste (`tests/manychat-channel-adapter.test.mjs`) | Antes | Depois |
+|---|---|---|
+| troca de conversa ANTES da solicitação (sem snapshot/observador) | FAIL (download feito, `ok:true`) | PASS |
+| troca de conversa DURANTE o download | FAIL (blob devolvido) | PASS |
+| A→B→A durante o download | PASS (geração) | PASS |
+| outro contato na MESMA rota (antes/durante) | FAIL | PASS |
+| identidade não confirmável → recusa sem download | FAIL | PASS |
+| controle positivo (mesma conversa e contato → blob) | PASS | PASS |
+
+Arquivo: 18/18 depois (antes: 4 falhas, exit 1). No nível do Core, o E3
+`manychat-shared-composition.test.mjs` → "áudio stale: troca A → B
+durante o download nunca vira transcrição de A em B" prova, com a
+composição efetiva, que nenhum `TRANSCRIBE_AUDIO` é emitido para o áudio
+de A depois da troca (falha com o Core/adapter anteriores; passa agora).
