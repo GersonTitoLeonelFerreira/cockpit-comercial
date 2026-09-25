@@ -259,7 +259,8 @@ test(
   () => {
     assert.match(
       b5Block,
-      /leadResolution\?\.status ===[\s\S]*'NOT_FOUND'/,
+      // Fechamento da Fase 4: status vem da resolução canônica.
+      /getCanonicalResolutionStatus\(\) ===[\s\S]*'NOT_FOUND'/,
     )
 
     assert.match(

@@ -632,3 +632,185 @@ test('resolve-lead: erro ao buscar identidade externa é reportado como EXTERNAL
   assert.equal(response.status, 400)
   assert.equal(payload.status, 'EXTERNAL_IDENTITY_SEARCH_ERROR')
 })
+
+// ---------------------------------------------------------------------
+// FASE 4B.5K — matriz do contrato de ações seller-facing.
+//
+// Documenta o contrato REAL de ações devolvido por status: ciclo
+// presente/ausente, URLs legacy de navegação e se o payload traz um
+// bloco canônico `capabilities`. A ação visual correspondente é decidida
+// no presenter (getLeadActionButton() em content-script.js):
+//   NOT_FOUND           → formulário/botão "Criar lead na Yolen"
+//   IN_POOL             → "Abrir Pool na Yolen"
+//   demais status       → "Abrir vínculo na Yolen" (open_yolen_url)
+// ---------------------------------------------------------------------
+
+const ACTION_CONTRACT_SCENARIOS = [
+  {
+    status: 'NOT_FOUND',
+    capabilities: { can_create_lead: true, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false },
+    steps: () => [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('leads', []),
+    ],
+    body: { phone: '11988887777' },
+    hasCycle: false,
+    openYolenUrl: '/leads',
+  },
+  {
+    status: 'IN_POOL',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: true, can_open_cycle: true },
+    steps: () => [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('leads', [LEAD_ROW]),
+      selectStep('lead_profiles', LEAD_PROFILE_ROW),
+      selectStep('sales_cycles', [openCycle({ owner_user_id: null })]),
+    ],
+    body: { phone: '11988887777' },
+    hasCycle: true,
+    openYolenUrl: `/sales-cycles/${IDS.cycle}`,
+  },
+  {
+    status: 'OWNED_BY_ME',
+    capabilities: { can_create_lead: false, can_analyze_conversation: true, can_apply_suggestion: true, can_open_pool: false, can_open_cycle: true },
+    steps: () => [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('leads', [LEAD_ROW]),
+      selectStep('lead_profiles', LEAD_PROFILE_ROW),
+      selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.userA })]),
+      selectStep('profiles', { id: IDS.userA, full_name: 'Vendedor Um', email: 'v1@example.com' }),
+    ],
+    body: { phone: '11988887777' },
+    hasCycle: true,
+    openYolenUrl: `/sales-cycles/${IDS.cycle}`,
+  },
+  {
+    status: 'OWNED_BY_OTHER',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true },
+    steps: () => [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('leads', [LEAD_ROW]),
+      selectStep('lead_profiles', LEAD_PROFILE_ROW),
+      selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.otherSeller })]),
+      selectStep('profiles', { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' }),
+    ],
+    body: { phone: '11988887777' },
+    hasCycle: true,
+    openYolenUrl: `/sales-cycles/${IDS.cycle}`,
+  },
+  {
+    status: 'CLOSED_CYCLE',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true },
+    steps: () => [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('leads', [LEAD_ROW]),
+      selectStep('lead_profiles', LEAD_PROFILE_ROW),
+      selectStep('sales_cycles', [openCycle({ status: 'ganho', owner_user_id: IDS.userA })]),
+      selectStep('profiles', { id: IDS.userA, full_name: 'Vendedor Um', email: 'v1@example.com' }),
+    ],
+    body: { phone: '11988887777' },
+    hasCycle: true,
+    openYolenUrl: `/sales-cycles/${IDS.cycle}`,
+  },
+  {
+    status: 'LEAD_WITHOUT_CYCLE',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false },
+    steps: () => [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('leads', [LEAD_ROW]),
+      selectStep('lead_profiles', LEAD_PROFILE_ROW),
+      selectStep('sales_cycles', []),
+    ],
+    body: { phone: '11988887777' },
+    hasCycle: false,
+    openYolenUrl: '/leads',
+  },
+  {
+    status: 'CONTACT_NOT_LINKED',
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false },
+    steps: () => [
+      selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+      selectStep('profiles', ACTIVE_PROFILE),
+      selectStep('lead_external_identities', null),
+    ],
+    body: { platform: 'manychat', platform_contact_key: PLATFORM_CONTACT_KEY },
+    hasCycle: false,
+    openYolenUrl: '/leads',
+  },
+]
+
+for (const scenario of ACTION_CONTRACT_SCENARIOS) {
+  test(`resolve-lead contrato de ações (4B.5K): ${scenario.status}`, async () => {
+    useAdmin(scenario.steps())
+    const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+    const response = await POST(postRequest({ token, body: scenario.body }))
+    const payload = await readJson(response)
+
+    assert.equal(response.status, 200)
+    assert.equal(payload.status, scenario.status)
+    assert.equal(Boolean(payload.cycle?.id), scenario.hasCycle)
+
+    // Navegação legacy: pool_url é constante; open_yolen_url só aponta
+    // para o ciclo quando existem lead E ciclo.
+    assert.equal(payload.actions.pool_url, '/pool')
+    assert.equal(payload.actions.open_yolen_url, scenario.openYolenUrl)
+
+    // create_lead_url carrega contexto dinâmico (telefone/nome) quando há
+    // telefone — nunca pode entrar no ViewModel seller-facing.
+    assert.match(payload.actions.create_lead_url, /^\/leads\?source=companion/)
+    if (scenario.body.phone) {
+      assert.match(payload.actions.create_lead_url, /[?&]phone=/)
+    }
+
+    // Flag legacy de criação dentro da extensão é sempre false — não
+    // representa a disponibilidade real do formulário de criação.
+    assert.equal(payload.actions.can_create_lead_inside_extension, false)
+
+    // FASE 4B.5L: bloco canônico `capabilities` equivalente ao
+    // comportamento atual (a matriz 4B.5K registrava sua ausência).
+    assert.deepEqual(payload.capabilities, scenario.capabilities)
+    assert.equal(
+      payload.capabilities.can_analyze_conversation,
+      payload.actions.can_analyze_conversation,
+    )
+    assert.equal(
+      payload.capabilities.can_apply_suggestion,
+      payload.actions.can_apply_suggestion,
+    )
+    assert.equal(
+      payload.capabilities.can_open_cycle,
+      payload.actions.open_yolen_url !== '/leads',
+    )
+
+    // Nenhuma URL/PII no bloco canônico.
+    assert.doesNotMatch(JSON.stringify(payload.capabilities), /\/|phone|name/)
+  })
+}
+
+test('resolve-lead contrato de ações (4B.5L): manager mantém can_analyze_conversation canônico igual ao legacy', async () => {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role: 'manager' }),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('leads', [LEAD_ROW]),
+    selectStep('lead_profiles', LEAD_PROFILE_ROW),
+    selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.otherSeller })]),
+    selectStep('profiles', { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'manager' })
+
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.equal(payload.status, 'OWNED_BY_OTHER')
+  assert.equal(payload.actions.can_analyze_conversation, true)
+  assert.equal(payload.capabilities.can_analyze_conversation, true)
+  assert.equal(payload.capabilities.can_apply_suggestion, false)
+  assert.equal(payload.capabilities.can_open_cycle, true)
+})

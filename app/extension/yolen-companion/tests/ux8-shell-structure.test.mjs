@@ -142,19 +142,22 @@ test('renderPanel() renderiza a barra de abas como região própria, antes do co
   assert.match(render, /getPreSendAssessmentCardHtml\(\)/)
 })
 
-test('a barra de abas é extraída para sua própria função, sem duplicar a composição now/analysis/client', () => {
-  const start = contentScript.indexOf('function getSellerAreaTabsBarHtml()')
-  const end = contentScript.indexOf(
-    'function getSellerInformationArchitectureHtml()',
-    start,
+test('a barra de abas usa a autoridade canônica do workspace sem duplicar a composição now/analysis/client', () => {
+  const renderStart = contentScript.indexOf('function renderPanel()')
+  const renderEnd = contentScript.indexOf(
+    'function escapeHtml',
+    renderStart,
   )
-  const block = contentScript.slice(start, end)
+  const render = contentScript.slice(
+    renderStart,
+    renderEnd,
+  )
 
-  assert.notEqual(start, -1)
-  assert.match(block, /role="tablist"/)
-  assert.match(block, /getSellerAreaTabHtml\('now', 'Agora'\)/)
-  assert.match(block, /getSellerAreaTabHtml\('analysis', 'Análise'\)/)
-  assert.match(block, /getSellerAreaTabHtml\('client', 'Cliente'\)/)
+  assert.notEqual(renderStart, -1)
+  assert.match(
+    render,
+    /workspaceRuntime\s*\.getSellerAreaTabsBarHtml\(\s*workspaceState\s*\.getActiveArea\(\),?\s*\)/,
+  )
 
   const architectureStart = contentScript.indexOf(
     'function getSellerInformationArchitectureHtml()',
@@ -168,10 +171,11 @@ test('a barra de abas é extraída para sua própria função, sem duplicar a co
     architectureEnd,
   )
 
-  // A composição now/analysis/client (contrato já coberto por
-  // seller-workspace-final-ux.test.mjs) continua intacta; só a barra de
-  // abas (role="tablist") saiu de dentro dela.
-  assert.doesNotMatch(architectureBlock, /role="tablist"/)
+  assert.doesNotMatch(
+    architectureBlock,
+    /role="tablist"/,
+  )
+
   assert.match(
     architectureBlock,
     /const nowHtml =\s*getNowAttentionSnapshotHtml\(\)\s*\+\s*\(getCompanionLeadSummaryCardHtml\(\)/,

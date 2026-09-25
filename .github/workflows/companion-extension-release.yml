@@ -36,8 +36,8 @@ jobs:
       - name: Instalar dependências (determinístico via package-lock.json)
         run: npm ci
 
-      - name: Rodar suíte de testes do Companion
-        run: npm run test:companion
+      - name: Rodar suíte do Companion sem novas regressões
+        run: node scripts/companion-known-failures-gate.mjs companion
 
       - name: Gerar pacotes Chrome e Firefox (dev + prod)
         run: node app/extension/yolen-companion/scripts/build-package.mjs

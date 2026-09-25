@@ -101,7 +101,7 @@ test(
 
     assert.match(
       contentScript,
-      /data-yolen-ux-build="UX7"/,
+      /workspaceRuntime\.getSellerWorkspaceHtml\(\{/,
     )
 
     assert.doesNotMatch(

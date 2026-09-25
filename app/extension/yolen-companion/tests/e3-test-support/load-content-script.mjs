@@ -37,6 +37,9 @@ const DEPENDENCY_FILES = [
   'companion-lead-summary-view.js',
   'companion-seller-information-view.js',
   'companion-reasoning-view.js',
+  'companion-conversation-boundary.js',
+  'companion-lead-resolution-controller.js',
+  'companion-workspace-runtime.js',
 ]
 
 export function escapeHtml(value) {
@@ -84,7 +87,7 @@ export function buildWhatsAppPageHtml({ headerTitle, messagesHtml = '' }) {
 }
 
 export function defaultLeadResolution(overrides = {}) {
-  return {
+  const resolution = {
     ok: true,
     status: 'OWNED_BY_ME',
     lead: { id: 'lead-1', name: 'Cliente Teste', phone: '5511988887777', email: null, cpf_cnpj: null, deleted_at: null },
@@ -93,6 +96,22 @@ export function defaultLeadResolution(overrides = {}) {
     flags: { is_owned_by_me: true, is_pool: false, is_closed: false },
     phone: '5511988887777',
     ...overrides,
+  }
+
+  // FASE 4B.5L/M: espelha as capabilities canônicas de AÇÃO que
+  // app/api/companion/resolve-lead/route.ts (buildResolutionPayload)
+  // devolve para o status/lead/ciclo finais. can_analyze_conversation e
+  // can_apply_suggestion NÃO são derivadas aqui: continuam vindo do
+  // `actions` do fixture (fallback legacy do controller). capabilities
+  // explícitas do teste sempre prevalecem.
+  return {
+    ...resolution,
+    capabilities: {
+      can_create_lead: resolution.status === 'NOT_FOUND',
+      can_open_pool: resolution.status === 'IN_POOL',
+      can_open_cycle: Boolean(resolution.lead && resolution.cycle),
+      ...(overrides.capabilities ?? {}),
+    },
   }
 }
 
