@@ -470,7 +470,7 @@ deploy foi feito**; aguarda autorização explícita.
   `main` depois do merge difere de `0c95b769` só nesses 3 arquivos.
 - Deploy de produção Vercel: `dpl_6AWFvW864yVCqHZVTea8HFvJcN7A`, commit
   `7e1f6d0b`, aliases `cockpit-comercial-vocn-yolen.vercel.app` /
-  `cockpit-comercial-vocn-git-main-yolen.vercel.app`. Estado em 20:05 UTC: BUILDING (confirmação de READY abaixo).
+  `cockpit-comercial-vocn-git-main-yolen.vercel.app`. **READY** em 2026-09-26T20:05:52Z, alias de produção `cockpit-comercial-vocn.vercel.app` apontando para `7e1f6d0b`.
 - Extensão não alterada para o retest (usa o E2E que passou no LIVE-02).
 
 ### 9.7 Retest LIVE-03
