@@ -80,6 +80,27 @@ function makeFakeScrollable(element, { scrollHeight = 3000, clientHeight = 600 }
   Object.defineProperty(element, 'clientHeight', { get: () => clientHeight, configurable: true })
 }
 
+// Simula a leitura do vendedor só depois que a restauração de scroll
+// agendada pelos renders anteriores terminou — por condição
+// (panel-stability-runtime.isRestoring()), não por tempo fixo. Durante a
+// restauração (dois frames) o runtime ignora scroll de propósito; sob
+// carga de CPU esse intervalo não cabe em nenhuma espera fixa. A checagem
+// e o scroll acontecem no mesmo passo síncrono. jsdom não dispara
+// 'scroll' ao atribuir scrollTop (não simula layout): o evento é
+// disparado manualmente, como um scroll real do vendedor faria.
+async function scrollAsSellerWhenSettled(document, workspaceBody, top, metrics) {
+  await waitFor(
+    () => {
+      if (document.defaultView.YolenCompanionPanelStabilityRuntime.isRestoring()) return false
+      makeFakeScrollable(workspaceBody, metrics)
+      workspaceBody.scrollTop = top
+      dispatch(workspaceBody, 'scroll')
+      return true
+    },
+    { intervalMs: 10 },
+  )
+}
+
 function spyScrollTopWrites(element) {
   let writes = 0
   let value = element.scrollTop
@@ -105,11 +126,7 @@ test('1) foco em campo editável usa workspaceBody.scrollTop, nunca panel.scroll
   const panel = getPanel(document)
   const workspaceBody = getWorkspaceBody(document)
 
-  await sleep(80)
-
-  makeFakeScrollable(workspaceBody)
-  workspaceBody.scrollTop = 300
-  dispatch(workspaceBody, 'scroll')
+  await scrollAsSellerWhenSettled(document, workspaceBody, 300)
   await sleep(10)
 
   const getPanelWrites = spyScrollTopWrites(panel)
@@ -130,11 +147,7 @@ test('2) digitar em campo editável (input) preserva workspaceBody.scrollTop e n
   await waitFor(() => Boolean(document.querySelector('[name="yolen-lead-name"]')))
 
   const workspaceBody = getWorkspaceBody(document)
-  await sleep(80)
-
-  makeFakeScrollable(workspaceBody)
-  workspaceBody.scrollTop = 540
-  dispatch(workspaceBody, 'scroll')
+  await scrollAsSellerWhenSettled(document, workspaceBody, 540)
   await sleep(10)
 
   const nameInput = document.querySelector('[name="yolen-lead-name"]')
@@ -162,15 +175,11 @@ test('4) o clamp de scrollHeight/clientHeight usado para restaurar a posição v
   await waitFor(() => Boolean(document.querySelector('[name="yolen-lead-name"]')))
 
   const workspaceBody = getWorkspaceBody(document)
-  await sleep(80)
-
   // workspace-body só tem 100px de scroll disponível (scrollHeight -
   // clientHeight = 100) — bem menor que a posição que vamos tentar
   // restaurar, para provar que o clamp usa os limites do workspace-body,
   // não do painel (que nem tem esses limites simulados aqui).
-  makeFakeScrollable(workspaceBody, { scrollHeight: 700, clientHeight: 600 })
-  workspaceBody.scrollTop = 100
-  dispatch(workspaceBody, 'scroll')
+  await scrollAsSellerWhenSettled(document, workspaceBody, 100, { scrollHeight: 700, clientHeight: 600 })
   await sleep(10)
 
   const nameInput = document.querySelector('[name="yolen-lead-name"]')
@@ -228,11 +237,7 @@ test('8) panel-stability-runtime e editable-field-stability-runtime não brigam 
 
   const panel = getPanel(document)
   const workspaceBody = getWorkspaceBody(document)
-  await sleep(80)
-
-  makeFakeScrollable(workspaceBody)
-  workspaceBody.scrollTop = 260
-  dispatch(workspaceBody, 'scroll')
+  await scrollAsSellerWhenSettled(document, workspaceBody, 260)
   await sleep(10)
 
   const getPanelWrites = spyScrollTopWrites(panel)

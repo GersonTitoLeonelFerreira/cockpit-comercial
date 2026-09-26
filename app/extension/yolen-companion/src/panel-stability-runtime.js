@@ -125,7 +125,12 @@
     scrollSnapshot = {
       top,
       distanceFromBottom,
+      // "No fim" só com overflow real: sem overflow (conteúdo cabe
+      // inteiro, ex.: painel antes do workspace) a distância do fim é 0
+      // sem o vendedor ter rolado — tratar isso como fim levava a
+      // primeira conversa a abrir no fim do conteúdo (F11-01).
       nearBottom:
+        maxScroll > 0 &&
         distanceFromBottom <= BOTTOM_THRESHOLD_PX,
     }
   }
@@ -1190,6 +1195,12 @@
     },
     isInteractionLocked() {
       return interactionLocked
+    },
+    // Verdadeiro enquanto uma restauração de scroll agendada (dois
+    // frames) ainda não terminou; nesse intervalo captureScroll() ignora
+    // scroll. Permite esperar a restauração por condição, não por tempo.
+    isRestoring() {
+      return restoring
     },
     isResumeGuardActive,
   })
