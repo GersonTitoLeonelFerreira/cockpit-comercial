@@ -473,7 +473,47 @@ deploy foi feito**; aguarda autorização explícita.
   `cockpit-comercial-vocn-git-main-yolen.vercel.app`. **READY** em 2026-09-26T20:05:52Z, alias de produção `cockpit-comercial-vocn.vercel.app` apontando para `7e1f6d0b`.
 - Extensão não alterada para o retest (usa o E2E que passou no LIVE-02).
 
-### 9.7 Retest LIVE-03
+### 9.7 Retest LIVE-03 — PASS
 
-(pendente — conversa do Rubens → "Analisar agora", cronometrar clique →
-resultado)
+Com o backend `7e1f6d0b` em produção e a extensão E2E do LIVE-02
+(`0f1c7fe7`, sem alteração): conversa do Rubens, áudios já transcritos →
+"Analisar agora" → análise concluída e resultado seller-facing exibido.
+
+Job final no banco (`companion_background_analysis_jobs`):
+
+| Campo | Valor |
+|---|---|
+| status | `succeeded` |
+| attempt_count | 1 |
+| failure_code / failure_invariant | null / null |
+| requested_at | 2026-09-26 20:10:13.618+00 |
+| started_at | 2026-09-26 20:13:11.190+00 |
+| completed_at | 2026-09-26 20:13:31.297+00 |
+
+Ledger: os **dois** áudios da conversa têm a versão atual transcrita.
+
+### 9.8 PERFORMANCE OBSERVATION — NON-BLOCKING
+
+| Trecho | Tempo |
+|---|---|
+| request → result (`requested_at` → `completed_at`) | ~3m18s |
+| espera na fila (`requested_at` → `started_at`) | ~2m58s |
+| processamento do worker (`started_at` → `completed_at`) | ~20s |
+
+A análise está funcionalmente correta; a latência seller-facing é alta e o
+gargalo é a espera até o worker iniciar, não o modelo. Não corrigido nesta
+fase (nenhuma alteração de modelo, prompt, fila, concorrência, worker,
+polling, watchdog ou timeouts). Backlog mensurável; métrica prioritária
+futura: `requested_at → started_at`.
+
+## 10. Status final da FASE 10
+
+| Item | Resultado |
+|---|---|
+| LIVE-01 | **PASS** (build E2E identificado por commit; Companion compartilhado no ManyChat; AGORA/MENSAGEM/ANÁLISE/CLIENTE; causa: pacote E2E antigo de outro diretório) |
+| LIVE-02 | **PASS** (detecção, obtenção, `Window.atob` no Firefox, transcrição, persistência, reload) |
+| LIVE-03 | **PASS** (backend: execution plan + fail-fast; hotfix PR #339 → `main` `7e1f6d0b`; deploy de produção SUCCESS; job `succeeded` em 1 tentativa) |
+| LIVE ACCEPTANCE | **PASS** |
+| Performance | NON-BLOCKING PERFORMANCE OBSERVATION (§9.8) |
+| **FASE 10** | **PASS** |
+| FASE 11 | iniciada em registro próprio (`FASE_11_EXECUTION.md`) |
