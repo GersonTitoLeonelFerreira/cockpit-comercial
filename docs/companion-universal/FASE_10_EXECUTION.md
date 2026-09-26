@@ -208,9 +208,35 @@ identificada**.
 
 ### 8.3 Gates
 
-GATES_LIVE02
+| Gate | Exit | Resultado |
+|---|---|---|
+| Focal LIVE-02 (`audio-transcription-stall.test.mjs`) | 0 | 2/2 (antes: 0/2) |
+| Arquitetura (em processo) | 0 | 53/53; NEW=0, STALE=0, LEGACY=0 |
+| ManyChat channel-only | 0 | 6/6 |
+| Adapter neutro | 0 | 14/14 |
+| ManyChat | 0 | 286/286 |
+| WhatsApp | 0 | 61/61 |
+| Paridade | 0 | 51/51 |
+| `npm run test:companion` | 1 | 2275/2279; só as 4 conhecidas |
+| Known failures companion | 0 | 4 conhecidas, 0 novas |
+| E3 completo | 0 | 351/351 (349 + 2 novos) |
+| TypeScript | 0 | limpo |
+| Lint (`companion-core.js`, teste novo) | 0 | PASS |
+| Build + validador normal | 0 | PASS; ManyChat false em dev/prod |
+| Build + validador E2E | 0 / 0 | PASS; ManyChat true; nome com o commit |
+| `git diff --check` | 0 | limpo |
+
+Pacote do retest do LIVE-02:
+
+| Item | Valor |
+|---|---|
+| HEAD do build | `9e5a6feeaed3a84c4b5e6418d6bed984f741a746` (código = `cd47b7b7` + docs) |
+| Gerado em | 2026-09-26T17:36:33Z |
+| Nome exibido | `Yolen Companion [E2E] 9e5a6fee` |
+| Manifest | `dist/yolen-companion/e2e/firefox/staging/manifest.json` |
+| SHA-256 | `08ccaeb3565c57403af8c33845c2e5a9b2ec2ce1e4d61d5b8dcfbea5b6a7728f` |
 
 ### 8.4 Retest
 
-RETEST_LIVE02
+(pendente — retest só do áudio com `Yolen Companion [E2E] 9e5a6fee`)
 
