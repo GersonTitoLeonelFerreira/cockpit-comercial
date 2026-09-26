@@ -194,3 +194,92 @@ melhoria exige problema comprovado…`, `guardrail exige recovery completo…`.
 - Referência privada do enriquecimento vive na memória do background: um
   reinício do service worker exige nova resolução antes de aplicar.
 - Paridade completa é da FASE 8; homologação é da FASE 9. Sem live test.
+
+## 11. Reauditoria da FASE 7 (instrução de 26/09/2026)
+
+Execução da mesma FASE 7 (sem subfase) contra o checklist ampliado da
+nova instrução. Primeiro gate: estado real do repositório, não o handoff.
+
+### 11.1 Estado real × handoff
+
+| Item do handoff | Estado real verificado (git + GitHub) |
+|---|---|
+| PR #338, HEAD `7a0717ec` | **Mergeado** em `main` em 2026-09-24 (`0c95b769`, "Merge pull request #338 …"); `7a0717ec` é ancestral de `origin/main` |
+| `main` = `cf50fac3` | `main` = `0c95b769` (`cf50fac3` era a base do PR #338, merge do #337/login) |
+| Branch de trabalho | `claude/companion-multichannel-repair` sobre `0c95b769`, com FASES 5–7 já entregues; HEAD `24528b26` = remoto; árvore limpa; nenhuma alteração de terceiros |
+| Known failures 9 (companion) / 3 (E3) | Lista real: 4 / 0. Só diminuiu desde `7a0717ec` (retiradas por correção em `dc0974dd`, FASE 5); nenhuma entrada adicionada |
+| LEGACY=26 | 0 (FASE 5 retirou 14; FASE 7 retirou as 12 do ManyChat legado) |
+| GitHub Actions | Últimas execuções são do PR #338 (`36062588757`, `36062588647`): jobs concluídos em ~2 s sem passos — compatível com o bloqueio de billing relatado → **BILLING_BLOCKED**. A branch atual não tem PR, logo nenhum workflow (`pull_request`) rodou nela → **NOT RUN** |
+
+Nada foi desfeito; o merge do #338 foi preservado e a fase continuou na
+branch atual (nenhum PR duplicado aberto).
+
+### 11.2 Inventário ManyChat (antes = legado removido em `6d77bddf`; depois = atual)
+
+| Módulo | No manifest | Categoria | Observação |
+|---|---|---|---|
+| `manychat-channel-adapter.js` | cs ManyChat | A/B infra + integração com o Core | Implementa o ChannelAdapter (§7); nenhum status/copy comercial |
+| `manychat-content-script.js` | cs ManyChat | B integração | Kill switch + cria adapter + `YolenCompanionBootstrap` |
+| `manychat-surface.js`, `platform-contract.js` | cs ManyChat | A | Rota/chave da conversa; contrato universal de mensagens |
+| `manychat-dom-reader.js`, `manychat-message-{semantics,identity,content,profile}.js` | cs ManyChat | A | Leitura/normalização de mensagens (fail-closed) |
+| `manychat-composer.js` | cs ManyChat | A | Composer físico; ignora o textarea do painel Yolen |
+| `manychat-phone-evidence.js` | cs ManyChat | A | Telefone confiável só em contexto WhatsApp fora de `details-subscriber-id` |
+| `manychat-audio-source.js` | cs ManyChat | A | Fonte https única por mensagem |
+| `manychat-feature-flags.js` | cs ManyChat | A | Kill switch (false; e2e = true no staging) |
+| `manychat-safe-identity-bridge.js` | cs ManyChat (document_start) | A | Identidade opaca via background |
+| `manychat-safe-identity-main.js`, `manychat-identity-namespace.js`, `manychat-mainworld-*` | cs MAIN | A | Leitura da identidade no page world + diagnóstico armado só por hash |
+| `manychat-audio-background-transport.js`, `manychat-safe-identity-background.js` | background | A | Transporte validado (host/remetente/tamanho) |
+| `manychat-adapter.js`, `manychat-context-evidence-probe.js`, `manychat-evidence-probe.js`, `manychat-profile-*`, `manychat-runtime-{admission,bootstrap}.js`, `manychat-authenticated-*`, `manychat-audio-{accessibility,source-stability,transcription-contract}.js` | não | D | Ferramentas diagnósticas/validação das fases anteriores; não executam na extensão |
+| `manychat-capture-bootstrap/runtime`, `seller-panel-runtime`, `contact-link-runtime`, `panel-mount`, `audio-dispatch-runtime` | — (removidos) | C (antes) | Segundo cérebro seller-facing; removidos na FASE 7 |
+
+Varredura por símbolos seller-facing (AGORA/MENSAGEM/ANÁLISE/CLIENTE,
+status comerciais, ações `LOAD_*`/`RESOLVE_LEAD`/…, recommendation,
+reasoning, next action) nos módulos compostos: só falsos positivos
+(`composer_not_found`, flags `reasoning_enabled: false`, comentários).
+**Segundo cérebro seller-facing: NONE.**
+
+### 11.3 Enforcement e testes adicionados
+
+- `tests/manychat-channel-only-architecture.test.mjs` (6): nenhum módulo
+  ManyChat composto contém status comercial, ação comercial de backend,
+  área seller-facing, view/estado do Core ou campo de decisão; o content
+  script só toca bootstrap/fronteira; Core/controllers/views/bootstrap
+  compartilhados não contêm global, arquivo, host, seletor ou mensagem de
+  transporte ManyChat; a composição ManyChat carrega exatamente os mesmos
+  módulos compartilhados do WhatsApp na mesma ordem. Cada regra tem
+  controle positivo sintético.
+- `manychat-shared-composition.test.mjs` (+8, total 30):
+  - mesmo domínio → AGORA/MENSAGEM/ANÁLISE/CLIENTE com HTML idêntico no
+    WhatsApp e no ManyChat (normalizados só nome do canal e chaves de
+    conversa), com capabilities diferentes (Q4);
+  - composer indisponível (feedback canônico "Use Copiar");
+  - inserção não confirmada (nunca "incluída");
+  - erro físico do adapter na MENSAGEM e na ANÁLISE;
+  - conversa trocada no instante da inserção (nada escrito em B);
+  - análise de A concluída depois da troca (nada em B, sem inserção);
+  - áudio com transporte indisponível (sem transcrição, áudio pendente).
+
+### 11.4 Defeito encontrado e corrigido (Core, neutro de canal)
+
+Um erro físico do adapter (DOM do composer lançando exceção) escapava do
+Core como exceção não tratada, sem feedback — na MENSAGEM
+(`insertIntoComposer`) e na ANÁLISE (`getComposerState`/`applyMessage`).
+O Core agora converte a falha física no resultado canônico
+(`insert_failed` / composer indisponível / `apply_failed`), sem registrar
+uso. Antes: 0/2 testes (exceção `falha física do DOM do ManyChat`);
+depois: 2/2. Vale para qualquer canal.
+
+### 11.5 Observações (não alteradas)
+
+- O texto de status da transcrição/inserção da ANÁLISE é gravado num
+  bloco legado que o layout atual das quatro áreas não exibe — igual no
+  WhatsApp (mesmo Core). Não é bifurcação do ManyChat; mudar a UX aprovada
+  está fora desta fase (candidato à FASE 8/10).
+
+### 11.6 Adiado
+
+- **FASE 8:** matriz completa de paridade automatizada (aqui só a prova de
+  mesmo estado seller-facing para um domínio e os cenários de fronteira).
+- **FASE 9:** comportamento ao vivo do DOM real do ManyChat (seletores,
+  bridge de identidade no page world, mídia real) — só verificável em live
+  test; todos os fluxos automatizáveis foram provados em jsdom.
