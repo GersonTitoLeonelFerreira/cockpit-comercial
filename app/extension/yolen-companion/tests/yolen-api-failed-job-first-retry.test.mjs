@@ -144,13 +144,27 @@ test(
       analysisJobId,
     )
 
+    // RETRY_ANALYSIS_JOB sempre envia allow_succeeded (true só quando o
+    // job atual já está succeeded — o caso de "Atualizar análise"/força
+    // reabrir um succeeded). Esta asserção ficou desatualizada em relação
+    // ao payload real (que sempre incluiu allow_succeeded) antes mesmo da
+    // Fase 16.9 — corrigida aqui para refletir o contrato real em vez de
+    // mascará-lo. Comparação por chaves/valores (não pelo objeto inteiro)
+    // porque calls[1].payload foi criado dentro do vm.runInNewContext —
+    // deepStrictEqual trata objetos de realms diferentes como não
+    // reference-equal mesmo com a mesma estrutura.
     assert.deepEqual(
       Object.keys(
         calls[1].payload,
-      ),
+      ).sort(),
       [
+        'allow_succeeded',
         'analysis_job_id',
       ],
+    )
+    assert.equal(
+      calls[1].payload.allow_succeeded,
+      false,
     )
 
     assert.equal(

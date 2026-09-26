@@ -12,6 +12,14 @@ import {
 
 const HEADER_TITLE = '+55 11 98888-7777'
 const FILE_NAME = 'GRADE ATUALIZADA EM 12-08-26 (1).pdf'
+const MESSAGE_MUTATIONS_SOURCE =
+  fs.readFileSync(
+    new URL(
+      '../../src/message-mutations.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
 const PHASE_16_9_RUNTIME_SOURCE =
   fs.readFileSync(
     new URL(
@@ -22,12 +30,41 @@ const PHASE_16_9_RUNTIME_SOURCE =
   )
 
 function installPhase169RuntimeGuard(window) {
+  // O manifest real carrega message-mutations.js antes do runtime guard e
+  // ambos compartilham o mesmo isolated world. O harness E3, por outro lado,
+  // executava o guard num segundo vm.Context sem expor esse helper; assim o
+  // fallback do teste lia textContent cru e perdia o espaço representado por
+  // <br>, algo que não corresponde ao runtime real do Firefox. Carregamos
+  // somente a API pura de message-mutations (sem document/observer) e a
+  // injetamos no mesmo contexto do guard para reproduzir a ordem real.
+  const messageMutationsSandbox = {
+    console,
+  }
+
+  messageMutationsSandbox.globalThis =
+    messageMutationsSandbox
+
+  vm.createContext(
+    messageMutationsSandbox,
+  )
+  vm.runInContext(
+    MESSAGE_MUTATIONS_SOURCE,
+    messageMutationsSandbox,
+    {
+      filename:
+        'message-mutations.js',
+    },
+  )
+
   const sandbox = {
     window,
     document: window.document,
     MutationObserver:
       window.MutationObserver,
     Node: window.Node,
+    YolenCompanionMessageMutations:
+      messageMutationsSandbox
+        .YolenCompanionMessageMutations,
     console,
   }
 
@@ -273,6 +310,74 @@ test('runtime final captura cartão PDF sem data-pre-plain-text usando data cron
   assert.equal(captured.occurred_at, '2026-09-12T13:31:00.000Z')
 })
 
+test('runtime final captura PDF quando o card está na role row e o data-id real está aninhado', async () => {
+  const nestedDataId =
+    'true_5511953442244@c.us_MSG-PDF-ROW-NESTED'
+
+  const messagesHtml = [
+    `
+      <div class="message-in" data-id="msg-before-row-pdf">
+        <div data-pre-plain-text="[10:22, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">Pode enviar a grade?</span>
+        </div>
+      </div>
+    `,
+    `
+      <div role="row" class="whatsapp-message-row">
+        <div class="document-card">
+          <span>${FILE_NAME}</span>
+          <span>1 página • PDF • 221 kB</span>
+        </div>
+        <div class="message-identity" data-id="${nestedDataId}"></div>
+        <span class="message-time">10:31</span>
+      </div>
+    `,
+    `
+      <div class="message-in" data-id="msg-after-row-pdf">
+        <div data-pre-plain-text="[14:40, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">Obrigada.</span>
+        </div>
+      </div>
+    `,
+  ].join('')
+
+  const initialHtml = buildWhatsAppPageHtml({
+    headerTitle: HEADER_TITLE,
+    messagesHtml,
+  })
+
+  const {
+    calls,
+    window,
+  } = loadContentScript({
+    initialHtml,
+  })
+
+  installPhase169RuntimeGuard(
+    window,
+  )
+
+  const captured = await waitFor(() => {
+    const message = findCapturedMessage(
+      calls,
+      'MSG-PDF-ROW-NESTED',
+    )
+
+    return message?.text_content ===
+      `[Arquivo: ${FILE_NAME}]`
+      ? message
+      : false
+  })
+
+  assert.equal(captured.direction, 'outgoing')
+  assert.equal(captured.content_type, 'text')
+  assert.equal(captured.is_deleted, false)
+  assert.equal(
+    captured.text_content,
+    `[Arquivo: ${FILE_NAME}]`,
+  )
+})
+
 test('content-script preserva legenda e registra o documento como fato já entregue', async () => {
   const initialHtml = buildWhatsAppPageHtml({
     headerTitle: HEADER_TITLE,
@@ -335,5 +440,69 @@ test('content-script preserva legenda quando cartão e legenda são irmãos do n
   assert.equal(
     captured.text_content,
     `Segue a grade atualizada.\n[Arquivo: ${FILE_NAME}]`,
+  )
+})
+
+test('runtime final preserva filename de PDF quebrado em múltiplas linhas e entrega no capture payload', async () => {
+  const messagesHtml = [
+    `
+      <div class="message-in" data-id="msg-before-wrapped-pdf">
+        <div data-pre-plain-text="[10:22, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">Pode enviar o material?</span>
+        </div>
+      </div>
+    `,
+    `
+      <div class="message-out" data-id="msg-wrapped-pdf">
+        <div class="document-card">
+          <span>GRADE ATUALIZADA EM 12-08-26<br>(1).pdf</span>
+          <span>1 página • PDF • 221 kB</span>
+        </div>
+        <span class="message-time">10:31</span>
+      </div>
+    `,
+    `
+      <div class="message-in" data-id="msg-after-wrapped-pdf">
+        <div data-pre-plain-text="[14:40, 12/09/2026] Cliente: ">
+          <span data-testid="selectable-text">Obrigada.</span>
+        </div>
+      </div>
+    `,
+  ].join('')
+
+  const initialHtml = buildWhatsAppPageHtml({
+    headerTitle: HEADER_TITLE,
+    messagesHtml,
+  })
+
+  const {
+    calls,
+    window,
+  } = loadContentScript({
+    initialHtml,
+  })
+
+  installPhase169RuntimeGuard(
+    window,
+  )
+
+  const captured = await waitFor(() => {
+    const message = findCapturedMessage(
+      calls,
+      'msg-wrapped-pdf',
+    )
+
+    return message?.text_content ===
+      `[Arquivo: ${FILE_NAME}]`
+      ? message
+      : false
+  })
+
+  assert.equal(captured.direction, 'outgoing')
+  assert.equal(captured.content_type, 'text')
+  assert.equal(captured.is_deleted, false)
+  assert.equal(
+    captured.text_content,
+    `[Arquivo: ${FILE_NAME}]`,
   )
 })

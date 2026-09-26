@@ -1,5 +1,9 @@
 import 'server-only'
 
+import {
+  createHash,
+} from 'crypto'
+
 import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
@@ -118,6 +122,247 @@ function publicStatus(
   }
 }
 
+function buildManualRefreshWatermark({
+  analysisJobId,
+  messageWatermark,
+  requestedAt,
+}: {
+  analysisJobId: string
+  messageWatermark: string
+  requestedAt: string
+}) {
+  return createHash(
+    'sha256',
+  )
+    .update(
+      JSON.stringify([
+        'manual-refresh-v1',
+        analysisJobId,
+        messageWatermark,
+        requestedAt,
+      ]),
+    )
+    .digest(
+      'hex',
+    )
+}
+
+async function createFreshSupersededRefresh({
+  admin,
+  token,
+  authorized,
+  deviceKey,
+  publish,
+}: {
+  admin: SupabaseClient
+  token: CompanionTokenPayload
+  authorized: Awaited<ReturnType<typeof loadCompanionAnalysisJobStatus>>
+  deviceKey: string
+  publish: QueuePublisher
+}): Promise<CompanionAnalysisJobRetryResult> {
+  const requestedAt =
+    new Date()
+      .toISOString()
+
+  /*
+   * Um job `superseded` não pode simplesmente voltar para queued com o
+   * requested_at antigo: o worker usa requested_at como corte causal do
+   * ledger. Reabrir a linha antiga faria uma ação explícita do vendedor
+   * analisar novamente uma fotografia já obsoleta. O refresh manual cria
+   * uma NOVA identidade de job, com novo watermark técnico e corte causal
+   * atual, mantendo intacto o job superseded anterior para auditoria.
+   *
+   * O watermark abaixo é identidade de execução, não conteúdo comercial.
+   * O runtime stateful continua lendo a verdade canônica pelo
+   * company/cycle/conversation + requested_at.
+   */
+  const refreshedWatermark =
+    buildManualRefreshWatermark({
+      analysisJobId:
+        authorized.analysis_job_id,
+      messageWatermark:
+        authorized.message_watermark,
+      requestedAt,
+    })
+
+  const descriptor =
+    buildStatefulCopilotBackgroundJobDescriptor({
+      company_id:
+        token.company_id,
+      cycle_id:
+        authorized.cycle_id,
+      conversation_key:
+        authorized.conversation_key,
+      message_watermark:
+        refreshedWatermark,
+      requested_at:
+        requestedAt,
+    })
+
+  const {
+    data:
+      insertedJob,
+    error:
+      insertError,
+  } =
+    await admin
+      .from(
+        'companion_background_analysis_jobs',
+      )
+      .insert({
+        analysis_job_id:
+          descriptor.analysis_job_id,
+        company_id:
+          descriptor.company_id,
+        cycle_id:
+          descriptor.cycle_id,
+        conversation_key:
+          descriptor.conversation_key,
+        message_watermark:
+          descriptor.message_watermark,
+        status:
+          'queued',
+        requested_at:
+          descriptor.requested_at,
+        automatic_crm_write:
+          false,
+        automatic_agenda_write:
+          false,
+      })
+      .select(
+        'analysis_job_id, status, message_watermark',
+      )
+      .single()
+
+  if (
+    insertError ||
+    !isRecord(
+      insertedJob,
+    )
+  ) {
+    fail({
+      code:
+        'ANALYSIS_JOB_REFRESH_CREATE_FAILED',
+      message:
+        'Não foi possível criar uma leitura atual para substituir o job obsoleto.',
+      statusCode: 500,
+      retryable: true,
+    })
+  }
+
+  const queueMessage =
+    buildStatefulCopilotBackgroundJobMessage({
+      descriptor,
+      device_key:
+        deviceKey,
+    })
+
+  await recordCompanionRuntimePathDiagnostic({
+    admin,
+    company_id:
+      token.company_id,
+    cycle_id:
+      authorized.cycle_id,
+    analysis_job_id:
+      descriptor.analysis_job_id,
+    stage:
+      'producer_refresh_superseded',
+  })
+
+  try {
+    await publish(
+      STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
+      queueMessage,
+      {
+        idempotencyKey:
+          descriptor.analysis_job_id,
+        retentionSeconds:
+          24 * 60 * 60,
+      },
+    )
+  } catch {
+    const completedAt =
+      new Date()
+        .toISOString()
+
+    const {
+      error:
+        compensationError,
+    } =
+      await admin
+        .from(
+          'companion_background_analysis_jobs',
+        )
+        .update({
+          status:
+            'failed',
+          completed_at:
+            completedAt,
+          updated_at:
+            completedAt,
+          failure_code:
+            'QUEUE_PUBLISH_FAILED',
+          automatic_crm_write:
+            false,
+          automatic_agenda_write:
+            false,
+        })
+        .eq(
+          'analysis_job_id',
+          descriptor.analysis_job_id,
+        )
+        .eq(
+          'company_id',
+          descriptor.company_id,
+        )
+        .eq(
+          'cycle_id',
+          descriptor.cycle_id,
+        )
+        .eq(
+          'conversation_key',
+          descriptor.conversation_key,
+        )
+        .eq(
+          'message_watermark',
+          descriptor.message_watermark,
+        )
+        .eq(
+          'status',
+          'queued',
+        )
+
+    if (compensationError) {
+      fail({
+        code:
+          'ANALYSIS_JOB_REFRESH_COMPENSATION_FAILED',
+        message:
+          'A publicação da leitura atual falhou e não foi possível restaurar o estado com segurança.',
+        statusCode: 500,
+        retryable: true,
+      })
+    }
+
+    return {
+      analysis_job_id:
+        descriptor.analysis_job_id,
+      status:
+        'failed',
+      message_watermark:
+        descriptor.message_watermark,
+    }
+  }
+
+  return {
+    analysis_job_id:
+      descriptor.analysis_job_id,
+    status:
+      'queued',
+    message_watermark:
+      descriptor.message_watermark,
+  }
+}
+
 export async function retryCompanionAnalysisJob({
   admin,
   token,
@@ -149,6 +394,29 @@ export async function retryCompanionAnalysisJob({
       token,
       analysis_job_id,
     })
+
+  /*
+   * `superseded` significa que o requested_at daquele job já foi vencido por
+   * uma fotografia mais nova. Quando a ação é explicitamente autorizada
+   * pelo vendedor (mesmo sinal já usado para refresh de succeeded), não
+   * reabrimos essa fotografia antiga: criamos um job novo com corte causal
+   * atual. Sem essa saída, o /analyze-conversation reaproveita para sempre o
+   * mesmo job superseded por idempotência e o botão "Tentar novamente"
+   * nunca consegue produzir uma nova leitura.
+   */
+  if (
+    authorized.status ===
+      'superseded' &&
+    allow_succeeded
+  ) {
+    return createFreshSupersededRefresh({
+      admin,
+      token,
+      authorized,
+      deviceKey,
+      publish,
+    })
+  }
 
   const requeueFromStatus =
     authorized.status === 'failed'
@@ -269,8 +537,9 @@ export async function retryCompanionAnalysisJob({
       message_watermark:
         authorized.message_watermark,
       /*
-       * O requested_at original é o corte causal do ledger. Alterá-lo com o
-       * mesmo analysis_job_id faria a identidade do snapshot mentir.
+       * failed/succeeded mantêm a identidade causal original. O caso
+       * superseded é tratado acima por createFreshSupersededRefresh(),
+       * justamente para nunca reaproveitar um corte causal obsoleto.
        */
       requested_at:
         failedJob.requested_at,
@@ -379,8 +648,9 @@ export async function retryCompanionAnalysisJob({
   }
 
   /*
-   * T28: só quem realmente fez failed -> queued ganha o direito de publicar.
-   * O perdedor do CAS apenas observa o estado que o vencedor deixou.
+   * T28: só quem realmente fez terminal -> queued ganha o direito de
+   * publicar. O perdedor do CAS apenas observa o estado real deixado pelo
+   * vencedor.
    */
   if (!isRecord(requeuedJob)) {
     return publicStatus(

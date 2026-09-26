@@ -331,14 +331,53 @@
     )
   }
 
-  function isFreshnessStillCurrent(freshness) {
+  // Staleness SEMÂNTICA: o conteúdo real da conversa mudou (mensagem nova,
+  // editada, apagada, restaurada, áudio transcrito) desde que este job foi
+  // pedido — captureRevisionByConversation só muda quando
+  // ingestCapturedMessages recebe uma mensagem com assinatura diferente da
+  // anterior, então este sinal é confiável mesmo numa aba real do
+  // WhatsApp (ao contrário de messageDomRevision, que reage a qualquer
+  // remount/virtualização visual, tenha ou não conteúdo realmente mudado).
+  function isCaptureRevisionStillCurrent(
+    freshness,
+  ) {
     return Boolean(
       freshness &&
       getCaptureRevision(
         freshness.conversationKey,
-      ) === freshness.revisionAtRequest &&
-      messageDomRevision ===
-        freshness.domRevisionAtRequest
+      ) === freshness.revisionAtRequest,
+    )
+  }
+
+  // Decide se um POLL de status deve ser tratado como stale antes de
+  // confiar no resultado. Conteúdo real diferente (captureRevision) é
+  // sempre stale, veio de clique explícito ou não — a leitura pedida não
+  // reflete mais a conversa atual. messageDomRevision só derruba o poll
+  // quando NINGUÉM pediu esta análise explicitamente: é a janela estreita
+  // entre uma mutação visual do WhatsApp e o próximo debounce/ingest do
+  // auto-analysis alcançar essa mudança. Um vendedor que clicou "Tentar
+  // novamente"/"Analisar agora" está olhando para o painel agora — nunca
+  // pode ficar preso atrás de virtualização/scroll/remount do WhatsApp.
+  function isStaleForPolling(freshness) {
+    if (!freshness) {
+      return false
+    }
+
+    if (
+      !isCaptureRevisionStillCurrent(
+        freshness,
+      )
+    ) {
+      return true
+    }
+
+    if (freshness.explicitSellerIntent) {
+      return false
+    }
+
+    return (
+      messageDomRevision !==
+      freshness.domRevisionAtRequest
     )
   }
 
@@ -694,6 +733,20 @@
         conversationKey,
         revisionAtRequest,
         domRevisionAtRequest,
+        // Qualquer clique explícito do vendedor (retry de um job failed OU
+        // "Analisar agora"/"Atualizar análise", que sempre chega aqui com
+        // force_reanalysis=true) marca este job como intenção declarada.
+        // getAnalysisJobStatus usa esta marca para nunca deixar
+        // messageDomRevision — remount/scroll/virtualização do WhatsApp —
+        // esconder o status autoritativo do backend enquanto o vendedor
+        // está olhando para o painel esperando essa mesma análise. A
+        // staleness SEMÂNTICA (captureRevision, alimentada por mudança
+        // real de conteúdo via ingestCapturedMessages) continua valendo
+        // mesmo para intenção explícita — só a leitura de DOM efêmera é
+        // ignorada.
+        explicitSellerIntent:
+          retryFailedJob ||
+          forceReanalysis,
         messageWatermark:
           typeof deepAnalysis.message_watermark === 'string'
             ? deepAnalysis.message_watermark
@@ -715,6 +768,21 @@
         freshness,
       )
 
+      // Um retry explícito (clique em "Tentar novamente"/"Atualizar
+      // análise") é uma intenção declarada do vendedor sobre um job cuja
+      // identidade já é conhecida (analysis_job_id). Essa intenção nunca
+      // pode ser condicionada a messageDomRevision: o WhatsApp Web remonta
+      // e revirtualiza o DOM de mensagens o tempo todo (indicador de
+      // digitação, confirmação de leitura, timestamps), então essa parte
+      // da guarda quase sempre "vencia" numa aba real durante a janela de
+      // rede do ANALYZE_CONVERSATION — mesmo que nada tenha realmente
+      // mudado na conversa. isStaleForPolling() ignora só esse componente
+      // ephemeral para freshness.explicitSellerIntent=true; a staleness
+      // SEMÂNTICA (captureRevision — conteúdo real mudou) continua valendo
+      // mesmo para intenção explícita, e é a única guarda que resta para a
+      // reabertura IMPLÍCITA (o auto-analysis reconhecendo, por conta
+      // própria, que este mesmo snapshot já falhou antes via
+      // failedJobBySnapshotKey).
       const shouldRequeueAnalysis =
         (
           deepAnalysis.status === 'failed' &&
@@ -731,7 +799,7 @@
 
       if (
         shouldRequeueAnalysis &&
-        isFreshnessStillCurrent(
+        !isStaleForPolling(
           freshness,
         )
       ) {
@@ -813,12 +881,25 @@
           )
         : null
 
+    // Polling de status nunca sintetiza "superseded" a partir de
+    // messageDomRevision para um job com intenção explícita do vendedor
+    // (ver isStaleForPolling): o WhatsApp Web remonta/virtualiza o DOM
+    // continuamente enquanto um poll está em voo (indicador de digitação,
+    // confirmação de leitura, timestamps), então essa guarda ephemeral
+    // quase sempre "vencia" numa aba real e escondia o
+    // queued/running/succeeded verdadeiro atrás de um superseded fabricado
+    // localmente — sem nunca consultar o backend — bem na hora em que o
+    // vendedor está olhando o painel esperando essa mesma análise. Para
+    // jobs automáticos (sem clique explícito) a guarda de DOM continua
+    // valendo, fechando a janela entre uma mutação visual e o próximo
+    // debounce/ingest. Staleness semântica (message_watermark/
+    // captureRevision) sempre vale, com ou sem intenção explícita — é o
+    // conteúdo real da conversa tendo mudado, não ruído de virtualização.
+    // Staleness de "o vendedor trocou de conversa" é resolvida à parte no
+    // content-script.js via isAnalysisResponseStillCurrent().
     if (
       analysisJobId &&
-      freshness &&
-      !isFreshnessStillCurrent(
-        freshness,
-      )
+      isStaleForPolling(freshness)
     ) {
       return buildSyntheticSupersededResponse(
         analysisJobId,
@@ -846,9 +927,7 @@
       data?.status === 'succeeded' &&
       freshness &&
       (
-        !isFreshnessStillCurrent(
-          freshness,
-        ) ||
+        isStaleForPolling(freshness) ||
         (
           freshness.messageWatermark &&
           data.message_watermark !==

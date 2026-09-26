@@ -36,8 +36,8 @@ import type {
  * - Company Knowledge vem do mesmo Diagnostic Snapshot versionado já usado
  *   pelo Companion, nunca de regras paralelas no presenter;
  * - FASE 16.9: responsabilidade operacional determinística (quem está
- *   aguardando quem) reconcilia a decisão final para impedir que um gap de
- *   descoberta mande o vendedor repetir uma ação que já foi executada.
+ *   aguardando quem) reconcilia a decisão final sem apagar pendência
+ *   semanticamente comprovada pela Commercial Reading canônica.
  */
 export async function loadCanonicalSellerReasoning({
   admin,
@@ -93,5 +93,7 @@ export async function loadCanonicalSellerReasoning({
       context.client_context,
     referenceTime:
       context.reference_time,
+    currentReading:
+      context.current_reading,
   })
 }
