@@ -1008,8 +1008,23 @@ const ABA_PATHS = [
   },
 ]
 
+// Os cenários A → B → A não testam a análise automática. O temporizador
+// real dela (8 s, Core compartilhado) continuaria ativo e, sob carga, a
+// fase B passa de 8 s: a análise automática de B disparava num canal antes
+// do snapshot e no outro ainda não, uma divergência transitória de ANÁLISE
+// que não é do cenário testado. O override de teste já existente fixa o
+// disparo fora da janela do teste nos dois canais (2^31 - 1 ms: o maior
+// atraso aceito por setTimeout sem estourar para disparo imediato).
+const AUTOMATIC_ANALYSIS_OUT_OF_SCENARIO_MS = 2 ** 31 - 1
+
+function pinAutomaticAnalysisOutOfScenario({ dom }) {
+  dom.window.__yolenCompanionAutomaticAnalysisMsForTests = AUTOMATIC_ANALYSIS_OUT_OF_SCENARIO_MS
+}
+
 function startAba(conversations, backend) {
-  return CHANNELS.map((channel) => startParityConversations(channel, conversations, { ...baseBackend(), ...backend }))
+  return CHANNELS.map((channel) =>
+    startParityConversations(channel, conversations, { ...baseBackend(), ...backend, beforeLoad: pinAutomaticAnalysisOutOfScenario }),
+  )
 }
 
 for (const path of ABA_PATHS) {
@@ -1381,6 +1396,7 @@ test('A → B → A (enriquecimento): aplicação tardia de A nunca vira confirm
   const runtimes = CHANNELS.map((channel) =>
     startParityConversations(channel, conversations, {
       ...baseBackend(),
+      beforeLoad: pinAutomaticAnalysisOutOfScenario,
       extraHandlers: {
         APPLY_LEAD_ENRICHMENT: async (payload) => {
           applied[channel].push(payload)
