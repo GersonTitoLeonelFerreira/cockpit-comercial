@@ -289,6 +289,79 @@ inalterado, sem asserção de scroll):
 - **Classificação:** limite de tempo do harness sob sobrecarga
   artificial. Não é regressão de scroll.
 
+### 8.9 Gates completos depois da correção (2ª rodada)
+
+Código `96d4bf69`; execução sequencial nova (nenhum resultado antigo
+reaproveitado), de 2026-09-26T22:24Z a 23:14Z. `T=app/extension/yolen-companion/tests`
+
+| # | Gate | Comando | Resultado |
+|---|---|---|---|
+| 1 | test:companion (falhas conhecidas) | `node scripts/companion-known-failures-gate.mjs companion` | 2282 testes, 2278 pass, 4 fail — **4 known, 0 new** → PASS |
+| 2 | Autorização | `npm run test:companion-authorization` | 266/266 → PASS |
+| 3 | **E3 oficial** | `node --test --test-force-exit --test-reporter=tap $T/e3-dom/*.test.mjs` | **356/356** → PASS (352 + 4 testes focais; contagem completa, sem truncamento) |
+| 4 | E3 falhas conhecidas | `node scripts/companion-known-failures-gate.mjs e3` | 0 falhas; 0 known; 0 new → PASS |
+| 5 | E3 em processo (diagnóstico) | `node --experimental-test-isolation=none --test --test-force-exit $T/e3-dom/*.test.mjs` | 356 testes, 355 pass, 1 fail: paridade `A → B → A (enriquecimento)` — causa determinada abaixo; nenhuma falha de scroll |
+| 6 | Arquitetura | sem force-exit e em processo | 53/53 ×2; A1–A18 PASS; `NEW_VIOLATIONS=0`, `STALE_BASELINE=0`, `LEGACY_VIOLATIONS_REMAINING=0` |
+| 7 | Composição só-canal ManyChat | `node --test --test-force-exit $T/manychat-channel-only-architecture.test.mjs` | 6/6 |
+| 8 | Adapter neutro | `… $T/e3-dom/core-neutral-channel-adapter.test.mjs` (em processo) | 14/14 |
+| 9 | ManyChat | `… $T/manychat-*.test.mjs $T/companion-background-privacy.test.mjs $T/companion-enrichment-comparison.test.mjs $T/e3-dom/manychat-shared-composition.test.mjs` (em processo) | 286/286 |
+| 10 | WhatsApp | `… whatsapp-phase5-regression, whatsapp-identity-bridge-integration, suggested-message-insertion-conversation-race, canonical-conversation-key, lead-enrichment` (em processo) | 61/61 |
+| 11 | Paridade | oficial e em processo | 51/51 ×2 |
+| 12 | TypeScript | `npx tsc --noEmit` | PASS |
+| 13 | Lint dos arquivos alterados | `npx eslint <132 arquivos do diff>` | 0 errors; 15 warnings, todas já existentes na `main` (a 15ª, `defaultLeadSummary` em `ux8-scroll-owner-dom.test.mjs`, existe igual na `main`; o arquivo entrou no diff agora) |
+| 14 | Lint global (baseline separado) | `npx eslint .` | 56 errors / 123 warnings — idêntico ao baseline; nenhum error em arquivo alterado |
+| 15 | Build normal + validador | `build-package.mjs` + `validate-release-candidate.mjs` | PASS; `MANYCHAT_CAPTURE_ENABLED` false em dev e prod |
+| 16 | Build E2E + validador | idem com `--e2e` | PASS; true só em e2e; o pacote contém `maxScroll > 0 &&` e `isRestoring` |
+| 17 | Whitespace | `git diff --check origin/main...HEAD` | PASS |
+| 18 | Auditoria do diff | `origin/main...HEAD` | 158 extensão, 9 docs, 1 script; backend 0; `supabase/` 0; login/marketing/middleware 0 |
+| 19 | PR #152 | GitHub | intocado (draft, aberto, última atualização 2026-08-15) |
+
+**Paridade no E3 em processo (#5) — causa determinada (não é flake):**
+- **Mecanismo:** os testes A → B → A de paridade não fixam o temporizador
+  real da análise automática (`AUTOMATIC_ANALYSIS_DELAY_MS = 8000`, Core
+  compartilhado). Com todos os arquivos E3 num único processo, a fase B do
+  teste passa de 8 s de relógio (o teste levou 13,8 s). Aí a análise
+  automática de B dispara num canal antes do snapshot e no outro ainda
+  não.
+- **Consequência:** o harness de paridade não configura resultado de
+  análise nesse cenário. O canal que disparou mostra o cartão de erro
+  ("Análise não configurada neste cenário de teste. Tentar novamente",
+  `yolen-status-warning`) ou o de loading ("Analisando sua condução
+  comercial…"). O outro mostra o estado vazio.
+- **Prova determinística** (cópia descartável do teste, override de teste
+  já existente `__yolenCompanionAutomaticAnalysisMsForTests`):
+
+| Override | Resultado |
+|---|---|
+| 0 ms nos dois canais | a análise automática roda nos dois; paridade **PASS** |
+| só no ManyChat, 0 ms (teste de enriquecimento) | divergência **idêntica** à falha do #5 (mesmos caminhos e mesmo HTML) |
+| só no ManyChat, 2500 ms (teste de análise e mensagem) | divergência **idêntica** à 1ª falha de paridade em processo (§8.6, cartão "Analisando…") |
+| padrão (8 s), fora de carga | nenhuma análise automática dentro da janela do teste; PASS (10/10 oficial + 10/10 em processo, §8.8 E) |
+
+- **Classificação:** dependência de tempo real no teste de paridade,
+  presente desde a FASE 8. Não é divergência de produto: os dois canais
+  executam a mesma análise automática. Não tem relação com F11-01.
+- **Correção possível (NÃO aplicada; fora da autorização atual, que é
+  somente F11-01):** fixar o override da análise automática nos testes
+  A → B → A de paridade, só no teste.
+
+### 8.10 Live focal de scroll (Firefox real) — pendente
+
+Pacote: build E2E da branch no HEAD publicado
+(`node app/extension/yolen-companion/scripts/build-package.mjs --e2e`).
+Nome esperado: `Yolen Companion [E2E] <sha8 do HEAD>`. Roteiro:
+
+1. carregar o E2E novo;
+2. abrir/recarregar o ManyChat;
+3. abrir a PRIMEIRA conversa;
+4. confirmar que o Companion abre no TOPO;
+5. rolar manualmente;
+6. trocar A → B;
+7. voltar B → A;
+8. confirmar que não há salto incorreto para o fim.
+
+Resultado: aguardando execução.
+
 ## 9. Live acceptance (herdado)
 
 | Item | Resultado |
@@ -323,7 +396,8 @@ started_at`.
 | Reconciliação com a `main` | PASS (sem conflito) |
 | 1ª rodada de gates | FAIL — F11-01 (gate 3) |
 | F11-01 | corrigido (`96d4bf69`, §8.8): red → fix → green |
-| Gates completos após a correção | em execução (§8.9) |
-| Live focal de scroll | pendente (§8.10) |
-| **STATUS FASE 11** | **BLOCKED** (até gates + live focal) |
+| Gates completos após a correção | PASS (§8.9) |
+| Paridade no E3 em processo (diagnóstico) | causa determinada: temporizador real de análise automática no teste (§8.9); não aplicado |
+| Live focal de scroll | **pendente** (§8.10) |
+| **STATUS FASE 11** | **BLOCKED** (até o live focal) |
 | PR | não aberto |
