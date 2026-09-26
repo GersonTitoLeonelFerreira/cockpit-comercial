@@ -238,5 +238,51 @@ Pacote do retest do LIVE-02:
 
 ### 8.4 Retest
 
-(pendente — retest só do áudio com `Yolen Companion [E2E] 9e5a6fee`)
+Retest com `Yolen Companion [E2E] 9e5a6fee` (Firefox real, Gerson): ao
+clicar "Transcrever áudio 1 de 1" o Companion **sai do loading** (watchdog
+e caminho de erro funcionando) e exibe o erro real:
+**"'atob' called on an object that does not implement interface Window."**
+→ transcrição ainda quebrada; causa raiz localizada (§8.5).
+
+### 8.5 Causa raiz confirmada no Firefox real e correção
+
+- **Arquivo/função:** `src/manychat-channel-adapter.js`, `base64ToBlob`.
+- **Código anterior:** `const binary = (windowRef?.atob ?? root.atob)(base64)`
+  — `Window.atob` era desacoplado do objeto antes da chamada; no Firefox o
+  receiver precisa ser `Window` e a chamada lança o erro acima. O
+  WhatsAppAdapter não usa esse caminho (fetch de blob direto), por isso só o
+  ManyChat quebrava. O jsdom aceita a chamada sem receiver, por isso a
+  matriz E3 não mostrava a falha.
+- **Camada:** ADAPTER (ManyChat).
+- **Teste red:** `tests/e3-dom/manychat-audio-atob-receiver.test.mjs` —
+  composição real do ManyChat com o `atob` da página exigindo `Window` como
+  receiver (semântica do Firefox); clique real em "Transcrever" →
+  `getAudioSource` real → Core. **Antes:** FAIL — violação registrada
+  `"'atob' called on an object that does not implement interface Window."`
+  e nenhum `TRANSCRIBE_AUDIO`. **Depois:** PASS — base64 vira Blob,
+  `getAudioSource` retorna ok, `TRANSCRIBE_AUDIO` alcançado com os mesmos
+  bytes, ciclo e mime, ação de transcrever encerra.
+- **Correção (1 arquivo, 1 linha lógica):** chamar `windowRef.atob(base64)`
+  preservando o receiver (fallback `root.atob(base64)`). Nenhuma mudança
+  seller-facing ou de arquitetura. Varredura dos módulos ManyChat/Core por
+  outros métodos de `Window` desacoplados: nenhum encontrado.
+
+### 8.6 Observações do live (não misturadas com LIVE-02)
+
+- "Analisar agora" com o áudio ainda pendente terminou em "A análise demorou
+  mais que o esperado. Tente novamente." Fica para depois do retest do
+  áudio (áudio → transcrever → concluir → analisar); se a ANÁLISE expirar
+  **depois** de uma transcrição bem-sucedida, será registrada como LIVE-03.
+- Assimetria registrada por código, sem alteração: a análise automática não
+  agenda com áudio pendente (`canScheduleAutomaticAnalysis` →
+  `getPendingAudioCountForCurrentConversation() > 0`), enquanto a ação
+  manual não faz essa checagem. Sem reproducer separado, a regra não muda.
+
+### 8.7 Gates (correção do atob)
+
+GATES_ATOB
+
+### 8.8 Retest
+
+RETEST_ATOB
 
