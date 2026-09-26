@@ -441,7 +441,25 @@ export const FIREFOX_E2E_GECKO_ID = 'yolen-companion-e2e@gerson.local'
 // no Firefox, o id da extensão. `manifest.json` nunca é editado — assim
 // como toProductionManifest, esta função sempre recebe o manifest de
 // origem e devolve um manifest NOVO, específico do navegador.
-export function toE2EManifest(sourceManifest, targetName) {
+// Commit de origem do pacote e2e (FASE 10, LIVE-01): um pacote e2e de um
+// commit anterior tinha nome, versão, id e caminho idênticos ao aprovado e
+// só se distinguia pelo conteúdo. O nome carrega o commit — visível no
+// about:debugging/chrome://extensions — e o validador e2e, que recalcula o
+// manifest esperado a partir do checkout atual, recusa um pacote de outro
+// commit.
+export function readE2ESourceCommit() {
+  try {
+    return execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim() || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+export function toE2EManifest(sourceManifest, targetName, { sourceCommit = readE2ESourceCommit() } = {}) {
   const target = TARGETS[targetName]
   if (!target) {
     throw new Error(`Alvo de empacotamento desconhecido: ${targetName}`)
@@ -449,7 +467,7 @@ export function toE2EManifest(sourceManifest, targetName) {
 
   const manifest = target.adaptManifest(structuredClone(sourceManifest))
 
-  manifest.name = E2E_NAME
+  manifest.name = `${E2E_NAME} ${sourceCommit}`
   manifest.description = `${sourceManifest.description}${E2E_DESCRIPTION_SUFFIX}`
 
   if (targetName === 'firefox') {
