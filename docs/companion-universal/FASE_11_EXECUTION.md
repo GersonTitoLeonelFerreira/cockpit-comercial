@@ -1,8 +1,11 @@
 # FASE 11 — REGISTRO DE EXECUÇÃO (gate final, PR e decisão de merge)
 
-Registro único da FASE 11. A FASE 11 é um gate: nenhuma alteração de
-produto, de teste, de latência ou de UX foi feita nesta fase. Resultado:
-**GATE FAIL — PR NÃO ABERTO** (achado F11-01, §8). Merge: NO. Rollout: NO.
+Registro único da FASE 11. A FASE 11 é um gate. A 1ª rodada falhou por
+F11-01 (§8). A correção de F11-01 foi autorizada pelo Controle Mestre
+dentro da própria FASE 11 (sem nova fase): opção B, §8.8. Depois dela, os
+gates foram repetidos por inteiro (§8.9) e um live focal de scroll foi
+pedido (§8.10). Nenhuma outra alteração de produto, latência ou UX.
+PR: só depois do live focal. Merge: NO. Rollout: NO.
 
 ## 1. Baseline
 
@@ -30,7 +33,7 @@ produto, de teste, de latência ou de UX foi feita nesta fase. Resultado:
 no total, ~2m58s de espera na fila, ~20s de worker; não corrigido) e §10
 (FASE 10 PASS). Commit `96b6b7e5`.
 
-## 4. Gates (HEAD `96b6b7e5`)
+## 4. Gates — 1ª rodada (HEAD `96b6b7e5`, antes da correção)
 
 `T=app/extension/yolen-companion/tests`
 
@@ -203,7 +206,7 @@ Paridade (A → B → A análise/mensagem e enriquecimento):
   oficial sob carga. A causa foi a espera do harness em A₂, corrigida em
   `0f1c7fe7` (`areasLoadedFor`).
 
-### 8.7 Correções candidatas (NÃO aplicadas — decisão do Controle Mestre)
+### 8.7 Correções candidatas (avaliadas antes da autorização)
 
 Validadas só em cópia descartável fora do repo:
 
@@ -223,6 +226,68 @@ Validadas só em cópia descartável fora do repo:
   realistas → micro-fix (opção B, ou A+B) → endurecer a espera dos 3
   testes ux8 → gates completos → novo build E2E. Não iniciado: a FASE 11
   não muda produto nem abre fase nova.
+
+### 8.8 Correção autorizada (opção B) — red, fix, green
+
+**Regra:** o runtime só considera o workspace "no fim" com overflow real
+de conteúdo. Painel sem overflow nunca está "no fim".
+
+**Commit:** `96d4bf69`. 1 arquivo de produção
+(`panel-stability-runtime.js`) + 3 de teste. Nenhum outro arquivo de
+produção (Core, adapters, backend, áudio, análise, fila, manifest, build,
+UI comercial, copy: intocados).
+
+Mudança de produção:
+
+| Trecho | Antes | Depois |
+|---|---|---|
+| `captureScroll()` | `nearBottom: distanceFromBottom <= BOTTOM_THRESHOLD_PX` | `nearBottom: maxScroll > 0 && distanceFromBottom <= BOTTOM_THRESHOLD_PX` |
+| API pública do runtime | — | `isRestoring()` somente leitura (`restoring`), para testes esperarem a restauração terminar por condição |
+
+`BOTTOM_THRESHOLD_PX` (80) inalterado.
+
+**Teste focal novo:** `tests/e3-dom/panel-stability-first-open-scroll.test.mjs`.
+Métricas de layout realistas desde o primeiro render (instaladas em
+`beforeLoad`): viewport do workspace-body 600; conteúdo 600 antes das áreas
+seller-facing; 3000 depois. Todas as esperas são por condição.
+
+| Caso | Antes da correção | Depois |
+|---|---|---|
+| Primeira conversa abre no topo (painel sem overflow → workspace cresce) | **FAIL: 2400** (esperado 0) | PASS |
+| Scroll manual do vendedor (850) sobrevive a 3 rerenders da mesma conversa | PASS | PASS |
+| A → B abre B no topo; B → A abre A no topo; sem salto para o fim | PASS | PASS |
+| Com overflow real, vendedor no fim continua ancorado no fim quando o conteúdo cresce (2900) | PASS | PASS |
+
+O red falhou só no caso da regressão, pelo motivo certo (2400 = fim do
+conteúdo). Os outros três casos são controles de preservação.
+
+**Testes com espera fixa:** as 7 esperas `sleep(80)` dos dois arquivos
+ux8 de scroll (`1+2)`, `3)`, `5+6)`; campo editável `1)`, `2)`, `4)`,
+`8)`) viraram `scrollAsSellerWhenSettled()`. O helper espera
+`isRestoring() === false` e, no mesmo passo síncrono, aplica o scroll do
+vendedor. Nenhuma espera foi aumentada. As asserções continuam as mesmas.
+
+**Provas focais:**
+
+| Prova | Resultado |
+|---|---|
+| A. Teste focal F11-01 | 4/4 PASS |
+| B + C. Focal + ux8 scroll + campo editável (3 arquivos) | 14/14 PASS |
+| D. Focal repetido em sequência | 30/30 execuções PASS |
+| D. Estresse: 3 arquivos × 6 processos paralelos × 3 rodadas, com 8 loops de CPU ocupando os 4 núcleos | 18 execuções, 252 testes: todas as asserções de scroll PASS. 1 falha: `9)` (ver abaixo) |
+| E. Paridade `A → B → A (análise e geração de mensagem)` e `(enriquecimento)`, 5× oficial + 5× em processo | 20/20 PASS |
+
+Falha sob estresse — `9) mesmo depois de recolher/expandir,
+header/contato/abas/rodapé continuam fora do workspace-body` (teste
+inalterado, sem asserção de scroll):
+- **Causa:** o `waitFor` da montagem inicial (primeiro passo do teste,
+  antes de qualquer colapso ou scroll) estourou o teto fixo de 8 s do
+  harness.
+- **Por quê:** com ~14 processos disputando 4 núcleos, todos os testes
+  ficaram 3–10× mais lentos. O próprio `9)` levou 3,6–4,9 s nas outras 17
+  execuções e 8,7 s nesta.
+- **Classificação:** limite de tempo do harness sob sobrecarga
+  artificial. Não é regressão de scroll.
 
 ## 9. Live acceptance (herdado)
 
@@ -256,9 +321,9 @@ started_at`.
 | Item | Resultado |
 |---|---|
 | Reconciliação com a `main` | PASS (sem conflito) |
-| Gates 1, 2, 4, 6–14 | PASS |
-| Gate 3 (E3 oficial) | **FAIL — F11-01** |
-| Item aberto | 2 falhas de paridade só em processo, causa não determinada, não reproduzidas (§8.6) |
-| **FASE 11 (gate final)** | **FAIL — 1 blocker (F11-01)** |
+| 1ª rodada de gates | FAIL — F11-01 (gate 3) |
+| F11-01 | corrigido (`96d4bf69`, §8.8): red → fix → green |
+| Gates completos após a correção | em execução (§8.9) |
+| Live focal de scroll | pendente (§8.10) |
+| **STATUS FASE 11** | **BLOCKED** (até gates + live focal) |
 | PR | não aberto |
-| Próximo passo | decisão do Controle Mestre sobre a correção de F11-01 (§8.7) |
