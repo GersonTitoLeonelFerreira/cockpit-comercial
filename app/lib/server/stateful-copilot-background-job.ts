@@ -448,8 +448,19 @@ export function resolveStatefulCopilotBackgroundFailureOutcome({
         failure.communication_attempts ??
         null,
 
+      // LIVE-03 (FASE 10): citar áudio sem transcrição é determinístico
+      // para a mesma conversa — reenfileirar só repetia a mesma pergunta
+      // (~14 min até `failed`) enquanto o vendedor esperava. Terminal
+      // imediato; uma transcrição nova gera watermark/job novos.
       retryable:
-        failure.retryable === true,
+        failure.retryable === true &&
+        (
+          failure.communication_failure_invariant ??
+          failure.diagnostic_failure_invariant ??
+          failure.state_failure_invariant ??
+          null
+        ) !==
+          'AUDIO_EVIDENCE_NOT_TRANSCRIBED',
     }
   }
 
