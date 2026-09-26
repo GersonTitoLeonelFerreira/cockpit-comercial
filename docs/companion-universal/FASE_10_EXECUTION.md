@@ -103,7 +103,38 @@ presente); comparação de paridade e asserções semânticas inalteradas.
 
 ## 6. Gates
 
-GATES_PLACEHOLDER
+| Gate | Comando | Exit | Resultado |
+|---|---|---|---|
+| Teste focal LIVE-01 | `node --test …/tests/e2e-build-identity.test.mjs` | 0 | 2/2 (antes: 0/2) |
+| Build/manifest/validador (unit) | `node --test --test-force-exit` em e2e-build-identity, dev-prod-manifest-transform, final-release-manifest, validate-release-candidate, manychat-feature-flags | 0 | 58/58 |
+| Paridade (oficial) | `node --test --test-force-exit …/e3-dom/cross-channel-parity.test.mjs` | 0 | 51/51 |
+| Paridade (em processo) | `node --experimental-test-isolation=none --test --test-force-exit …` | 0 | 51/51 |
+| Arquitetura | `node --experimental-test-isolation=none --test --test-force-exit …/companion-core-architecture-gates.test.mjs` e `node --test …` (sem force-exit) | 0 / 0 | 53/53 e 53/53; NEW=0, STALE=0, LEGACY=0 |
+| ManyChat channel-only | `node --test --test-force-exit …/manychat-channel-only-architecture.test.mjs` | 0 | 6/6 |
+| Adapter neutro | em processo | 0 | 14/14 |
+| ManyChat | em processo (manychat-*, privacidade, comparação, composição E3) | 0 | 286/286 |
+| WhatsApp | em processo (regressão FASE 5, bridge, corrida de inserção, chave canônica, enrichment) | 0 | 61/61 |
+| `npm run test:companion` | idem | 1 | 2275/2279; as 4 falhas são as 4 conhecidas |
+| Known failures companion | `node scripts/companion-known-failures-gate.mjs companion` | 0 | 4 conhecidas, 0 novas |
+| E3 completo | `node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/*.test.mjs` | 0 | 349/349 |
+| TypeScript | `./node_modules/.bin/tsc --noEmit` | 0 | limpo |
+| Lint arquivos alterados | `eslint build-package.mjs e2e-build-identity.test.mjs cross-channel-parity.test.mjs` | 0 | PASS |
+| Build + validador normal | `validate-release-candidate.mjs` (reconstrói) | 0 | PASS; ManyChat false em dev/prod |
+| Build + validador E2E | `build-package.mjs --e2e`; `validate-release-candidate.mjs --e2e` | 0 / 0 | PASS; ManyChat true; `e2e_manifest_identification` com o commit |
+| `git diff --check` | — | 0 | limpo |
+| Autorização | não executado — nenhum backend/API tocado | — | — |
+
+Novo pacote E2E para o retest:
+
+| Item | Valor |
+|---|---|
+| HEAD | `e2aad24389c6cccb0e2af4b7a88a23f3ce02722a` |
+| Gerado em | 2026-09-26T12:42:00Z |
+| Pacote | `dist/yolen-companion/e2e/yolen-companion-firefox-e2e-v1.0.0.zip` |
+| Manifest | `dist/yolen-companion/e2e/firefox/staging/manifest.json` |
+| Nome exibido | `Yolen Companion [E2E] e2aad243` |
+| SHA-256 | `0751107c2e2397adbaee981d5a6d03b576707b5324746d681d9bdbe924ad6792` |
+| Texto legado no pacote | ausente |
 
 ## 7. Live retest
 
