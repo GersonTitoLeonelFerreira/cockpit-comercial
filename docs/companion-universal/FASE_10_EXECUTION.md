@@ -448,3 +448,32 @@ O pacote E2E fala com `https://cockpit-comercial-vocn.vercel.app`
 (produção, `0c95b769`). A correção de LIVE-03 é de backend, então o retest
 só é significativo depois que esse backend estiver publicado lá. **Nenhum
 deploy foi feito**; aguarda autorização explícita.
+
+### 9.6 Hotfix backend-only e deploy (decisão do Controle Mestre)
+
+- Branch `hotfix/live-03-audio-evidence` criada de `origin/main`
+  (`0c95b769`) num worktree limpo; **um único** cherry-pick de `5a8afe9c`
+  → `cf52bf97`. A reconstrução multicanal **não** foi mergeada.
+- Diff contra `main`: exatamente
+  `app/lib/companion/stateful-copilot-execution-plan.ts`,
+  `app/lib/server/stateful-copilot-background-job.ts`,
+  `app/lib/companion/live-03-pending-audio-analysis.test.mjs`.
+- Gates no hotfix (base `main`): LIVE-03 focal 3/3; suítes stateful do
+  backend 112/112; `test:companion-authorization` 266/266; `tsc` limpo;
+  eslint dos arquivos alterados limpo; `git diff --check` limpo.
+- PR: [GersonTitoLeonelFerreira/cockpit-comercial#339](https://github.com/GersonTitoLeonelFerreira/cockpit-comercial/pull/339).
+  Check "Full Companion regression + package gate": terminou em 2 s sem
+  runner (`runner_id: 0`, nenhum passo) → **BILLING_BLOCKED**, não falha de
+  teste. "Vercel Preview Comments": success.
+- Merge (método merge, preservando o commit do hotfix):
+  **`7e1f6d0b1c0086a425445a100a907532ec25a736`** em 2026-09-26 ~20:04 UTC.
+  `main` depois do merge difere de `0c95b769` só nesses 3 arquivos.
+- Deploy de produção Vercel: `dpl_6AWFvW864yVCqHZVTea8HFvJcN7A`, commit
+  `7e1f6d0b`, aliases `cockpit-comercial-vocn-yolen.vercel.app` /
+  `cockpit-comercial-vocn-git-main-yolen.vercel.app`. Estado em 20:05 UTC: BUILDING (confirmação de READY abaixo).
+- Extensão não alterada para o retest (usa o E2E que passou no LIVE-02).
+
+### 9.7 Retest LIVE-03
+
+(pendente — conversa do Rubens → "Analisar agora", cronometrar clique →
+resultado)
