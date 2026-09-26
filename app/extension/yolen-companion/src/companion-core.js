@@ -2871,6 +2871,41 @@ function createCompanionCore(ctx) {
       .length
   }
 
+  // LIVE-02 (FASE 10): a transcrição espera etapas externas (fonte física
+  // do áudio no canal, leitura do arquivo, transcrição na Yolen) sem limite
+  // próprio; uma etapa que nunca responde deixava o vendedor em
+  // "Transcrevendo…" para sempre, sem erro nem nova tentativa. Cada
+  // tentativa tem um token; o watchdog encerra a tentativa presa com erro
+  // visível e o resultado tardio dela é descartado.
+  const AUDIO_TRANSCRIPTION_WATCHDOG_MS = 90000
+  let audioTranscriptionAttempt = 0
+  let audioTranscriptionWatchdogTimerId = 0
+
+  function getAudioTranscriptionWatchdogDelayMs() {
+    const override =
+      window.__yolenCompanionAudioTranscriptionWatchdogMsForTests
+
+    return typeof override === 'number' &&
+      Number.isFinite(override) &&
+      override >= 0
+      ? override
+      : AUDIO_TRANSCRIPTION_WATCHDOG_MS
+  }
+
+  function clearAudioTranscriptionWatchdogTimer() {
+    if (audioTranscriptionWatchdogTimerId) {
+      window.clearTimeout(audioTranscriptionWatchdogTimerId)
+      audioTranscriptionWatchdogTimerId = 0
+    }
+  }
+
+  // Encerra qualquer tentativa em voo (troca de conversa): nada dela é
+  // aplicado depois.
+  function abandonAudioTranscriptionAttempt() {
+    audioTranscriptionAttempt += 1
+    clearAudioTranscriptionWatchdogTimer()
+  }
+
   function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
@@ -2941,6 +2976,29 @@ function createCompanionCore(ctx) {
 
     renderPanel()
 
+    clearAudioTranscriptionWatchdogTimer()
+    const attempt = ++audioTranscriptionAttempt
+    const isAttemptCurrent = () => attempt === audioTranscriptionAttempt
+
+    audioTranscriptionWatchdogTimerId = window.setTimeout(() => {
+      audioTranscriptionWatchdogTimerId = 0
+
+      if (!isAttemptCurrent() || !state.audioTranscriptionLoading) {
+        return
+      }
+
+      audioTranscriptionAttempt += 1
+
+      state = {
+        ...state,
+        audioTranscriptionLoading: false,
+        audioTranscriptionStatus:
+          'Não foi possível concluir a transcrição do áudio agora. Tente novamente.',
+      }
+
+      renderPanel()
+    }, getAudioTranscriptionWatchdogDelayMs())
+
     // Áudio obsoleto (conversa/geração/empresa/sessão diferentes) nunca vira
     // transcrição, captura, registro ou estado de outro contexto: só a
     // trava de carregamento é liberada.
@@ -2948,6 +3006,12 @@ function createCompanionCore(ctx) {
       captureOperationContext()
 
     const releaseStaleTranscription = () => {
+      if (!isAttemptCurrent()) {
+        return
+      }
+
+      clearAudioTranscriptionWatchdogTimer()
+
       state = {
         ...state,
         audioTranscriptionLoading: false,
@@ -2956,6 +3020,10 @@ function createCompanionCore(ctx) {
 
     try {
       const audioCapture = await getAudioSource(nextTarget)
+
+      if (!isAttemptCurrent()) {
+        return
+      }
 
       if (!isOperationContextCurrent(operationContext)) {
         releaseStaleTranscription()
@@ -2975,6 +3043,10 @@ function createCompanionCore(ctx) {
       const blob = audioCapture.blob
       const audioBase64 = await blobToBase64(blob)
 
+      if (!isAttemptCurrent()) {
+        return
+      }
+
       if (!isOperationContextCurrent(operationContext)) {
         releaseStaleTranscription()
         return
@@ -2988,6 +3060,10 @@ function createCompanionCore(ctx) {
         audio_index: nextTarget.index,
         audio_target_key: nextTarget.key,
       })
+
+      if (!isAttemptCurrent()) {
+        return
+      }
 
       if (!isOperationContextCurrent(operationContext)) {
         releaseStaleTranscription()
@@ -3021,6 +3097,8 @@ function createCompanionCore(ctx) {
           nextAudioTranscriptionsByKey,
         )
 
+      clearAudioTranscriptionWatchdogTimer()
+
       state = {
         ...state,
         audioTranscriptionLoading: false,
@@ -3043,10 +3121,16 @@ function createCompanionCore(ctx) {
         )
       }
     } catch (error) {
+      if (!isAttemptCurrent()) {
+        return
+      }
+
       if (!isOperationContextCurrent(operationContext)) {
         releaseStaleTranscription()
         return
       }
+
+      clearAudioTranscriptionWatchdogTimer()
 
       state = {
         ...state,
@@ -3338,6 +3422,7 @@ function createCompanionCore(ctx) {
   // hora — nunca adiar para panelRegionPendingHtml esperando uma
   // interação da conversa que já não existe mais.
   function hardResetConversationWorkspace() {
+    abandonAudioTranscriptionAttempt()
     channelAdapter.resetCapturedAudio()
     messageController.clear()
     clearAutomaticAnalysisTimer()
@@ -6033,6 +6118,12 @@ function createCompanionCore(ctx) {
                 : `Transcrever áudio ${nextAudioNumber} de ${totalAudioCount}`
             }
           </button>
+          ${
+            !state.audioTranscriptionLoading &&
+            state.audioTranscriptionStatus
+              ? `<p class="yolen-card-description" data-yolen-audio-transcription-status>${escapeHtml(state.audioTranscriptionStatus)}</p>`
+              : ''
+          }
         `
         : ''
 
