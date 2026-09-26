@@ -801,7 +801,13 @@
 
     function base64ToBlob(base64, mimeType) {
       const BlobCtor = windowRef?.Blob ?? root.Blob
-      const binary = (windowRef?.atob ?? root.atob)(base64)
+      // LIVE-02: Window.atob exige Window como receiver (o Firefox lança
+      // "'atob' called on an object that does not implement interface
+      // Window." quando a função é desacoplada do objeto).
+      const binary =
+        typeof windowRef?.atob === 'function'
+          ? windowRef.atob(base64)
+          : root.atob(base64)
       const bytes = new Uint8Array(binary.length)
 
       for (let index = 0; index < binary.length; index += 1) {
