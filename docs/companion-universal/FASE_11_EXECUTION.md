@@ -40,7 +40,7 @@ no total, ~2m58s de espera na fila, ~20s de worker; não corrigido) e §10
 | 2 | Autorização | `npm run test:companion-authorization` | 266/266 → PASS |
 | 3 | **E3 oficial** | `node --test --test-force-exit --test-reporter=tap $T/e3-dom/*.test.mjs` | **352 testes, 351 pass, 1 fail** → **FAIL** (F11-01) |
 | 4 | E3 falhas conhecidas | `node scripts/companion-known-failures-gate.mjs e3` | 0 falhas nesta execução (mesma suíte do #3; a falha é intermitente) |
-| 5 | E3 em processo (diagnóstico) | `node --experimental-test-isolation=none --test --test-force-exit $T/e3-dom/*.test.mjs` | 352 testes, 348 pass, 4 fail (§8.6) |
+| 5 | E3 em processo (diagnóstico) | `node --experimental-test-isolation=none --test --test-force-exit $T/e3-dom/*.test.mjs` | 1ª: 352 testes, 348 pass, 4 fail; 2ª: 352, 351, 1 fail (§8.6) |
 | 6 | Arquitetura | sem `--test-force-exit` e em processo | 53/53 ×2; A1–A18 PASS; `NEW_VIOLATIONS=0`, `STALE_BASELINE=0`, `LEGACY_VIOLATIONS_REMAINING=0` |
 | 7 | Composição só-canal ManyChat | `node --test --test-force-exit $T/manychat-channel-only-architecture.test.mjs` | 6/6 → PASS |
 | 8 | Paridade entre canais | oficial e em processo | 51/51 ×2 → PASS |
@@ -181,12 +181,27 @@ scroll dependentes da espera fixa de 80 ms: na `main`, espera 0 passa.
 | `1) foco em campo editável usa workspaceBody.scrollTop…` | 300 → **2400** | F11-01 — reproduzido com espera 0 só no HEAD (§8.2) |
 | `A → B → A (análise e geração de mensagem)` | divergência de view em `areas.analysis` de B | ver abaixo |
 | `A → B → A (enriquecimento)` | divergência de view em `areas.analysis` de B | ver abaixo |
+| `8) … não brigam pelo elemento dono do scroll` (2ª execução) | 260 → **2400** | assinatura de F11-01 |
 
-As duas falhas de paridade só apareceram no modo "todos os arquivos E3 num
-único processo" (#5). O arquivo de paridade passa 51/51 no modo oficial e
-51/51 em processo quando roda sozinho (#8). O E3 oficial (#3) não falhou
-nelas nesta fase. Diagnóstico com dump do conteúdo de ANÁLISE por canal:
-em andamento (registro a seguir).
+Segunda execução em processo (18m15s), com cópia instrumentada do arquivo
+de paridade que despeja o conteúdo de ANÁLISE e as últimas chamadas por
+canal quando há divergência: **352 testes, 351 pass, 1 fail**. As duas
+falhas de paridade **não se repetiram** (passaram; nenhum dump). A única
+falha foi `8) panel-stability-runtime e editable-field-stability-runtime
+não brigam pelo elemento dono do scroll`: 260 → **2400**, de novo a
+assinatura de F11-01.
+
+Paridade (A → B → A análise/mensagem e enriquecimento):
+- só falharam uma vez, no modo "todos os arquivos E3 num único processo";
+- o arquivo passa 51/51 no modo oficial e em processo quando roda sozinho
+  (#8); o E3 oficial (#3) não falhou nelas nesta fase; a segunda execução em
+  processo também passou;
+- **causa NÃO DETERMINADA** (não reproduzida com instrumentação). Não é
+  classificada como flake: fica como item aberto a verificar nos gates da
+  correção de F11-01 (repetir o E3 em processo).
+- Histórico: na FASE 10, `A → B → A (decisão AGORA)` falhou uma vez no E3
+  oficial sob carga. A causa foi a espera do harness em A₂, corrigida em
+  `0f1c7fe7` (`areasLoadedFor`).
 
 ### 8.7 Correções candidatas (NÃO aplicadas — decisão do Controle Mestre)
 
@@ -243,6 +258,7 @@ started_at`.
 | Reconciliação com a `main` | PASS (sem conflito) |
 | Gates 1, 2, 4, 6–14 | PASS |
 | Gate 3 (E3 oficial) | **FAIL — F11-01** |
+| Item aberto | 2 falhas de paridade só em processo, causa não determinada, não reproduzidas (§8.6) |
 | **FASE 11 (gate final)** | **FAIL — 1 blocker (F11-01)** |
 | PR | não aberto |
 | Próximo passo | decisão do Controle Mestre sobre a correção de F11-01 (§8.7) |
