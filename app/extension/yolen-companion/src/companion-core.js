@@ -103,10 +103,19 @@ function createCompanionCore(ctx) {
       .create({
         // Capability do canal (§8): sem canApplyMessage, a MENSAGEM mostra
         // o mesmo estado canônico de campo indisponível ("Use Copiar").
-        insertIntoComposer: (text, expected) =>
-          hasChannelCapability('canApplyMessage')
-            ? insertTextIntoEmptyComposer(text, expected)
-            : 'composer_unavailable',
+        // Erro físico do canal nunca escapa do Core: vira o resultado
+        // canônico de falha (a sugestão continua disponível para Copiar).
+        insertIntoComposer: (text, expected) => {
+          if (!hasChannelCapability('canApplyMessage')) {
+            return 'composer_unavailable'
+          }
+
+          try {
+            return insertTextIntoEmptyComposer(text, expected)
+          } catch {
+            return 'insert_failed'
+          }
+        },
         platformDisplayName,
         captureOperationContext: () =>
           captureOperationContext(),
@@ -5680,10 +5689,18 @@ function createCompanionCore(ctx) {
     const composerNotFoundCopy =
       `Não encontrei o campo de mensagem do ${platformDisplayName}. Copie e cole manualmente.`
 
-    const composerState =
-      hasChannelCapability('canApplyMessage')
-        ? channelAdapter.getComposerState()
-        : { available: false }
+    // Leitura física do composer que falha = composer indisponível.
+    let composerState = { available: false }
+
+    if (hasChannelCapability('canApplyMessage')) {
+      try {
+        composerState =
+          channelAdapter.getComposerState() ||
+          { available: false }
+      } catch {
+        composerState = { available: false }
+      }
+    }
 
     if (!composerState.available) {
       state = {
@@ -5759,15 +5776,25 @@ function createCompanionCore(ctx) {
     // Escrita + verificação são capacidade técnica do adapter (§7), sempre
     // na conversa em que a operação começou; o Core só traduz o motivo
     // técnico em copy.
-    const applyResult =
-      await channelAdapter.applyMessage(
-        message,
-        {
-          conversationKey:
-            operationContext.conversationKey,
-          replaceExisting,
-        },
-      )
+    // Erro físico do canal vira falha canônica (nunca exceção solta).
+    let applyResult = null
+
+    try {
+      applyResult =
+        await channelAdapter.applyMessage(
+          message,
+          {
+            conversationKey:
+              operationContext.conversationKey,
+            replaceExisting,
+          },
+        )
+    } catch {
+      applyResult = {
+        applied: false,
+        reason: 'apply_failed',
+      }
+    }
 
     // Resultado de uma operação cuja conversa/geração/empresa/sessão já
     // não é a atual: nada é registrado nem aplicado ao contexto atual.
