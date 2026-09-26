@@ -73,4 +73,75 @@ Nenhum arquivo de produção ou de teste alterado para isso.
 
 ## 5. Live test
 
-(pendente — preenchido com o resultado do uso real no Firefox)
+Executado por Gerson no Firefox com o pacote E2E do §4 (manifest
+`dist/yolen-companion/e2e/firefox/staging/manifest.json`, "Yolen Companion
+[E2E]"), sessão Yolen autenticada, ManyChat real. HEAD de código testado
+`9e6a22c0`; HEAD documental `72c6279a`. Grep por runtime ManyChat legado no
+pacote: ausente.
+
+| Cenário | Expected | Actual | Resultado |
+|---|---|---|---|
+| T1 conversa real qualquer | painel compartilhado monta e resolve o contato sozinho | monta só uma superfície/status lateral simplificada | **FAIL** (LIVE-01) |
+| T2 lead existente → AGORA/MENSAGEM/ANÁLISE/CLIENTE | workspace das quatro áreas | áreas não aparecem | **FAIL** (LIVE-01) |
+| T3 NOT_FOUND → Novo contato → CREATE → re-resolve → workspace | fluxo completo | não exercitável: o workspace compartilhado não é alcançado | BLOCKED por LIVE-01 |
+| T4 A→B→A | sem vazamento | não exercitável sem workspace | BLOCKED por LIVE-01 |
+| T5/T7 MENSAGEM → composer ManyChat | inserção sem envio | não exercitável (MENSAGEM ausente) | BLOCKED por LIVE-01 |
+| T6 identidade real | resolução automática | não confirmada (ver hipóteses de LIVE-01) | NOT CONFIRMED |
+| T8 áudio real | fluxo real ou ausência registrada | não exercitado | NOT EXERCISED |
+
+Evidências mínimas A (create), B (quatro áreas), C (A→B→A) e D (composer):
+**não obtidas** — todas dependem do workspace bloqueado por LIVE-01.
+
+### LIVE-01 — BLOCKER
+
+- **Expected:** no ManyChat monta o mesmo Companion seller-facing do
+  WhatsApp, com o workspace AGORA / MENSAGEM / ANÁLISE / CLIENTE.
+- **Actual:** o build E2E correto monta apenas uma superfície/status lateral
+  simplificada; o workspace compartilhado não aparece.
+- **Reproducer:** 1) carregar o manifest E2E correto no Firefox; 2) abrir
+  nova aba do ManyChat; 3) manter a sessão Yolen autenticada; 4) abrir uma
+  conversa; 5) o workspace compartilhado não monta — só a superfície
+  simplificada.
+- **Evidência:** relato do live test (Gerson); build/validador E2E PASS;
+  pacote verificado (§4).
+- **Frequência:** reproduzido no live test; repetição e texto exibido não
+  registrados.
+- **Fatos de código (sem live):** a composição ManyChat do pacote é a
+  compartilhada (mesmos Core, controllers, views e bootstrap do WhatsApp +
+  ManyChatAdapter); nenhum runtime seller-facing paralelo. As quatro áreas
+  só existem com `WORKSPACE_READY` (Q2); antes disso o Core renderiza apenas
+  o cartão compacto de contato/status. A superfície observada é compatível
+  com o painel compartilhado parado num estado pré-workspace.
+- **Camada provável:** NÃO DETERMINADA com a evidência disponível. O texto
+  do cartão separa as hipóteses para a FASE 10:
+
+| Texto no cartão | Estado | Camada provável |
+|---|---|---|
+| "Identificando o contato automaticamente…" persistente | identidade/evidência nunca concluída | adapter/bridge (identidade segura no page world ou leitura do contato no DOM real) |
+| "Telefone ainda não disponível para identificação automática…" | `NO_CONTACT_EVIDENCE` (identidade segura não adquirida, sem telefone) | adapter/bridge — mecânica real de identidade (§14 do prompt) |
+| contato "não vinculado" / busca de vínculo | `CONTACT_NOT_LINKED` | backend/dados (identidade externa sem vínculo) ou fluxo de vínculo |
+| erro / "Tentar novamente" | erro de resolução | backend/transporte (background) |
+| status de lead (dono/pool/encerrado) sem abas | resolução OK sem `WORKSPACE_READY` | Core (derivação do outcome) |
+
+  Para fechar a camada na FASE 10: o texto exato do cartão, e as mensagens
+  `GET_MANYCHAT_SAFE_IDENTITY` / `RESOLVE_LEAD` no console do background
+  da extensão (about:debugging → Inspecionar).
+- **Status:** registrado, não corrigido (FASE 10: CORRECTION REQUIRED).
+
+### Observações herdadas
+
+- D8: NOT EXERCISED (ANÁLISE não alcançada).
+- D10 (`source: 'whatsapp'`): NOT OBSERVED.
+- D11 / contagem truncada com `--test-force-exit`: ver §2 (preservado para o
+  Gate Final; script não alterado).
+
+## 6. Status
+
+| Item | Valor |
+|---|---|
+| PHASE 9 EXECUTION | COMPLETE |
+| LIVE ACCEPTANCE | **FAIL** — 1 blocker (LIVE-01) |
+| Arquivos de produção alterados | 0 |
+| PR / merge / deploy / rollout | NO / NO / NO / NO |
+| ManyChat | OFF em dev/prod; ON só no E2E |
+| FASE 10 | NOT STARTED |
