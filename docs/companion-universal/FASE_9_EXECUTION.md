@@ -104,8 +104,11 @@ Evidências mínimas A (create), B (quatro áreas), C (A→B→A) e D (composer)
   simplificada.
 - **Evidência:** relato do live test (Gerson); build/validador E2E PASS;
   pacote verificado (§4).
-- **Frequência:** reproduzido no live test; repetição e texto exibido não
-  registrados.
+- **Texto exibido (evidência live, correção registrada na FASE 10):**
+  "Yolen · lead não encontrado nesta empresa". A versão original deste
+  registro dizia que o texto não tinha sido registrado — isso estava
+  errado; o texto foi visto no live test e é a evidência de autoridade.
+- **Frequência:** reproduzido repetidamente após limpeza do ambiente.
 - **Fatos de código (sem live):** a composição ManyChat do pacote é a
   compartilhada (mesmos Core, controllers, views e bootstrap do WhatsApp +
   ManyChatAdapter); nenhum runtime seller-facing paralelo. As quatro áreas
@@ -127,6 +130,7 @@ Evidências mínimas A (create), B (quatro áreas), C (A→B→A) e D (composer)
   `GET_MANYCHAT_SAFE_IDENTITY` / `RESOLVE_LEAD` no console do background
   da extensão (about:debugging → Inspecionar).
 - **Status:** registrado, não corrigido (FASE 10: CORRECTION REQUIRED).
+  Diagnóstico e desfecho: `FASE_10_EXECUTION.md`.
 
 ### Observações herdadas
 
