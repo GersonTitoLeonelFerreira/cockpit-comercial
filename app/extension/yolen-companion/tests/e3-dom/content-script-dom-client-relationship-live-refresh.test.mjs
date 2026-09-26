@@ -52,10 +52,31 @@ function initialPageHtml() {
 // Cenários 1 e 2 do fast-follow: abre conversa antes da ingestão terminar;
 // o contexto buscado precocemente não fica preso como "ready" incorreto.
 test('contexto buscado antes da ingestão terminar é corrigido assim que a ingestão confirma', async () => {
+  // A ingestão só confirma depois da primeira leitura do contexto: a ordem
+  // do cenário é imposta pelo transporte, não pelo relógio (FASE 8 — com a
+  // chave de captura única a primeira ingestão já notifica o contexto, e
+  // sem esta trava a leitura podia acontecer só depois dela).
+  let releaseIngestion
+  const firstContextRead = new Promise((resolve) => {
+    releaseIngestion = resolve
+  })
+
   const { document, calls } = loadContentScript({
     initialHtml: initialPageHtml(),
-    clientContextResult: (callNumber) =>
-      callNumber === 1 ? emptyClientContext() : defaultClientContext(),
+    clientContextResult: (callNumber) => {
+      if (callNumber === 1) {
+        releaseIngestion()
+        return emptyClientContext()
+      }
+
+      return defaultClientContext()
+    },
+    extraHandlers: {
+      INGEST_CAPTURE_MESSAGES: async () => {
+        await firstContextRead
+        return { ok: true, statusCode: 200, payload: { ok: true } }
+      },
+    },
   })
 
   await waitFor(() => clientContextCalls(calls).length > 0)

@@ -1932,26 +1932,41 @@ function createCompanionCore(ctx) {
     captureIngestionTimerId = 0
   }
 
-  function getCaptureConversationKey() {
-    // Canal que declara uma chave estável de captura (ex.: ManyChat, cuja
-    // conversa não expõe título nem telefone garantido) usa essa chave;
-    // os demais seguem a chave derivada de telefone/título.
-    if (state.captureConversationKey) {
-      return state.captureConversationKey
+  // Derivação única da chave de captura (usada pela captura ao vivo e pela
+  // reposição da captura retida antes da resolução): canal que declara uma
+  // chave estável (ex.: ManyChat) usa essa chave; os demais derivam de
+  // telefone/título, com o telefone da resolução tendo precedência.
+  function deriveCaptureConversationKey({
+    channelKey,
+    resolution,
+    phone,
+    title,
+  }) {
+    if (channelKey) {
+      return channelKey
     }
-
-    const canonicalPhone =
-      state.leadResolution?.phone ||
-      state.leadResolution?.lead?.phone ||
-      state.conversationPhone
 
     return messageMutationTools
       .buildStableCaptureConversationKey({
         phone:
-          canonicalPhone,
-        title:
-          state.conversationTitle,
+          resolution?.phone ||
+          resolution?.lead?.phone ||
+          phone,
+        title,
       })
+  }
+
+  function getCaptureConversationKey() {
+    return deriveCaptureConversationKey({
+      channelKey:
+        state.captureConversationKey,
+      resolution:
+        state.leadResolution,
+      phone:
+        state.conversationPhone,
+      title:
+        state.conversationTitle,
+    })
   }
 
   function canIngestCurrentCapture() {
@@ -2156,6 +2171,15 @@ function createCompanionCore(ctx) {
       {
         conversationKey,
         captureConversationKey,
+        // Evidência de escopo no instante da observação: a chave final é
+        // derivada de novo com a resolução (deriveCaptureConversationKey),
+        // para a reposição nunca gravar sob uma chave provisória.
+        channelCaptureConversationKey:
+          state.captureConversationKey || null,
+        conversationPhone:
+          state.conversationPhone || null,
+        conversationTitle:
+          state.conversationTitle || null,
         activeMessages,
         deletedMessages,
         pendingMutationKeys:
@@ -2220,6 +2244,21 @@ function createCompanionCore(ctx) {
       return false
     }
 
+    // Mesma chave que a captura ao vivo usará depois desta resolução: sem
+    // isto, mensagens vistas antes do telefone chegar eram gravadas sob a
+    // chave provisória (título) e de novo sob a chave final (telefone).
+    const captureConversationKey =
+      deriveCaptureConversationKey({
+        channelKey:
+          snapshot.channelCaptureConversationKey,
+        resolution,
+        phone:
+          snapshot.conversationPhone,
+        title:
+          snapshot.conversationTitle,
+      }) ||
+      snapshot.captureConversationKey
+
     const captureWindow =
       captureBatchTools
         .selectCaptureWindow({
@@ -2239,7 +2278,7 @@ function createCompanionCore(ctx) {
           .buildCaptureIngestionPlan({
             cycleId,
             conversationKey:
-              snapshot.captureConversationKey,
+              captureConversationKey,
             activeMessages:
               captureWindow.activeMessages,
             deletedMessages:
@@ -2248,7 +2287,7 @@ function createCompanionCore(ctx) {
               snapshot.transcriptionsByKey,
             baseVersionsByMessageKey:
               getConfirmedCaptureVersions(
-                snapshot.captureConversationKey,
+                captureConversationKey,
               ),
           })
     } catch {
@@ -2288,7 +2327,7 @@ function createCompanionCore(ctx) {
 
     const contextKey = [
       cycleId,
-      snapshot.captureConversationKey,
+      captureConversationKey,
     ].join('::')
 
     if (

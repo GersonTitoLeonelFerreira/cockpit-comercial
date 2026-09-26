@@ -12,7 +12,6 @@ function createCompanionLeadEnrichmentController(ctx) {
     getSortedLedgerMessages,
     leadEnrichmentTools,
     messageMutationTools,
-    onlyDigits,
     renderPanel,
   } = ctx
 
@@ -53,182 +52,85 @@ function createCompanionLeadEnrichmentController(ctx) {
       })
   }
 
-  function getLeadEnrichmentAddressValue(
-    profile,
-  ) {
-    const parts = [
-      profile?.address_street,
-      profile?.address_number,
-      profile?.address_complement,
-      profile?.address_neighborhood,
-      profile?.address_city,
-      profile?.address_state,
-    ]
-      .map((value) =>
-        String(value || '').trim(),
-      )
-      .filter(Boolean)
+  // FASE 8 — comparação única (companion-enrichment-comparison.js): a
+  // MESMA regra missing/same/different nos dois canais (§19.3/§19.4). O
+  // valor atual nunca vai para a view. Canal com payload completo compara
+  // aqui; canal sanitizado pede a comparação privada ao background.
+  const enrichmentComparison =
+    root.YolenCompanionEnrichmentComparison
 
-    return parts.length > 0
-      ? parts.join(', ')
-      : null
+  // cycleId::campo::valor → comparação privada devolvida pelo background.
+  const privateComparisons =
+    new Map()
+  const privateComparisonRequests =
+    new Set()
+
+  function getPrivateComparisonKey(cycleId, candidate) {
+    return [
+      cycleId || '',
+      candidate?.field || '',
+      candidate?.normalized_value || '',
+    ].join('::')
   }
 
-  function getCurrentLeadEnrichmentValue(
-    field,
-    resolution,
-  ) {
-    const lead =
-      resolution?.lead || {}
-
-    const profile =
-      resolution?.lead_profile || {}
-
-    if (field === 'email') {
-      return (
-        lead.email ||
-        profile.email ||
-        null
-      )
-    }
-
-    if (field === 'cpf') {
-      return (
-        profile.cpf ||
-        (
-          onlyDigits(
-            lead.cpf_cnpj,
-          ).length === 11
-            ? onlyDigits(
-                lead.cpf_cnpj,
-              )
-            : null
-        )
-      )
-    }
-
-    if (field === 'cnpj') {
-      return (
-        profile.cnpj ||
-        (
-          onlyDigits(
-            lead.cpf_cnpj,
-          ).length === 14
-            ? onlyDigits(
-                lead.cpf_cnpj,
-              )
-            : null
-        )
-      )
-    }
-
-    if (field === 'birth_date') {
-      return profile.birth_date || null
-    }
-
-    if (field === 'profession') {
-      return profile.profession || null
-    }
-
-    if (field === 'cep') {
-      return profile.cep || null
-    }
-
-    if (field === 'address_raw') {
-      return getLeadEnrichmentAddressValue(
-        profile,
-      )
-    }
-
-    if (field === 'phone_mobile') {
-      return profile.phone_mobile || null
-    }
-
-    return null
-  }
-
-  function normalizeLeadEnrichmentComparisonValue(
-    value,
-  ) {
-    return String(value || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLocaleLowerCase('pt-BR')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  }
-
-  function areSameLeadEnrichmentValue(
-    field,
-    currentValue,
-    candidateValue,
-  ) {
-    if (
-      !currentValue ||
-      !candidateValue
-    ) {
-      return false
-    }
+  function requestPrivateComparisons(cycleId, candidates) {
+    const missing = candidates.filter((candidate) => {
+      const key = getPrivateComparisonKey(cycleId, candidate)
+      return !privateComparisonRequests.has(key)
+    })
 
     if (
-      field === 'cpf' ||
-      field === 'cnpj' ||
-      field === 'cep'
+      missing.length === 0 ||
+      typeof window.YolenCompanionApi
+        ?.compareLeadEnrichmentCandidates !== 'function'
     ) {
-      return (
-        onlyDigits(currentValue) ===
-        onlyDigits(candidateValue)
+      return
+    }
+
+    for (const candidate of missing) {
+      privateComparisonRequests.add(
+        getPrivateComparisonKey(cycleId, candidate),
       )
     }
 
-    if (
-      field === 'phone_mobile' &&
-      typeof leadEnrichmentTools
-        ?.areEquivalentPhones ===
-        'function'
-    ) {
-      return leadEnrichmentTools
-        .areEquivalentPhones(
-          currentValue,
-          candidateValue,
-        )
-    }
+    void window.YolenCompanionApi
+      .compareLeadEnrichmentCandidates({
+        cycle_id: cycleId,
+        conversation_phone:
+          ctx.state.conversationPhone || null,
+        candidates: missing.map((candidate) => ({
+          field: candidate.field,
+          normalized_value: candidate.normalized_value,
+        })),
+      })
+      .then((result) => {
+        const comparisons =
+          Array.isArray(result?.payload?.comparisons)
+            ? result.payload.comparisons
+            : []
 
-    const currentNormalized =
-      normalizeLeadEnrichmentComparisonValue(
-        currentValue,
-      )
+        for (const item of comparisons) {
+          if (['missing', 'same', 'different'].includes(item?.comparison)) {
+            privateComparisons.set(
+              getPrivateComparisonKey(cycleId, item),
+              item.comparison,
+            )
+          }
+        }
 
-    const candidateNormalized =
-      normalizeLeadEnrichmentComparisonValue(
-        candidateValue,
-      )
-
-    if (
-      !currentNormalized ||
-      !candidateNormalized
-    ) {
-      return false
-    }
-
-    if (field === 'address_raw') {
-      return (
-        currentNormalized ===
-          candidateNormalized ||
-        currentNormalized.includes(
-          candidateNormalized,
-        ) ||
-        candidateNormalized.includes(
-          currentNormalized,
-        )
-      )
-    }
-
-    return (
-      currentNormalized ===
-      candidateNormalized
-    )
+        // Resposta de outro ciclo (troca de conversa) só fica no cache do
+        // próprio ciclo; nada é renderizado fora dele.
+        if (getCanonicalResolutionCycleId() === cycleId) {
+          renderPanel()
+        }
+      })
+      .catch(() => {
+        for (const candidate of missing) {
+          privateComparisonRequests.delete(
+            getPrivateComparisonKey(cycleId, candidate),
+          )
+        }
+      })
   }
 
   // FASE 7 — canal com resolução sanitizada (INV-6): o background entrega
@@ -297,15 +199,17 @@ function createCompanionLeadEnrichmentController(ctx) {
     const messages =
       getStructuredMessagesForEnrichment()
 
+    // Novo cadastro: o telefone da conversa não é candidato. Lead
+    // existente: a exclusão do telefone principal é da comparação única.
     const candidates =
       leadEnrichmentTools
         .extractLeadEnrichmentCandidates(
           messages,
           {
             currentPhone:
-              resolution?.lead?.phone ||
-              ctx.state.conversationPhone ||
-              null,
+              isNewLead
+                ? ctx.state.conversationPhone || null
+                : null,
           },
         )
         .filter(
@@ -326,48 +230,59 @@ function createCompanionLeadEnrichmentController(ctx) {
       )
     }
 
+    const cycleId =
+      getCanonicalResolutionCycleId()
+
+    if (privateContext) {
+      const pending = []
+      const visible = []
+
+      for (const candidate of candidates) {
+        const comparison =
+          privateComparisons.get(
+            getPrivateComparisonKey(cycleId, candidate),
+          )
+
+        if (!comparison) {
+          pending.push(candidate)
+        } else if (comparison !== 'same') {
+          visible.push({
+            ...candidate,
+            current_value: null,
+            comparison,
+          })
+        }
+      }
+
+      if (pending.length > 0) {
+        requestPrivateComparisons(cycleId, pending)
+      }
+
+      return visible
+    }
+
     return candidates.flatMap(
       (candidate) => {
-        if (privateContext) {
-          // Valor atual privado: só campos ausentes são oferecidos (nada
-          // cadastrado é sobrescrito sem comparação explícita).
-          return privateContext.fields[
-            candidate.field
-          ] === 'missing'
-            ? [{
-                ...candidate,
-                current_value: null,
-                comparison: 'missing',
-              }]
-            : []
-        }
+        const comparison =
+          enrichmentComparison
+            .compareEnrichmentCandidate(
+              candidate,
+              {
+                lead: resolution?.lead,
+                profile: resolution?.lead_profile,
+                conversationPhone:
+                  ctx.state.conversationPhone || null,
+              },
+              leadEnrichmentTools,
+            )
 
-        const currentValue =
-          getCurrentLeadEnrichmentValue(
-            candidate.field,
-            resolution,
-          )
-
-        if (
-          currentValue &&
-          areSameLeadEnrichmentValue(
-            candidate.field,
-            currentValue,
-            candidate.normalized_value,
-          )
-        ) {
-          return []
-        }
-
-        return [{
-          ...candidate,
-          current_value:
-            currentValue || null,
-          comparison:
-            currentValue
-              ? 'different'
-              : 'missing',
-        }]
+        return comparison === 'same'
+          ? []
+          : [{
+              ...candidate,
+              current_value: null,
+              comparison,
+            }]
       },
     )
   }
@@ -403,13 +318,12 @@ function createCompanionLeadEnrichmentController(ctx) {
         ? candidate.evidence_message_ids
         : []
 
+    // Chave neutra de canal: ciclo canônico (nunca lead.id no DOM).
     return [
-      ctx.state.leadResolution?.lead?.id ||
-        getCanonicalResolutionCycleId() ||
-        '',
+      getCanonicalResolutionCycleId() || '',
       candidate?.field || '',
       candidate?.normalized_value || '',
-      candidate?.current_value || '',
+      candidate?.comparison || '',
       ...evidenceIds,
     ].join('::')
   }
@@ -568,9 +482,17 @@ function createCompanionLeadEnrichmentController(ctx) {
               candidate.field,
             value:
               candidate.normalized_value,
+            // CAS: canal com payload completo envia o valor atual; no canal
+            // sanitizado o background o reinjeta (nunca chega à view).
             expected_current_value:
-              candidate.current_value ||
-              null,
+              resolution.lead?.id
+                ? enrichmentComparison
+                    .readCurrentEnrichmentValue(
+                      candidate.field,
+                      resolution.lead,
+                      resolution.lead_profile,
+                    )
+                : null,
             evidence_message_ids:
               candidate
                 .evidence_message_ids,
@@ -751,12 +673,10 @@ function createCompanionLeadEnrichmentController(ctx) {
               ? 'Alta confiança'
               : 'Média confiança'
 
+          // §19.3: só a semântica; o valor atual não é exibido.
           const comparisonLabel =
-            candidate.current_value
-              ? (
-                  'Atual: ' +
-                  candidate.current_value
-                )
+            candidate.comparison === 'different'
+              ? 'Diferente do valor já cadastrado'
               : 'Ainda não consta no cadastro'
 
           return [

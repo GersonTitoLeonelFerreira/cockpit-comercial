@@ -15,6 +15,8 @@ import {
 } from './e2-test-support/load-background-script.mjs'
 
 const require = createRequire(import.meta.url)
+require('../src/lead-enrichment.js')
+require('../src/companion-enrichment-comparison.js')
 const privacy = require('../src/companion-background-privacy.js')
 
 const SESSION_KEY = 'yolen_companion_session'
@@ -112,6 +114,62 @@ test('ManyChat: APPLY_LEAD_ENRICHMENT recebe o lead_id pelo cycle_id autorizado;
     { ...MANYCHAT_SENDER, tab: { ...MANYCHAT_SENDER.tab, id: 99 } },
   )
   assert.equal(otherTab.payload.status, 'LEAD_REFERENCE_UNAVAILABLE')
+  assert.equal(fetchQueue.calls.length, 2)
+})
+
+test('ManyChat: COMPARE_LEAD_ENRICHMENT_CANDIDATES compara no background, sem rede, e devolve só a semântica; CAS vem do cadastro privado', async () => {
+  const fetchQueue = createFakeFetchQueue([
+    async () => jsonResponse(200, rawOwnedResolution()),
+    async () => jsonResponse(200, { ok: true, status: 'APPLIED' }),
+  ])
+  const bg = loadBackgroundScript({ fetchFn: fetchQueue.fetchFn, initialStorage: { [SESSION_KEY]: validSession() } })
+  const compare = (sender, candidates) =>
+    bg.sendMessage(
+      { source: 'YOLEN_COMPANION', action: 'COMPARE_LEAD_ENRICHMENT_CANDIDATES', payload: { cycle_id: 'cycle-1', conversation_phone: null, candidates } },
+      sender,
+    )
+
+  const refused = await compare(MANYCHAT_SENDER, [{ field: 'email', normalized_value: 'y@example.com' }])
+  assert.equal(refused.payload.status, 'LEAD_REFERENCE_UNAVAILABLE')
+  assert.equal(fetchQueue.calls.length, 0)
+
+  await bg.sendMessage(
+    { source: 'YOLEN_COMPANION', action: 'RESOLVE_LEAD', payload: { platform: 'manychat', platform_contact_key: 'k' } },
+    MANYCHAT_SENDER,
+  )
+
+  const compared = await compare(MANYCHAT_SENDER, [
+    { field: 'email', normalized_value: 'x@example.com' },
+    { field: 'email', normalized_value: 'novo@example.com' },
+    { field: 'cnpj', normalized_value: '11222333000181' },
+    { field: 'phone_mobile', normalized_value: '(47) 99999-0001' },
+    { field: 'desconhecido', normalized_value: 'z' },
+  ])
+  assert.deepEqual(JSON.parse(JSON.stringify(compared.payload)), {
+    ok: true,
+    comparisons: [
+      { field: 'email', normalized_value: 'x@example.com', comparison: 'same' },
+      { field: 'email', normalized_value: 'novo@example.com', comparison: 'different' },
+      { field: 'cnpj', normalized_value: '11222333000181', comparison: 'missing' },
+      { field: 'phone_mobile', normalized_value: '(47) 99999-0001', comparison: 'same' },
+    ],
+  })
+  assert.equal(fetchQueue.calls.length, 1, 'a comparação nunca vai à rede')
+  assert.doesNotMatch(JSON.stringify(compared), /lead-secret|12345678901|Joinville/, 'valor atual nunca sai do background')
+
+  // CAS do APPLY: valor atual do cadastro privado, nunca o do content.
+  await bg.sendMessage(
+    { source: 'YOLEN_COMPANION', action: 'APPLY_LEAD_ENRICHMENT', payload: { lead_id: null, cycle_id: 'cycle-1', field: 'email', value: 'novo@example.com', expected_current_value: 'forjado' } },
+    MANYCHAT_SENDER,
+  )
+  const body = JSON.parse(fetchQueue.calls[1].init.body)
+  assert.equal(body.lead_id, 'lead-secret')
+  assert.equal(body.expected_current_value, 'x@example.com')
+
+  // WhatsApp compara localmente; a rota privada não existe para ele.
+  const whatsapp = await compare(WHATSAPP_SENDER, [{ field: 'email', normalized_value: 'x@example.com' }])
+  assert.equal(whatsapp.ok, false)
+  assert.equal(whatsapp.payload.status, 'UNSUPPORTED_CHANNEL')
   assert.equal(fetchQueue.calls.length, 2)
 })
 

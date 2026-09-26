@@ -62,7 +62,7 @@ test('content-script consome a autoridade canônica das áreas seller-facing sem
     'function handleSellerAreaKeyboard(',
   )
   const keyboardEnd = contentScript.indexOf(
-    'function getLeadEnrichmentAddressValue(',
+    'function createCompanionLeadEnrichmentController(',
     keyboardStart,
   )
   const keyboardBlock = contentScript.slice(

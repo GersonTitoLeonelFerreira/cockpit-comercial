@@ -25,6 +25,8 @@
     'phone_mobile',
   ])
 
+  const COMPARE_ACTION = 'COMPARE_LEAD_ENRICHMENT_CANDIDATES'
+
   function isRecord(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
   }
@@ -44,10 +46,6 @@
   function readSenderTabKey(sender) {
     const tabId = sender?.tab?.id
     return tabId === undefined || tabId === null ? 'no-tab' : String(tabId)
-  }
-
-  function onlyDigits(value) {
-    return String(value || '').replace(/\D/g, '')
   }
 
   function textOrNull(value) {
@@ -70,31 +68,20 @@
     return flags
   }
 
-  // Mesmo mapeamento campo → valor atual do controller de enriquecimento,
-  // reduzido à semântica de presença (§19.3): o valor nunca sai daqui.
-  function readEnrichmentFieldState(field, lead, profile) {
-    const cpfCnpj = onlyDigits(lead?.cpf_cnpj)
-    let value = null
-
-    if (field === 'email') value = lead?.email || profile?.email
-    if (field === 'cpf') value = profile?.cpf || (cpfCnpj.length === 11 ? cpfCnpj : null)
-    if (field === 'cnpj') value = profile?.cnpj || (cpfCnpj.length === 14 ? cpfCnpj : null)
-    if (field === 'birth_date') value = profile?.birth_date
-    if (field === 'profession') value = profile?.profession
-    if (field === 'cep') value = profile?.cep
-    if (field === 'phone_mobile') value = profile?.phone_mobile
-    if (field === 'address_raw') {
-      value = [
-        profile?.address_street,
-        profile?.address_number,
-        profile?.address_complement,
-        profile?.address_neighborhood,
-        profile?.address_city,
-        profile?.address_state,
-      ].some((part) => textOrNull(part))
+  // Comparação única do enriquecimento (companion-enrichment-comparison.js),
+  // carregada antes deste módulo no background; a mesma regra roda no
+  // content do WhatsApp (§19.4).
+  function comparisonTools() {
+    const comparison = root.YolenCompanionEnrichmentComparison
+    if (!comparison) {
+      throw new Error('Comparação de enriquecimento do Companion não carregada.')
     }
+    return comparison
+  }
 
-    return value ? 'present' : 'missing'
+  // Semântica de presença (§19.3): o valor nunca sai do background.
+  function readEnrichmentFieldState(field, lead, profile) {
+    return comparisonTools().readCurrentEnrichmentValue(field, lead, profile) ? 'present' : 'missing'
   }
 
   function buildEnrichmentContext(payload) {
@@ -185,7 +172,8 @@
   }
 
   function createBackgroundPrivacy() {
-    // tab → cycle_id → lead_id. Memória do service worker apenas.
+    // tab → cycle_id → { leadId, lead, profile } (dados cadastrais privados
+    // para CAS e comparação). Memória do service worker apenas.
     const privateReferences = new Map()
 
     function rememberLeadReference(sender, payload) {
@@ -198,7 +186,15 @@
 
       const key = `${readSenderTabKey(sender)}::${cycleId}`
       privateReferences.delete(key)
-      privateReferences.set(key, leadId)
+      privateReferences.set(key, {
+        leadId,
+        lead: {
+          phone: payload.lead.phone ?? null,
+          email: payload.lead.email ?? null,
+          cpf_cnpj: payload.lead.cpf_cnpj ?? null,
+        },
+        profile: isRecord(payload.lead_profile) ? { ...payload.lead_profile } : {},
+      })
 
       while (privateReferences.size > MAX_PRIVATE_REFERENCES) {
         privateReferences.delete(privateReferences.keys().next().value)
@@ -209,33 +205,78 @@
       return privateReferences.get(`${readSenderTabKey(sender)}::${String(cycleId || '')}`) ?? null
     }
 
+    function unavailableReference() {
+      return {
+        response: {
+          ok: false,
+          statusCode: 409,
+          payload: {
+            ok: false,
+            status: 'LEAD_REFERENCE_UNAVAILABLE',
+            error: 'Atualize o lead antes de alterar o cadastro.',
+          },
+        },
+      }
+    }
+
+    // Comparação privada (§19.3): só missing/same/different, calculada com
+    // a mesma regra do content do WhatsApp sobre o cadastro em memória.
+    function comparePrivately(message, sender) {
+      const reference = readLeadReference(sender, message.payload?.cycle_id)
+      if (!reference) return unavailableReference()
+
+      const tools = { areEquivalentPhones: root.YolenCompanionLeadEnrichment?.areEquivalentPhones }
+      const candidates = Array.isArray(message.payload?.candidates) ? message.payload.candidates : []
+      const comparisons = candidates
+        .filter((candidate) => ENRICHMENT_FIELDS.includes(candidate?.field) && typeof candidate?.normalized_value === 'string')
+        .map((candidate) => ({
+          field: candidate.field,
+          normalized_value: candidate.normalized_value,
+          comparison: comparisonTools().compareEnrichmentCandidate(
+            candidate,
+            {
+              lead: reference.lead,
+              profile: reference.profile,
+              conversationPhone: textOrNull(message.payload?.conversation_phone),
+            },
+            tools,
+          ),
+        }))
+
+      return { response: { ok: true, statusCode: 200, payload: { ok: true, comparisons } } }
+    }
+
     // Antes do transporte: devolve { message } a encaminhar ou { response }
     // para responder sem rede.
     function prepareRequest(message, sender) {
+      if (message?.action === COMPARE_ACTION) {
+        // Só o canal sanitizado usa a comparação privada; nunca vai à rede.
+        return isManyChatSender(sender)
+          ? comparePrivately(message, sender)
+          : { response: { ok: false, statusCode: 400, payload: { ok: false, status: 'UNSUPPORTED_CHANNEL' } } }
+      }
+
       if (!isManyChatSender(sender) || message?.action !== 'APPLY_LEAD_ENRICHMENT') {
         return { message }
       }
 
-      const leadId = readLeadReference(sender, message.payload?.cycle_id)
+      const reference = readLeadReference(sender, message.payload?.cycle_id)
+      if (!reference) return unavailableReference()
 
-      if (!leadId) {
-        return {
-          response: {
-            ok: false,
-            statusCode: 409,
-            payload: {
-              ok: false,
-              status: 'LEAD_REFERENCE_UNAVAILABLE',
-              error: 'Atualize o lead antes de alterar o cadastro.',
-            },
-          },
-        }
-      }
-
+      // lead_id e valor atual (CAS) vêm do cadastro privado; o content
+      // nunca os conhece.
       return {
         message: {
           ...message,
-          payload: { ...message.payload, lead_id: leadId },
+          payload: {
+            ...message.payload,
+            lead_id: reference.leadId,
+            expected_current_value: comparisonTools().readCurrentEnrichmentValue(
+              message.payload?.field,
+              reference.lead,
+              reference.profile,
+            ),
+          },
         },
       }
     }

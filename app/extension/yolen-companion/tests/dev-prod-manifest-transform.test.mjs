@@ -89,6 +89,8 @@ test('Firefox PROD: background contém somente scripts (sem service_worker)', ()
     'src/capture-transport.js',
     'src/manychat-audio-background-transport.js',
     'src/manychat-safe-identity-background.js',
+    'src/lead-enrichment.js',
+    'src/companion-enrichment-comparison.js',
     'src/companion-background-privacy.js',
     'src/background.js',
   ])

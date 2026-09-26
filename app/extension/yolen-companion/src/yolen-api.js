@@ -522,6 +522,12 @@
     return sendToBackground('FIRST_LINK_EXTERNAL_IDENTITY', payload)
   }
 
+  // FASE 8 — comparação privada do enriquecimento (canal sanitizado): o
+  // background responde só missing/same/different, sem valor atual.
+  async function compareLeadEnrichmentCandidates(payload) {
+    return sendToBackground('COMPARE_LEAD_ENRICHMENT_CANDIDATES', payload)
+  }
+
   async function applyLeadEnrichment(payload) {
     return sendToBackground(
       'APPLY_LEAD_ENRICHMENT',
@@ -947,6 +953,7 @@
     createLead,
     searchLinkableLeads,
     firstLinkExternalIdentity,
+    compareLeadEnrichmentCandidates,
     applyLeadEnrichment,
     analyzeConversation,
     applySuggestion,

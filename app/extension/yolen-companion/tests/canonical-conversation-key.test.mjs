@@ -5,8 +5,11 @@ import { readWhatsAppCompositionSource } from './support/whatsapp-composition-so
 const contentScript = readWhatsAppCompositionSource()
 
 test('captura e analise priorizam o telefone confirmado pelo vinculo do lead', () => {
+  // FASE 8 — a derivação virou deriveCaptureConversationKey (dona única,
+  // usada pela captura ao vivo e pela reposição da captura retida);
+  // getCaptureConversationKey só a alimenta com o estado atual.
   const start = contentScript.indexOf(
-    'function getCaptureConversationKey()',
+    'function deriveCaptureConversationKey(',
   )
   const end = contentScript.indexOf(
     'function canIngestCurrentCapture()',
@@ -19,13 +22,14 @@ test('captura e analise priorizam o telefone confirmado pelo vinculo do lead', (
   const block = contentScript.slice(start, end)
 
   const resolutionPhone = block.indexOf(
-    'state.leadResolution?.phone',
+    'resolution?.phone',
   )
   const leadPhone = block.indexOf(
-    'state.leadResolution?.lead?.phone',
+    'resolution?.lead?.phone',
   )
   const transientPhone = block.indexOf(
-    'state.conversationPhone',
+    'phone,\n',
+    leadPhone,
   )
 
   assert.ok(resolutionPhone >= 0)
@@ -34,8 +38,15 @@ test('captura e analise priorizam o telefone confirmado pelo vinculo do lead', (
 
   assert.match(
     block,
-    /buildStableCaptureConversationKey\(\{[\s\S]*phone:\s*canonicalPhone/,
+    /buildStableCaptureConversationKey\(\{[\s\S]*phone:\s*resolution\?\.phone/,
   )
+
+  const live = block.slice(
+    block.indexOf('function getCaptureConversationKey()'),
+  )
+  assert.match(live, /resolution:\s*state\.leadResolution/)
+  assert.match(live, /phone:\s*state\.conversationPhone/)
+  assert.match(live, /title:\s*state\.conversationTitle/)
 })
 
 test('analise envia a mesma chave canonica usada pela captura', () => {

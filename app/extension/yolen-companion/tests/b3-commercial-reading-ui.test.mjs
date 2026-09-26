@@ -77,7 +77,7 @@ test(
     const dispatch =
       getBlock(
         'function getDetailedAnalysisAreaHtml()',
-        'function getLeadEnrichmentAddressValue',
+        'function createCompanionLeadEnrichmentController',
       )
 
     assert.match(

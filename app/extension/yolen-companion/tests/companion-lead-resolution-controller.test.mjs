@@ -1386,18 +1386,20 @@ test('version skew: capability canônica explícita vence o fallback legacy', ()
 
 // função → motivo (campo raw necessário que o ViewModel não fornece).
 const RAW_RESOLUTION_ADAPTERS = {
-  // CAPTURE: telefone confirmado para a capture key e o payload completo
-  // para captureBatchTools.isCaptureResolutionEligible().
-  getCaptureConversationKey: /leadResolution\s*\?\.\s*(phone|lead\s*\?\.\s*phone)\b/,
+  // CAPTURE: telefone confirmado para a capture key (FASE 8: lido por
+  // deriveCaptureConversationKey, que recebe a resolução raw) e o payload
+  // completo para captureBatchTools.isCaptureResolutionEligible().
+  getCaptureConversationKey: /resolution:\s*state\.leadResolution,/,
   canIngestCurrentCapture: /isCaptureResolutionEligible\(\s*state\.leadResolution,/,
   rememberCurrentPreResolutionCapture: /isCaptureResolutionEligible\(\s*state\.leadResolution,/,
   // CRM DIFF / SUGGESTION: next_action e next_action_date do ciclo.
   hasOperationalSuggestionChange: /next_action/,
   getOperationalSuggestionHtml: /next_action/,
   getOperationalTelemetryTargets: /next_action/,
-  // ENRICHMENT: lead.id / lead.phone.
-  getLeadEnrichmentCandidates: /resolution\?\.lead\?\.phone/,
-  getLeadEnrichmentCandidateKey: /state\.leadResolution\?\.lead\?\.id/,
+  // ENRICHMENT: lead / lead_profile cadastrais para a comparação canônica
+  // (FASE 8: YolenCompanionEnrichmentComparison). A chave do candidato não
+  // lê mais lead.id (ciclo canônico), por isso saiu da allowlist.
+  getLeadEnrichmentCandidates: /lead:\s*resolution\?\.lead,/,
   // FASE 7: canal sanitizado (ManyChat) não recebe lead.id; o background
   // reinjeta a referência privada — daí o acesso opcional.
   applyLeadEnrichmentCandidate: /resolution\.lead\?\.id/,

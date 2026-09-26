@@ -18,6 +18,10 @@ import { createRequire } from 'node:module'
 import { loadCompanionComposition } from './load-content-script.mjs'
 
 const require = createRequire(import.meta.url)
+// Mesma ordem do background real: enriquecimento e comparação antes da
+// privacidade (globais do background).
+require('../../src/lead-enrichment.js')
+require('../../src/companion-enrichment-comparison.js')
 const backgroundPrivacyModule = require('../../src/companion-background-privacy.js')
 
 export const MANYCHAT_BRIDGE_FILES = Object.freeze([
@@ -56,6 +60,7 @@ export const MANYCHAT_MANIFEST_FILES = Object.freeze([
   'companion-lead-creation-controller.js',
   'companion-contact-link-controller.js',
   'companion-conversation-registration-controller.js',
+  'companion-enrichment-comparison.js',
   'companion-lead-enrichment-controller.js',
   'companion-lead-summary-controller.js',
   'companion-message-controller.js',

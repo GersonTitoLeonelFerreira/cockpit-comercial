@@ -53,6 +53,7 @@ export const WHATSAPP_MANIFEST_FILES = Object.freeze([
   'companion-lead-creation-controller.js',
   'companion-contact-link-controller.js',
   'companion-conversation-registration-controller.js',
+  'companion-enrichment-comparison.js',
   'companion-lead-enrichment-controller.js',
   'companion-lead-summary-controller.js',
   'companion-message-controller.js',
@@ -364,6 +365,11 @@ function createFakeBackground({
         typeof configured === 'function'
           ? await configured(payload)
           : (configured ?? defaultLeadResolution({ phone: phoneDigits }))
+      // `__transport` simula a resposta de transporte inteira (erro de
+      // rede/backend), igual ao modo identidade.
+      if (resolution?.__transport) {
+        return resolution.__transport
+      }
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
@@ -783,6 +789,7 @@ export function loadCompanionComposition({
   wrapSendMessage,
   sourceOverrides = {},
   beforeLoad,
+  afterEachFile,
   clientContextResult,
   decisionStateResult,
   analysisViewModelResult,
@@ -873,6 +880,9 @@ export function loadCompanionComposition({
     // Presentes em qualquer navegador real; usados pela captura de áudio
     // do adapter (Blob) e pelo Core ao preparar a transcrição (FileReader).
     Blob: dom.window.Blob,
+    // Presente em qualquer navegador real; o composer do WhatsApp o usa no
+    // fallback de inserção (sem ele, toda inserção falharia só no harness).
+    InputEvent: dom.window.InputEvent,
     FileReader: dom.window.FileReader,
     setTimeout,
     clearTimeout,
@@ -925,6 +935,11 @@ export function loadCompanionComposition({
     const source = sourceOverrides[file] ?? readSource(file)
     vm.runInContext(source, sandbox, { filename: file })
     mirrorYolenGlobals()
+    // Observação de teste (ex.: paridade entre canais) depois de cada
+    // módulo, sem alterar a composição carregada.
+    if (typeof afterEachFile === 'function') {
+      afterEachFile({ file, sandbox, window: sandbox.window })
+    }
   }
 
   return {

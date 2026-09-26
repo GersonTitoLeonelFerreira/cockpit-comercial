@@ -12,6 +12,8 @@ import {
 } from '../scripts/build-package.mjs'
 
 const require = createRequire(import.meta.url)
+require('../src/lead-enrichment.js')
+require('../src/companion-enrichment-comparison.js')
 const backgroundPrivacy = require('../src/companion-background-privacy.js')
 
 const BACKGROUND_SOURCE = readFileSync(
@@ -206,6 +208,8 @@ test('manifest mantém background correto e ativa somente o runtime mínimo Many
     'src/capture-transport.js',
     'src/manychat-audio-background-transport.js',
     'src/manychat-safe-identity-background.js',
+    'src/lead-enrichment.js',
+    'src/companion-enrichment-comparison.js',
     'src/companion-background-privacy.js',
     'src/background.js',
   ])
@@ -253,6 +257,7 @@ test('manifest mantém background correto e ativa somente o runtime mínimo Many
     'src/companion-lead-creation-controller.js',
     'src/companion-contact-link-controller.js',
     'src/companion-conversation-registration-controller.js',
+    'src/companion-enrichment-comparison.js',
     'src/companion-lead-enrichment-controller.js',
     'src/companion-lead-summary-controller.js',
     'src/companion-message-controller.js',

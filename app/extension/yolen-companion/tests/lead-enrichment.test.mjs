@@ -689,14 +689,17 @@ test('B2 usa candidatos no novo cadastro e remove dados já iguais no lead exist
     /comparison:\s*'new_lead'/,
   )
 
+  // FASE 8: a comparação cadastral saiu do controller para o módulo
+  // compartilhado YolenCompanionEnrichmentComparison (mesma regra no
+  // content e no background do canal sanitizado).
   assert.match(
     contentScript,
-    /getCurrentLeadEnrichmentValue/,
+    /\.compareEnrichmentCandidate\(/,
   )
 
   assert.match(
     contentScript,
-    /areSameLeadEnrichmentValue/,
+    /\.readCurrentEnrichmentValue\(/,
   )
 
   assert.match(

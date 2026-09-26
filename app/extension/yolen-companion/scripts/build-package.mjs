@@ -110,6 +110,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/companion-contact-link-controller.js',
   'src/companion-conversation-registration-controller.js',
   'src/companion-lead-enrichment-controller.js',
+  'src/companion-enrichment-comparison.js',
   'src/companion-lead-summary-controller.js',
   'src/companion-message-controller.js',
   'src/companion-core-api-composition.js',

@@ -559,7 +559,10 @@ test('CLIENTE: enriquecimento com resolução sanitizada — só campo ausente, 
   assert.equal(transported.filter((message) => message.action === 'APPLY_LEAD_ENRICHMENT').length, 1)
 })
 
-test('CLIENTE: campo já preenchido (valor privado) nunca é oferecido para sobrescrita no canal sanitizado', async () => {
+// FASE 8 (D2): campo já preenchido com valor diferente segue a regra
+// canônica única (igual ao WhatsApp): oferecido como "diferente" só com
+// confirmação humana; o valor atual nunca chega ao content nem à view.
+test('CLIENTE: campo já preenchido (valor privado) com valor diferente segue a comparação canônica, sem expor o valor atual nem aplicar sem confirmação', async () => {
   const { document, calls } = loadManyChatComposition({
     pageHtml: page({ messages: [{ mid: 'm1', text: 'Meu e-mail novo é outro.manychat@example.com' }] }),
     resolutionsByIdentity: {
@@ -569,10 +572,12 @@ test('CLIENTE: campo já preenchido (valor privado) nunca é oferecido para sobr
 
   await waitFor(() => document.querySelector('[data-yolen-seller-area="client"]'))
   click(document, document.querySelector('[data-yolen-seller-area="client"]'))
-  await sleep(1200)
-  assert.equal(document.querySelector('[data-yolen-action="confirm-lead-enrichment"]'), null)
-  assert.equal(actionCalls(calls, 'APPLY_LEAD_ENRICHMENT').length, 0)
+  await waitFor(() => document.querySelector('[data-yolen-action="confirm-lead-enrichment"]'))
+  await sleep(600)
+  assert.match(panelText(document), /Diferente do valor já cadastrado/)
+  assert.equal(actionCalls(calls, 'APPLY_LEAD_ENRICHMENT').length, 0, 'nada é aplicado sem confirmação')
   assert.doesNotMatch(panelText(document), /atual@example\.com/)
+  assert.doesNotMatch(document.documentElement.outerHTML, /atual@example\.com|lead-cycle/, 'nem valor atual nem lead_id no DOM')
 })
 
 // ---------------------------------------------------------------------------
