@@ -400,3 +400,35 @@ transcrição + modelo citando-o):
    não faz a análise concluir; complementa 1 ou 2.
 
 Nenhum código alterado para LIVE-03 até a decisão.
+
+### 9.4 Decisão e correção
+
+Decisão (Controle Mestre): **execution plan + fail-fast**.
+
+- **Teste red** (`app/lib/companion/live-03-pending-audio-analysis.test.mjs`,
+  funções reais do backend, caso real: dois áudios do cliente na sessão
+  atual, um transcrito e um não):
+  - plano: o áudio sem transcrição estava em `available_message_ids`
+    (citável) → **FAIL**;
+  - worker: `INVALID_MODEL_OUTPUT` / `AUDIO_EVIDENCE_NOT_TRANSCRIBED` era
+    `retryable: true` → **FAIL**;
+  - controle: outras saídas inválidas continuam com retry → PASS.
+- **Correção (2 arquivos de backend, nenhum da extensão):**
+  - `app/lib/companion/stateful-copilot-execution-plan.ts`:
+    `selectAnalysisMessageIds` deixa de fora áudio sem transcrição (o
+    conjunto citável e o `available_message_ids` do normalizador vêm da
+    mesma função); o áudio continua visível ao modelo só como contexto sem
+    id; `pending_audio_message_ids` fica vazio por construção.
+  - `app/lib/server/stateful-copilot-background-job.ts`: esse invariante é
+    terminal (sem retry).
+- **Depois:** 3/3 PASS. Suítes stateful do backend (execution plan,
+  normalizador, background job/worker, runtime orchestrator, real context
+  loader + LIVE-03): **115/115**.
+- Commit: `5a8afe9c`.
+
+### 9.5 Deploy necessário para o retest
+
+O pacote E2E fala com `https://cockpit-comercial-vocn.vercel.app`
+(produção, `0c95b769`). A correção de LIVE-03 é de backend, então o retest
+só é significativo depois que esse backend estiver publicado lá. **Nenhum
+deploy foi feito**; aguarda autorização explícita.
