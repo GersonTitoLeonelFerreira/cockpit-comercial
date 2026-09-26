@@ -426,6 +426,22 @@ Decisão (Controle Mestre): **execution plan + fail-fast**.
   loader + LIVE-03): **115/115**.
 - Commit: `5a8afe9c`.
 
+### 9.4.1 Gates (correção LIVE-03)
+
+| Gate | Exit | Resultado |
+|---|---|---|
+| Focal LIVE-03 | 0 | 3/3 (antes: 2 FAIL) |
+| Suítes stateful do backend | 0 | 115/115 |
+| `npm run test:companion-authorization` | 0 | 266/266 |
+| `npm run test:companion` / known failures | 1 / 0 | 2278/2282; só as 4 conhecidas, 0 novas |
+| Arquitetura (em processo) | 0 | 53/53; NEW=0, STALE=0, LEGACY=0 |
+| Adapter neutro / ManyChat / WhatsApp | 0 | 14/14 · 286/286 · 61/61 |
+| Paridade | 0 | 51/51 |
+| E3 completo | 0 | 352/352 |
+| TypeScript | 0 | limpo |
+| Lint (arquivos alterados) / `git diff --check` | 0 / 0 | PASS |
+| Build + validador normal / E2E | 0 / 0 | PASS |
+
 ### 9.5 Deploy necessário para o retest
 
 O pacote E2E fala com `https://cockpit-comercial-vocn.vercel.app`
