@@ -315,5 +315,88 @@ Pacote do retest:
 
 ### 8.8 Retest
 
-(pendente — retest só de "Transcrever áudio 1 de 1" com `Yolen Companion [E2E] 0f1c7fe7`)
+Retest com `Yolen Companion [E2E] 0f1c7fe7` (Firefox real, conversa real
+com áudio): clique em "Transcrever áudio 1 de 1" → estado de transcrição →
+o botão desaparece; depois de recarregar a página o áudio **não** volta
+como pendente. Obtenção do áudio, correção do `Window.atob`, transcrição e
+persistência: PASS. **LIVE-02: PASS.**
 
+
+## 9. LIVE-03 — análise não conclui após transcrição bem-sucedida
+
+- **Expected:** áudio já transcrito → "Analisar agora" → a análise conclui
+  e o resultado seller-facing aparece.
+- **Actual (Firefox real, `0f1c7fe7`, ~19:21–19:23 UTC e nova tentativa
+  depois do refresh):** "Analisando…" sem resultado; numa tentativa anterior
+  terminou em "A análise demorou mais que o esperado. Tente novamente.". O
+  áudio continua transcrito depois do refresh (sem ação de transcrever).
+
+### 9.1 Tracing (sem alterar código)
+
+Fontes: logs de runtime de produção (Vercel, `cockpit-comercial-vocn`,
+deployment `0c95b769`) e consultas somente-leitura no banco (identificadores
+internos abreviados; nenhuma chave de mensagem, telefone ou conteúdo).
+
+| Etapa | Evidência | Resultado |
+|---|---|---|
+| A. `POST /api/companion/analyze-conversation` | 19:20:11 (200) com `background_job_published` do job `69ba821f…` (watermark `1173:f30c20a`); 19:23:57 (200) sem novo publish (mesmo job reaproveitado) | resposta rápida; job criado — **não é o caso A** |
+| B. `companion_background_analysis_jobs` | `69ba821f…`: `running`, `attempt_count=4`, `started_at` 19:31:31, sem `completed_at`; job anterior do mesmo ciclo `4ba862fe…` (18:29, antes da transcrição): `failed`, `INVALID_MODEL_OUTPUT` / `AUDIO_EVIDENCE_NOT_TRANSCRIBED`, 5 tentativas, concluído 18:44:07 (~14 min) | job não fica parado em fila |
+| C. Worker (`/api/queues/companion-deep-analysis-v3`) | 19:20:13, 19:25:18, 19:28:24, 19:31:31 → 500 com `background_analysis_requeued`, `failure_code=INVALID_MODEL_OUTPUT`, `failure_path=output.evidence_message_ids`, `failure_invariant=AUDIO_EVIDENCE_NOT_TRANSCRIBED`, `delivery_count` 1→4 (o job de 18:29 fez o mesmo e falhou na 5ª) | **o worker executa e rejeita a saída do modelo em toda tentativa** |
+| D. `GET /api/companion/analysis-job-status` | 77 chamadas na janela | o Companion faz polling; recebe `queued`/`running`; o limite do polling do Companion (240 s) vence antes do terminal do backend (~14 min) |
+
+**Por que a saída é rejeitada:** o normalizador
+(`stateful-copilot-normalizer.ts`) falha quando o modelo cita como evidência
+uma mensagem de `context.pending_audio_message_ids`; esse conjunto
+(`stateful-copilot-execution-plan.ts`) são as mensagens do **ledger**
+`content_type='audio'` sem `audio_transcription`.
+
+**Ledger do ciclo** (`conversation_messages`, somente leitura): há **dois**
+áudios distintos do cliente (ids nativos diferentes, 12:49 e 12:50),
+ingeridos em dois lotes de captura (16:51:34 e 16:51:43). O de 12:50 recebeu
+a transcrição (versão 2, 19:20:10 — logo antes da análise). O de 12:49
+**nunca** foi transcrito (só versão 1). O Companion mostrava "1 de 1": o
+áudio de 12:49 não estava na janela visível/capturável da conversa no
+momento, então o vendedor não tinha como transcrevê-lo; o backend, porém,
+considera o ledger inteiro e o marca como pendente.
+
+**Pré-condição do prompt:** `getPendingAudioCountForCurrentConversation()`
+é calculado sobre as mensagens **visíveis** — era 0 (o botão sumiu). O
+backend vê 1 áudio pendente. É exatamente essa divergência.
+
+**Não é o áudio transcrito, nem ManyChat-específico, nem D10:** a regra é do
+Core/backend compartilhados (o mesmo aconteceria no WhatsApp com um áudio
+fora da janela visível). `source: 'whatsapp'` (D10) não aparece em nenhuma
+etapa da falha.
+
+### 9.2 Classificação
+
+- **Camada:** BACKEND — worker de análise stateful (execution plan +
+  normalizador + política de retry), com o contrato de "áudio pendente"
+  divergente entre o Companion (janela visível) e o backend (ledger inteiro).
+- Caso da árvore: **C/E** — o job roda e nunca produz saída aceita; a falha
+  é determinística (mesmo invariante em todas as tentativas) mas é tratada
+  como retryable (5 entregas, ~14 min), e o terminal chega muito depois do
+  limite de polling do Companion.
+- **Latência observada:** 1ª entrega ~2 s após o publish; entregas a cada
+  ~3–5 min; terminal `failed` ~14 min após o pedido; o vendedor vê
+  "Analisando…" até o limite de 240 s do Companion.
+
+### 9.3 Decisão necessária antes de corrigir
+
+A correção mínima está no backend (e exige deploy de produção para o
+retest, que usa `cockpit-comercial-vocn`). Pela regra da FASE 10, a
+alteração/deploy de backend é relatada ao Controle Mestre antes. Opções,
+todas com teste red sobre o caso real (ledger com áudio fora da janela sem
+transcrição + modelo citando-o):
+
+1. **Execution plan:** áudio sem transcrição não entra como mensagem
+   citável (fora de `available_message_ids`), só como aviso de áudio
+   pendente — o modelo não pode citar o que não recebe como evidência.
+2. **Normalizador:** remover ids de áudio pendente da evidência em vez de
+   reprovar a saída inteira (mantendo a falha se o item ficar sem
+   evidência).
+3. **Worker:** tratar `AUDIO_EVIDENCE_NOT_TRANSCRIBED` como falha
+   determinística (sem retry) para o terminal chegar em segundos — sozinho
+   não faz a análise concluir; complementa 1 ou 2.
+
+Nenhum código alterado para LIVE-03 até a decisão.
