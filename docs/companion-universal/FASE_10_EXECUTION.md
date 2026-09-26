@@ -138,4 +138,79 @@ Novo pacote E2E para o retest:
 
 ## 7. Live retest
 
-RETEST_PLACEHOLDER
+### 7.1 LIVE-01 — retest com `Yolen Companion [E2E] e2aad243`
+
+O relato do retest (Gerson, Firefox real) abre a ANÁLISE de uma conversa
+real e lista o áudio da conversa ("Transcrever áudio 1 de 1") — o workspace
+compartilhado montou; a superfície "Yolen · lead não encontrado nesta
+empresa" não reapareceu. **LIVE-01: PASS** no retest.
+
+## 8. LIVE-02 — transcrição de áudio presa (ManyChat)
+
+- **Expected:** "Transcrever áudio 1 de 1" → obter o áudio → transcrever →
+  loading encerra → transcrição incorporada; em falha, erro e nova
+  tentativa.
+- **Actual (Firefox real, `e2aad243`):** o botão vira "Transcrevendo áudio 1
+  de 1..." e nunca termina; nenhuma transcrição, erro ou retry. Durante a
+  tentativa apareceu por um momento "Localizando este contato na Yolen..."
+  no cartão do lead.
+- **Reproducer:** carregar `e2aad243` → conversa real com áudio → ANÁLISE →
+  "Transcrever áudio 1 de 1" → clicar uma vez → preso em "Transcrevendo…".
+
+### 8.1 Tracing
+
+1. **Backend:** logs de runtime de produção (Vercel, projeto
+   `cockpit-comercial-vocn`, últimas 24 h): **nenhuma** requisição a
+   `/api/companion/transcribe-audio`; no mesmo período há `resolve-lead`,
+   `audio-transcriptions`, `analysis-view-model` etc. → a tentativa parou
+   **antes** da chamada de transcrição, dentro da extensão.
+2. **Etapas antes da transcrição** (`transcribeNextVisibleAudio` →
+   `ManyChatAdapter.getAudioSource`): leitura da identidade segura
+   (background → page world), `FETCH_MANYCHAT_AUDIO_SOURCE` (fetch do arquivo
+   no background), nova leitura de identidade, `base64ToBlob`, `FileReader`
+   no Core. Todas são `await` **sem limite de tempo** (nenhum timeout no
+   adapter, na bridge, no transporte de áudio, na API nem no Core).
+3. Os caminhos de erro dessas etapas devolvem falha e o Core sairia do
+   loading; um loading eterno só acontece se uma etapa **não responde**.
+   Qual etapa não responde no Firefox real não é determinável por código nem
+   pelos logs do backend (fica para a observação do retest, §8.4).
+4. "Localizando este contato…" é `leadResolutionLoading` (re-resolução da
+   mesma conversa). Uma troca real de instância faz
+   `hardResetConversationWorkspace()`, que já zera
+   `audioTranscriptionLoading` — não explica o loading preso; não é a causa.
+
+**Root cause (comprovada):** o Core não limita a espera da transcrição; uma
+etapa externa que não responde deixa o vendedor em "Transcrevendo…" para
+sempre, sem erro e sem nova tentativa (contrato: loading sempre termina em
+resultado ou erro com retry). **Camada:** CORE (compartilhado — mesmo defeito
+no WhatsApp). A etapa externa que parou no Firefox real: **ainda não
+identificada**.
+
+### 8.2 Teste red → correção → green
+
+- **Teste:** `tests/e3-dom/audio-transcription-stall.test.mjs` (composições
+  reais ManyChat e WhatsApp): a fonte do áudio nunca responde → depois do
+  limite o loading encerra, erro visível junto da ação, nova tentativa
+  habilitada; o resultado tardio da tentativa abandonada nunca transcreve;
+  a nova tentativa conclui.
+- **Antes:** FAIL 2/2 (`loading encerrado: nova tentativa habilitada` —
+  botão continuava desabilitado em "Transcrevendo").
+- **Correção (1 arquivo, `src/companion-core.js`):** token por tentativa +
+  watchdog (90 s; override só de teste) em `transcribeNextVisibleAudio`; ao
+  estourar: encerra o loading com "Não foi possível concluir a transcrição do
+  áudio agora. Tente novamente." e descarta o resultado tardio; toda espera
+  confere o token; `hardResetConversationWorkspace()` abandona a tentativa;
+  o status da transcrição passa a aparecer junto da ação (fora do loading).
+- **Depois:** PASS 2/2.
+- O status junto da ação toca a observação herdada D8 só no ponto que
+  LIVE-02 exige (erro de transcrição visível); o bloco legado da ANÁLISE não
+  foi alterado.
+
+### 8.3 Gates
+
+GATES_LIVE02
+
+### 8.4 Retest
+
+RETEST_LIVE02
+
