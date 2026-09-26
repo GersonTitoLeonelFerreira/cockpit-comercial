@@ -1404,7 +1404,9 @@ test('A → B → A (enriquecimento): aplicação tardia de A nunca vira confirm
   await settle(runtimes, (runtime) => {
     const lastResolve = runtime.calls.findLastIndex((call) => call.action === 'RESOLVE_LEAD')
     const reloaded = (action) => runtime.calls.some((call, index) => index > lastResolve && call.action === action && call.payload?.cycle_id === 'cycle-conv-b')
-    return areasLoadedFor('cycle-conv-b', 'Lead Beta')(runtime) && reloaded('LOAD_LEAD_SUMMARY') && reloaded('LOAD_CUSTOMER_VIEW_MODEL')
+    // O resumo de B continua válido em cache (nenhuma mensagem nova): só o
+    // view model do cliente é sempre recarregado depois da re-resolução.
+    return areasLoadedFor('cycle-conv-b', 'Lead Beta')(runtime) && reloaded('LOAD_CUSTOMER_VIEW_MODEL')
   }, { timeoutMs: 15000 })
   assertParity(runtimes, 'enriquecimento: B depois da aplicação tardia de A', { levels: ['canonical', 'view'], cycleId: 'cycle-conv-b' })
   everyRuntime(runtimes, (runtime) => {
