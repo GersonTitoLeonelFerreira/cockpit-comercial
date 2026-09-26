@@ -1041,7 +1041,9 @@ for (const path of ABA_PATHS) {
     })
 
     everyRuntime(runtimes, (runtime) => switchParityConversation(runtime, 'A'))
-    await settle(runtimes, (runtime) => panelText(runtime).includes('Lead Alfa'))
+    // A₂ assentada = áreas recarregadas para o ciclo de A (o ManyChat chega
+    // lá depois das idas de identidade segura), não só o nome na tela.
+    await settle(runtimes, areasLoadedFor('cycle-conv-a', 'Lead Alfa'))
     assertParity(runtimes, `${path.label}: A₂`, { levels: ['canonical', 'view'], cycleId: 'cycle-conv-a' })
     everyRuntime(runtimes, (runtime) => assert.doesNotMatch(panelText(runtime), /Lead Beta/))
   })
