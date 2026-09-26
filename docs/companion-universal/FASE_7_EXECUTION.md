@@ -283,3 +283,22 @@ depois: 2/2. Vale para qualquer canal.
 - **FASE 9:** comportamento ao vivo do DOM real do ManyChat (seletores,
   bridge de identidade no page world, mídia real) — só verificável em live
   test; todos os fluxos automatizáveis foram provados em jsdom.
+
+### 11.7 Evidências finais da reauditoria (código de `81719d08`, HEAD `32e5ca3d`)
+
+| Comando | Resultado | Exit |
+|---|---|---|
+| `node --test …/companion-core-architecture-gates.test.mjs` | 53/53; NEW=0, STALE=0, LEGACY=0 | 0 |
+| Focais: channel-only, adapter ManyChat, privacidade do background, E3 ManyChat, Core neutro, regressão WhatsApp FASE 5 | 77/77 | 0 |
+| `npm run test:companion-authorization` | 266/266 | 0 |
+| `./node_modules/.bin/tsc --noEmit` | limpo | 0 |
+| `npm run lint` | 56 erros, iguais à base, todos fora de `app/extension/yolen-companion` | 1 |
+| `build-package.mjs` + `validate-release-candidate.mjs` | PASS; ManyChat OFF em dev/prod | 0 / 0 |
+| `build-package.mjs --e2e` + `validate-release-candidate.mjs --e2e` | PASS; ManyChat ON só em e2e | 0 / 0 |
+| `git diff --check` | limpo | 0 |
+| `companion-known-failures-gate.mjs companion` (roda `test:companion`) | 2268/2272; 4 conhecidas, 0 novas, 0 resolvidas | 0 |
+| `companion-known-failures-gate.mjs e3` (roda o E3 completo) | 298/298; 0 conhecidas, 0 novas | 0 |
+
+GitHub Actions: BILLING_BLOCKED (últimas execuções, do PR #338) / NOT RUN
+nesta branch (sem PR). PR/merge/deploy: nenhum. FASE 8 e FASE 9 não
+iniciadas.
