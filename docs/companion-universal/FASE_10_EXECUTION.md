@@ -280,9 +280,40 @@ e caminho de erro funcionando) e exibe o erro real:
 
 ### 8.7 Gates (correção do atob)
 
-GATES_ATOB
+| Gate | Exit | Resultado |
+|---|---|---|
+| Focal (atob + watchdog) | 0 | 3/3 (atob: antes FAIL, depois PASS) |
+| Arquitetura (em processo) | 0 | 53/53; NEW=0, STALE=0, LEGACY=0 |
+| ManyChat channel-only | 0 | 6/6 |
+| Adapter neutro | 0 | 14/14 |
+| ManyChat | 0 | 286/286 |
+| WhatsApp | 0 | 61/61 |
+| Paridade | 0 | 51/51 |
+| `npm run test:companion` / known failures | 1 / 0 | 2275/2279; só as 4 conhecidas, 0 novas |
+| E3 completo | 0 | 352/352 (ver nota) |
+| TypeScript | 0 | limpo |
+| Lint (arquivos alterados) | 0 | PASS |
+| Build + validador normal | 0 | PASS; ManyChat false em dev/prod |
+| Build + validador E2E | 0 / 0 | PASS; ManyChat true; nome com o commit |
+| `git diff --check` | 0 | limpo |
+
+Nota (categoria A, harness): na primeira execução do E3 completo, o caso
+A→B→A (decisão AGORA) comparou A₂ enquanto os últimos loaders do ManyChat
+ainda eram de B (carga do E3 inteiro). O laço `ABA_PATHS` passou a esperar
+as áreas de A recarregadas (`areasLoadedFor`), como os A→B→A mais novos.
+Depois: A→B→A 9/9, paridade 51/51, E3 352/352.
+
+Pacote do retest:
+
+| Item | Valor |
+|---|---|
+| HEAD do build | `0f1c7fe74e79739f9b308cd6fd7237cb9481472b` |
+| Gerado em | 2026-09-26T19:14:08Z |
+| Nome exibido | `Yolen Companion [E2E] 0f1c7fe7` |
+| Manifest | `dist/yolen-companion/e2e/firefox/staging/manifest.json` |
+| SHA-256 | `c97696ff2559ae75ba85befaafab186943370f255d11556f21abc1b79bccc0e0` |
 
 ### 8.8 Retest
 
-RETEST_ATOB
+(pendente — retest só de "Transcrever áudio 1 de 1" com `Yolen Companion [E2E] 0f1c7fe7`)
 
