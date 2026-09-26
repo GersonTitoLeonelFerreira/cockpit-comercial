@@ -574,7 +574,53 @@ function getMessageActivityTimestamp(
   )
 }
 
+// LIVE-03 (FASE 10): áudio sem transcrição não tem conteúdo interpretável
+// e o normalizador reprova qualquer saída que o cite como evidência
+// (AUDIO_EVIDENCE_NOT_TRANSCRIBED). Ele não entra no conjunto citável
+// entregue ao modelo — continua visível só como contexto sem id (ponte de
+// contexto) —, então o modelo não recebe o que não pode citar.
+function isCitableAnalysisMessage(
+  message:
+    StatefulCopilotInput[
+      'diagnostic_input'
+    ]['conversation']['messages'][number],
+): boolean {
+  return !(
+    message.content_type ===
+      'audio' &&
+    !message.audio_transcription
+  )
+}
+
 function selectAnalysisMessageIds(
+  input: StatefulCopilotInput,
+): string[] {
+  const citableIds =
+    new Set(
+      input
+        .diagnostic_input
+        .conversation
+        .messages
+        .filter(
+          isCitableAnalysisMessage,
+        )
+        .map(
+          message =>
+            message.id,
+        ),
+    )
+
+  return selectSessionAnalysisMessageIds(
+    input,
+  ).filter(
+    messageId =>
+      citableIds.has(
+        messageId,
+      ),
+  )
+}
+
+function selectSessionAnalysisMessageIds(
   input: StatefulCopilotInput,
 ): string[] {
   const currentSessionIds =
