@@ -247,7 +247,7 @@ test('build allowlist e harness E3 incluem a boundary antes do workspace runtime
 })
 
 test('resolveCurrentLead usa generation da boundary no stale guard e no single-flight', () => {
-  const start = contentScript.indexOf('  async function resolveCurrentLead()')
+  const start = contentScript.indexOf('  async function resolveCurrentLead(')
   const end = contentScript.indexOf('\n  const LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS', start)
   assert.notEqual(start, -1)
   assert.notEqual(end, -1)

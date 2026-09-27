@@ -676,7 +676,7 @@ function assertClearsResolvedContext(
 test('contexto de resolução é invalidado nos resets e só é preservado na mesma boundary durante re-resolução', () => {
   const resolveStart =
     contentScriptSource.indexOf(
-      'async function resolveCurrentLead()',
+      'async function resolveCurrentLead(',
     )
 
   assert.notEqual(

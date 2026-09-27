@@ -36,7 +36,7 @@ test('ID-01: Companion usa a mesma RPC canônica da sessão principal para resol
 test('ID-01: Companion preserva a mesma precedência de nome usada por /api/me', () => {
   for (const [path, source] of Object.entries(sources)) {
     const start = source.indexOf(
-      'function getCompanyName(membership: CompanyMembershipRow)',
+      'function getCompanyName(',
     )
     const end = source.indexOf(
       '\n}\n',
@@ -47,7 +47,7 @@ test('ID-01: Companion preserva a mesma precedência de nome usada por /api/me',
     assert.notEqual(start, -1, `${path} precisa manter getCompanyName`)
     assert.match(
       block,
-      /membership\.trade_name[\s\S]*membership\.company_name[\s\S]*membership\.legal_name/,
+      /return\s*\([\s\S]*(?:membership|source)\.trade_name[\s\S]*(?:membership\.company_name|companyName)[\s\S]*(?:membership|source)\.legal_name/,
       `${path} precisa usar trade_name > company_name > legal_name`,
     )
   }
