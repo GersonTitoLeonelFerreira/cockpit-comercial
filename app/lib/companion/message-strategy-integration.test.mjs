@@ -104,3 +104,55 @@ test(
     )
   },
 )
+
+
+test(
+  'seller_intent pertence ao Message Strategy e nunca ao Coaching Diagnosis',
+  () => {
+    const generateBlock =
+      route.slice(
+        route.indexOf(
+          "if (operation === 'generate_message') {",
+        ),
+        route.indexOf(
+          'const reasoningProjection =',
+        ),
+      )
+
+    const coachingStart =
+      generateBlock.indexOf(
+        'buildCommercialCoachingDiagnosis({',
+      )
+
+    const strategyStart =
+      generateBlock.indexOf(
+        'buildCommercialMessageStrategy({',
+      )
+
+    assert.ok(
+      coachingStart >= 0 &&
+      strategyStart > coachingStart,
+    )
+
+    const coachingBlock =
+      generateBlock.slice(
+        coachingStart,
+        strategyStart,
+      )
+
+    const strategyBlock =
+      generateBlock.slice(
+        strategyStart,
+      )
+
+    assert.doesNotMatch(
+      coachingBlock,
+      /seller_intent/,
+    )
+
+    assert.match(
+      strategyBlock,
+      /seller_intent:\s*sellerIntent/,
+    )
+  },
+)
