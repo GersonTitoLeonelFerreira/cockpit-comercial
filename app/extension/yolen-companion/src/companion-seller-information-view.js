@@ -323,6 +323,100 @@
     `
   }
 
+  function renderCoachingDiagnosis(diagnosis) {
+    if (
+      !diagnosis ||
+      typeof diagnosis !== 'object' ||
+      diagnosis.status === 'silent'
+    ) {
+      return ''
+    }
+
+    const strength = diagnosis.seller_strength
+    const mistake = diagnosis.seller_mistake
+    const lastMove = diagnosis.seller_last_valid_move
+    const technique = diagnosis.chosen_technique
+    const intent = diagnosis.client_intent_now
+
+    const hasContent = [
+      diagnosis.current_commercial_goal,
+      strength?.summary,
+      mistake?.summary,
+      lastMove?.summary,
+      technique?.title,
+      intent?.label,
+    ].some((value) => displayText(value))
+
+    if (!hasContent) {
+      return ''
+    }
+
+    return `
+      <section
+        class="yolen-seller-section"
+        data-yolen-analysis-section="coaching-diagnosis"
+      >
+        <div class="yolen-seller-section-heading">
+          <div>
+            <div class="yolen-seller-section-eyebrow">Coaching</div>
+            <h3>Leitura da condução</h3>
+          </div>
+        </div>
+
+        <div class="yolen-seller-stack">
+          ${renderLabeledCopy('Objetivo comercial agora', diagnosis.current_commercial_goal)}
+
+          ${strength?.summary ? `
+            <article class="yolen-seller-insight yolen-seller-insight--positive">
+              <div class="yolen-seller-insight-type">Principal acerto</div>
+              <div class="yolen-seller-insight-title">${escapeHtml(displayText(strength.summary))}</div>
+              ${renderLabeledCopy('Por que isso importa', strength.why_it_matters)}
+              ${renderEvidence(strength)}
+            </article>
+          ` : ''}
+
+          ${mistake?.summary ? `
+            <article class="yolen-seller-insight yolen-seller-insight--improvement">
+              <div class="yolen-seller-insight-type">Principal ajuste</div>
+              <div class="yolen-seller-insight-title">${escapeHtml(displayText(mistake.summary))}</div>
+              ${renderLabeledCopy('Como corrigir', mistake.how_to_improve)}
+              ${renderLabeledCopy('Impacto ou risco', mistake.impact)}
+              ${renderEvidence(mistake)}
+            </article>
+          ` : ''}
+
+          ${renderLabeledCopy('Próximo objetivo', diagnosis.next_action)}
+
+          <details
+            class="yolen-seller-secondary-details"
+            data-yolen-preserve-details="analysis-coaching-diagnosis"
+          >
+            <summary>Ver raciocínio</summary>
+            ${renderLabeledCopy('Intenção atual do cliente', intent?.label)}
+            ${renderLabeledCopy('Último movimento válido do vendedor', lastMove?.action_label)}
+            ${renderLabeledCopy('Técnica selecionada', technique?.title)}
+            ${renderLabeledCopy('Por que esta técnica', technique?.why_now)}
+            ${diagnosis.sequence_break?.happened
+              ? renderLabeledCopy('Quebra de sequência', diagnosis.sequence_break.what_changed)
+              : ''}
+            ${diagnosis.sequence_break?.happened
+              ? renderLabeledCopy('Por que isso prejudica', diagnosis.sequence_break.why_it_hurts)
+              : ''}
+            ${renderLabeledCopy(
+              'Confiança de contexto do cliente',
+              diagnosis.client_context_confidence,
+            )}
+            ${renderLabeledCopy(
+              'Confiança sobre execução do vendedor',
+              diagnosis.seller_execution_confidence,
+            )}
+            ${renderTextList('Evite agora', diagnosis.do_not_do)}
+          </details>
+        </div>
+      </section>
+    `
+  }
+
   function renderStrengths(strengthsList) {
     const strengths = displayItems(strengthsList)
       .map((item) => ({
@@ -1029,6 +1123,7 @@
     }
 
     const sections = [
+      renderCoachingDiagnosis(analysisViewModel.coaching_diagnosis),
       renderImprovements(analysisViewModel.improvements),
       renderStrengths(analysisViewModel.strengths),
       renderOpportunityHeader(analysisViewModel.opportunity, analysisViewModel.current_moment),

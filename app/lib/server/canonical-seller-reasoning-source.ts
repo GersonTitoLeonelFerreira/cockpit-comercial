@@ -39,18 +39,31 @@ import type {
  *   aguardando quem) reconcilia a decisão final para impedir que um gap de
  *   descoberta mande o vendedor repetir uma ação que já foi executada.
  */
-export async function loadCanonicalSellerReasoning({
+export type CanonicalSellerReasoningBundle = {
+  reasoning: CommercialReasoning | null
+  diagnostic_input:
+    Awaited<
+      ReturnType<
+        typeof loadCompanionDiagnosticSnapshot
+      >
+    >['input'] | null
+}
+
+export async function loadCanonicalSellerReasoningBundle({
   admin,
   context,
 }: {
   admin: SupabaseClient
   context: CanonicalSellerCommercialContext
-}): Promise<CommercialReasoning | null> {
+}): Promise<CanonicalSellerReasoningBundle> {
   if (
     !context.current_reading ||
     context.state_read.mode !== 'found'
   ) {
-    return null
+    return {
+      reasoning: null,
+      diagnostic_input: null,
+    }
   }
 
   const snapshot =
@@ -74,10 +87,13 @@ export async function loadCanonicalSellerReasoning({
     snapshot.source.conversation_key !==
       context.conversation_key
   ) {
-    return null
+    return {
+      reasoning: null,
+      diagnostic_input: null,
+    }
   }
 
-  const reasoning =
+  const rawReasoning =
     buildCommercialReasoning({
       reading:
         context.current_reading.reading,
@@ -87,11 +103,35 @@ export async function loadCanonicalSellerReasoning({
         snapshot.input,
     })
 
-  return reconcileReasoningWithCommercialResponsibility({
+  const reasoning =
+    reconcileReasoningWithCommercialResponsibility({
+      reasoning:
+        rawReasoning,
+      clientContext:
+        context.client_context,
+      referenceTime:
+        context.reference_time,
+    })
+
+  return {
     reasoning,
-    clientContext:
-      context.client_context,
-    referenceTime:
-      context.reference_time,
-  })
+    diagnostic_input:
+      snapshot.input,
+  }
+}
+
+export async function loadCanonicalSellerReasoning({
+  admin,
+  context,
+}: {
+  admin: SupabaseClient
+  context: CanonicalSellerCommercialContext
+}): Promise<CommercialReasoning | null> {
+  const bundle =
+    await loadCanonicalSellerReasoningBundle({
+      admin,
+      context,
+    })
+
+  return bundle.reasoning
 }
