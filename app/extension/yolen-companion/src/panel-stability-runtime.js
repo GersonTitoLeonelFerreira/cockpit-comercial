@@ -921,6 +921,16 @@
     true,
   )
 
+  // Pressionar o mouse no campo de intenção é EDIÇÃO NATIVA DE TEXTO, não
+  // interação de controle: o mousedown nunca é cancelado. A ação padrão
+  // dele é focar o campo, posicionar o cursor e iniciar a seleção por
+  // arrasto. Cancelado (como era, para focar com preventScroll), o
+  // Firefox nunca iniciava o arrasto: o clique ainda posicionava o cursor
+  // no mouseup, mas arrastar não selecionava texto (MSG-01). Aqui só a
+  // trava de interação do campo é registrada; a posição de leitura do
+  // workspace continua protegida pelo lock de campo editável
+  // (editable-field-stability-runtime.js: scroll registrado no
+  // pointerdown e restaurado no focusin).
   document.addEventListener(
     'mousedown',
     (event) => {
@@ -930,34 +940,7 @@
         return
       }
 
-      const currentPanel = getPanel()
-
-      if (!currentPanel) {
-        return
-      }
-
       lockInteraction(input, 'intent')
-
-      const scrollTarget =
-        getWorkspaceScrollContainer(
-          currentPanel,
-        )
-      const intendedTop =
-        scrollTarget?.scrollTop ?? null
-
-      event.preventDefault()
-
-      try {
-        input.focus({ preventScroll: true })
-      } catch {
-        input.focus()
-      }
-
-      if (scrollTarget && intendedTop !== null) {
-        scrollTarget.scrollTop = intendedTop
-      }
-
-      captureScroll(currentPanel)
     },
     true,
   )

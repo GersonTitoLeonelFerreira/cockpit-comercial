@@ -135,3 +135,89 @@ export async function settleStabilityQueues(runtime) {
   await new Promise((resolve) => runtime.window.requestAnimationFrame(() => resolve()))
   await new Promise((resolve) => setTimeout(resolve, 20))
 }
+
+// Seleção de texto com o mouse num campo de texto, com a semântica do
+// navegador que o jsdom não implementa (UI Events; no Firefox,
+// nsIFrame::HandlePress/HandleRelease):
+// - pointerdown cancelado suprime os eventos de mouse de compatibilidade;
+// - a ação padrão do mousedown num campo de texto é focar, posicionar o
+//   cursor e iniciar a seleção por arrasto; o arrasto (movimento com o
+//   botão pressionado) estende a seleção a partir desse ponto;
+// - com o mousedown cancelado (preventDefault) o arrasto nunca começa; no
+//   mouseup o Firefox ainda posiciona o cursor no ponto de soltura — por
+//   isso um clique simples continua funcionando e só a seleção falha.
+// `from`/`to`: posição do texto sob o ponteiro ao pressionar e ao soltar.
+export function mouseSelectText(runtime, field, { from, to }) {
+  const window = runtime.window
+  const PointerCtor = window.PointerEvent ?? window.MouseEvent
+  const pressed = { bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1 }
+  const released = { ...pressed, buttons: 0 }
+
+  const pointerDownAllowed = field.dispatchEvent(new PointerCtor('pointerdown', pressed))
+  const mouseDownAllowed =
+    pointerDownAllowed && field.dispatchEvent(new window.MouseEvent('mousedown', pressed))
+
+  let dragging = false
+
+  if (mouseDownAllowed) {
+    field.focus()
+    field.setSelectionRange(from, from)
+    dragging = field.dispatchEvent(new window.Event('selectstart', { bubbles: true, cancelable: true }))
+  }
+
+  const step = to >= from ? 1 : -1
+
+  for (let offset = from; offset !== to; ) {
+    offset += step
+    field.dispatchEvent(new PointerCtor('pointermove', pressed))
+
+    if (pointerDownAllowed) {
+      field.dispatchEvent(new window.MouseEvent('mousemove', pressed))
+    }
+
+    if (dragging) {
+      field.setSelectionRange(Math.min(from, offset), Math.max(from, offset), offset < from ? 'backward' : 'forward')
+    }
+  }
+
+  field.dispatchEvent(new PointerCtor('pointerup', released))
+  const mouseUpAllowed =
+    pointerDownAllowed && field.dispatchEvent(new window.MouseEvent('mouseup', released))
+
+  if (!dragging && mouseUpAllowed && runtime.document.activeElement === field) {
+    field.setSelectionRange(to, to)
+  }
+
+  field.dispatchEvent(new window.MouseEvent('click', released))
+}
+
+// Tecla com a ação padrão do navegador sobre o campo focado: texto
+// digitado substitui a seleção; Backspace/Delete apagam a seleção (ou um
+// caractere, se o cursor estiver colapsado). Dispara `input` como o
+// navegador.
+export function pressKeyInField(runtime, field, key) {
+  const window = runtime.window
+  const allowed = field.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+
+  if (allowed) {
+    let start = field.selectionStart
+    let end = field.selectionEnd
+    let inputType = 'insertText'
+    let text = key
+
+    if (key === 'Backspace' || key === 'Delete') {
+      text = ''
+      inputType = key === 'Backspace' ? 'deleteContentBackward' : 'deleteContentForward'
+
+      if (start === end) {
+        if (key === 'Backspace') start = Math.max(0, start - 1)
+        else end = Math.min(field.value.length, end + 1)
+      }
+    }
+
+    field.setRangeText(text, start, end, 'end')
+    field.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType, data: text || null }))
+  }
+
+  field.dispatchEvent(new window.KeyboardEvent('keyup', { key, bubbles: true, cancelable: true }))
+}
