@@ -1122,7 +1122,7 @@ test(
 
     assert.match(
       gate,
-      /&& tsc --noEmit$/,
+      /&& next typegen && tsc --noEmit$/,
     )
   },
 )

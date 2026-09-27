@@ -123,9 +123,11 @@ Ele executa:
 11. homologação H01–H09;
 12. renderer seller-facing;
 13. paridade cross-channel WhatsApp/ManyChat;
-14. `tsc --noEmit`.
+14. `next typegen && tsc --noEmit`.
 
-A suíte E3 de paridade usa `--test-force-exit` porque o próprio harness carrega o `content-script.js` real, que mantém timers recorrentes intencionais de uma aba de navegador. A flag só é aplicada a essa suíte, depois que o test runner reporta os resultados, para permitir que o gate avance ao `tsc --noEmit` sem alterar o runtime de produção.
+A suíte E3 de paridade usa `--test-force-exit` porque o próprio harness carrega o `content-script.js` real, que mantém timers recorrentes intencionais de uma aba de navegador. A flag só é aplicada a essa suíte, depois que o test runner reporta os resultados.
+
+Antes do `tsc --noEmit`, o gate executa `next typegen` para regenerar os tipos de rota a partir da árvore atual do App Router. Isso evita que `.next/dev/types` de uma sessão antiga de desenvolvimento faça o TypeScript validar handlers que já não existem no código-fonte.
 
 O build Next.js continua sendo gate adicional de release:
 
