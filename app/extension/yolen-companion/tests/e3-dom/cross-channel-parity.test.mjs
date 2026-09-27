@@ -987,8 +987,11 @@ test('FNC-02: job ainda queued após a janela ativa sai do spinner para estado n
         ) &&
         Boolean(
           runtime.document.querySelector(
-            '[data-yolen-analysis-empty]',
+            '[data-yolen-analysis-section="method"]',
           ),
+        ) &&
+        /Método comercial não configurado/.test(
+          panelText(runtime),
         )
       )
     },
@@ -1023,9 +1026,13 @@ test('FNC-02: job ainda queued após a janela ativa sai do spinner para estado n
     )
     assert.ok(
       runtime.document.querySelector(
-        '[data-yolen-analysis-empty]',
+        '[data-yolen-analysis-section="method"]',
       ),
-      'o deep result succeeded foi promovido; a fixture não possui seções detalhadas renderizáveis',
+      'o deep result succeeded foi promovido e o fallback de ANÁLISE foi renderizado',
+    )
+    assert.match(
+      panelText(runtime),
+      /Método comercial não configurado/,
     )
   })
 })
