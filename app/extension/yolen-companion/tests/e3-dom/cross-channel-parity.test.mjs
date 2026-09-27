@@ -980,6 +980,76 @@ test('FNC-02: job ainda queued após a janela ativa sai do spinner para estado n
   })
 })
 
+test('FNC-02: job running após a janela ativa também vira estado neutro sem falso failed', async () => {
+  const runningResponse = {
+    ok: true,
+    data: {
+      deep_analysis: {
+        analysis_job_id: JOB_ID,
+        status: 'running',
+        message_watermark: 'wm-1',
+      },
+    },
+  }
+
+  const runtimes = start(
+    {
+      resolution: leadResolution('OWNED_BY_ME'),
+      backend: baseBackend({
+        analysisResult: runningResponse,
+        analysisJobStatusResult: jobStatus('running'),
+      }),
+    },
+    {
+      beforeLoad: ({ dom }) => {
+        dom.window.__yolenCompanionDeepAnalysisPollTimeoutMsForTests = 450
+      },
+    },
+  )
+
+  await clickAnalyze(runtimes)
+
+  await waitForBoth(
+    runtimes,
+    (runtime) =>
+      Boolean(
+        runtime.document.querySelector(
+          '[data-yolen-analysis-pending]',
+        ),
+      ),
+    { timeoutMs: 5000 },
+  )
+
+  await waitForQuiet(runtimes)
+
+  assertParity(
+    runtimes,
+    'FNC-02 running recuperável',
+  )
+
+  everyRuntime(runtimes, (runtime) => {
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-error]',
+      ),
+      null,
+      'running do servidor nunca pode virar falha inventada pelo cliente',
+    )
+
+    assert.match(
+      panelText(runtime),
+      /ainda está processando esta conversa/,
+    )
+
+    assert.match(
+      runtime.document.querySelector(
+        '[data-yolen-action="analyze-conversation"]',
+      ).textContent,
+      /Verificar análise/,
+    )
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Lead enrichment
 // ---------------------------------------------------------------------------
