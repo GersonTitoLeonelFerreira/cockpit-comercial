@@ -42,6 +42,14 @@ function reading({
     risks: {
       customer_objections: [],
     },
+    best_approach: {
+      decision: 'respond',
+      reason:
+        'Responder conforme o contexto.',
+      channel: 'text',
+      evidence_message_ids: ['m1'],
+      memory_ids: [],
+    },
     method: {
       configured: true,
       name:

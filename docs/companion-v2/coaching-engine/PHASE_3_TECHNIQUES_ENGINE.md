@@ -131,7 +131,21 @@ Isso é conservador por desenho.
 
 O contrato público `commercial-reasoning-v1` não precisou ganhar campos novos nesta fase.
 
-## 11. Invariantes
+## 11. Neutralidade vertical
+
+O contexto inicial de homologação usa exemplos de academia, mas nenhuma regra comercial do Coaching Engine pode depender desse segmento.
+
+Princípios obrigatórios:
+
+- técnica, método e sequência são conceitos transversais;
+- regras específicas do negócio entram por `commercial_context`, Company Knowledge, produtos, fatos, objection guides e método publicado;
+- o runtime não pode assumir academia, matrícula, experimental ou plano como modelo universal;
+- exemplos verticais servem como fixtures, não como fonte de regra;
+- a suíte inclui cenários sem vocabulário de academia para software B2B, serviços com visita, consultoria e venda consultiva genérica.
+
+A Fase 3 amplia o vocabulário determinístico para verbos e conceitos comerciais transversais como contratar, comprar, assinar, proposta, solução, serviço, consultoria, reunião, visita e demonstração.
+
+## 12. Invariantes
 
 Não foram alterados:
 
@@ -145,7 +159,7 @@ Não foram alterados:
 - auto-send;
 - rollout ManyChat.
 
-## 12. Gate de saída
+## 13. Gate de saída
 
 A Fase 3 está pronta quando:
 
