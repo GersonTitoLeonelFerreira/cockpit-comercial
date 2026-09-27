@@ -185,6 +185,16 @@ function createCompanionCore(ctx) {
 
   const leadResolutionInFlightKeys =
     new Set()
+  // Conclusão da resolução atualmente em voo por fronteira+conversa.
+  // Um chamador concorrente da MESMA fronteira não dispara outra consulta,
+  // mas também não pode retornar como se uma tentativa real tivesse sido
+  // feita. Ele aguarda a resolução já existente terminar. Isso é essencial
+  // no pós-CREATE: se uma resolução iniciada antes da criação ainda estiver
+  // em voo, resolveAfterLeadCreation() espera essa consulta terminar e só
+  // então decide se precisa de uma nova tentativa, em vez de consumir todo
+  // o orçamento de retries em no-ops (FNC-01).
+  const leadResolutionCompletionByKey =
+    new Map()
   let autoContactLookupInFlight = false
   let autoContactLookupConversationRefreshPending =
     false
@@ -8905,11 +8915,32 @@ function createCompanionCore(ctx) {
         resolutionInFlightKey,
       )
     ) {
+      const inFlightCompletion =
+        leadResolutionCompletionByKey.get(
+          resolutionInFlightKey,
+        )
+
+      if (inFlightCompletion) {
+        await inFlightCompletion
+      }
+
       return
     }
 
+    let releaseResolutionCompletion
+
+    const resolutionCompletion =
+      new Promise((resolve) => {
+        releaseResolutionCompletion =
+          resolve
+      })
+
     leadResolutionInFlightKeys.add(
       resolutionInFlightKey,
+    )
+    leadResolutionCompletionByKey.set(
+      resolutionInFlightKey,
+      resolutionCompletion,
     )
 
     const canPreserveResolvedContext =
@@ -9192,6 +9223,17 @@ function createCompanionCore(ctx) {
       leadResolutionInFlightKeys.delete(
         resolutionInFlightKey,
       )
+
+      if (
+        leadResolutionCompletionByKey.get(
+          resolutionInFlightKey,
+        ) === resolutionCompletion
+      ) {
+        leadResolutionCompletionByKey.delete(
+          resolutionInFlightKey,
+        )
+        releaseResolutionCompletion?.()
+      }
     }
   }
 

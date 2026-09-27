@@ -303,6 +303,73 @@ test('telefone confiável → NOT_FOUND → formulário compartilhado → confir
   assert.equal(created.ok, true)
 })
 
+test('FNC-01: resolução pré-CREATE lenta no ManyChat não consome retries falsos nem exige segundo clique', async () => {
+  const blockedResolve = deferred()
+  let phase = 'initial'
+
+  const resolutionsByPhone = {
+    [PHONE_X]: async () => {
+      if (phase === 'arm-block') {
+        phase = 'blocked'
+        await blockedResolve.promise
+        phase = 'after-block'
+        return notFoundResolution(PHONE_X)
+      }
+
+      if (phase === 'after-block') {
+        return linkedResolution({
+          name: 'Lead Criado No ManyChat',
+          cycleId: CYCLE_X,
+        })
+      }
+
+      return notFoundResolution(PHONE_X)
+    },
+  }
+
+  const { document, calls } = loadManyChatComposition({
+    pageHtml: page({ phone: PHONE_X }),
+    resolutionsByPhone,
+    createLeadResult: {
+      ok: true,
+      lead_id: 'lead-new',
+      cycle_id: CYCLE_X,
+      owner_user_id: 'user-1',
+    },
+  })
+
+  await waitFor(() => document.querySelector('[data-yolen-lead-create-form]'))
+
+  phase = 'arm-block'
+  click(
+    document,
+    panelOf(document).querySelector('[data-yolen-action="refresh"]'),
+  )
+  await waitFor(() => phase === 'blocked')
+
+  submitCreateForm(document, 'Lead Criado No ManyChat')
+  await waitFor(() => createLeadCalls(calls).length === 1)
+
+  await sleep(3300)
+  assert.equal(
+    document.querySelector('[data-yolen-action="retry-lead-link"]'),
+    null,
+    'ManyChat não pode cair em vínculo pendente só porque havia um RESOLVE antigo em voo',
+  )
+
+  blockedResolve.resolve()
+
+  await waitFor(
+    () =>
+      panelText(document).includes('Lead Criado No ManyChat') &&
+      Boolean(document.querySelector('[data-yolen-action="open-cycle-yolen"]')),
+    { timeoutMs: 6000 },
+  )
+
+  assert.equal(createLeadCalls(calls).length, 1, 'ManyChat também cria uma única vez')
+  assert.equal(document.querySelector('[data-yolen-lead-create-form]'), null)
+})
+
 test('CREATE confirmado sem vínculo visível → CREATED_UNRESOLVED; "Atualizar vínculo" só resolve, nunca repete CREATE', async () => {
   const resolutionsByPhone = { [PHONE_X]: notFoundResolution(PHONE_X) }
   const { document, calls } = loadManyChatComposition({
