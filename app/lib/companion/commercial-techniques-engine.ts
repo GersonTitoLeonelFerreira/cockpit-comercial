@@ -571,6 +571,16 @@ export function buildCommercialTechniqueContext({
     )
   }
 
+  const readingWaitsForCustomer =
+    (
+      reading.best_approach
+        .decision === 'wait' ||
+      reading.best_approach
+        .decision === 'give_space'
+    ) &&
+    !sequence_method.sequence
+      .customer_fact_after_action
+
   return {
     contract_version:
       COMMERCIAL_TECHNIQUES_ENGINE_VERSION,
@@ -593,7 +603,8 @@ export function buildCommercialTechniqueContext({
     sequence: {
       waiting_for_customer:
         sequence_method.sequence
-          .waiting_for_customer,
+          .waiting_for_customer ||
+        readingWaitsForCustomer,
       customer_fact_after_action:
         sequence_method.sequence
           .customer_fact_after_action,
