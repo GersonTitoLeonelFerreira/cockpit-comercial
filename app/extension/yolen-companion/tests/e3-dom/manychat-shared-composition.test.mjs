@@ -937,6 +937,23 @@ test('UX-04: ANÁLISE não oferece composer; MENSAGEM concentra Incluir e Copiar
       message: SUGGESTED,
       error: null,
     },
+    leadSummaryResult: (_count, request) => ({
+      ok: true,
+      data: {
+        identity: {
+          company_id: 'company-1',
+          lead_id: null,
+          cycle_id: request?.cycle_id,
+          conversation_key: request?.conversation_key,
+        },
+        summary: {
+          summary: 'Cliente pediu a proposta do plano anual.',
+          version: 1,
+          updated_at: '2026-09-20T12:00:00.000Z',
+        },
+        working_summary: 'Cliente pediu a proposta do plano anual.',
+      },
+    }),
   })
 
   await waitFor(() => ingestCalls(calls).length > 0)
