@@ -2670,3 +2670,163 @@ html.yolen-companion-collapsed #app {
     animation-iteration-count: 1 !important;
   }
 }
+
+
+/* YOLEN P1 — USER-FIRST ACCOUNT HEADER */
+
+.yolen-panel-header-final {
+  position: relative;
+}
+
+.yolen-account-trigger {
+  width: min(100%, 165px);
+  min-width: 0;
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: #9fb0c6;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.yolen-account-trigger:hover {
+  color: #dbeafe;
+}
+
+.yolen-account-avatar {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(
+      140deg,
+      #1e3a8a 0%,
+      #1d4ed8 60%,
+      #2563eb 100%
+    );
+  color: #bfdbfe;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.yolen-account-trigger-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.yolen-account-chevron {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  transform:
+    rotate(
+      var(--yolen-account-chevron-rotation, 0deg)
+    );
+}
+
+.yolen-account-trigger[aria-expanded="true"]
+.yolen-account-chevron {
+  --yolen-account-chevron-rotation:
+    180deg;
+}
+
+.yolen-account-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% - 4px);
+  left: 16px;
+  right: 16px;
+  overflow: hidden;
+  border:
+    1px solid
+    rgba(126, 153, 194, 0.18);
+  border-radius: 12px;
+  background: #0f1622;
+  box-shadow:
+    0 22px 54px
+    rgba(0, 0, 0, 0.52);
+}
+
+.yolen-account-menu-head {
+  padding: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom:
+    1px solid
+    rgba(126, 153, 194, 0.12);
+  background:
+    rgba(20, 32, 51, 0.86);
+}
+
+.yolen-account-avatar-large {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+
+.yolen-account-menu-identity {
+  min-width: 0;
+}
+
+.yolen-account-menu-name {
+  color: #eff4ff;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.yolen-account-menu-caption {
+  margin-top: 2px;
+  color: #7f91aa;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.yolen-account-menu-details {
+  display: grid;
+  gap: 10px;
+  padding: 12px 13px 13px;
+}
+
+.yolen-account-detail {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.yolen-account-detail-label {
+  color: #7f91aa;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.yolen-account-detail-value {
+  min-width: 0;
+  color: #d9e4f3;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
