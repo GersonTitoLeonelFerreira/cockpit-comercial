@@ -82,16 +82,17 @@ async function getCompanionBaseUrl() {
 
   if (
     candidate ===
-      LOCAL_COMPANION_BASE_URL ||
-    candidate ===
-      PRODUCTION_COMPANION_BASE_URL ||
-    candidate ===
-      TEMP_ID01_PREVIEW_BASE_URL
+      LOCAL_COMPANION_BASE_URL
   ) {
-    return candidate
+    return LOCAL_COMPANION_BASE_URL
   }
 
-  return PRODUCTION_COMPANION_BASE_URL
+  // TEMP-ID01-LIVE: neste branch de validação, qualquer host não-local
+  // precisa emitir a sessão com a origem EXATA do Preview. A Vercel pode
+  // entregar x-forwarded-host diferente do alias público; cair para a
+  // origem de produção aqui faria o bridge de produção voltar a dominar
+  // o storage compartilhado e mascararia novamente o teste.
+  return TEMP_ID01_PREVIEW_BASE_URL
 }
 
 function getTokenSecret() {
