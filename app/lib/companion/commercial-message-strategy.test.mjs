@@ -502,3 +502,36 @@ test(
     )
   },
 )
+
+
+test(
+  'seller intent leve de agradecimento não força repetição artificial do contexto',
+  () => {
+    const strategy =
+      buildCommercialMessageStrategy({
+        reasoning:
+          reasoning(),
+        coaching:
+          coaching(),
+        diagnostic_input:
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero agendar uma demonstração do sistema.',
+              },
+            ],
+          }),
+        seller_intent:
+          'Quero agradecer e encerrar por enquanto.',
+      })
+
+    assert.equal(
+      strategy.context_reference
+        .required_in_draft,
+      false,
+    )
+  },
+)
