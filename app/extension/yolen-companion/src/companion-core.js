@@ -186,13 +186,10 @@ function createCompanionCore(ctx) {
   const leadResolutionInFlightKeys =
     new Set()
   // Conclusão da resolução atualmente em voo por fronteira+conversa.
-  // Um chamador concorrente da MESMA fronteira não dispara outra consulta,
-  // mas também não pode retornar como se uma tentativa real tivesse sido
-  // feita. Ele aguarda a resolução já existente terminar. Isso é essencial
-  // no pós-CREATE: se uma resolução iniciada antes da criação ainda estiver
-  // em voo, resolveAfterLeadCreation() espera essa consulta terminar e só
-  // então decide se precisa de uma nova tentativa, em vez de consumir todo
-  // o orçamento de retries em no-ops (FNC-01).
+  // O contrato normal continua deduplicando por no-op. O pós-CREATE pode
+  // pedir explicitamente uma leitura "fresh after in-flight": nesse caso
+  // aguarda a resolução pré-existente e executa uma nova consulta iniciada
+  // depois dela, sem criar concorrência nem consumir retries falsos (FNC-01).
   const leadResolutionCompletionByKey =
     new Map()
   let autoContactLookupInFlight = false
@@ -8857,7 +8854,11 @@ function createCompanionCore(ctx) {
     }
   }
 
-  async function resolveCurrentLead() {
+  async function resolveCurrentLead(
+    {
+      requireFreshAfterInFlight = false,
+    } = {},
+  ) {
     if (
       !state.connected ||
       state.isSelfConversation
@@ -8915,16 +8916,49 @@ function createCompanionCore(ctx) {
         resolutionInFlightKey,
       )
     ) {
+      // O comportamento padrão continua sendo o contrato anterior:
+      // chamadores concorrentes comuns não geram fila nem request storm.
+      if (!requireFreshAfterInFlight) {
+        return
+      }
+
+      // Pós-CREATE é diferente: ele precisa de uma leitura que tenha
+      // começado DEPOIS da criação. Se havia um RESOLVE pré-CREATE em voo,
+      // aguardamos sua conclusão e, ainda na mesma fronteira/conversa,
+      // executamos uma nova resolução. Apenas "aguardar e retornar" não é
+      // suficiente: a resposta aguardada pode ser o NOT_FOUND antigo.
       const inFlightCompletion =
         leadResolutionCompletionByKey.get(
           resolutionInFlightKey,
         )
 
-      if (inFlightCompletion) {
-        await inFlightCompletion
+      if (!inFlightCompletion) {
+        return
       }
 
-      return
+      await inFlightCompletion
+
+      const requestContextStillCurrent =
+        conversationBoundary.isTokenCurrent(
+          boundaryTokenAtRequest,
+        ) &&
+        state.conversationKey ===
+          keyAtRequest &&
+        state.conversationPhone ===
+          phoneAtRequest &&
+        (state.conversationExternalIdentity?.key ??
+          null) ===
+          (externalIdentityAtRequest?.key ??
+            null)
+
+      if (!requestContextStillCurrent) {
+        return
+      }
+
+      // Nova chamada sem exigir uma segunda "fresh-after-in-flight":
+      // se outra resolução JÁ começou após a conclusão anterior, basta
+      // aderir ao contrato normal (ela já é fresca em relação ao CREATE).
+      return resolveCurrentLead()
     }
 
     let releaseResolutionCompletion

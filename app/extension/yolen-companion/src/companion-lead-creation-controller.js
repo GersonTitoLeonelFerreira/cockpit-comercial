@@ -153,10 +153,10 @@ function createCompanionLeadCreationController(ctx) {
   // disparado: se o vendedor já trocou de conversa, para silenciosamente
   // sem tocar em nada da UI atual (ver TESTE 5/TESTE 6). Se uma tentativa
   // coincidir com outra resolução da mesma conversa já em voo (guard de
-  // resolveCurrentLead()), ela vira um no-op silencioso — o pedido não se
-  // perde porque a PRÓXIMA tentativa deste laço tenta de novo pouco
-  // depois (ver TESTE 2); não precisamos de uma fila própria dentro de
-  // resolveCurrentLead() só para isso.
+  // resolveCurrentLead()), o pós-CREATE exige uma leitura fresca: espera
+  // a resolução pré-existente terminar e só então inicia uma nova consulta.
+  // Assim nenhum retry é consumido por no-op e nenhum segundo clique do
+  // vendedor é necessário (FNC-01 / TESTE 2B).
   // Criação já confirmada pelo backend e ainda aguardando o vínculo
   // (created_resolving/created_unresolved) para a conversa informada.
   function isLeadCreationPendingForConversation(
@@ -188,7 +188,9 @@ function createCompanionLeadCreationController(ctx) {
         return
       }
 
-      await resolveCurrentLead()
+      await resolveCurrentLead({
+        requireFreshAfterInFlight: true,
+      })
 
       if (!stillCurrent()) {
         return
