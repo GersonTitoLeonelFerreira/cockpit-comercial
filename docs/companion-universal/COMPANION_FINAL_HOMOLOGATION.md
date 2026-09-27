@@ -127,3 +127,16 @@ Estado:
 - build normal continua com ManyChat OFF;
 - nenhum vendedor canário foi ativado por este commit;
 - rollout amplo continua sem autorização.
+
+## Decisão operacional — canário adiado
+
+Por decisão de Gerson, o teste com vendedor canário não será executado neste momento.
+
+Para o fechamento desta rodada:
+- os testes live realizados por Gerson são aceitos como evidência operacional suficiente **por enquanto**;
+- C1/C2 permanecem **ADIADOS**, não reprovados;
+- esta decisão não transforma o canário em PASS e não altera o requisito original do handoff para um futuro rollout amplo;
+- ManyChat continua OFF no build normal;
+- nenhuma ativação ampla é autorizada por esta decisão.
+
+Estado desta rodada: **HOMOLOGAÇÃO INTERNA ACEITA / CANÁRIO EXTERNO ADIADO**.
