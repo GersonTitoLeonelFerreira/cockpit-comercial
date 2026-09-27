@@ -35,6 +35,11 @@ import {
   buildSellerSequenceMethodAssessment,
 } from './seller-sequence-method-assessment'
 
+import {
+  buildCommercialTechniqueContext,
+  selectApplicableCommercialTechniques,
+} from './commercial-techniques-engine'
+
 const MAX_TECHNIQUES = 3
 const MAX_KNOWLEDGE_REFERENCES = 5
 const MAX_DO_NOT_DO = 5
@@ -611,6 +616,16 @@ export function buildCommercialReasoning({
         sellerExecutionTrace,
     })
 
+  const techniqueContext =
+    buildCommercialTechniqueContext({
+      reading,
+      diagnostic_input,
+      trace:
+        sellerExecutionTrace,
+      sequence_method:
+        sequenceMethodAssessment,
+    })
+
   const combinedSituation = {
     situations:
       unique([
@@ -623,6 +638,8 @@ export function buildCommercialReasoning({
         ...situation.signals,
         ...sequenceMethodAssessment
           .signals,
+        ...techniqueContext
+          .supplemental_signals,
       ]),
     objectives:
       unique([
@@ -674,8 +691,18 @@ export function buildCommercialReasoning({
           }),
         )
 
+  const techniqueSelection =
+    selectApplicableCommercialTechniques({
+      ranked,
+      context:
+        techniqueContext,
+    })
+
   const selectedTechniques =
-    selectTechniques(ranked)
+    selectTechniques(
+      techniqueSelection
+        .selected_ranked,
+    )
 
   const companyKnowledge =
     selectKnowledge(ranked)
@@ -684,10 +711,16 @@ export function buildCommercialReasoning({
     unique([
       ...reading.analysis_limitations,
       ...(
+        status !== 'silent'
+          ? techniqueSelection
+              .limitations
+          : []
+      ),
+      ...(
         status !== 'silent' &&
         selectedTechniques.length === 0
           ? [
-              'no_relevant_commercial_technique_found',
+              'no_applicable_commercial_technique_found',
             ]
           : []
       ),
@@ -738,6 +771,8 @@ export function buildCommercialReasoning({
             'Não forçar ação comercial enquanto a relevância da sessão não estiver confirmada.',
           ]
         : unique([
+            ...techniqueSelection
+              .restrictions,
             ...sequenceMethodAssessment
               .restrictions,
             ...buildDoNotDo(
