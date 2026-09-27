@@ -46,6 +46,12 @@ const PRODUCTION_COMPANION_BASE_URL =
 const LOCAL_COMPANION_BASE_URL =
   'http://localhost:3000'
 
+// TEMP-TEST-FNC02-LIVE — origem de Preview autorizada somente nesta
+// branch temporária para medir performance real sem tocar produção.
+// Remover após a medição.
+const TEMP_TEST_COMPANION_BASE_URL =
+  'https://cockpit-comercial-vocn-git-claude-companion-fnc-02-7584b2-yolen.vercel.app'
+
 async function getCompanionBaseUrl() {
   const headerStore =
     await headers()
@@ -88,7 +94,9 @@ async function getCompanionBaseUrl() {
     candidate ===
       LOCAL_COMPANION_BASE_URL ||
     candidate ===
-      PRODUCTION_COMPANION_BASE_URL
+      PRODUCTION_COMPANION_BASE_URL ||
+    candidate ===
+      TEMP_TEST_COMPANION_BASE_URL
   ) {
     return candidate
   }
