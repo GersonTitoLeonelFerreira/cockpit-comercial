@@ -27,6 +27,14 @@ import type {
   RankedCommercialIntelligenceEntry,
 } from './commercial-intelligence-contract'
 
+import {
+  buildSellerExecutionTrace,
+} from './seller-execution-trace'
+
+import {
+  buildSellerSequenceMethodAssessment,
+} from './seller-sequence-method-assessment'
+
 const MAX_TECHNIQUES = 3
 const MAX_KNOWLEDGE_REFERENCES = 5
 const MAX_DO_NOT_DO = 5
@@ -590,6 +598,48 @@ export function buildCommercialReasoning({
         cycle_state,
     })
 
+  const sellerExecutionTrace =
+    buildSellerExecutionTrace({
+      diagnostic_input,
+    })
+
+  const sequenceMethodAssessment =
+    buildSellerSequenceMethodAssessment({
+      reading,
+      diagnostic_input,
+      trace:
+        sellerExecutionTrace,
+    })
+
+  const combinedSituation = {
+    situations:
+      unique([
+        ...situation.situations,
+        ...sequenceMethodAssessment
+          .situations,
+      ]),
+    signals:
+      unique([
+        ...situation.signals,
+        ...sequenceMethodAssessment
+          .signals,
+      ]),
+    objectives:
+      unique([
+        ...situation.objectives,
+        ...(
+          sequenceMethodAssessment
+            .method.recovery_objective
+            ? [
+                sequenceMethodAssessment
+                  .method
+                  .recovery_objective,
+              ]
+            : []
+        ),
+      ]),
+  }
+
   const productIds =
     collectProductIds(reading)
 
@@ -611,11 +661,14 @@ export function buildCommercialReasoning({
               product_ids:
                 productIds,
               situations:
-                situation.situations,
+                combinedSituation
+                  .situations,
               signals:
-                situation.signals,
+                combinedSituation
+                  .signals,
               objectives:
-                situation.objectives,
+                combinedSituation
+                  .objectives,
               limit: 12,
             },
           }),
@@ -640,7 +693,7 @@ export function buildCommercialReasoning({
       ),
       ...(
         status !== 'silent' &&
-        situation.signals.includes(
+        combinedSituation.signals.includes(
           'claim_requires_company_knowledge',
         ) &&
         companyKnowledge.length === 0
@@ -684,9 +737,16 @@ export function buildCommercialReasoning({
         ? [
             'Não forçar ação comercial enquanto a relevância da sessão não estiver confirmada.',
           ]
-        : buildDoNotDo(
-            ranked,
-            reading,
+        : unique([
+            ...sequenceMethodAssessment
+              .restrictions,
+            ...buildDoNotDo(
+              ranked,
+              reading,
+            ),
+          ]).slice(
+            0,
+            MAX_DO_NOT_DO,
           ),
 
     selected_techniques:
