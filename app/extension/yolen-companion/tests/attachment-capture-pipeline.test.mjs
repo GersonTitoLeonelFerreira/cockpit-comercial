@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url)
 const messageTools = require('../src/message-mutations.js')
 const captureBatch = require('../src/capture-batch.js')
 
-test('PDF materializado atravessa leitura de mensagem e lote canônico como texto factual', () => {
+test('PDF descrito em memória atravessa leitura de mensagem e lote canônico como texto factual', () => {
   const dom = new JSDOM(`
     <!doctype html>
     <html>
@@ -30,22 +30,14 @@ test('PDF materializado atravessa leitura de mensagem e lote canônico como text
     '[data-pre-plain-text]',
   )
 
+  // FASE 5 / Q6: evidência descrita em memória, sem escrita no DOM.
+  const text =
+    messageTools.describeBubbleAttachmentEvidence(messageNode)
+      ?.evidenceText
+
   assert.equal(
-    messageTools.materializeAttachmentEvidence(messageNode),
-    true,
-  )
-
-  const candidates = Array.from(
-    messageNode.querySelectorAll(
-      '[data-testid="selectable-text"], span.selectable-text.copyable-text',
-    ),
-  ).map((element) => ({
-    text: messageTools.readCapturedElementText(element),
-    isQuoted: false,
-  }))
-
-  const text = messageTools.pickCapturedMessageText(
-    candidates,
+    messageNode.querySelectorAll('[data-yolen-attachment-evidence]').length,
+    0,
   )
 
   assert.equal(

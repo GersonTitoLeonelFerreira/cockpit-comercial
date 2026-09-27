@@ -1,15 +1,13 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  sliceCoreWithChannelEvent,
+} from './support/whatsapp-composition-source.mjs'
 
 const contentScript =
-  readFileSync(
-    new URL(
-      '../src/content-script.js',
-      import.meta.url,
-    ),
-    'utf8',
-  )
+  readWhatsAppCompositionSource()
 
 const styles =
   readFileSync(
@@ -678,10 +676,16 @@ test(
         observerStart,
     )
 
+    // FASE 5: o listener de input do campo da plataforma vive no adapter
+    // (onComposerDraftInput); o Core só consome o rascunho.
     const block =
-      contentScript.slice(
-        observerStart,
-        observerEnd,
+      sliceCoreWithChannelEvent(
+        contentScript,
+        contentScript.slice(
+          observerStart,
+          observerEnd,
+        ),
+        'function onComposerDraftInput(',
       )
 
     assert.match(
@@ -736,7 +740,7 @@ test(
 
     assert.match(
       contentScript,
-      /observeWhatsAppChanges\(\)[\s\S]*observeComposerDraftForPreSend\(\)[\s\S]*observeManualWhatsAppSend\(\)/,
+      /observeChannelChanges\(\)[\s\S]*observeComposerDraftForPreSend\(\)[\s\S]*observeManualChannelSend\(\)/,
     )
 
     assert.match(

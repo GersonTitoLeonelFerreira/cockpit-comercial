@@ -1,23 +1,20 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 test(
   'nova mensagem usa a fotografia real da conversa para rearmar a analise automatica',
   () => {
     const processingStart =
       contentScript.indexOf(
-        'function processObservedWhatsAppChange()',
+        'function processObservedChannelChange()',
       )
 
     const observerStart =
       contentScript.indexOf(
-        'function observeWhatsAppChanges()',
+        'function observeChannelChanges()',
         processingStart,
       )
 

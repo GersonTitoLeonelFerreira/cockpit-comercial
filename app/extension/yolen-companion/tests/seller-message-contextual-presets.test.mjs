@@ -2,17 +2,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
+// FASE 5: o runtime de mensagem virou o controller de MENSAGEM do Core.
+// Os testes do runtime legado de orientação (lead-method-guidance-runtime.js,
+// ausente de qualquer manifest desde a FASE 16.9 e removido na FASE 5)
+// saíram junto com o módulo.
 const sellerRuntime = readFileSync(
   new URL(
-    '../src/seller-message-runtime.js',
-    import.meta.url,
-  ),
-  'utf8',
-)
-
-const guidanceRuntime = readFileSync(
-  new URL(
-    '../src/lead-method-guidance-runtime.js',
+    '../src/companion-message-controller.js',
     import.meta.url,
   ),
   'utf8',
@@ -35,30 +31,4 @@ test('atalhos priorizam seller_intents contextuais e limitam a três opções', 
   assert.doesNotMatch(block, /stage\.includes\(/)
   assert.doesNotMatch(block, /avançar para uma proposta/i)
   assert.doesNotMatch(block, /principal dúvida ou objeção/i)
-})
-
-test('orientação assíncrona concluída força rerender dos atalhos', () => {
-  assert.match(
-    guidanceRuntime,
-    /YolenCompanionSellerMessageRuntime[\s\S]*?\.render\?\.\(\)/,
-  )
-})
-
-test('not_applicable com próximo passo operacional usa renderer existente sem expor etapa comercial', () => {
-  assert.match(
-    guidanceRuntime,
-    /guidance\?\.status === 'not_applicable'/,
-  )
-  assert.match(
-    guidanceRuntime,
-    /status: 'ready'/,
-  )
-  assert.match(
-    guidanceRuntime,
-    /method_name: null/,
-  )
-  assert.match(
-    guidanceRuntime,
-    /stage_name: null/,
-  )
 })

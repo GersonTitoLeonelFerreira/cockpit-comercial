@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const require = createRequire(import.meta.url)
 const MODULE_PATH = fileURLToPath(
@@ -24,10 +25,7 @@ const EXTENSION_ROOT = fileURLToPath(
 )
 
 const contentScriptSource =
-  readFileSync(
-    `${EXTENSION_ROOT}src/content-script.js`,
-    'utf8',
-  )
+  readWhatsAppCompositionSource()
 
 const manifest =
   JSON.parse(
@@ -132,6 +130,7 @@ test('payload legacy vira ViewModel allowlisted com cycle, display, capabilities
     can_open_cycle: true,
     can_register_conversation: false,
     can_enrich_lead: false,
+    can_link_lead: false,
   })
   assert.deepEqual({ ...viewModel.flags }, { is_closed: false, is_owned_by_me: true, is_pool: false })
 })
@@ -187,6 +186,7 @@ test('capabilities booleanas conhecidas preservadas; canônicas têm prioridade 
     can_open_cycle: true,
     can_register_conversation: true,
     can_enrich_lead: true,
+    can_link_lead: false,
   })
 
   const legacyCreate = controller.createDomainResolutionViewModel(legacyPayload({
@@ -502,9 +502,10 @@ test('controller está composto antes do content-script no runtime real', () => 
     /YolenCompanionLeadResolutionController/,
   )
 
+  // FASE 5/6: a exigência do módulo é do bootstrap compartilhado.
   assert.match(
     contentScriptSource,
-    /if\s*\(\s*!leadResolutionController\s*\)/,
+    /leadResolutionController = requireModule\(\s*scope\.YolenCompanionLeadResolutionController,/,
   )
 
   const whatsappEntry =
@@ -704,11 +705,11 @@ test('contexto de resolução é invalidado nos resets e só é preservado na me
   assertClearsResolvedContext(
     sliceBetween(
       contentScriptSource,
-      'if (!state.conversationPhone) {',
+      '!state.conversationExternalIdentity',
       'const phoneAtRequest',
       resolveStart,
     ),
-    'resolveCurrentLead() sem telefone',
+    'resolveCurrentLead() sem telefone nem identidade externa',
   )
 
   assertClearsResolvedContext(
@@ -940,9 +941,11 @@ test('eligibility de análise e aplicação usa resolução canônica', () => {
       'function canAnalyzeCurrentConversation()',
     )
 
+  // FASE 5: canAnalyzeCurrentConversation vive no controller de análise;
+  // o bloco termina no fechamento da própria função.
   const analyzeEnd =
     contentScriptSource.indexOf(
-      'function isOpenSuggestionStatus(',
+      '\n  }\n',
       analyzeStart,
     )
 
@@ -1173,9 +1176,11 @@ test('lead action presenter decide pelas capabilities canônicas do ViewModel', 
       'function getLeadActionButton()',
     )
 
+  // FASE 5: getLeadActionButton vive no controller de criação de lead; o
+  // bloco termina no fechamento da própria função.
   const end =
     contentScriptSource.indexOf(
-      '// ---------------------------------------------------------------------',
+      '\n  }\n',
       start,
     )
 
@@ -1381,19 +1386,23 @@ test('version skew: capability canônica explícita vence o fallback legacy', ()
 
 // função → motivo (campo raw necessário que o ViewModel não fornece).
 const RAW_RESOLUTION_ADAPTERS = {
-  // CAPTURE: telefone confirmado para a capture key e o payload completo
-  // para captureBatchTools.isCaptureResolutionEligible().
-  getCaptureConversationKey: /leadResolution\s*\?\.\s*(phone|lead\s*\?\.\s*phone)\b/,
+  // CAPTURE: telefone confirmado para a capture key (FASE 8: lido por
+  // deriveCaptureConversationKey, que recebe a resolução raw) e o payload
+  // completo para captureBatchTools.isCaptureResolutionEligible().
+  getCaptureConversationKey: /resolution:\s*state\.leadResolution,/,
   canIngestCurrentCapture: /isCaptureResolutionEligible\(\s*state\.leadResolution,/,
   rememberCurrentPreResolutionCapture: /isCaptureResolutionEligible\(\s*state\.leadResolution,/,
   // CRM DIFF / SUGGESTION: next_action e next_action_date do ciclo.
   hasOperationalSuggestionChange: /next_action/,
   getOperationalSuggestionHtml: /next_action/,
   getOperationalTelemetryTargets: /next_action/,
-  // ENRICHMENT: lead.id / lead.phone.
-  getLeadEnrichmentCandidates: /resolution\?\.lead\?\.phone/,
-  getLeadEnrichmentCandidateKey: /state\.leadResolution\?\.lead\?\.id/,
-  applyLeadEnrichmentCandidate: /resolution\.lead\.id/,
+  // ENRICHMENT: lead / lead_profile cadastrais para a comparação canônica
+  // (FASE 8: YolenCompanionEnrichmentComparison). A chave do candidato não
+  // lê mais lead.id (ciclo canônico), por isso saiu da allowlist.
+  getLeadEnrichmentCandidates: /lead:\s*resolution\?\.lead,/,
+  // FASE 7: canal sanitizado (ManyChat) não recebe lead.id; o background
+  // reinjeta a referência privada — daí o acesso opcional.
+  applyLeadEnrichmentCandidate: /resolution\.lead\?\.id/,
   // CREATE URL: create_lead_url carrega telefone/nome (PII).
   wirePanelInteractions: /state\.leadResolution\?\.actions\?\.create_lead_url/,
   // PRESERVATION: mesma resolução raw mantida no refresh da boundary atual.

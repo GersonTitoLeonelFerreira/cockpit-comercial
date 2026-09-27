@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  sliceMessageLedgerSynchronization,
+} from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL(
-    '../src/content-script.js',
-    import.meta.url,
-  ),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 test('funções de ingestão permanecem no escopo principal do content script', () => {
   const structuredMessagesIndex =
@@ -162,10 +159,10 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
     )
 
     const synchronizeBlock =
-      contentScript.slice(
-        synchronizeStart,
-        synchronizeEnd,
-      )
+      sliceMessageLedgerSynchronization(
+      contentScript,
+      contentScript.slice(synchronizeStart, synchronizeEnd),
+    )
 
     assert.match(
       synchronizeBlock,
@@ -240,10 +237,10 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
       )
 
     const synchronizeBlock =
-      contentScript.slice(
-        synchronizeStart,
-        synchronizeEnd,
-      )
+      sliceMessageLedgerSynchronization(
+      contentScript,
+      contentScript.slice(synchronizeStart, synchronizeEnd),
+    )
 
     assert.match(
       synchronizeBlock,
@@ -496,12 +493,12 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
   test('processamento observado agenda a ingestão depois de atualizar o ledger', () => {
   const processingStart =
     contentScript.indexOf(
-      '  function processObservedWhatsAppChange()',
+      '  function processObservedChannelChange()',
     )
 
   const processingEnd =
     contentScript.indexOf(
-      '\n  function observeWhatsAppChanges()',
+      '\n  function observeChannelChanges()',
       processingStart,
     )
 
@@ -808,12 +805,12 @@ test('captura usa corpo selecionável e chave estável', () => {
 
     const processingStart =
       contentScript.indexOf(
-        '  function processObservedWhatsAppChange()',
+        '  function processObservedChannelChange()',
       )
 
     const processingEnd =
       contentScript.indexOf(
-        '\n  function observeWhatsAppChanges()',
+        '\n  function observeChannelChanges()',
         processingStart,
       )
 
@@ -1038,9 +1035,9 @@ test('Blocker 2 (re-auditoria): desaparecimento do DOM nunca gera mutação de m
   )
 
   const synchronizeBlock =
-    contentScript.slice(
-      synchronizeStart,
-      synchronizeEnd,
+    sliceMessageLedgerSynchronization(
+      contentScript,
+      contentScript.slice(synchronizeStart, synchronizeEnd),
     )
 
   // A heurística de "desaparecimento seguro" foi removida por completo:

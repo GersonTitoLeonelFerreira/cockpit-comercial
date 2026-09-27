@@ -3,15 +3,10 @@ import {
   readFileSync,
 } from 'node:fs'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const contentScript =
-  readFileSync(
-    new URL(
-      '../src/content-script.js',
-      import.meta.url,
-    ),
-    'utf8',
-  )
+  readWhatsAppCompositionSource()
 
 const styles =
   readFileSync(

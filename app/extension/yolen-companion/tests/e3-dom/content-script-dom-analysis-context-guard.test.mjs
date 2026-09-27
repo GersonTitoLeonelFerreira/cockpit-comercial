@@ -116,9 +116,12 @@ async function clickAnalyzeAndWaitForRequest({ document, calls, cycleId }) {
   )
 }
 
-async function goToConversationB({ document, calls, resolveLeadCountBefore, title, messageId, prePlainText, text }) {
+async function goToConversationB({ document, calls, title, messageId, prePlainText, text }) {
   switchConversationDom(document, { headerTitle: title, messageId, prePlainText, text })
-  await waitFor(() => resolveLeadCalls(calls).length > resolveLeadCountBefore)
+  // FASE 5: o cache de resolução do Core (composição de produção) pode
+  // reaproveitar a resolução estável de uma conversa já vista, sem novo
+  // RESOLVE_LEAD. A troca é confirmada pela captura da mensagem nova, que
+  // só é ingerida depois da resolução aplicada ao contexto atual.
   await waitFor(() => {
     const ingests = ingestCalls(calls)
     return ingests.at(-1)?.payload.messages.some((message) => message.message_key?.includes(messageId))

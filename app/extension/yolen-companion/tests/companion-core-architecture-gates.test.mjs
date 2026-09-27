@@ -1070,7 +1070,11 @@ test('ARCHITECTURE GATE REPORT: NEW_VIOLATIONS=0 e STALE_BASELINE=0', () => {
   console.log(report)
   assert.equal(comparison.newViolations.length, 0, report)
   assert.equal(comparison.staleBaseline.length, 0, report)
-  assert.ok(comparison.legacyRemaining.length > 0, 'baseline legada vazia na FASE 3 é suspeita — revise os detectores')
+  // FASE 7 — fim da reconstrução: a baseline legada termina vazia (o
+  // contrato §30.1 exige). Os self-tests abaixo continuam provando que cada
+  // detector acusa violações sintéticas, então "vazia" não é detector cego.
+  assert.equal(comparison.legacyRemaining.length, 0, 'FASE 7: baseline legada precisa estar vazia')
+  assert.equal(LEGACY_ARCHITECTURE_BASELINE.length, 0, 'FASE 7: nenhuma entrada legada pode permanecer')
 })
 
 test('toda violação detectada tem identidade semântica sem número de linha', () => {

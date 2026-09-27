@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import nullBaseRebase from '../src/capture-resilience-null-base.js'
+import coreApiComposition from '../src/companion-core-api-composition.js'
 
 const {
   createNullBaseRebaseTracker,
-  installNullBaseRebaseHotfix,
 } = nullBaseRebase
 
 function capturePayload(
@@ -153,6 +153,9 @@ test('conflito de baseline não autoriza rebase de base nula', () => {
   )
 })
 
+// FASE 5: o rebase de base nula deixou de ser instalado por monkey-patch
+// em YolenCompanionApi.ingestCapturedMessages. O Core compõe o tracker
+// explicitamente (companion-core-api-composition.js).
 test('integração registra a confirmação inicial e rebaseia a chamada seguinte', async () => {
   const sentPayloads = []
   const results = [
@@ -160,27 +163,26 @@ test('integração registra a confirmação inicial e rebaseia a chamada seguint
     successfulResult('2'),
   ]
 
-  const target = {
-    YolenCompanionApi: {
-      async ingestCapturedMessages(
-        payload,
-      ) {
-        sentPayloads.push(payload)
-        return results.shift()
-      },
+  const api = {
+    async ingestCapturedMessages(
+      payload,
+    ) {
+      sentPayloads.push(payload)
+      return results.shift()
     },
   }
 
-  installNullBaseRebaseHotfix(
-    target,
-  )
+  const composition = coreApiComposition.create({
+    getApi: () => api,
+    nullBaseRebaseTools: nullBaseRebase,
+  })
 
-  await target.YolenCompanionApi
+  await composition
     .ingestCapturedMessages(
       capturePayload(null),
     )
 
-  await target.YolenCompanionApi
+  await composition
     .ingestCapturedMessages(
       capturePayload(null, {
         text_content:
@@ -201,23 +203,13 @@ test('integração registra a confirmação inicial e rebaseia a chamada seguint
   )
 })
 
-test('instalação repetida mantém o mesmo patch', () => {
-  const target = {
-    YolenCompanionApi: {
-      async ingestCapturedMessages() {
-        return successfulResult('1')
-      },
-    },
-  }
-
-  const first =
-    installNullBaseRebaseHotfix(
-      target,
-    )
-  const second =
-    installNullBaseRebaseHotfix(
-      target,
-    )
-
-  assert.equal(first, second)
+test('o módulo não instala nada na API: expõe apenas o tracker', () => {
+  assert.equal(
+    typeof nullBaseRebase.createNullBaseRebaseTracker,
+    'function',
+  )
+  assert.equal(
+    'installNullBaseRebaseHotfix' in nullBaseRebase,
+    false,
+  )
 })

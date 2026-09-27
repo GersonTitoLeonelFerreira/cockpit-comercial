@@ -3,6 +3,7 @@ import {
   readFileSync,
 } from 'node:fs'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const yolenApi =
   readFileSync(
@@ -23,13 +24,7 @@ const background =
   )
 
 const contentScript =
-  readFileSync(
-    new URL(
-      '../src/content-script.js',
-      import.meta.url,
-    ),
-    'utf8',
-  )
+  readWhatsAppCompositionSource()
 
 test(
   'Final Release remove a API paralela de Preview V2',

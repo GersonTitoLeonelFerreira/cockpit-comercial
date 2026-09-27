@@ -77,14 +77,41 @@ test('1) atualização de resumo em segundo plano preserva a posição de leitur
   const panel = getPanel(document)
   await waitFor(() => Boolean(document.querySelector('.yolen-lead-summary-card')))
 
+  // FASE 5: com a composição real do manifest, panel-stability-runtime.js
+  // liga os listeners de scroll no workspace-body atual no próximo frame
+  // depois do render; o vendedor real só rola depois disso.
+  await sleep(100)
+
   const workspaceBody = getWorkspaceBody(document)
   assert.ok(workspaceBody, 'workspace-body precisa existir (UX8)')
 
   // jsdom não faz layout: simula um workspace-body realmente rolável
   // (é ele, não o painel, quem rola de verdade na UX8 — ver styles.css).
-  Object.defineProperty(workspaceBody, 'scrollHeight', { get: () => 3000, configurable: true })
-  Object.defineProperty(workspaceBody, 'clientHeight', { get: () => 600, configurable: true })
+  // FASE 5: com a composição real do manifest, panel-stability-runtime.js
+  // mede também workspace-bodies recriados por renders de fundo; a
+  // geometria simulada vale para qualquer [data-yolen-workspace-body], como
+  // num navegador real (um node novo não nasce com altura zero).
+  const { HTMLElement: HTMLElementCtor } = document.defaultView
+  for (const [property, value] of [['scrollHeight', 3000], ['clientHeight', 600]]) {
+    const nativeDescriptor = Object.getOwnPropertyDescriptor(
+      document.defaultView.Element.prototype,
+      property,
+    )
+    Object.defineProperty(HTMLElementCtor.prototype, property, {
+      configurable: true,
+      get() {
+        return this.hasAttribute?.('data-yolen-workspace-body')
+          ? value
+          : nativeDescriptor.get.call(this)
+      },
+    })
+  }
   workspaceBody.scrollTop = 850
+  // Num navegador real, rolar dispara `scroll` no dono do scroll; o jsdom
+  // não dispara ao atribuir scrollTop. Com a composição real do manifest
+  // (FASE 5: panel-stability-runtime.js carregado), é esse evento que
+  // atualiza a posição de leitura que o runtime preserva.
+  dispatch(workspaceBody, 'scroll')
 
   const sellerWorkspaceRegionBefore = panel.querySelector(
     '[data-yolen-region="seller-information-architecture"]',

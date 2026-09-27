@@ -3,15 +3,10 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import leadEnrichment from '../src/lead-enrichment.js'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const contentScript =
-  readFileSync(
-    new URL(
-      '../src/content-script.js',
-      import.meta.url,
-    ),
-    'utf8',
-  )
+  readWhatsAppCompositionSource()
 
 const {
   CONTRACT_VERSION,
@@ -601,9 +596,11 @@ test('B2 integra candidatos reais no painel com confirmação humana explícita'
       'function getLeadEnrichmentCandidates()',
     )
 
+  // FASE 5: a integração de candidatos vive no controller de
+  // enriquecimento; o bloco vai até o fim das declarações do controller.
   const integrationEnd =
     contentScript.indexOf(
-      'function getCompactConnectionLabel()',
+      '\n  return {\n',
       integrationStart,
     )
 
@@ -692,14 +689,17 @@ test('B2 usa candidatos no novo cadastro e remove dados já iguais no lead exist
     /comparison:\s*'new_lead'/,
   )
 
+  // FASE 8: a comparação cadastral saiu do controller para o módulo
+  // compartilhado YolenCompanionEnrichmentComparison (mesma regra no
+  // content e no background do canal sanitizado).
   assert.match(
     contentScript,
-    /getCurrentLeadEnrichmentValue/,
+    /\.compareEnrichmentCandidate\(/,
   )
 
   assert.match(
     contentScript,
-    /areSameLeadEnrichmentValue/,
+    /\.readCurrentEnrichmentValue\(/,
   )
 
   assert.match(

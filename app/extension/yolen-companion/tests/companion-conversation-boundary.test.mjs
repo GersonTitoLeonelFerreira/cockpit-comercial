@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const require = createRequire(import.meta.url)
 const EXTENSION_ROOT = fileURLToPath(new URL('../', import.meta.url))
@@ -20,7 +21,7 @@ const MODULE_PATH = `${EXTENSION_ROOT}src/companion-conversation-boundary.js`
 const { createConversationBoundary } = require(MODULE_PATH)
 
 const moduleSource = readFileSync(MODULE_PATH, 'utf8')
-const contentScript = readFileSync(`${EXTENSION_ROOT}src/content-script.js`, 'utf8')
+const contentScript = readWhatsAppCompositionSource()
 const manifest = JSON.parse(readFileSync(`${EXTENSION_ROOT}manifest.json`, 'utf8'))
 const buildScript = readFileSync(`${EXTENSION_ROOT}scripts/build-package.mjs`, 'utf8')
 const harness = readFileSync(`${EXTENSION_ROOT}tests/e3-test-support/load-content-script.mjs`, 'utf8')
@@ -223,10 +224,17 @@ test('manifest do WhatsApp carrega a boundary antes do workspace runtime e do co
   assert.ok(boundaryIndex < workspaceIndex, 'boundary precisa carregar antes do workspace runtime')
   assert.ok(workspaceIndex < contentScriptIndex, 'workspace runtime precisa carregar antes do content-script')
 
-  const others = manifest.content_scripts.filter((entry) => !entry.js?.includes('src/content-script.js'))
-  for (const entry of others) {
-    assert.ok(!entry.js?.includes('src/companion-conversation-boundary.js'), 'boundary não entra em outros content_scripts nesta fase')
-  }
+  // FASE 7 — a única outra composição com a boundary é a do ManyChat, que
+  // monta o MESMO Core pelo bootstrap compartilhado: boundary antes do
+  // workspace runtime e do content script do canal.
+  const others = manifest.content_scripts.filter(
+    (entry) => !entry.js?.includes('src/content-script.js') && entry.js?.includes('src/companion-conversation-boundary.js'),
+  )
+  assert.equal(others.length, 1, 'boundary só entra na composição ManyChat além do WhatsApp')
+  const manyChat = others[0].js
+  assert.ok(others[0].matches.every((match) => match.startsWith('https://app.manychat.com/')))
+  assert.ok(manyChat.indexOf('src/companion-conversation-boundary.js') < manyChat.indexOf('src/companion-workspace-runtime.js'))
+  assert.ok(manyChat.indexOf('src/companion-workspace-runtime.js') < manyChat.indexOf('src/manychat-content-script.js'))
 })
 
 test('build allowlist e harness E3 incluem a boundary antes do workspace runtime', () => {

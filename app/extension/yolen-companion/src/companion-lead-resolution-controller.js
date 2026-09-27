@@ -243,6 +243,15 @@
             'can_enrich_lead',
             legacyActions,
           ),
+
+        // FASE 7 — vínculo manual de identidade externa não vinculada
+        // (CONTACT_NOT_LINKED): autoridade do backend, nunca do status.
+        can_link_lead:
+          readBoolean(
+            canonicalCapabilities,
+            'can_link_lead',
+            legacyActions,
+          ),
       })
 
     const flags =

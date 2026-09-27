@@ -57,6 +57,27 @@ function makeFakeScrollable(element, { scrollHeight = 3000, clientHeight = 600 }
   Object.defineProperty(element, 'clientHeight', { get: () => clientHeight, configurable: true })
 }
 
+// Simula a leitura do vendedor só depois que a restauração de scroll
+// agendada pelos renders anteriores terminou — por condição
+// (panel-stability-runtime.isRestoring()), não por tempo fixo. Durante a
+// restauração (dois frames) o runtime ignora scroll de propósito; sob
+// carga de CPU esse intervalo não cabe em nenhuma espera fixa. A checagem
+// e o scroll acontecem no mesmo passo síncrono. jsdom não dispara
+// 'scroll' ao atribuir scrollTop (não simula layout): o evento é
+// disparado manualmente, como um scroll real do vendedor faria.
+async function scrollAsSellerWhenSettled(document, workspaceBody, top, metrics) {
+  await waitFor(
+    () => {
+      if (document.defaultView.YolenCompanionPanelStabilityRuntime.isRestoring()) return false
+      makeFakeScrollable(workspaceBody, metrics)
+      workspaceBody.scrollTop = top
+      dispatch(workspaceBody, 'scroll')
+      return true
+    },
+    { intervalMs: 10 },
+  )
+}
+
 test('1+2) trocar de aba preserva o scroll do workspace-body e nunca lê/escreve panel.scrollTop', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: initialPageHtml(),
@@ -69,14 +90,7 @@ test('1+2) trocar de aba preserva o scroll do workspace-body e nunca lê/escreve
   const panel = getPanel(document)
   const workspaceBody = getWorkspaceBody(document)
 
-  // Deixa qualquer ciclo de restauração de scroll da montagem inicial
-  // terminar antes de simular a leitura do vendedor (ver comentário
-  // equivalente no teste "5+6" abaixo).
-  await sleep(80)
-
-  makeFakeScrollable(workspaceBody)
-  workspaceBody.scrollTop = 420
-  dispatch(workspaceBody, 'scroll')
+  await scrollAsSellerWhenSettled(document, workspaceBody, 420)
   await sleep(10)
 
   // Espiona toda escrita em panel.scrollTop: trocar de aba nunca pode
@@ -131,11 +145,7 @@ test('3) mudança real de conversa zera o scroll do workspace-body (com panel-st
 
   const workspaceBody = getWorkspaceBody(document)
 
-  await sleep(80)
-
-  makeFakeScrollable(workspaceBody)
-  workspaceBody.scrollTop = 900
-  dispatch(workspaceBody, 'scroll')
+  await scrollAsSellerWhenSettled(document, workspaceBody, 900)
   await sleep(10)
 
   const header = document.querySelector('header span[title]')
@@ -164,20 +174,10 @@ test('5+6) rerender de região em segundo plano (mesma conversa) preserva o scro
 
   const workspaceBody = getWorkspaceBody(document)
 
-  // Deixa qualquer ciclo de restauração de scroll disparado pelos renders
-  // iniciais (montagem do painel) terminar antes de simular a leitura do
-  // vendedor — senão um restore() já agendado (rAF) pode sobrescrever o
-  // scrollTop que estamos prestes a definir com o snapshot antigo (0).
-  await sleep(80)
-
-  makeFakeScrollable(workspaceBody)
-  workspaceBody.scrollTop = 850
-  // jsdom não dispara 'scroll' sozinho ao atribuir scrollTop (não simula
-  // física de layout) — dispara manualmente para que
-  // panel-stability-runtime.js capture esta posição como a "posição de
-  // leitura atual" antes do rerender, exatamente como um scroll real do
-  // vendedor faria.
-  dispatch(workspaceBody, 'scroll')
+  // Um restore() ainda agendado pelos renders iniciais sobrescreveria o
+  // scrollTop do vendedor com o snapshot antigo: por isso a leitura só é
+  // simulada depois que a restauração terminou (condição, não tempo).
+  await scrollAsSellerWhenSettled(document, workspaceBody, 850)
   await sleep(10)
 
   // Clicar repetidamente na aba já ativa força renderPanel() de novo

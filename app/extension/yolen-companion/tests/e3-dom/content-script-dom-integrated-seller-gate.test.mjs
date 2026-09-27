@@ -372,6 +372,15 @@ function analysisResultWithDeepJob({ analysisJobId, deepStatus = 'queued', water
   }
 }
 
+// FASE 8: o Decision State do backend só conhece a objeção depois que a
+// análise profunda foi concluída; antes disso responde silencioso. Sem
+// isto o fixture devolvia a objeção desde a primeira carga das áreas e só
+// "funcionava" porque essa carga chegava tarde (a captura retida era
+// regravada sob uma segunda chave — defeito D1 corrigido).
+function decisionStateAfterAnalysis(isAnalysisDone) {
+  return () => (isAnalysisDone() ? objectionDecisionState() : defaultAgoraDecisionState())
+}
+
 function succeededStatus({ analysisJobId, watermark, result }) {
   return {
     ok: true,
@@ -399,6 +408,7 @@ function failedStatus({ analysisJobId, watermark }) {
 test(
   'AGORA, ANÁLISE e CLIENTE concordam sobre a mesma objeção e nunca a duplicam fora do lugar certo',
   async () => {
+    let analysisSucceeded = false
     const { document, calls } = loadContentScript({
       initialHtml: pageHtmlFor({
         headerTitle: CONVERSATION_A_TITLE,
@@ -413,12 +423,15 @@ test(
         analysisJobId: 'a'.repeat(64),
         watermark: 'wm-1',
       }),
-      analysisJobStatusResult: succeededStatus({
-        analysisJobId: 'a'.repeat(64),
-        watermark: 'wm-1',
-        result: deepOutput(objectionReading()),
-      }),
-      decisionStateResult: objectionDecisionState(),
+      analysisJobStatusResult: () => {
+        analysisSucceeded = true
+        return succeededStatus({
+          analysisJobId: 'a'.repeat(64),
+          watermark: 'wm-1',
+          result: deepOutput(objectionReading()),
+        })
+      },
+      decisionStateResult: decisionStateAfterAnalysis(() => analysisSucceeded),
     })
 
     await waitFor(
@@ -562,7 +575,7 @@ test(
           result: deepOutput(objectionReading()),
         })
       },
-      decisionStateResult: objectionDecisionState(),
+      decisionStateResult: decisionStateAfterAnalysis(() => statusCallCount >= 2),
     })
 
     await waitFor(

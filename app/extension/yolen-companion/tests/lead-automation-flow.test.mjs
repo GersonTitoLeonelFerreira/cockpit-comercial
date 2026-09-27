@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const manifest = JSON.parse(
   readFileSync(
@@ -24,10 +25,7 @@ const leadAutomation = readFileSync(
   'utf8',
 )
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 const createLeadRoute = readFileSync(
   new URL(

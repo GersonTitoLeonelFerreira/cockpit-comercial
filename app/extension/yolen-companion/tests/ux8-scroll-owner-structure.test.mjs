@@ -17,9 +17,10 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const [contentScript, panelStabilityRuntime, editableFieldStabilityRuntime] = await Promise.all([
-  readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
+  Promise.resolve(readWhatsAppCompositionSource()),
   readFile('app/extension/yolen-companion/src/panel-stability-runtime.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/editable-field-stability-runtime.js', 'utf8'),
 ])

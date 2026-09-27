@@ -10,9 +10,10 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const [contentScript, summaryView, workspaceRuntimeSource] = await Promise.all([
-  readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
+  Promise.resolve(readWhatsAppCompositionSource()),
   readFile('app/extension/yolen-companion/src/companion-lead-summary-view.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/companion-workspace-runtime.js', 'utf8'),
 ])
@@ -61,7 +62,7 @@ test('content-script consome a autoridade canônica das áreas seller-facing sem
     'function handleSellerAreaKeyboard(',
   )
   const keyboardEnd = contentScript.indexOf(
-    'function getLeadEnrichmentAddressValue(',
+    'function createCompanionLeadEnrichmentController(',
     keyboardStart,
   )
   const keyboardBlock = contentScript.slice(
@@ -170,8 +171,11 @@ test('a composição dos quatro tabpanels pertence ao workspace canônico', () =
 })
 
 test('existe exatamente um mount seller-facing em todo o content-script.js, dentro de getSellerMessageAreaHtml()', () => {
+  // FASE 5: a composição inclui o controller de MENSAGEM do Core, que
+  // localiza o mount ([data-yolen-seller-message-mount]) para montar o
+  // composer; a declaração do mount no HTML continua sendo única.
   const allMountOccurrences = contentScript.match(
-    /data-yolen-seller-message-mount/g,
+    /<[^<>]*\bdata-yolen-seller-message-mount\b[^<>]*>/g,
   )
 
   assert.equal(

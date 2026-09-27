@@ -11,7 +11,7 @@
   ])
 
   // Marcador da NOSSA própria UI (painel Yolen, montado à parte em
-  // document.body — ver manychat-panel-mount.js). Nunca uma classe/atributo
+  // document.body pelo Companion Core). Nunca uma classe/atributo
   // do ManyChat: é um contrato que nós mesmos controlamos. Mutações restritas
   // a esse marcador nunca contam como evidência de mudança na conversa —
   // caso contrário, o próprio re-render do painel (innerHTML) reacionaria o

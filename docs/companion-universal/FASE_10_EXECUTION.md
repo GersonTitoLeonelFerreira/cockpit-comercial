@@ -1,0 +1,519 @@
+# FASE 10 — REGISTRO DE EXECUÇÃO (correções finais comprovadas)
+
+Registro único da FASE 10. Um bug live reproduzido: LIVE-01. Nenhuma
+subfase; a FASE 11 não foi iniciada.
+
+## 1. Auditoria inicial
+
+| Item | Valor |
+|---|---|
+| Branch | `claude/companion-multichannel-repair` |
+| HEAD local = remoto (início) | `305167c2d5930caa9f22ea512c4e6090fbc81fa5` (documental) |
+| Código testado na FASE 9 | `9e6a22c08d18bdcd827432a0c9919e775776c15e` |
+| `origin/main` | `0c95b7696775dd900ccdbf3eb9cc071155dd277a` |
+| Árvore | limpa |
+| Diretório principal com `MERGE_HEAD` (`24f25c71`) | não usado nem tocado; trabalho feito no checkout limpo da branch |
+
+## 2. LIVE-01 — evidência
+
+- **Expected:** conversa real no ManyChat → mesma experiência seller-facing
+  do WhatsApp (workspace AGORA/MENSAGEM/ANÁLISE/CLIENTE; ou "Novo contato"
+  → CREATE → re-resolve → workspace).
+- **Actual (Firefox real):** painel compacto com o texto exato
+  **"Yolen · lead não encontrado nesta empresa"**; o workspace não abre.
+- **Reproducer:** build E2E → validador PASS → carregar
+  `dist/yolen-companion/e2e/firefox/staging/manifest.json` ("Yolen
+  Companion [E2E]") → sessão Yolen autenticada → nova aba do ManyChat →
+  abrir conversa real → superfície compacta com o texto acima.
+- **Frequência:** repetida após limpeza do ambiente.
+- **Grep do diretório `staging` verificado:** texto ausente.
+
+## 3. Diagnóstico (antes de qualquer alteração)
+
+1. **O texto não pode ser produzido pelo código testado.** A string
+   "Yolen · lead não encontrado nesta empresa" não existe em nenhum arquivo
+   de `9e6a22c0` nem do pacote E2E gerado dele (grep do fonte e do
+   `staging`). A copy do Core compartilhado para os estados pré-workspace é
+   outra ("Identificando o contato automaticamente…", "Telefone ainda não
+   disponível…", "Conversa aberta", formulário "Novo contato").
+2. **Origem única do texto:** `STATUS_LABELS.NOT_FOUND` em
+   `src/manychat-capture-bootstrap.js` — o runtime seller-facing legado do
+   ManyChat (`git log -S`: introduzido em `1b9045ca`/`fc9f1528`, removido
+   em `6d77bddf`, FASE 7). Esse runtime só pinta quando
+   `MANYCHAT_CAPTURE_ENABLED === true`, isto é, num pacote **E2E** de um
+   commit anterior a `6d77bddf`. Ele ainda existe em `origin/main`
+   (`0c95b769`) e em `24f25c71` (`origin/claude/step-2b5-unified-companion-workspace`,
+   o HEAD do diretório principal com merge em andamento).
+3. **Pacotes E2E de commits diferentes eram indistinguíveis.** Build E2E
+   de `24f25c71` feito em worktree temporário: nome `Yolen Companion [E2E]`,
+   versão `1.0.0`, id `yolen-companion-e2e@gerson.local`, caminho relativo
+   `dist/yolen-companion/e2e/firefox/staging/manifest.json`, flag ManyChat
+   `true` — idênticos ao pacote aprovado — e contém exatamente
+   `manychat-capture-bootstrap.js` com o texto observado. Os critérios
+   usados no live para "build correto" (nome, caminho, grep de um diretório)
+   não identificam qual código o Firefox está executando.
+4. **Interação dos dois donos do painel:** o runtime legado e o Core usam o
+   mesmo id `yolen-companion-panel`; o `createPanel()` do Core adota um
+   elemento existente com esse id. Um painel pintado pelo runtime legado é
+   exatamente a "superfície compacta" relatada.
+
+Respostas às perguntas A–H do prompt, para o código testado: a superfície
+observada **não é** um estado do Core compartilhado (nenhum estado do Core
+renderiza esse texto); portanto não há `RESOLVE_LEAD`/ViewModel/outcome do
+Core que a explique. O caminho ManyChatAdapter → bootstrap → Core →
+resolução → workspace de `9e6a22c0` é o provado pela matriz de paridade
+(51/51, inclusive NOT_FOUND → "Novo contato" com `can_create_lead` e
+identidade segura).
+
+**Root cause:** o código em execução no Firefox durante o live não era o
+de `9e6a22c0`, e sim um pacote E2E anterior à FASE 7 (com o runtime
+ManyChat legado). O defeito reproduzível do lado do repositório é que o
+pacote E2E não se identificava pelo commit de origem, tornando os dois
+indistinguíveis. **Camada:** OTHER — identidade do build E2E
+(`scripts/build-package.mjs`); nenhuma falha em Core, adapter, bridge ou
+backend foi reproduzida.
+
+## 4. Teste red → correção → green
+
+- **Teste:** `tests/e2e-build-identity.test.mjs` — pacotes E2E de commits
+  diferentes nunca têm a mesma identidade visível; sem commit explícito, o
+  pacote se identifica pelo HEAD do checkout.
+- **Antes da correção:** FAIL 2/2 (`firefox: nome do pacote E2E não
+  identifica o commit de origem`).
+- **Correção (1 arquivo de tooling, nenhum arquivo de `src/`):**
+  `toE2EManifest` nomeia o pacote `Yolen Companion [E2E] <sha curto>`
+  (`readE2ESourceCommit`, `git rev-parse --short=8 HEAD`, fallback
+  `unknown`). O validador E2E, que reconstrói a partir do checkout atual,
+  confere o nome com o mesmo commit.
+- **Depois:** PASS 2/2; testes de build/manifest/validador 58/58.
+
+Nenhuma alteração em Core, adapters, views, controllers, backend,
+Supabase, manifest de origem ou flags. ManyChat continua OFF em dev/prod.
+
+## 5. Achado de harness durante os gates (categoria A)
+
+O teste de paridade 51 (A→B→A enriquecimento) passou a falhar 4/4 —
+também em `9e6a22c0`, portanto independente desta fase. Causa: a espera
+exigia `LOAD_LEAD_SUMMARY` depois do último `RESOLVE_LEAD`; quando a
+re-resolução pós-APPLY chega depois de B já carregado, o resumo continua
+válido em cache e não é recarregado. A espera passou a exigir
+`LOAD_CUSTOMER_VIEW_MODEL` de B depois dessa re-resolução (sempre
+presente); comparação de paridade e asserções semânticas inalteradas.
+3/3 PASS no HEAD e PASS em `9e6a22c0`.
+
+## 6. Gates
+
+| Gate | Comando | Exit | Resultado |
+|---|---|---|---|
+| Teste focal LIVE-01 | `node --test …/tests/e2e-build-identity.test.mjs` | 0 | 2/2 (antes: 0/2) |
+| Build/manifest/validador (unit) | `node --test --test-force-exit` em e2e-build-identity, dev-prod-manifest-transform, final-release-manifest, validate-release-candidate, manychat-feature-flags | 0 | 58/58 |
+| Paridade (oficial) | `node --test --test-force-exit …/e3-dom/cross-channel-parity.test.mjs` | 0 | 51/51 |
+| Paridade (em processo) | `node --experimental-test-isolation=none --test --test-force-exit …` | 0 | 51/51 |
+| Arquitetura | `node --experimental-test-isolation=none --test --test-force-exit …/companion-core-architecture-gates.test.mjs` e `node --test …` (sem force-exit) | 0 / 0 | 53/53 e 53/53; NEW=0, STALE=0, LEGACY=0 |
+| ManyChat channel-only | `node --test --test-force-exit …/manychat-channel-only-architecture.test.mjs` | 0 | 6/6 |
+| Adapter neutro | em processo | 0 | 14/14 |
+| ManyChat | em processo (manychat-*, privacidade, comparação, composição E3) | 0 | 286/286 |
+| WhatsApp | em processo (regressão FASE 5, bridge, corrida de inserção, chave canônica, enrichment) | 0 | 61/61 |
+| `npm run test:companion` | idem | 1 | 2275/2279; as 4 falhas são as 4 conhecidas |
+| Known failures companion | `node scripts/companion-known-failures-gate.mjs companion` | 0 | 4 conhecidas, 0 novas |
+| E3 completo | `node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/*.test.mjs` | 0 | 349/349 |
+| TypeScript | `./node_modules/.bin/tsc --noEmit` | 0 | limpo |
+| Lint arquivos alterados | `eslint build-package.mjs e2e-build-identity.test.mjs cross-channel-parity.test.mjs` | 0 | PASS |
+| Build + validador normal | `validate-release-candidate.mjs` (reconstrói) | 0 | PASS; ManyChat false em dev/prod |
+| Build + validador E2E | `build-package.mjs --e2e`; `validate-release-candidate.mjs --e2e` | 0 / 0 | PASS; ManyChat true; `e2e_manifest_identification` com o commit |
+| `git diff --check` | — | 0 | limpo |
+| Autorização | não executado — nenhum backend/API tocado | — | — |
+
+Novo pacote E2E para o retest:
+
+| Item | Valor |
+|---|---|
+| HEAD | `e2aad24389c6cccb0e2af4b7a88a23f3ce02722a` |
+| Gerado em | 2026-09-26T12:42:00Z |
+| Pacote | `dist/yolen-companion/e2e/yolen-companion-firefox-e2e-v1.0.0.zip` |
+| Manifest | `dist/yolen-companion/e2e/firefox/staging/manifest.json` |
+| Nome exibido | `Yolen Companion [E2E] e2aad243` |
+| SHA-256 | `0751107c2e2397adbaee981d5a6d03b576707b5324746d681d9bdbe924ad6792` |
+| Texto legado no pacote | ausente |
+
+## 7. Live retest
+
+### 7.1 LIVE-01 — retest com `Yolen Companion [E2E] e2aad243`
+
+O relato do retest (Gerson, Firefox real) abre a ANÁLISE de uma conversa
+real e lista o áudio da conversa ("Transcrever áudio 1 de 1") — o workspace
+compartilhado montou; a superfície "Yolen · lead não encontrado nesta
+empresa" não reapareceu. **LIVE-01: PASS** no retest.
+
+## 8. LIVE-02 — transcrição de áudio presa (ManyChat)
+
+- **Expected:** "Transcrever áudio 1 de 1" → obter o áudio → transcrever →
+  loading encerra → transcrição incorporada; em falha, erro e nova
+  tentativa.
+- **Actual (Firefox real, `e2aad243`):** o botão vira "Transcrevendo áudio 1
+  de 1..." e nunca termina; nenhuma transcrição, erro ou retry. Durante a
+  tentativa apareceu por um momento "Localizando este contato na Yolen..."
+  no cartão do lead.
+- **Reproducer:** carregar `e2aad243` → conversa real com áudio → ANÁLISE →
+  "Transcrever áudio 1 de 1" → clicar uma vez → preso em "Transcrevendo…".
+
+### 8.1 Tracing
+
+1. **Backend:** logs de runtime de produção (Vercel, projeto
+   `cockpit-comercial-vocn`, últimas 24 h): **nenhuma** requisição a
+   `/api/companion/transcribe-audio`; no mesmo período há `resolve-lead`,
+   `audio-transcriptions`, `analysis-view-model` etc. → a tentativa parou
+   **antes** da chamada de transcrição, dentro da extensão.
+2. **Etapas antes da transcrição** (`transcribeNextVisibleAudio` →
+   `ManyChatAdapter.getAudioSource`): leitura da identidade segura
+   (background → page world), `FETCH_MANYCHAT_AUDIO_SOURCE` (fetch do arquivo
+   no background), nova leitura de identidade, `base64ToBlob`, `FileReader`
+   no Core. Todas são `await` **sem limite de tempo** (nenhum timeout no
+   adapter, na bridge, no transporte de áudio, na API nem no Core).
+3. Os caminhos de erro dessas etapas devolvem falha e o Core sairia do
+   loading; um loading eterno só acontece se uma etapa **não responde**.
+   Qual etapa não responde no Firefox real não é determinável por código nem
+   pelos logs do backend (fica para a observação do retest, §8.4).
+4. "Localizando este contato…" é `leadResolutionLoading` (re-resolução da
+   mesma conversa). Uma troca real de instância faz
+   `hardResetConversationWorkspace()`, que já zera
+   `audioTranscriptionLoading` — não explica o loading preso; não é a causa.
+
+**Root cause (comprovada):** o Core não limita a espera da transcrição; uma
+etapa externa que não responde deixa o vendedor em "Transcrevendo…" para
+sempre, sem erro e sem nova tentativa (contrato: loading sempre termina em
+resultado ou erro com retry). **Camada:** CORE (compartilhado — mesmo defeito
+no WhatsApp). A etapa externa que parou no Firefox real: **ainda não
+identificada**.
+
+### 8.2 Teste red → correção → green
+
+- **Teste:** `tests/e3-dom/audio-transcription-stall.test.mjs` (composições
+  reais ManyChat e WhatsApp): a fonte do áudio nunca responde → depois do
+  limite o loading encerra, erro visível junto da ação, nova tentativa
+  habilitada; o resultado tardio da tentativa abandonada nunca transcreve;
+  a nova tentativa conclui.
+- **Antes:** FAIL 2/2 (`loading encerrado: nova tentativa habilitada` —
+  botão continuava desabilitado em "Transcrevendo").
+- **Correção (1 arquivo, `src/companion-core.js`):** token por tentativa +
+  watchdog (90 s; override só de teste) em `transcribeNextVisibleAudio`; ao
+  estourar: encerra o loading com "Não foi possível concluir a transcrição do
+  áudio agora. Tente novamente." e descarta o resultado tardio; toda espera
+  confere o token; `hardResetConversationWorkspace()` abandona a tentativa;
+  o status da transcrição passa a aparecer junto da ação (fora do loading).
+- **Depois:** PASS 2/2.
+- O status junto da ação toca a observação herdada D8 só no ponto que
+  LIVE-02 exige (erro de transcrição visível); o bloco legado da ANÁLISE não
+  foi alterado.
+
+### 8.3 Gates
+
+| Gate | Exit | Resultado |
+|---|---|---|
+| Focal LIVE-02 (`audio-transcription-stall.test.mjs`) | 0 | 2/2 (antes: 0/2) |
+| Arquitetura (em processo) | 0 | 53/53; NEW=0, STALE=0, LEGACY=0 |
+| ManyChat channel-only | 0 | 6/6 |
+| Adapter neutro | 0 | 14/14 |
+| ManyChat | 0 | 286/286 |
+| WhatsApp | 0 | 61/61 |
+| Paridade | 0 | 51/51 |
+| `npm run test:companion` | 1 | 2275/2279; só as 4 conhecidas |
+| Known failures companion | 0 | 4 conhecidas, 0 novas |
+| E3 completo | 0 | 351/351 (349 + 2 novos) |
+| TypeScript | 0 | limpo |
+| Lint (`companion-core.js`, teste novo) | 0 | PASS |
+| Build + validador normal | 0 | PASS; ManyChat false em dev/prod |
+| Build + validador E2E | 0 / 0 | PASS; ManyChat true; nome com o commit |
+| `git diff --check` | 0 | limpo |
+
+Pacote do retest do LIVE-02:
+
+| Item | Valor |
+|---|---|
+| HEAD do build | `9e5a6feeaed3a84c4b5e6418d6bed984f741a746` (código = `cd47b7b7` + docs) |
+| Gerado em | 2026-09-26T17:36:33Z |
+| Nome exibido | `Yolen Companion [E2E] 9e5a6fee` |
+| Manifest | `dist/yolen-companion/e2e/firefox/staging/manifest.json` |
+| SHA-256 | `08ccaeb3565c57403af8c33845c2e5a9b2ec2ce1e4d61d5b8dcfbea5b6a7728f` |
+
+### 8.4 Retest
+
+Retest com `Yolen Companion [E2E] 9e5a6fee` (Firefox real, Gerson): ao
+clicar "Transcrever áudio 1 de 1" o Companion **sai do loading** (watchdog
+e caminho de erro funcionando) e exibe o erro real:
+**"'atob' called on an object that does not implement interface Window."**
+→ transcrição ainda quebrada; causa raiz localizada (§8.5).
+
+### 8.5 Causa raiz confirmada no Firefox real e correção
+
+- **Arquivo/função:** `src/manychat-channel-adapter.js`, `base64ToBlob`.
+- **Código anterior:** `const binary = (windowRef?.atob ?? root.atob)(base64)`
+  — `Window.atob` era desacoplado do objeto antes da chamada; no Firefox o
+  receiver precisa ser `Window` e a chamada lança o erro acima. O
+  WhatsAppAdapter não usa esse caminho (fetch de blob direto), por isso só o
+  ManyChat quebrava. O jsdom aceita a chamada sem receiver, por isso a
+  matriz E3 não mostrava a falha.
+- **Camada:** ADAPTER (ManyChat).
+- **Teste red:** `tests/e3-dom/manychat-audio-atob-receiver.test.mjs` —
+  composição real do ManyChat com o `atob` da página exigindo `Window` como
+  receiver (semântica do Firefox); clique real em "Transcrever" →
+  `getAudioSource` real → Core. **Antes:** FAIL — violação registrada
+  `"'atob' called on an object that does not implement interface Window."`
+  e nenhum `TRANSCRIBE_AUDIO`. **Depois:** PASS — base64 vira Blob,
+  `getAudioSource` retorna ok, `TRANSCRIBE_AUDIO` alcançado com os mesmos
+  bytes, ciclo e mime, ação de transcrever encerra.
+- **Correção (1 arquivo, 1 linha lógica):** chamar `windowRef.atob(base64)`
+  preservando o receiver (fallback `root.atob(base64)`). Nenhuma mudança
+  seller-facing ou de arquitetura. Varredura dos módulos ManyChat/Core por
+  outros métodos de `Window` desacoplados: nenhum encontrado.
+
+### 8.6 Observações do live (não misturadas com LIVE-02)
+
+- "Analisar agora" com o áudio ainda pendente terminou em "A análise demorou
+  mais que o esperado. Tente novamente." Fica para depois do retest do
+  áudio (áudio → transcrever → concluir → analisar); se a ANÁLISE expirar
+  **depois** de uma transcrição bem-sucedida, será registrada como LIVE-03.
+- Assimetria registrada por código, sem alteração: a análise automática não
+  agenda com áudio pendente (`canScheduleAutomaticAnalysis` →
+  `getPendingAudioCountForCurrentConversation() > 0`), enquanto a ação
+  manual não faz essa checagem. Sem reproducer separado, a regra não muda.
+
+### 8.7 Gates (correção do atob)
+
+| Gate | Exit | Resultado |
+|---|---|---|
+| Focal (atob + watchdog) | 0 | 3/3 (atob: antes FAIL, depois PASS) |
+| Arquitetura (em processo) | 0 | 53/53; NEW=0, STALE=0, LEGACY=0 |
+| ManyChat channel-only | 0 | 6/6 |
+| Adapter neutro | 0 | 14/14 |
+| ManyChat | 0 | 286/286 |
+| WhatsApp | 0 | 61/61 |
+| Paridade | 0 | 51/51 |
+| `npm run test:companion` / known failures | 1 / 0 | 2275/2279; só as 4 conhecidas, 0 novas |
+| E3 completo | 0 | 352/352 (ver nota) |
+| TypeScript | 0 | limpo |
+| Lint (arquivos alterados) | 0 | PASS |
+| Build + validador normal | 0 | PASS; ManyChat false em dev/prod |
+| Build + validador E2E | 0 / 0 | PASS; ManyChat true; nome com o commit |
+| `git diff --check` | 0 | limpo |
+
+Nota (categoria A, harness): na primeira execução do E3 completo, o caso
+A→B→A (decisão AGORA) comparou A₂ enquanto os últimos loaders do ManyChat
+ainda eram de B (carga do E3 inteiro). O laço `ABA_PATHS` passou a esperar
+as áreas de A recarregadas (`areasLoadedFor`), como os A→B→A mais novos.
+Depois: A→B→A 9/9, paridade 51/51, E3 352/352.
+
+Pacote do retest:
+
+| Item | Valor |
+|---|---|
+| HEAD do build | `0f1c7fe74e79739f9b308cd6fd7237cb9481472b` |
+| Gerado em | 2026-09-26T19:14:08Z |
+| Nome exibido | `Yolen Companion [E2E] 0f1c7fe7` |
+| Manifest | `dist/yolen-companion/e2e/firefox/staging/manifest.json` |
+| SHA-256 | `c97696ff2559ae75ba85befaafab186943370f255d11556f21abc1b79bccc0e0` |
+
+### 8.8 Retest
+
+Retest com `Yolen Companion [E2E] 0f1c7fe7` (Firefox real, conversa real
+com áudio): clique em "Transcrever áudio 1 de 1" → estado de transcrição →
+o botão desaparece; depois de recarregar a página o áudio **não** volta
+como pendente. Obtenção do áudio, correção do `Window.atob`, transcrição e
+persistência: PASS. **LIVE-02: PASS.**
+
+
+## 9. LIVE-03 — análise não conclui após transcrição bem-sucedida
+
+- **Expected:** áudio já transcrito → "Analisar agora" → a análise conclui
+  e o resultado seller-facing aparece.
+- **Actual (Firefox real, `0f1c7fe7`, ~19:21–19:23 UTC e nova tentativa
+  depois do refresh):** "Analisando…" sem resultado; numa tentativa anterior
+  terminou em "A análise demorou mais que o esperado. Tente novamente.". O
+  áudio continua transcrito depois do refresh (sem ação de transcrever).
+
+### 9.1 Tracing (sem alterar código)
+
+Fontes: logs de runtime de produção (Vercel, `cockpit-comercial-vocn`,
+deployment `0c95b769`) e consultas somente-leitura no banco (identificadores
+internos abreviados; nenhuma chave de mensagem, telefone ou conteúdo).
+
+| Etapa | Evidência | Resultado |
+|---|---|---|
+| A. `POST /api/companion/analyze-conversation` | 19:20:11 (200) com `background_job_published` do job `69ba821f…` (watermark `1173:f30c20a`); 19:23:57 (200) sem novo publish (mesmo job reaproveitado) | resposta rápida; job criado — **não é o caso A** |
+| B. `companion_background_analysis_jobs` | `69ba821f…`: `running`, `attempt_count=4`, `started_at` 19:31:31, sem `completed_at`; job anterior do mesmo ciclo `4ba862fe…` (18:29, antes da transcrição): `failed`, `INVALID_MODEL_OUTPUT` / `AUDIO_EVIDENCE_NOT_TRANSCRIBED`, 5 tentativas, concluído 18:44:07 (~14 min) | job não fica parado em fila |
+| C. Worker (`/api/queues/companion-deep-analysis-v3`) | 19:20:13, 19:25:18, 19:28:24, 19:31:31 → 500 com `background_analysis_requeued`, `failure_code=INVALID_MODEL_OUTPUT`, `failure_path=output.evidence_message_ids`, `failure_invariant=AUDIO_EVIDENCE_NOT_TRANSCRIBED`, `delivery_count` 1→4 (o job de 18:29 fez o mesmo e falhou na 5ª) | **o worker executa e rejeita a saída do modelo em toda tentativa** |
+| D. `GET /api/companion/analysis-job-status` | 77 chamadas na janela | o Companion faz polling; recebe `queued`/`running`; o limite do polling do Companion (240 s) vence antes do terminal do backend (~14 min) |
+
+**Por que a saída é rejeitada:** o normalizador
+(`stateful-copilot-normalizer.ts`) falha quando o modelo cita como evidência
+uma mensagem de `context.pending_audio_message_ids`; esse conjunto
+(`stateful-copilot-execution-plan.ts`) são as mensagens do **ledger**
+`content_type='audio'` sem `audio_transcription`.
+
+**Ledger do ciclo** (`conversation_messages`, somente leitura): há **dois**
+áudios distintos do cliente (ids nativos diferentes, 12:49 e 12:50),
+ingeridos em dois lotes de captura (16:51:34 e 16:51:43). O de 12:50 recebeu
+a transcrição (versão 2, 19:20:10 — logo antes da análise). O de 12:49
+**nunca** foi transcrito (só versão 1). O Companion mostrava "1 de 1": o
+áudio de 12:49 não estava na janela visível/capturável da conversa no
+momento, então o vendedor não tinha como transcrevê-lo; o backend, porém,
+considera o ledger inteiro e o marca como pendente.
+
+**Pré-condição do prompt:** `getPendingAudioCountForCurrentConversation()`
+é calculado sobre as mensagens **visíveis** — era 0 (o botão sumiu). O
+backend vê 1 áudio pendente. É exatamente essa divergência.
+
+**Não é o áudio transcrito, nem ManyChat-específico, nem D10:** a regra é do
+Core/backend compartilhados (o mesmo aconteceria no WhatsApp com um áudio
+fora da janela visível). `source: 'whatsapp'` (D10) não aparece em nenhuma
+etapa da falha.
+
+### 9.2 Classificação
+
+- **Camada:** BACKEND — worker de análise stateful (execution plan +
+  normalizador + política de retry), com o contrato de "áudio pendente"
+  divergente entre o Companion (janela visível) e o backend (ledger inteiro).
+- Caso da árvore: **C/E** — o job roda e nunca produz saída aceita; a falha
+  é determinística (mesmo invariante em todas as tentativas) mas é tratada
+  como retryable (5 entregas, ~14 min), e o terminal chega muito depois do
+  limite de polling do Companion.
+- **Latência observada:** 1ª entrega ~2 s após o publish; entregas a cada
+  ~3–5 min; terminal `failed` ~14 min após o pedido; o vendedor vê
+  "Analisando…" até o limite de 240 s do Companion.
+
+### 9.3 Decisão necessária antes de corrigir
+
+A correção mínima está no backend (e exige deploy de produção para o
+retest, que usa `cockpit-comercial-vocn`). Pela regra da FASE 10, a
+alteração/deploy de backend é relatada ao Controle Mestre antes. Opções,
+todas com teste red sobre o caso real (ledger com áudio fora da janela sem
+transcrição + modelo citando-o):
+
+1. **Execution plan:** áudio sem transcrição não entra como mensagem
+   citável (fora de `available_message_ids`), só como aviso de áudio
+   pendente — o modelo não pode citar o que não recebe como evidência.
+2. **Normalizador:** remover ids de áudio pendente da evidência em vez de
+   reprovar a saída inteira (mantendo a falha se o item ficar sem
+   evidência).
+3. **Worker:** tratar `AUDIO_EVIDENCE_NOT_TRANSCRIBED` como falha
+   determinística (sem retry) para o terminal chegar em segundos — sozinho
+   não faz a análise concluir; complementa 1 ou 2.
+
+Nenhum código alterado para LIVE-03 até a decisão.
+
+### 9.4 Decisão e correção
+
+Decisão (Controle Mestre): **execution plan + fail-fast**.
+
+- **Teste red** (`app/lib/companion/live-03-pending-audio-analysis.test.mjs`,
+  funções reais do backend, caso real: dois áudios do cliente na sessão
+  atual, um transcrito e um não):
+  - plano: o áudio sem transcrição estava em `available_message_ids`
+    (citável) → **FAIL**;
+  - worker: `INVALID_MODEL_OUTPUT` / `AUDIO_EVIDENCE_NOT_TRANSCRIBED` era
+    `retryable: true` → **FAIL**;
+  - controle: outras saídas inválidas continuam com retry → PASS.
+- **Correção (2 arquivos de backend, nenhum da extensão):**
+  - `app/lib/companion/stateful-copilot-execution-plan.ts`:
+    `selectAnalysisMessageIds` deixa de fora áudio sem transcrição (o
+    conjunto citável e o `available_message_ids` do normalizador vêm da
+    mesma função); o áudio continua visível ao modelo só como contexto sem
+    id; `pending_audio_message_ids` fica vazio por construção.
+  - `app/lib/server/stateful-copilot-background-job.ts`: esse invariante é
+    terminal (sem retry).
+- **Depois:** 3/3 PASS. Suítes stateful do backend (execution plan,
+  normalizador, background job/worker, runtime orchestrator, real context
+  loader + LIVE-03): **115/115**.
+- Commit: `5a8afe9c`.
+
+### 9.4.1 Gates (correção LIVE-03)
+
+| Gate | Exit | Resultado |
+|---|---|---|
+| Focal LIVE-03 | 0 | 3/3 (antes: 2 FAIL) |
+| Suítes stateful do backend | 0 | 115/115 |
+| `npm run test:companion-authorization` | 0 | 266/266 |
+| `npm run test:companion` / known failures | 1 / 0 | 2278/2282; só as 4 conhecidas, 0 novas |
+| Arquitetura (em processo) | 0 | 53/53; NEW=0, STALE=0, LEGACY=0 |
+| Adapter neutro / ManyChat / WhatsApp | 0 | 14/14 · 286/286 · 61/61 |
+| Paridade | 0 | 51/51 |
+| E3 completo | 0 | 352/352 |
+| TypeScript | 0 | limpo |
+| Lint (arquivos alterados) / `git diff --check` | 0 / 0 | PASS |
+| Build + validador normal / E2E | 0 / 0 | PASS |
+
+### 9.5 Deploy necessário para o retest
+
+O pacote E2E fala com `https://cockpit-comercial-vocn.vercel.app`
+(produção, `0c95b769`). A correção de LIVE-03 é de backend, então o retest
+só é significativo depois que esse backend estiver publicado lá. **Nenhum
+deploy foi feito**; aguarda autorização explícita.
+
+### 9.6 Hotfix backend-only e deploy (decisão do Controle Mestre)
+
+- Branch `hotfix/live-03-audio-evidence` criada de `origin/main`
+  (`0c95b769`) num worktree limpo; **um único** cherry-pick de `5a8afe9c`
+  → `cf52bf97`. A reconstrução multicanal **não** foi mergeada.
+- Diff contra `main`: exatamente
+  `app/lib/companion/stateful-copilot-execution-plan.ts`,
+  `app/lib/server/stateful-copilot-background-job.ts`,
+  `app/lib/companion/live-03-pending-audio-analysis.test.mjs`.
+- Gates no hotfix (base `main`): LIVE-03 focal 3/3; suítes stateful do
+  backend 112/112; `test:companion-authorization` 266/266; `tsc` limpo;
+  eslint dos arquivos alterados limpo; `git diff --check` limpo.
+- PR: [GersonTitoLeonelFerreira/cockpit-comercial#339](https://github.com/GersonTitoLeonelFerreira/cockpit-comercial/pull/339).
+  Check "Full Companion regression + package gate": terminou em 2 s sem
+  runner (`runner_id: 0`, nenhum passo) → **BILLING_BLOCKED**, não falha de
+  teste. "Vercel Preview Comments": success.
+- Merge (método merge, preservando o commit do hotfix):
+  **`7e1f6d0b1c0086a425445a100a907532ec25a736`** em 2026-09-26 ~20:04 UTC.
+  `main` depois do merge difere de `0c95b769` só nesses 3 arquivos.
+- Deploy de produção Vercel: `dpl_6AWFvW864yVCqHZVTea8HFvJcN7A`, commit
+  `7e1f6d0b`, aliases `cockpit-comercial-vocn-yolen.vercel.app` /
+  `cockpit-comercial-vocn-git-main-yolen.vercel.app`. **READY** em 2026-09-26T20:05:52Z, alias de produção `cockpit-comercial-vocn.vercel.app` apontando para `7e1f6d0b`.
+- Extensão não alterada para o retest (usa o E2E que passou no LIVE-02).
+
+### 9.7 Retest LIVE-03 — PASS
+
+Com o backend `7e1f6d0b` em produção e a extensão E2E do LIVE-02
+(`0f1c7fe7`, sem alteração): conversa do Rubens, áudios já transcritos →
+"Analisar agora" → análise concluída e resultado seller-facing exibido.
+
+Job final no banco (`companion_background_analysis_jobs`):
+
+| Campo | Valor |
+|---|---|
+| status | `succeeded` |
+| attempt_count | 1 |
+| failure_code / failure_invariant | null / null |
+| requested_at | 2026-09-26 20:10:13.618+00 |
+| started_at | 2026-09-26 20:13:11.190+00 |
+| completed_at | 2026-09-26 20:13:31.297+00 |
+
+Ledger: os **dois** áudios da conversa têm a versão atual transcrita.
+
+### 9.8 PERFORMANCE OBSERVATION — NON-BLOCKING
+
+| Trecho | Tempo |
+|---|---|
+| request → result (`requested_at` → `completed_at`) | ~3m18s |
+| espera na fila (`requested_at` → `started_at`) | ~2m58s |
+| processamento do worker (`started_at` → `completed_at`) | ~20s |
+
+A análise está funcionalmente correta; a latência seller-facing é alta e o
+gargalo é a espera até o worker iniciar, não o modelo. Não corrigido nesta
+fase (nenhuma alteração de modelo, prompt, fila, concorrência, worker,
+polling, watchdog ou timeouts). Backlog mensurável; métrica prioritária
+futura: `requested_at → started_at`.
+
+## 10. Status final da FASE 10
+
+| Item | Resultado |
+|---|---|
+| LIVE-01 | **PASS** (build E2E identificado por commit; Companion compartilhado no ManyChat; AGORA/MENSAGEM/ANÁLISE/CLIENTE; causa: pacote E2E antigo de outro diretório) |
+| LIVE-02 | **PASS** (detecção, obtenção, `Window.atob` no Firefox, transcrição, persistência, reload) |
+| LIVE-03 | **PASS** (backend: execution plan + fail-fast; hotfix PR #339 → `main` `7e1f6d0b`; deploy de produção SUCCESS; job `succeeded` em 1 tentativa) |
+| LIVE ACCEPTANCE | **PASS** |
+| Performance | NON-BLOCKING PERFORMANCE OBSERVATION (§9.8) |
+| **FASE 10** | **PASS** |
+| FASE 11 | iniciada em registro próprio (`FASE_11_EXECUTION.md`) |

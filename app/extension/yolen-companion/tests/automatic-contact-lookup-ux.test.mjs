@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  readContactLookupFlow,
+  readConversationSnapshotFlow,
+} from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 test('grupo e bloqueado antes da busca automatica de telefone', () => {
   assert.match(
@@ -18,18 +19,8 @@ test('grupo e bloqueado antes da busca automatica de telefone', () => {
     /label\.includes\('em grupo'\)/,
   )
 
-  const lookupStart = contentScript.indexOf(
-    'async function runAutomaticContactLookup(conversationKey)',
-  )
-  const lookupEnd = contentScript.indexOf(
-    'function hardResetConversationWorkspace()',
-    lookupStart,
-  )
-
-  const lookupBlock = contentScript.slice(
-    lookupStart,
-    lookupEnd,
-  )
+  // FASE 5: aquisição da evidência (adapter) seguida da decisão (Core).
+  const lookupBlock = readContactLookupFlow(contentScript)
 
   assert.match(
     lookupBlock,
@@ -141,18 +132,8 @@ test('resolucao do lead usa identidade estavel da consulta e nao repete por muta
     /let lastResolvedContactLookupIdentity = null/,
   )
 
-  const refreshStart = contentScript.indexOf(
-    'function refreshConversationSnapshot()',
-  )
-  const refreshEnd = contentScript.indexOf(
-    'function getConnectionLabel()',
-    refreshStart,
-  )
-
-  const refreshBlock = contentScript.slice(
-    refreshStart,
-    refreshEnd,
-  )
+  // FASE 5: leitura da conversa (adapter) seguida da decisão (Core).
+  const refreshBlock = readConversationSnapshotFlow(contentScript)
 
   // Contrato atual: isGroupConversation também considera a classificação
   // persistida do bridge (bridgeSaysGroup) além do header — ver
@@ -197,25 +178,10 @@ test('resolucao do lead usa identidade estavel da consulta e nao repete por muta
 test(
   'busca automatica nunca clica na interface do WhatsApp para obter telefone',
   () => {
-    const lookupStart =
-      contentScript.indexOf(
-        'async function runAutomaticContactLookup(conversationKey)',
-      )
+    // FASE 5: aquisição da evidência (adapter) seguida da decisão (Core).
+    const lookupBlock = readContactLookupFlow(contentScript)
 
-    const lookupEnd =
-      contentScript.indexOf(
-        'function hardResetConversationWorkspace()',
-        lookupStart,
-      )
-
-    assert.notEqual(lookupStart, -1)
-    assert.notEqual(lookupEnd, -1)
-
-    const lookupBlock =
-      contentScript.slice(
-        lookupStart,
-        lookupEnd,
-      )
+    assert.ok(lookupBlock)
 
     assert.doesNotMatch(
       lookupBlock,
@@ -232,10 +198,13 @@ test(
       /if \(!hadContactPanelOpen\)/,
     )
 
+    // Copy canônica do Core com o nome do canal declarado pelo adapter
+    // (contrato §5) — para o WhatsApp o texto exibido é o mesmo.
     assert.match(
       lookupBlock,
-      /A Yolen não altera a navegação do WhatsApp/,
+      /A Yolen não altera a navegação do \$\{platformDisplayName\}/,
     )
+    assert.match(contentScript, /displayName: 'WhatsApp'/)
 
     assert.doesNotMatch(
       contentScript,

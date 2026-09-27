@@ -6,7 +6,6 @@ import captureResilience from '../src/capture-resilience.js'
 
 const {
   createCaptureCoordinator,
-  installTimestampAttributePatch,
   isRetryableResult,
   normalizeWhatsAppPrePlainText,
   resolveLeadWithRetry,
@@ -99,41 +98,72 @@ test('preserva timestamp pt-BR e rejeita componentes US inválidos', () => {
   )
 })
 
-test('patch do atributo entrega timestamp normalizado ao content script', () => {
-  class FakeElement {
-    constructor(value) {
-      this.value = value
-    }
+// FASE 5: a normalização deixou de ser um patch global em
+// Element.prototype.getAttribute. O adapter WhatsApp recebe
+// normalizeWhatsAppPrePlainText por dependência explícita e a aplica ao ler
+// o cabeçalho `data-pre-plain-text` de cada mensagem.
+test('adapter entrega timestamp normalizado ao Core sem patch global de getAttribute', async () => {
+  const { JSDOM } = await import('jsdom')
+  const vm = await import('node:vm')
 
-    getAttribute(name) {
-      return name ===
-        'data-pre-plain-text'
-        ? this.value
-        : null
-    }
+  const dom = new JSDOM(
+    `<!doctype html><html><body>
+      <div id="main">
+        <div class="message-in" data-id="msg-1">
+          <div data-pre-plain-text="[9:15 PM, 8/4/2026] Cliente: ">
+            <span class="selectable-text copyable-text"><span>Olá</span></span>
+          </div>
+        </div>
+      </div>
+    </body></html>`,
+    { url: 'https://web.whatsapp.com/' },
+  )
+
+  const nativeGetAttribute =
+    dom.window.Element.prototype.getAttribute
+
+  const sandbox = {
+    window: dom.window,
+    document: dom.window.document,
+    Node: dom.window.Node,
+    Element: dom.window.Element,
+    HTMLElement: dom.window.HTMLElement,
+    console,
+  }
+  sandbox.globalThis = sandbox
+  vm.createContext(sandbox)
+  for (const file of ['message-mutations.js', 'whatsapp-adapter.js']) {
+    vm.runInContext(
+      readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8'),
+      sandbox,
+    )
   }
 
-  const target = {
-    Element: FakeElement,
-  }
+  const rawReads = []
+  const adapter = sandbox.YolenCompanionWhatsAppAdapter.create({
+    normalizePrePlainText(value) {
+      rawReads.push(value)
+      return normalizeWhatsAppPrePlainText(value)
+    },
+  })
+
+  const entries = adapter.readVisibleMessageEntries({
+    observedAt: '2026-08-04T21:16:00.000Z',
+    getPreviousMessage: () => null,
+  })
 
   assert.equal(
-    installTimestampAttributePatch(
-      target,
-    ),
-    true,
+    dom.window.Element.prototype.getAttribute,
+    nativeGetAttribute,
+    'nenhum patch global no protótipo do DOM',
   )
-
-  const element = new FakeElement(
-    '[9:15 PM, 8/4/2026] Cliente:',
+  assert.ok(
+    rawReads.includes('[9:15 PM, 8/4/2026] Cliente: '),
+    'o adapter normaliza o valor cru lido do DOM',
   )
-
-  assert.equal(
-    element.getAttribute(
-      'data-pre-plain-text',
-    ),
-    '[21:15, 04/08/2026] Cliente:',
-  )
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0].message.timestampLabel, '04/08/2026 21:15')
+  assert.equal(entries[0].message.dateKey, '2026-08-04')
 })
 
 test('rebaseia plano mais novo somente após avanço confirmado neste dispositivo', () => {

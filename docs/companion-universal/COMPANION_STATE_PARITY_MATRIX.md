@@ -79,15 +79,15 @@ Nenhuma célula de CORE AUTHORITY aponta para adapter.
 | Capability | WhatsApp | ManyChat |
 |---|---|---|
 | `canProvideTrustedPhone` | CONDITIONAL | CONDITIONAL |
-| `canProvideDisplayName` | CONDITIONAL | UNKNOWN |
+| `canProvideDisplayName` | CONDITIONAL | NÃO COMPROVADO → indisponível (Q4, FASE 6) |
 | `canReadMessages` | SUPPORTED | SUPPORTED |
 | `canObserveConversationChanges` | SUPPORTED | SUPPORTED |
 | `canApplyMessage` | SUPPORTED | SUPPORTED |
-| `canInterceptSend` | SUPPORTED | UNKNOWN |
-| `canReadAudio` | SUPPORTED | SUPPORTED |
-| `canRequestContactDetails` | SUPPORTED | UNKNOWN |
-| `canClassifyGroupOrSelf` | SUPPORTED | UNKNOWN |
-| `canDetectDeletedOrEdited` | SUPPORTED | UNKNOWN |
+| `canInterceptSend` | SUPPORTED | NÃO COMPROVADO → indisponível (Q4, FASE 6) |
+| `canReadAudio` | SUPPORTED | CONDITIONAL (FASE 6: fonte https validada + download pelo background) |
+| `canRequestContactDetails` | SUPPORTED | UNSUPPORTED por política (Q4, FASE 6) |
+| `canClassifyGroupOrSelf` | SUPPORTED | NÃO COMPROVADO → indisponível (Q4, FASE 6) |
+| `canDetectDeletedOrEdited` | SUPPORTED | NÃO COMPROVADO → indisponível (Q4, FASE 6) |
 | `canProvideMountPoint` | SUPPORTED | SUPPORTED |
 
 SUPPORTED = existe e é usado em runtime; CONDITIONAL = existe, nem sempre
@@ -109,7 +109,7 @@ evidência (TO BE VERIFIED). Evidências no §8 do contrato.
 | 4d | NOT_FOUND com trustedPhone (§10.4 caso D) | resolution + creation | `NOT_FOUND` → `LEAD_CREATE_READY`; criação disponível (ver #6, #7) | `trustedPhone` | `trustedPhone` (fallback do caso B) | Método de obtenção do telefone | Um canal oferecer criação e o outro não com `trustedPhone` disponível | CORE, DOM | WA+MC |
 | 5 | resolving (`RESOLVING`) | resolution | "Localizando este contato na Yolen..."; ações bloqueadas; ordem de tentativa identidade → telefone decidida pelo Core/transporte (§10.4) | `trustedPhone` | `platformIdentity`, com fallback por `trustedPhone` quando disponível (caso B) | Identificador opaco enviado ao backend | Spinner/texto distinto; UI comercial antes do resultado | CORE, DOM | WA+MC |
 | 6 | `NOT_FOUND` (por `trustedPhone`) | resolution | Card "Este contato ainda não existe na Yolen" + oferta "Novo contato" (quando `can_create_lead`) + sinal de atenção; exige `trustedPhone` (sem ele ver #4c) | `trustedPhone` | `trustedPhone` | Nenhuma | Um canal só texto e outro com formulário (padrão atual ManyChat) | CORE, DOM | WA+MC |
-| 7 | create form ready (`LEAD_CREATE_READY`) | creation | Formulário Nome (obrigatório, sugerido por display name confiável), Telefone (readonly, trusted), E-mail e CPF/CNPJ (opcionais, sugeridos por enrichment) | `trustedPhone`, `displayName` | `trustedPhone`, `displayName` (UNKNOWN) | Presença de sugestão de nome conforme `canProvideDisplayName` | Formulário diferente; telefone editável; nome sugerido de display name não confiável/que parece telefone | CORE, DOM | WA+MC |
+| 7 | create form ready (`LEAD_CREATE_READY`) | creation | Formulário Nome (obrigatório, sugerido por display name confiável), Telefone (readonly, trusted), E-mail e CPF/CNPJ (opcionais, sugeridos por enrichment) | `trustedPhone`, `displayName` | `trustedPhone`, `displayName` indisponível (Q4, FASE 6: sem sugestão de nome) | Presença de sugestão de nome conforme `canProvideDisplayName` | Formulário diferente; telefone editável; nome sugerido de display name não confiável/que parece telefone | CORE, DOM | WA+MC |
 | 8 | creating (`CREATING_LEAD`) | creation | "Criando lead na Yolen..."; submit desabilitado | nenhum (payload já no Core) | nenhum | Nenhuma | Estado ausente em um canal | CORE, DOM | WA+MC |
 | 9 | duplicate create click | creation | Um único CREATE por `conversation_key`; cliques extras são no-op | nenhum | nenhum | Nenhuma | Segundo CREATE; tratamento distinto | CORE, DOM | WA |
 | 10 | `active_lead_conflict` | creation | Transição para `CREATED_RESOLVING`; nenhum segundo CREATE | nenhum | nenhum | Nenhuma | Exibir erro de criação; reabrir formulário | CORE, BE | — |
@@ -172,9 +172,9 @@ evidência (TO BE VERIFIED). Evidências no §8 do contrato.
 
 | # | STATE / SCENARIO | CORE AUTHORITY | EXPECTED SELLER-FACING RESULT | WA INPUT/CAP | MC INPUT/CAP | ALLOWED DIFF | FORBIDDEN DIFF | AUTO | LIVE |
 |---|---|---|---|---|---|---|---|---|---|
-| 65 | group/self (`NON_LEAD_CONVERSATION`) | resolution | "Conversas em grupo não são vinculadas a leads." / "Esta conversa não é vinculada a um lead comercial." ; sem busca de telefone | `kind: group/self` | `kind: unknown` (Q4) | Capability `canClassifyGroupOrSelf` | Resolver grupo como lead | CORE, ADP | WA |
+| 65 | group/self (`NON_LEAD_CONVERSATION`) | resolution | "Conversas em grupo não são vinculadas a leads." / "Esta conversa não é vinculada a um lead comercial." ; sem busca de telefone | `kind: group/self` | `kind: unknown` (Q4 decidida na FASE 6: sem classificação; nunca inferido) | Capability `canClassifyGroupOrSelf` | Resolver grupo como lead | CORE, ADP | WA |
 | 66 | `LEAD_WITHOUT_CYCLE` / `SOFT_DELETED` / `MULTIPLE_MATCHES` → `RESOLUTION_ERROR` | resolution | Exibir `user_message` canônico do backend/Core + CTA para corrigir na Yolen; sem criação, análise ou `WORKSPACE_READY`; retry volta a `RESOLVING` | nenhum | nenhum | Nenhuma | Estado próprio por canal; rótulo/copy definido em adapter; formulário de criação; escolher lead automaticamente; abrir workspace | CORE, DOM | — |
-| 67 | pré-envio (gate) | message (pre-send) | Avaliação e gate de pré-envio canônicos | `interceptSendAttempt` | UNKNOWN (Q4) | Capability `canInterceptSend` | Regra de avaliação distinta | CORE, ADP | WA |
+| 67 | pré-envio (gate) | message (pre-send) | Avaliação e gate de pré-envio canônicos | `interceptSendAttempt` | indisponível (Q4 decidida na FASE 6) — gate não instalado (diferença declarada) | Capability `canInterceptSend` | Regra de avaliação distinta | CORE, ADP | WA |
 | 68 | painel recolhido com atenção | workspace | Ponto de atenção por sinal canônico; reconhecimento ao abrir | nenhum | nenhum | Nenhuma | Atenção só em um canal | CORE, DOM | — |
 
 Total documentado: **71 linhas de cenário** — os 64 cenários obrigatórios, com o cenário 4 dividido em 4a/4b/4c/4d (67 linhas), + 4 complementares (#65–#68).
@@ -206,7 +206,7 @@ Total documentado: **71 linhas de cenário** — os 64 cenários obrigatórios, 
 |---|---|---|---|---|
 | Telefone da conversa | Trusted evidence em memória | Trusted evidence em memória (DOM fail-closed) | Recebe para resolve/create | Nunca de `subscriber_id`/`wa_id` |
 | Telefone cadastrado | Não necessário | Não recebe | Mantém | Semântica `same/missing/different_private` |
-| `lead_id` | Não recebe no `DomainResolutionViewModel` | Não recebe no `DomainResolutionViewModel` | Deriva por `cycle_id` ou identificador autorizado | Não cruza apenas para ser devolvido |
+| `lead_id` | Não recebe no `DomainResolutionViewModel` | Não recebe no `DomainResolutionViewModel` (FASE 7: o content ManyChat não recebe `lead_id` algum; o background reinjeta pelo `cycle_id`) | Deriva por `cycle_id` ou identificador autorizado | Não cruza apenas para ser devolvido |
 | Lead name / owner name / cycle status | Allowlist sanitizada, nullable conforme autorização server-side | Mesma allowlist sanitizada, nullable conforme autorização server-side | Autoriza/omite | Nenhuma diferença de schema por canal (Q3 DECIDIDA) |
 | Payload de resolução | `DomainResolutionViewModel` allowlisted | Mesmo `DomainResolutionViewModel` allowlisted | Mantém raw privilegiado server-side | Nenhum spread de payload bruto; raw phone/PII não atravessam |
 | Identidade de plataforma | JID (opaco) | `platform_contact_key` (opaco) | Recebe | Nunca exibida; nunca telefone; válida para resolver vínculo existente, nunca para criação |
@@ -216,6 +216,14 @@ Total documentado: **71 linhas de cenário** — os 64 cenários obrigatórios, 
 ---
 
 ## 8. Backend/action parity
+
+FASE 7: a coluna ManyChat descreve a referência congelada @24f25c7; a
+composição atual do ManyChat usa exatamente as ações da coluna WhatsApp
+pelo mesmo Core (resolução por identidade e fallback por telefone em
+`RESOLVE_LEAD`, `CREATE_LEAD`, `APPLY_LEAD_ENRICHMENT`, `TRANSCRIBE_AUDIO`
+com a fonte obtida por `FETCH_MANYCHAT_AUDIO_SOURCE`, e o vínculo manual
+`SEARCH_LINKABLE_LEADS`/`FIRST_LINK_EXTERNAL_IDENTITY` pelo controller único
+do Core).
 
 | Operação conceitual | WhatsApp (base) | ManyChat (@24f25c7) | Alvo |
 |---|---|---|---|

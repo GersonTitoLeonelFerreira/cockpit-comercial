@@ -16,16 +16,18 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  readContactLookupFlow,
+  sliceFunction,
+} from './support/whatsapp-composition-source.mjs'
 
 const bridgeSource = readFileSync(
   new URL('../src/whatsapp-identity-bridge.js', import.meta.url),
   'utf8',
 )
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 const manifest = JSON.parse(
   readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'),
@@ -141,7 +143,9 @@ test('BRIDGE_READY é só diagnóstico: requestActiveChatIdentity/tryResolveViaI
   const requestBlock = blockBetween(
     contentScript,
     'function requestActiveChatIdentity(',
-    'function onlyDigits(',
+    // FASE 5: o bloco agora vive no WhatsAppAdapter; a função seguinte ali
+    // é extractPhoneFromText (onlyDigits ficou no topo do adapter).
+    'function extractPhoneFromText(',
   )
 
   assert.doesNotMatch(requestBlock, /identityBridgeInstalled/)
@@ -180,7 +184,9 @@ test('content-script: pedido de identidade é request/response único (sem polli
   const requestBlock = blockBetween(
     contentScript,
     'function requestActiveChatIdentity(',
-    'function onlyDigits(',
+    // FASE 5: o bloco agora vive no WhatsAppAdapter; a função seguinte ali
+    // é extractPhoneFromText (onlyDigits ficou no topo do adapter).
+    'function extractPhoneFromText(',
   )
 
   assert.match(requestBlock, /window\.postMessage\(/)
@@ -211,24 +217,33 @@ test('content-script: validateBridgeIdentityPhone reusa PHONE_JID_DOMAINS (mesma
 })
 
 test('content-script: tryResolveViaIdentityBridge revalida conversationKey (ao vivo e via state) antes de aceitar qualquer resultado', () => {
-  const block = blockBetween(
+  // FASE 5: tryResolveViaIdentityBridge vive no adapter; a conversa
+  // conhecida pelo Core entra por callback (isCurrentConversation →
+  // state.conversationKey no Core) e a leitura ao vivo é do adapter
+  // (isVisibleConversation).
+  const block = sliceFunction(
     contentScript,
     'async function tryResolveViaIdentityBridge(',
-    'function getVisibleMessagesCount(',
+  )
+  const visibleBlock = sliceFunction(
+    contentScript,
+    'function isVisibleConversation(',
   )
 
-  assert.match(block, /state\.conversationKey !==\s*conversationKey/)
-  assert.match(block, /currentConversationKey !==\s*conversationKey/)
-  assert.match(block, /getConversationKey\(/)
-  assert.match(block, /getMainHeaderPrimaryTitle\(\)/)
+  assert.match(block, /!isCurrentConversation\(\s*conversationKey,?\s*\)/)
+  assert.match(block, /!isVisibleConversation\(\s*conversationKey,/)
+  assert.match(visibleBlock, /getConversationKey\(/)
+  assert.match(visibleBlock, /getMainHeaderPrimaryTitle\(\)/)
+  assert.match(visibleBlock, /=== conversationKey/)
+  assert.match(
+    contentScript,
+    /isCurrentConversation: \(key\) =>\s*state\.conversationKey === key/,
+  )
 })
 
 test('content-script: runAutomaticContactLookup consulta o bridge ANTES do fallback JID de DOM e do painel de contato', () => {
-  const block = blockBetween(
-    contentScript,
-    'async function runAutomaticContactLookup(conversationKey)',
-    'function hardResetConversationWorkspace()',
-  )
+  // FASE 5: aquisição da evidência (adapter) seguida da decisão (Core).
+  const block = readContactLookupFlow(contentScript)
 
   const bridgeIndex = block.indexOf('tryResolveViaIdentityBridge(')
   const passiveIndex = block.indexOf('resolvePassivePhoneForConversation(')
@@ -243,7 +258,9 @@ test('P) integração do bridge não introduz click/Escape/navegação/observer 
   const block = blockBetween(
     contentScript,
     'function listenToWhatsAppIdentityBridge()',
-    'function onlyDigits(',
+    // FASE 5: listener + request vivem no WhatsAppAdapter, seguidos de
+    // extractPhoneFromText.
+    'function extractPhoneFromText(',
   )
 
   assert.doesNotMatch(block, /\.click\(/)
@@ -254,20 +271,33 @@ test('P) integração do bridge não introduz click/Escape/navegação/observer 
 })
 
 test('start() só escuta o bridge de identidade — não injeta mais nada para ele (o MAIN world já carrega via manifest)', () => {
+  // FASE 5/6: start() é do bootstrap compartilhado; a mecânica física do
+  // WhatsApp (bridges) é o startPlatform() do adapter, chamado depois de o
+  // Core começar a escutar o áudio do canal.
   const startBlock = blockBetween(
     contentScript,
     'async function start()',
-    '\n  start()',
+    '\n      return true\n    }',
   )
 
-  const audioListenIndex = startBlock.indexOf('listenToWhatsAppAudioBridge()')
-  const audioInjectIndex = startBlock.indexOf('injectWhatsAppAudioBridge()')
-  const identityListenIndex = startBlock.indexOf('listenToWhatsAppIdentityBridge()')
+  const audioListenIndex = startBlock.indexOf('listenToChannelAudio()')
+  const platformStartIndex = startBlock.indexOf('channelAdapter.startPlatform()')
 
   assert.ok(audioListenIndex >= 0)
-  assert.ok(audioInjectIndex > audioListenIndex)
+  assert.ok(platformStartIndex > audioListenIndex)
+
+  const platformBlock = blockBetween(
+    contentScript,
+    'startPlatform() {',
+    '\n    },',
+  )
+
+  const audioInjectIndex = platformBlock.indexOf('injectWhatsAppAudioBridge()')
+  const identityListenIndex = platformBlock.indexOf('listenToWhatsAppIdentityBridge()')
+
+  assert.ok(audioInjectIndex >= 0)
   assert.ok(identityListenIndex > audioInjectIndex)
-  assert.doesNotMatch(startBlock, /injectWhatsAppIdentityBridge/)
+  assert.doesNotMatch(startBlock + platformBlock, /injectWhatsAppIdentityBridge/)
 })
 
 test('commits de fallback (b84d300/6c0b9cb) não foram removidos: resolvePassivePhoneForConversation e a allowlist de JID continuam presentes', () => {

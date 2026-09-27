@@ -2,22 +2,13 @@ import { spawnSync } from 'node:child_process'
 
 const knownFailures = {
   companion: new Set([
-    'B3.3 renderiza método, etapa atual e seis status oficiais',
-    'AGORA mantém decisão principal e acrescenta técnica contextual sem criar nova prioridade',
-    'melhoria mostra ocorrência, importância, impacto e correção',
-    'mensagem de texto não entra no gate de áudio',
     'Final Release autoriza somente produção e desenvolvimento local',
-    'retry explícito de job failed funciona no primeiro clique mesmo após reload/cache local vazio',
     'acerto do vendedor exige ação concreta e evidência da conversa',
     'ponto de melhoria exige problema comprovado em mensagem',
     'guardrail exige recovery completo quando a conversa sai do método',
   ]),
 
-  e3: new Set([
-    'runtime final captura cartão PDF sem data-pre-plain-text usando data cronológica dos vizinhos',
-    'failed: mostra falha e nunca expõe internals ao vendedor',
-    'V2 rico distribui prioridade, coaching, método, recovery e cliente nas áreas corretas',
-  ]),
+  e3: new Set([]),
 }
 
 const suites = {

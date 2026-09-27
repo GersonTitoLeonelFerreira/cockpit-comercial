@@ -7,6 +7,17 @@ import { JSDOM } from 'jsdom'
 const require = createRequire(import.meta.url)
 const tools = require('../src/message-mutations.js')
 
+// FASE 5 / Q6: a evidência do anexo é descrita EM MEMÓRIA
+// (describeAttachmentEvidence / describeBubbleAttachmentEvidence /
+// describeAttachmentOnlyBubble) — nenhum <span> sintético é escrito no DOM
+// do WhatsApp. Cada teste também prova que o DOM não foi alterado.
+function assertDomUntouched(root) {
+  assert.equal(
+    root.querySelectorAll('[data-yolen-attachment-evidence]').length,
+    0,
+  )
+}
+
 function createDom(body) {
   return new JSDOM(
     `<!doctype html><html><body>${body}</body></html>`,
@@ -14,7 +25,7 @@ function createDom(body) {
   )
 }
 
-test('materializa PDF sem texto comum como evidência capturável', () => {
+test('descreve PDF sem texto comum como evidência capturável', () => {
   const dom = createDom(`
     <div data-pre-plain-text="[10:31, 12/09/2026] Rayane: ">
       <div data-testid="document">
@@ -29,24 +40,14 @@ test('materializa PDF sem texto comum como evidência capturável', () => {
     '[data-pre-plain-text]',
   )
 
-  assert.equal(
-    tools.materializeAttachmentEvidence(message),
-    true,
-  )
-
-  const evidence = message.querySelector(
-    '[data-yolen-attachment-evidence]',
-  )
+  const evidence = tools.describeAttachmentEvidence(message)
 
   assert.ok(evidence)
   assert.equal(
-    evidence.getAttribute('data-testid'),
-    'selectable-text',
-  )
-  assert.equal(
-    evidence.textContent,
+    evidence.evidenceText,
     '[Arquivo: GRADE ATUALIZADA EM 12-08-26 (1).pdf]',
   )
+  assertDomUntouched(dom.window.document)
 })
 
 test('captura PDF renderizado como irmão do data-pre-plain-text', () => {
@@ -66,15 +67,10 @@ test('captura PDF renderizado como irmão do data-pre-plain-text', () => {
   )
 
   assert.equal(
-    tools.materializeAttachmentEvidence(message),
-    true,
-  )
-  assert.equal(
-    message.querySelector(
-      '[data-yolen-attachment-evidence]',
-    ).textContent,
+    tools.describeAttachmentEvidence(message)?.evidenceText,
     '[Arquivo: GRADE ATUALIZADA EM 12-08-26 (1).pdf]',
   )
+  assertDomUntouched(dom.window.document)
 })
 
 test('preserva legenda e acrescenta o arquivo na mesma evidência', () => {
@@ -95,16 +91,11 @@ test('preserva legenda e acrescenta o arquivo na mesma evidência', () => {
     '[data-pre-plain-text]',
   )
 
-  tools.materializeAttachmentEvidence(message)
-
-  const evidence = message.querySelector(
-    '[data-yolen-attachment-evidence]',
-  )
-
   assert.equal(
-    evidence.textContent,
+    tools.describeAttachmentEvidence(message)?.evidenceText,
     'Segue a grade atualizada.\n[Arquivo: GRADE ATUALIZADA EM 12-08-26 (1).pdf]',
   )
+  assertDomUntouched(dom.window.document)
 })
 
 test('preserva legenda quando legenda e cartão são irmãos do nó canônico', () => {
@@ -128,14 +119,11 @@ test('preserva legenda quando legenda e cartão são irmãos do nó canônico', 
     '[data-pre-plain-text]',
   )
 
-  tools.materializeAttachmentEvidence(message)
-
   assert.equal(
-    message.querySelector(
-      '[data-yolen-attachment-evidence]',
-    ).textContent,
+    tools.describeAttachmentEvidence(message)?.evidenceText,
     'Segue a grade atualizada.\n[Arquivo: GRADE ATUALIZADA EM 12-08-26 (1).pdf]',
   )
+  assertDomUntouched(dom.window.document)
 })
 
 test('não promove simples menção textual de arquivo para anexo enviado', () => {
@@ -156,15 +144,14 @@ test('não promove simples menção textual de arquivo para anexo enviado', () =
   )
 
   assert.equal(
-    tools.materializeAttachmentEvidence(message),
-    false,
-  )
-  assert.equal(
-    message.querySelector(
-      '[data-yolen-attachment-evidence]',
-    ),
+    tools.describeAttachmentEvidence(message),
     null,
   )
+  assert.equal(
+    tools.describeBubbleAttachmentEvidence(message),
+    null,
+  )
+  assertDomUntouched(dom.window.document)
 })
 
 test('não contamina mensagem vizinha com anexo de outra bolha', () => {
@@ -195,22 +182,17 @@ test('não contamina mensagem vizinha com anexo de outra bolha', () => {
   )
 
   assert.equal(
-    tools.materializeAttachmentEvidence(messages[0]),
-    true,
+    tools.describeBubbleAttachmentEvidence(messages[0])?.evidenceText,
+    '[Arquivo: proposta-comercial.pdf]',
   )
   assert.equal(
-    tools.materializeAttachmentEvidence(messages[1]),
-    false,
-  )
-  assert.equal(
-    messages[1].querySelector(
-      '[data-yolen-attachment-evidence]',
-    ),
+    tools.describeBubbleAttachmentEvidence(messages[1]),
     null,
   )
+  assertDomUntouched(dom.window.document)
 })
 
-test('adapter acompanha anexo irmão inserido depois do carregamento sem duplicar evidência', async () => {
+test('anexo irmão inserido depois do carregamento aparece na próxima leitura, sem duplicar nem escrever no DOM', () => {
   const dom = createDom(`
     <main id="root">
       <div class="message-out" data-id="msg-late">
@@ -221,12 +203,11 @@ test('adapter acompanha anexo irmão inserido depois do carregamento sem duplica
     </main>
   `)
 
-  const installed =
-    tools.installAttachmentEvidenceAdapter(
-      dom.window,
-    )
+  const message = dom.window.document.querySelector(
+    '[data-pre-plain-text]',
+  )
 
-  assert.ok(installed)
+  assert.equal(tools.describeBubbleAttachmentEvidence(message), null)
 
   dom.window.document.querySelector('#bubble-late').insertAdjacentHTML(
     'afterbegin',
@@ -237,35 +218,66 @@ test('adapter acompanha anexo irmão inserido depois do carregamento sem duplica
     `,
   )
 
-  await new Promise((resolve) =>
-    dom.window.setTimeout(resolve, 0),
-  )
+  const first = tools.describeBubbleAttachmentEvidence(message)
+  const second = tools.describeBubbleAttachmentEvidence(message)
 
-  const message = dom.window.document.querySelector(
-    '[data-pre-plain-text]',
-  )
+  assert.equal(first?.evidenceText, '[Arquivo: proposta-comercial.pdf]')
+  assert.deepEqual(second, first)
+  assertDomUntouched(dom.window.document)
+})
 
+test('cartão distante na mesma bolha é descrito pela bolha segura', () => {
+  const dom = createDom(`
+    <div class="message-out" data-id="msg-distant">
+      <div class="document-card"><span>GRADE ATUALIZADA EM 12-08-26 (1).pdf</span></div>
+      <div class="l1"><div class="l2"><div class="l3"><div class="l4"><div class="l5"><div class="l6"><div class="l7"><div class="l8">
+        <span data-testid="selectable-text" class="selectable-text copyable-text">Segue a grade.</span>
+        <div data-pre-plain-text="[10:31, 12/09/2026] Rayane: "></div>
+      </div></div></div></div></div></div></div></div>
+    </div>
+  `)
+
+  const message = dom.window.document.querySelector('[data-pre-plain-text]')
+
+  assert.equal(tools.describeAttachmentEvidence(message), null)
   assert.equal(
-    message.querySelectorAll(
-      '[data-yolen-attachment-evidence]',
-    ).length,
-    1,
+    tools.describeBubbleAttachmentEvidence(message)?.evidenceText,
+    'Segue a grade.\n[Arquivo: GRADE ATUALIZADA EM 12-08-26 (1).pdf]',
+  )
+  assertDomUntouched(dom.window.document)
+})
+
+test('bolha só de anexo exige arquivo, metadata ou marcador e horário', () => {
+  const withMetadata = createDom(`
+    <div class="message-out" data-id="msg-pdf">
+      <div class="document-card">
+        <span>GRADE ATUALIZADA EM 12-08-26 (1).pdf</span>
+        <span>1 página • PDF • 221 kB</span>
+      </div>
+      <span class="message-time">10:31</span>
+    </div>
+  `)
+  const withoutProof = createDom(`
+    <div class="message-out" data-id="msg-mention">
+      <span>grade.pdf</span>
+      <span class="message-time">10:31</span>
+    </div>
+  `)
+
+  assert.deepEqual(
+    tools.describeAttachmentOnlyBubble(
+      withMetadata.window.document.querySelector('[data-id]'),
+    ),
+    {
+      fileName: 'GRADE ATUALIZADA EM 12-08-26 (1).pdf',
+      time: '10:31',
+      evidenceText: '[Arquivo: GRADE ATUALIZADA EM 12-08-26 (1).pdf]',
+    },
   )
   assert.equal(
-    message.querySelector(
-      '[data-yolen-attachment-evidence]',
-    ).textContent,
-    '[Arquivo: proposta-comercial.pdf]',
+    tools.describeAttachmentOnlyBubble(
+      withoutProof.window.document.querySelector('[data-id]'),
+    ),
+    null,
   )
-
-  installed.scan()
-
-  assert.equal(
-    message.querySelectorAll(
-      '[data-yolen-attachment-evidence]',
-    ).length,
-    1,
-  )
-
-  installed.observer.disconnect()
 })

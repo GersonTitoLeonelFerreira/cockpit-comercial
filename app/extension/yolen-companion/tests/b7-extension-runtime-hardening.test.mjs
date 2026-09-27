@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  sliceCoreWithChannelEvent,
+} from './support/whatsapp-composition-source.mjs'
 
 const contentScript =
-  readFileSync(
-    new URL(
-      '../src/content-script.js',
-      import.meta.url,
-    ),
-    'utf8',
-  )
+  readWhatsAppCompositionSource()
 
 function getBlock(
   startText,
@@ -54,20 +51,28 @@ test(
       /__yolenCompanionRuntimeStarted/,
     )
 
+    // FASE 5/6: start() vive no bootstrap compartilhado
+    // (companion-bootstrap.js); o singleton continua no escopo global da
+    // aba (scope = globalThis).
     const startBlock =
       getBlock(
         'async function start()',
-        '\n  start()\n})()',
+        '\n      return true\n    }',
       )
 
     assert.match(
       startBlock,
-      /globalThis\[RUNTIME_STARTED_KEY\] ===[\s\S]*true/,
+      /scope\[RUNTIME_STARTED_KEY\] === true/,
     )
 
     assert.match(
       startBlock,
-      /globalThis\[RUNTIME_STARTED_KEY\] = true/,
+      /scope\[RUNTIME_STARTED_KEY\] = true/,
+    )
+
+    assert.match(
+      contentScript,
+      /scope = root,[\s\S]*typeof globalThis !== 'undefined'\s*\? globalThis/,
     )
   },
 )
@@ -86,9 +91,15 @@ test(
   'observer continua vivo quando o WhatsApp substitui o app interno',
   () => {
     const block =
-      getBlock(
-        'function observeWhatsAppChanges()',
-        'observeWhatsAppChanges.timeoutId = 0',
+      // FASE 5: o MutationObserver do documento da plataforma vive no
+      // adapter (observeHostChanges); o Core só reage ao evento de canal.
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeChannelChanges()',
+          'observeChannelChanges.timeoutId = 0',
+        ),
+        'function observeHostChanges(',
       )
 
     assert.match(
@@ -107,9 +118,15 @@ test(
   'mutações do próprio painel continuam ignoradas',
   () => {
     const block =
-      getBlock(
-        'function observeWhatsAppChanges()',
-        'observeWhatsAppChanges.timeoutId = 0',
+      // FASE 5: o MutationObserver do documento da plataforma vive no
+      // adapter (observeHostChanges); o Core só reage ao evento de canal.
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeChannelChanges()',
+          'observeChannelChanges.timeoutId = 0',
+        ),
+        'function observeHostChanges(',
       )
 
     assert.match(
@@ -298,7 +315,7 @@ test(
     const startBlock =
       getBlock(
         'async function start()',
-        '\n  start()\n})()',
+        '\n      return true\n    }',
       )
 
     const recoveryPosition =

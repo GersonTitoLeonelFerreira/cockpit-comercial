@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const require = createRequire(import.meta.url)
 const SRC_DIR = fileURLToPath(new URL('../src/', import.meta.url))
@@ -19,7 +20,7 @@ const MODULE_PATH = `${SRC_DIR}companion-workspace-runtime.js`
 const workspace = require(MODULE_PATH)
 
 const moduleSource = readFileSync(MODULE_PATH, 'utf8')
-const contentScriptSource = readFileSync(`${SRC_DIR}content-script.js`, 'utf8')
+const contentScriptSource = readWhatsAppCompositionSource()
 const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'))
 
 function whatsappScripts() {

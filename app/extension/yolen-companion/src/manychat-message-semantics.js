@@ -68,12 +68,6 @@
       author_kind: authorKind,
       reason,
       bot_message: botMessage,
-      customer_evidence_eligible: authorKind === AUTHOR_KIND.CUSTOMER,
-      seller_action_eligible: authorKind === AUTHOR_KIND.HUMAN_AGENT,
-      automation_context_only: authorKind === AUTHOR_KIND.AUTOMATION,
-      reasoning_evidence_eligible:
-        authorKind === AUTHOR_KIND.CUSTOMER ||
-        authorKind === AUTHOR_KIND.HUMAN_AGENT,
     })
   }
 

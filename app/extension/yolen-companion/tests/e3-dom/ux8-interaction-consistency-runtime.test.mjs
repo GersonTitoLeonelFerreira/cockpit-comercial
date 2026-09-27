@@ -49,7 +49,7 @@ async function flushDom() {
   await Promise.resolve()
 }
 
-test('manifest carrega o guard UX8 depois do seller-message e antes do content-script', () => {
+test('manifest carrega o guard UX8 antes do controller de MENSAGEM, do Core e do content-script', () => {
   const manifest = JSON.parse(
     readFileSync(MANIFEST_PATH, 'utf8'),
   )
@@ -66,19 +66,26 @@ test('manifest carrega o guard UX8 depois do seller-message e antes do content-s
       ) && entry.world !== 'MAIN',
     )?.js ?? []
 
-  const sellerMessageIndex = scripts.indexOf(
-    'src/seller-message-runtime.js',
-  )
+  // FASE 5: o runtime de mensagem virou o controller de MENSAGEM do Core
+  // (companion-message-controller.js), criado pelo Core. O guard UX8
+  // continua instalado antes de qualquer handler do Core existir.
   const guardIndex = scripts.indexOf(
     'src/ux8-interaction-consistency-runtime.js',
+  )
+  const messageControllerIndex = scripts.indexOf(
+    'src/companion-message-controller.js',
+  )
+  const coreIndex = scripts.indexOf(
+    'src/companion-core.js',
   )
   const contentScriptIndex = scripts.indexOf(
     'src/content-script.js',
   )
 
-  assert.ok(sellerMessageIndex >= 0)
-  assert.ok(guardIndex > sellerMessageIndex)
-  assert.ok(contentScriptIndex > guardIndex)
+  assert.ok(guardIndex >= 0)
+  assert.ok(messageControllerIndex > guardIndex)
+  assert.ok(coreIndex > messageControllerIndex)
+  assert.ok(contentScriptIndex > coreIndex)
 })
 
 test('click em outra aba libera textarea focada e lock antigo antes do handler da tab', () => {

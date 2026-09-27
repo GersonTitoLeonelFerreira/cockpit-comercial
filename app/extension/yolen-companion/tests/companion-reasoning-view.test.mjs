@@ -8,13 +8,11 @@ const base = require(
   '../src/companion-seller-information-view.js',
 )
 
-// O wrapper lê a API global criada pelo presenter base e publica a versão
-// enriquecida. O require abaixo precisa acontecer depois do base.
-globalThis.YolenCompanionSellerInformationView = base
-
+// FASE 5: a view de raciocínio compõe explicitamente a view base
+// (enhanceSellerInformationView) em vez de sobrescrever o global.
 const view = require(
   '../src/companion-reasoning-view.js',
-)
+).enhanceSellerInformationView(base)
 
 function reasoning(overrides = {}) {
   return {
@@ -95,6 +93,19 @@ test(
     assert.match(
       html,
       /Não inventar condição de pagamento/,
+    )
+
+    // "Sem criar nova prioridade": a única prioridade continua sendo a
+    // decisão principal; técnica e cuidados ficam recolhidos (UX validada
+    // da FASE 16.9: Próximo movimento → Por que agora → Ver técnica e
+    // cuidados).
+    assert.equal(
+      (html.match(/data-yolen-alert-priority=/g) || []).length,
+      1,
+    )
+    assert.match(
+      html,
+      /Próximo movimento[\s\S]*Por que agora[\s\S]*<summary>Ver técnica e cuidados<\/summary>[\s\S]*Diagnóstico de objeção/,
     )
   },
 )
@@ -191,6 +202,7 @@ test(
     const html =
       view.renderReasoningMessagePreview(
         reasoning(),
+        { platformDisplayName: 'WhatsApp' },
       )
 
     assert.match(
@@ -205,5 +217,14 @@ test(
       html,
       /não envia automaticamente/,
     )
+
+    // FASE 5 (contrato §5): sem nome de canal, a copy não cita plataforma.
+    const neutralHtml =
+      view.renderReasoningMessagePreview(
+        reasoning(),
+      )
+
+    assert.doesNotMatch(neutralHtml, /WhatsApp/)
+    assert.match(neutralHtml, /Edite a mensagem antes de enviar/)
   },
 )

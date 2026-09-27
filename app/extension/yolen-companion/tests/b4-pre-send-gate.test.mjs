@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  sliceCoreWithChannelEvent,
+  sliceFunction,
+} from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 const styles = readFileSync(
   new URL('../src/styles.css', import.meta.url),
@@ -123,32 +125,44 @@ test('Companion recolhido permanece fail-open', () => {
 })
 
 test('bloqueio usa cancelamento somente no gate', () => {
-  assert.match(
-    gateSource,
-    /event\.preventDefault\(\)/,
+  // FASE 5 (contrato §7.2): o Core decide ({ block }) sobre a tentativa
+  // normalizada; o cancelamento físico do evento é do adapter e só ocorre
+  // quando o Core bloqueia e o evento é cancelável.
+  const intercept = sliceFunction(
+    contentScript,
+    'function interceptPreSendAttempt(attempt) {',
+  )
+
+  assert.ok(intercept)
+  assert.match(intercept, /attempt\?\.cancelable === true/)
+  assert.doesNotMatch(intercept, /preventDefault|stopPropagation|stopImmediatePropagation/)
+
+  const dispatch = sliceFunction(
+    contentScript,
+    'function dispatchSendAttempt(event, kind) {',
   )
 
   assert.match(
-    gateSource,
-    /event\.stopPropagation\(\)/,
-  )
-
-  assert.match(
-    gateSource,
-    /event\.stopImmediatePropagation\(\)/,
+    dispatch,
+    /if \(block && attempt\.cancelable\) \{\s*event\.preventDefault\(\)\s*event\.stopPropagation\(\)\s*event\.stopImmediatePropagation\(\)/,
   )
 })
 
 test('Shift Enter e modificadores permanecem fora do gate', () => {
   const observerStart = contentScript.indexOf(
-    'function observeManualWhatsAppSend()',
+    'function observeManualChannelSend()',
   )
 
   assert.ok(observerStart >= 0)
 
-  const observer = contentScript.slice(
-    observerStart,
-    observerStart + 1800,
+  // FASE 5: os listeners de envio vivem no adapter (onSendAttempt).
+  const observer = sliceCoreWithChannelEvent(
+    contentScript,
+    contentScript.slice(
+      observerStart,
+      observerStart + 1800,
+    ),
+    'function handleSendKeydown(',
   )
 
   assert.match(observer, /event\.shiftKey/)
@@ -181,12 +195,19 @@ test('Revisar mensagem não modifica o draft', () => {
 test('Usar sugestão reutiliza inserção e não o envio', () => {
   assert.match(
     gateSource,
-    /insertSuggestedMessageInWhatsAppWithOptions\(\{\s*replaceExisting:\s*true/,
+    /insertSuggestedMessageInChannelWithOptions\(\{\s*replaceExisting:\s*true/,
+  )
+
+  // FASE 5: a substituição confirmada (ou pedida por "Usar sugestão")
+  // segue explícita até o adapter, que preserva rascunho sem ela.
+  assert.match(
+    contentScript,
+    /let replaceExisting =\s*options\.replaceExisting === true/,
   )
 
   assert.match(
     contentScript,
-    /options\.replaceExisting !== true/,
+    /composerState\.busy &&\s*!replaceExisting/,
   )
 })
 

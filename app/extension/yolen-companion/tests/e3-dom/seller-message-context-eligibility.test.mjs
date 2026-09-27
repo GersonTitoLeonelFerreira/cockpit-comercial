@@ -324,35 +324,48 @@ test('G) SOFT_DELETED -> lead C ativo -> summary C ready: mount reaparece, somen
 })
 
 test('H) summary de contexto elegível está loading: mount some temporariamente, mas nenhum clear global apaga o intent legítimo da mesma conversa', async () => {
-  let callCount = 0
-  let resolveSecondSummary
+  // O resumo fica preso a partir do gatilho abaixo (todas as cargas dali
+  // em diante) e é liberado de uma vez.
+  let holdSummaries = false
+  const heldSummaries = []
 
   const { document } = await setupAActiveWithMessage({
     leadSummaryResult: () => {
-      callCount += 1
-
-      if (callCount === 1) {
+      if (!holdSummaries) {
         return summaryPayload(CYCLE_A, `whatsapp:${PHONE_A}`, SUMMARY_A)
       }
 
       return new Promise((resolve) => {
-        resolveSecondSummary = () => resolve(summaryPayload(CYCLE_A, `whatsapp:${PHONE_A}`, SUMMARY_A))
+        heldSummaries.push(() => resolve(summaryPayload(CYCLE_A, `whatsapp:${PHONE_A}`, SUMMARY_A)))
       })
     },
   })
 
-  // Um refresh manual da MESMA conversa reabre o carregamento do resumo
-  // (companionLeadSummary.status volta a 'loading') sem que nada tenha
-  // mudado de conversa/cycle.
-  dispatch(document.querySelector('[data-yolen-action="refresh"]'), 'click')
-  await waitFor(() => Boolean(resolveSecondSummary))
+  // Nova mensagem da MESMA conversa: a ingestão confirmada invalida o
+  // resumo e reabre o carregamento (companionLeadSummary.status volta a
+  // 'loading') sem que nada tenha mudado de conversa/cycle.
+  // FASE 8 (D1): antes o gatilho era o refresh manual, que só reabria o
+  // carregamento porque a captura retida era gravada de novo sob uma
+  // segunda chave (defeito corrigido); com a chave única, o refresh sem
+  // mensagem nova mantém o resumo válido em cache.
+  holdSummaries = true
+  document.getElementById('conversation-body').insertAdjacentHTML(
+    'beforeend',
+    buildMessageHtml({
+      id: 'msg-a-new',
+      prePlainText: '[10:20, 21/08/2026] Cliente A: ',
+      text: 'E o prazo de entrega?',
+    }),
+  )
+  await waitFor(() => heldSummaries.length > 0, { timeoutMs: 10000 })
   await sleep(30)
 
   switchToTab(document, 'message')
   await sleep(30)
   assert.equal(hasMount(document), false, 'enquanto loading, o mount não aparece ainda')
 
-  resolveSecondSummary()
+  holdSummaries = false
+  for (const release of heldSummaries) release()
   await sleep(50)
 
   switchToTab(document, 'message')

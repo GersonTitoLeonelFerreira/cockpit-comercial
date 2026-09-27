@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { readWhatsAppCompositionSource } from './support/whatsapp-composition-source.mjs'
 
 const [contentScript, summaryView, sellerRuntime, styles] = await Promise.all([
-  readFile('app/extension/yolen-companion/src/content-script.js', 'utf8'),
+  Promise.resolve(readWhatsAppCompositionSource()),
   readFile('app/extension/yolen-companion/src/companion-lead-summary-view.js', 'utf8'),
-  readFile('app/extension/yolen-companion/src/seller-message-runtime.js', 'utf8'),
+  readFile('app/extension/yolen-companion/src/companion-message-controller.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/styles.css', 'utf8'),
 ])
 
@@ -106,8 +107,10 @@ test(
     const start = contentScript.indexOf(
       'async function loadAgoraDecisionStateForCurrentCycle(',
     )
+    // FASE 5: o working summary do lead saiu para o controller de resumo;
+    // o bloco termina no fechamento da própria função.
     const end = contentScript.indexOf(
-      '\n  }\n\n  // Carrega o working summary factual do lead.',
+      '\n  }\n',
       start,
     )
     const block = contentScript.slice(start, end)
@@ -164,8 +167,10 @@ test(
     const start = contentScript.indexOf(
       'function startCompanionClientContextTicker(',
     )
+    // FASE 5: o ticker vive no controller de CLIENTE; o bloco termina no
+    // fechamento da própria função.
     const end = contentScript.indexOf(
-      'function getDetailedAnalysisAreaHtml(',
+      '\n  }\n',
       start,
     )
     const block = contentScript.slice(start, end)
@@ -194,8 +199,10 @@ test(
     const start = contentScript.indexOf(
       'function startCompanionClientContextTicker(',
     )
+    // FASE 5: o ticker vive no controller de CLIENTE; o bloco termina no
+    // fechamento da própria função.
     const end = contentScript.indexOf(
-      'function getDetailedAnalysisAreaHtml(',
+      '\n  }\n',
       start,
     )
     const block = contentScript.slice(start, end)
@@ -225,8 +232,10 @@ test(
     const start = contentScript.indexOf(
       'async function loadAgoraDecisionStateForCurrentCycle(',
     )
+    // FASE 5: o working summary do lead saiu para o controller de resumo;
+    // o bloco termina no fechamento da própria função.
     const end = contentScript.indexOf(
-      '\n  }\n\n  // Carrega o working summary factual do lead.',
+      '\n  }\n',
       start,
     )
     const block = contentScript.slice(start, end)
@@ -234,9 +243,11 @@ test(
     assert.notEqual(start, -1)
     assert.notEqual(end, -1)
 
+    // FASE 5: no controller de análise o estado do Core é lido pelo
+    // contexto explícito (ctx.state).
     assert.match(
       block,
-      /companyIdAtRequest =\s*\n?\s*state\.companyId \|\|\s*\n?\s*null/,
+      /companyIdAtRequest =\s*\n?\s*(?:ctx\.)?state\.companyId \|\|\s*\n?\s*null/,
     )
     assert.match(
       block,
@@ -244,7 +255,7 @@ test(
     )
     assert.match(
       block,
-      /companyIdAtRequest ===\s*\n?\s*\(\s*\n?\s*state\.companyId \|\|\s*\n?\s*null\s*\n?\s*\)/,
+      /companyIdAtRequest ===\s*\n?\s*\(\s*\n?\s*(?:ctx\.)?state\.companyId \|\|\s*\n?\s*null\s*\n?\s*\)/,
     )
   },
 )

@@ -18,7 +18,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const [sellerRuntime, styles] = await Promise.all([
-  readFile('app/extension/yolen-companion/src/seller-message-runtime.js', 'utf8'),
+  readFile('app/extension/yolen-companion/src/companion-message-controller.js', 'utf8'),
   readFile('app/extension/yolen-companion/src/styles.css', 'utf8'),
 ])
 

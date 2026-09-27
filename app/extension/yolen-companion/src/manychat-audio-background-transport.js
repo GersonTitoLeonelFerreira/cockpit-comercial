@@ -367,15 +367,77 @@
     })
   }
 
+  // FASE 6 — getAudioSource do ManyChatAdapter: o content script não
+  // consegue baixar a mídia de manybot-files.manychat.io (CORS da página);
+  // o background já validado ao vivo baixa e devolve SÓ a mídia, sem
+  // backend, sem transcrição e sem persistência. Aceita somente o frame
+  // principal de app.manychat.com; a URL passa pela mesma validação de
+  // host/tamanho/tipo de fetchManyChatAudio.
+  const AUDIO_SOURCE_ACTION = 'FETCH_MANYCHAT_AUDIO_SOURCE'
+  const MANYCHAT_APP_HOST = 'app.manychat.com'
+
+  function isAllowedAudioSourceSender(sender) {
+    const frameId = Number(sender?.frameId ?? 0)
+
+    if (!Number.isInteger(frameId) || frameId !== 0) {
+      return false
+    }
+
+    try {
+      const url = new URL(requiredText(sender?.url ?? sender?.tab?.url) || '')
+      return url.protocol === 'https:' && url.hostname === MANYCHAT_APP_HOST
+    } catch {
+      return false
+    }
+  }
+
+  async function handleAudioSourceRequest(message, sender, { fetchImpl, cryptoImpl } = {}) {
+    if (!isAllowedAudioSourceSender(sender)) {
+      return Object.freeze({
+        ok: false,
+        statusCode: 403,
+        payload: Object.freeze({ ready: false, reason: 'sender_not_allowed' }),
+      })
+    }
+
+    const media = await fetchManyChatAudio({
+      url: message?.payload?.audio_url,
+      ...(fetchImpl ? { fetchImpl } : {}),
+      ...(cryptoImpl ? { cryptoImpl } : {}),
+    })
+
+    if (!media?.ready) {
+      return Object.freeze({
+        ok: false,
+        statusCode: 409,
+        payload: Object.freeze({ ready: false, reason: media?.reason || 'audio_fetch_failed' }),
+      })
+    }
+
+    return Object.freeze({
+      ok: true,
+      statusCode: 200,
+      payload: Object.freeze({
+        ready: true,
+        reason: null,
+        audio_base64: media.audio_base64,
+        mime_type: media.mime_type,
+        size_bytes: media.size_bytes,
+      }),
+    })
+  }
+
   const api = Object.freeze({
     PLATFORM,
     SCHEMA_VERSION,
     ALLOWED_AUDIO_HOST,
     MAX_AUDIO_BYTES,
+    AUDIO_SOURCE_ACTION,
     validateManyChatAudioUrl,
     fetchManyChatAudio,
     buildTranscriptionPayload,
     safeTransportView,
+    handleAudioSourceRequest,
   })
 
   root.YolenManyChatAudioBackgroundTransport = api

@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  sliceCoreWithChannelEvent,
+} from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL(
-    '../src/content-script.js',
-    import.meta.url,
-  ),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 function getBlock(
   startText,
@@ -75,9 +72,14 @@ test(
   'listener de envio é instalado uma única vez',
   () => {
     const block =
-      getBlock(
-        'function observeManualWhatsAppSend',
-        'function reviewCurrentPreSendDraft',
+      // FASE 5: listeners de envio vivem no adapter (onSendAttempt).
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeManualChannelSend',
+          'function reviewCurrentPreSendDraft',
+        ),
+        'function onSendAttempt(',
       )
 
     assert.match(
@@ -106,9 +108,14 @@ test(
   'Enter durante composição IME não entra no gate',
   () => {
     const block =
-      getBlock(
-        'function observeManualWhatsAppSend',
-        'function reviewCurrentPreSendDraft',
+      // FASE 5: listeners de envio vivem no adapter (onSendAttempt).
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeManualChannelSend',
+          'function reviewCurrentPreSendDraft',
+        ),
+        'function handleSendKeydown(',
       )
 
     assert.match(
@@ -127,9 +134,14 @@ test(
   'Shift Enter e modificadores continuam fora do gate',
   () => {
     const block =
-      getBlock(
-        'function observeManualWhatsAppSend',
-        'function reviewCurrentPreSendDraft',
+      // FASE 5: listeners de envio vivem no adapter (onSendAttempt).
+      sliceCoreWithChannelEvent(
+        contentScript,
+        getBlock(
+          'function observeManualChannelSend',
+          'function reviewCurrentPreSendDraft',
+        ),
+        'function handleSendKeydown(',
       )
 
     assert.match(block, /event\.shiftKey/)
@@ -272,14 +284,33 @@ test(
         'async function useCurrentPreSendSuggestion',
       )
 
+    // FASE 5 (contrato §7): "existe botão Enviar" e "clicar" são
+    // capacidades técnicas do adapter; o Core continua desarmando o
+    // bypass quando elas falham.
     assert.match(
       block,
-      /if \(!sendButton\)[\s\S]*preSendBypassKey:\s*null/,
+      /if \(!channelAdapter\.hasSendControl\(\)\)[\s\S]*preSendBypassKey:\s*null/,
     )
 
     assert.match(
       block,
-      /if \(!currentSendButton\?\.click\)[\s\S]*preSendBypassKey:\s*null/,
+      /if \(!sendResult\.sent\)[\s\S]*preSendBypassKey:\s*null/,
+    )
+
+    const triggerSendBlock =
+      getBlock(
+        'function triggerSend(expected = {}) {',
+        '\n  }\n',
+      )
+
+    assert.match(
+      triggerSendBlock,
+      /if \(!sendButton\?\.click\)[\s\S]*sent: false/,
+    )
+
+    assert.match(
+      triggerSendBlock,
+      /try \{\s*sendButton\.click\(\)\s*\} catch \{[\s\S]*sent: false/,
     )
   },
 )
@@ -385,7 +416,7 @@ test(
     for (
       const functionName of [
         'getWhatsAppSendButton',
-        'observeManualWhatsAppSend',
+        'observeManualChannelSend',
         'observePreSendGateActions',
         'observeComposerDraftForPreSend',
       ]

@@ -10,13 +10,14 @@
 // tests/e3-dom/automatic-passive-lead-resolution.test.mjs.
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  readContactLookupFlow,
+  readConversationSnapshotFlow,
+} from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 function blockBetween(startMarker, endMarker, fromIndex = 0) {
   const start = contentScript.indexOf(startMarker, fromIndex)
@@ -135,10 +136,8 @@ test('getConversationPhone: cachedPhonesByConversationKey (identidade única) é
 })
 
 test('runAutomaticContactLookup: resolução passiva roda antes do fail-closed do painel de contato, sem navegar', () => {
-  const block = blockBetween(
-    'async function runAutomaticContactLookup(conversationKey)',
-    'function hardResetConversationWorkspace()',
-  )
+  // FASE 5: aquisição da evidência (adapter) seguida da decisão (Core).
+  const block = readContactLookupFlow(contentScript)
 
   const passiveIndex = block.indexOf('resolvePassivePhoneForConversation(')
   const failClosedIndex = block.indexOf('if (!hadContactPanelOpen) {')
@@ -158,19 +157,13 @@ test('runAutomaticContactLookup: resolução passiva roda antes do fail-closed d
 })
 
 test('autoLookupAttemptedKeys e lastResolvedConversationKey usam conversationKey (identidade única), não o nome normalizado', () => {
-  const lookupBlock = blockBetween(
-    'async function runAutomaticContactLookup(conversationKey)',
-    'function hardResetConversationWorkspace()',
-  )
+  const lookupBlock = readContactLookupFlow(contentScript)
 
   assert.doesNotMatch(lookupBlock, /autoLookupAttemptedKeys\.(has|add)\(\s*lookupIdentity/)
   assert.match(lookupBlock, /autoLookupAttemptedKeys\.has\(\s*conversationKey/)
   assert.match(lookupBlock, /autoLookupAttemptedKeys\.add\(\s*conversationKey/)
 
-  const refreshBlock = blockBetween(
-    'function refreshConversationSnapshot()',
-    'function getConnectionLabel()',
-  )
+  const refreshBlock = readConversationSnapshotFlow(contentScript)
 
   assert.doesNotMatch(refreshBlock, /lastResolvedContactLookupIdentity !==\s*contactLookupIdentity/)
   assert.match(refreshBlock, /lastResolvedConversationKey !==\s*conversationKey/)
@@ -183,7 +176,7 @@ test('não há nova navegação sintética em lugar nenhum do arquivo: nenhuma f
     blockBetween('function extractPhoneFromJid(', 'function isProfileOrContactPanelText(') +
     blockBetween('function getSelectedChatDataId(', 'function getSelectedChatStableIdentity(') +
     blockBetween('function collectPhoneJidCandidatesInMain(', 'function resolvePassivePhoneForConversation(') +
-    blockBetween('function resolvePassivePhoneForConversation(', 'function getVisibleMessagesCount(')
+    blockBetween('function resolvePassivePhoneForConversation(', 'function isVisibleDomElement(')
 
   assert.doesNotMatch(newFunctionsBlock, /\.click\(/)
   assert.doesNotMatch(newFunctionsBlock, /dispatchEvent/)

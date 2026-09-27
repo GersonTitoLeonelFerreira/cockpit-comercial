@@ -1,28 +1,17 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import {
+  readWhatsAppCompositionSource,
+  readContactLookupFlow,
+} from './support/whatsapp-composition-source.mjs'
 
-const contentScript = readFileSync(
-  new URL('../src/content-script.js', import.meta.url),
-  'utf8',
-)
+const contentScript = readWhatsAppCompositionSource()
 
 test('busca automatica do contato executa um unico ciclo visual', () => {
-  const lookupStart = contentScript.indexOf(
-    'async function runAutomaticContactLookup(conversationKey)',
-  )
-  const lookupEnd = contentScript.indexOf(
-    'function hardResetConversationWorkspace()',
-    lookupStart,
-  )
+  // FASE 5: aquisição da evidência (adapter) seguida da decisão (Core).
+  const lookupBlock = readContactLookupFlow(contentScript)
 
-  assert.notEqual(lookupStart, -1)
-  assert.notEqual(lookupEnd, -1)
-
-  const lookupBlock = contentScript.slice(
-    lookupStart,
-    lookupEnd,
-  )
+  assert.ok(lookupBlock)
 
   const closeIndex = lookupBlock.indexOf(
     'closeContactInfoPanelAndWait()',
@@ -48,7 +37,7 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
     finishLookupIndex,
   )
   const replayRefreshIndex = lookupBlock.indexOf(
-    'processObservedWhatsAppChange()',
+    'processObservedChannelChange()',
     replayPendingIndex,
   )
 
@@ -65,10 +54,10 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
   )
 
   const observerStart = contentScript.indexOf(
-    'function observeWhatsAppChanges()',
+    'function observeChannelChanges()',
   )
   const observerEnd = contentScript.indexOf(
-    'observeWhatsAppChanges.timeoutId = 0',
+    'observeChannelChanges.timeoutId = 0',
     observerStart,
   )
 
@@ -80,8 +69,10 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
     observerEnd,
   )
 
+  // FASE 5: a limpeza imediata do composer de MENSAGEM é a chamada
+  // explícita ao controller de MENSAGEM do Core.
   const immediateClearIndex = observerBlock.indexOf(
-    'YolenCompanionSellerMessageRuntime',
+    'messageController.clear()',
   )
   // A checagem de "if (autoContactLookupInFlight) {" aparece DUAS vezes
   // neste bloco: uma no callback bruto do MutationObserver (ACTIVE CHAT
@@ -90,7 +81,7 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
   // outra dentro do callback debounced, que é a suprimida por este
   // invariante. Buscar a partir de immediateClearIndex pula a primeira
   // (anterior a ela) e alcança a segunda, que é a única relevante para o
-  // "ciclo visual único" — nunca reagendar processObservedWhatsAppChange()
+  // "ciclo visual único" — nunca reagendar processObservedChannelChange()
   // enquanto o próprio lookup automático ainda está em voo.
   const suppressionIndex = observerBlock.indexOf(
     'if (autoContactLookupInFlight) {',
@@ -101,7 +92,7 @@ test('busca automatica do contato executa um unico ciclo visual', () => {
     suppressionIndex,
   )
   const observerRefreshIndex = observerBlock.indexOf(
-    'processObservedWhatsAppChange()',
+    'processObservedChannelChange()',
     suppressionIndex,
   )
 

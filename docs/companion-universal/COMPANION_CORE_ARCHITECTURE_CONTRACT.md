@@ -25,6 +25,7 @@
 | Campo | Valor |
 |---|---|
 | Versão | 1.1.0 (FASE 2.1 — hardening: resolução sem telefone, migration baseline, decision schedule, Q5) |
+| Atualizações sem mudança de versão | FASE 5 — Q6 decidida (§31), harness = manifest (§25), estado da composição explícita (§26), regra operacional (§33); registro em `FASE_5_EXECUTION.md` |
 | Fase | FASE 2 / 2.1 — Contrato arquitetural definitivo |
 | Data de início da reconstrução | 2026-09-23 |
 | Branch de reconstrução | `claude/companion-core-rebuild` |
@@ -421,6 +422,19 @@ Referência de forma: `platform-contract.js` (`yolen-universal-conversation-v1`,
 
 Regra: o adapter exclui o próprio painel Yolen da busca do composer.
 
+**Estado na FASE 5 (WhatsApp):** implementados no `whatsapp-adapter.js`
+com as formas acima: `platform`, `getComposerState()` (`busy` = composer
+com texto), `applyMessage(text)` (escrita + verificação 8×50 ms;
+`composer_not_found` / `apply_verification_failed`), `getMountPoint()`
+(`document.body`; `null` → Core não renderiza), `getCapabilities()`
+(`true`/`'conditional'`, matriz do §8) e `getAudioSource(handle)`
+(`{ ok, blob, durationSeconds, reason }`, handles opacos sem DOM).
+Operações físicas complementares de pré-envio: `focusComposer()`,
+`hasSendControl()`, `triggerSend()` (`send_control_not_found` /
+`send_failed`). O Core não recebe elementos da plataforma, consulta as
+capabilities antes de oferecer a ação e interpola `platform.displayName`
+na copy. Provado por `tests/channel-adapter-contract.test.mjs`.
+
 #### `getMountPoint()`
 | Aspecto | Contrato |
 |---|---|
@@ -505,17 +519,17 @@ comprovadamente não oferece), **UNKNOWN** (sem evidência suficiente).
 
 | # | Capability | WhatsApp | Evidência WhatsApp | ManyChat | Evidência ManyChat |
 |---|---|---|---|---|---|
-| 1 | `canProvideTrustedPhone` | CONDITIONAL | `getConversationPhone`, `resolvePassivePhoneForConversation`, identity bridge (JID), `runAutomaticContactLookup`; falha em grupo/self/sem dado | CONDITIONAL | `manychat-phone-evidence.js` (@24f25c7): `phone_unavailable` / `phone_ambiguous` fail-closed; ausente na base `b5d877` |
-| 2 | `canProvideDisplayName` | CONDITIONAL | `getConversationTitle`/header; `looksLikePhone` impede uso como nome | UNKNOWN | `manychat-dom-reader.getContact` existe, mas o bootstrap só declara seletores `conversationRoot` e `messages` — TO BE VERIFIED |
-| 3 | `canReadMessages` | SUPPORTED | `buildReliableMessageFromNode`, ledger, `message-mutations.js` | SUPPORTED | `manychat-dom-reader`, `manychat-message-*` |
-| 4 | `canObserveConversationChanges` | SUPPORTED | `observeWhatsAppChanges`, epoch do bridge | SUPPORTED | reader `conversation_changed` autoritativo |
-| 5 | `canApplyMessage` | SUPPORTED | `insertIntoWhatsAppComposer` | SUPPORTED | `manychat-composer.js` `applyManyChatComposerSuggestion` |
-| 6 | `canInterceptSend` | SUPPORTED | `interceptPreSendAttempt`, `observeManualWhatsAppSend` | UNKNOWN | nenhum código de interceptação — TO BE VERIFIED |
-| 7 | `canReadAudio` | SUPPORTED | `whatsapp-audio-bridge.js`, `getAudioBlobForTarget` | SUPPORTED | `manychat-audio-source.js`, `manychat-audio-dispatch-runtime.js`, background transport |
-| 8 | `canRequestContactDetails` | SUPPORTED | `runAutomaticContactLookup` abre/fecha "Dados do contato" | UNKNOWN | sem evidência — TO BE VERIFIED |
-| 9 | `canClassifyGroupOrSelf` | SUPPORTED | identity bridge (grupo), `isSelfConversationTitle` | UNKNOWN | sem evidência no runtime — TO BE VERIFIED |
-| 10 | `canDetectDeletedOrEdited` | SUPPORTED | `isDeletedMessageNode`, `message-mutations.js` | UNKNOWN | TO BE VERIFIED |
-| 11 | `canProvideMountPoint` | SUPPORTED | `createPanel` | SUPPORTED | `manychat-panel-mount.js` |
+| 1 | `canProvideTrustedPhone` | CONDITIONAL | `getConversationPhone`, `resolvePassivePhoneForConversation`, identity bridge (JID), `runAutomaticContactLookup`; falha em grupo/self/sem dado | CONDITIONAL | FASE 6: `manychat-phone-evidence.js` (regra provada ao vivo: exatamente 1 candidato 55+10/11 dígitos em contexto WhatsApp, fora de `details-subscriber-id` e da UI Yolen); `phone_unavailable`/`phone_ambiguous` fail-closed |
+| 2 | `canProvideDisplayName` | CONDITIONAL | `getConversationTitle`/header; `looksLikePhone` impede uso como nome | NÃO COMPROVADO → indisponível (Q4) | FASE 6: nenhuma fonte estruturada de nome comprovada; o gate de contexto proíbe fallback por nome visível (`MANYCHAT_CONTEXT_EVIDENCE_LIVE_RESULT.md`); adapter devolve `displayName: null`, `displayNameConfidence: unavailable` |
+| 3 | `canReadMessages` | SUPPORTED | `buildReliableMessageFromNode`, ledger, `message-mutations.js` | SUPPORTED | FASE 6: `manychat-channel-adapter.js` sobre `manychat-dom-reader` + perfil validado (autoria `_typeIn_/_typeOut_/_botMessage_`, `data-mid` único, `data-title`); automação fora; duplicata fail-closed |
+| 4 | `canObserveConversationChanges` | SUPPORTED | adapter `observeHostChanges` (consumido por `observeChannelChanges` no Core), epoch do bridge | SUPPORTED | FASE 6: reader `conversation_changed` (rota) + mutação escopada à raiz da conversa; `observeHostChanges` com cancelamento |
+| 5 | `canApplyMessage` | SUPPORTED | adapter `getComposerState`/`applyMessage` (FASE 5) | SUPPORTED | FASE 6: `manychat-composer.js` (exatamente um `<textarea>`), substituição só com confirmação do Core, verificação na conversa esperada; nunca envia |
+| 6 | `canInterceptSend` | SUPPORTED | adapter `onSendAttempt`; Core `interceptPreSendAttempt`, `observeManualChannelSend` | NÃO COMPROVADO → indisponível (Q4) | FASE 6: nenhuma evidência do controle de envio nem da semântica de Enter no ManyChat; `onSendAttempt` sem efeito; o Core não instala o gate de pré-envio (diferença declarada) |
+| 7 | `canReadAudio` | SUPPORTED | `whatsapp-audio-bridge.js`, adapter `getAudioSource` (handles opacos) | CONDITIONAL | FASE 6: fonte https única por `manychat-audio-source.js` + download pelo background validado ao vivo (`FETCH_MANYCHAT_AUDIO_SOURCE` reaproveita `fetchManyChatAudio`); handles opacos |
+| 8 | `canRequestContactDetails` | SUPPORTED | `runAutomaticContactLookup` abre/fecha "Dados do contato" | UNSUPPORTED por política (Q4) | FASE 6: exigiria navegação sintética (abrir "Exibir contato"), proibida; a regra de telefone validada funciona com o drawer fechado |
+| 9 | `canClassifyGroupOrSelf` | SUPPORTED | identity bridge (grupo), `isSelfConversationTitle` | NÃO COMPROVADO → indisponível (Q4) | FASE 6: nenhuma evidência de grupo/self no ManyChat; `conversationType: unknown`, nunca inferido |
+| 10 | `canDetectDeletedOrEdited` | SUPPORTED | `isDeletedMessageNode`, `message-mutations.js` | NÃO COMPROVADO → indisponível (Q4) | FASE 6: o reader só aceita exclusão explícita e nenhuma marca de exclusão/edição foi validada ao vivo; desaparecimento do DOM nunca é exclusão |
+| 11 | `canProvideMountPoint` | SUPPORTED | `createPanel` | SUPPORTED | FASE 6: `getMountPoint()` = `document.body` (evidência: sem ancestral estável; painel `position: fixed`); o adapter não cria nem renderiza o painel |
 
 **Capability diferente NÃO significa produto diferente.** Quando a
 capability necessária para uma ação existe (inclusive CONDITIONAL no
@@ -593,6 +607,17 @@ identificador autorizado para chamadas server-side posteriores.
 
 O backend não é alterado nesta fase; a implementação posterior deve
 normalizar o payload atual para esta allowlist antes de entregá-lo ao Core.
+
+**Implementação — FASE 7:** para remetentes `app.manychat.com`, o
+background reduz `RESOLVE_LEAD`/`CREATE_LEAD` a esta allowlist em
+`companion-background-privacy.js` (`sanitizeResolutionPayload`, sem spread):
+ficam fora `phone`, `phone_variants`, `display_name`, `lead` bruto,
+`lead_profile`, `owner_user_id`, `current_group_id`, `next_action*` e URLs
+com PII (`create_lead_url`). O enriquecimento recebe só a semântica de
+presença por campo (`enrichment_context.fields`: `present`/`missing`,
+§19.3); a referência privada do lead fica na memória do background por
+aba + `cycle_id` e é reinjetada em `APPLY_LEAD_ENRICHMENT`. O WhatsApp
+mantém o payload atual (dívida preexistente, fora do escopo da FASE 7).
 
 **Proibido:** usar elegibilidade de captura
 (`isCaptureResolutionEligible`) como decisão de estado seller-facing
@@ -753,6 +778,20 @@ Notas:
 - Esta regra não enfraquece nenhum item de privacidade do §9/§23: a
   `platformIdentity` só trafega até o transporte/backend autorizado e a
   resposta continua sanitizada por allowlist.
+
+**Implementação — FASE 7:** `resolveCurrentLead` (Core) tenta primeiro
+`RESOLVE_LEAD {platform, platform_contact_key}` quando há identidade
+externa segura; `CONTACT_NOT_LINKED` + `trustedPhone` → segunda consulta
+`{phone, display_name}` (caso B); só telefone → telefone; nenhuma das duas
+→ nenhuma consulta. Erros de rede/autenticação/backend continuam erros
+(nunca `CONTACT_NOT_LINKED`/`NOT_FOUND` nem fallback). A aquisição de
+evidência não depende de `canProvideTrustedPhone`; um telefone só é
+aceito de canal que declara essa capability. O cache de resolução usa
+chave própria `ext:<platform>:<key>` e não guarda `CONTACT_NOT_LINKED`.
+O vínculo manual (`CONTACT_NOT_LINKED` + `can_link_lead`) é do controller
+único `companion-contact-link-controller.js` (busca → seleção →
+confirmação → `FIRST_LINK_EXTERNAL_IDENTITY` → nova resolução), com
+revalidação da identidade pelo adapter imediatamente antes do vínculo.
 
 ---
 
@@ -1047,6 +1086,13 @@ Controller único no Core. Hoje existem dois contratos (WhatsApp:
 contrato de Core; rotas privilegiadas podem diferir apenas por
 privacidade/autorização (§24).
 
+**FASE 7:** convergido. WhatsApp e ManyChat usam o mesmo
+`companion-lead-enrichment-controller.js` e a mesma ação
+`APPLY_LEAD_ENRICHMENT` (`/api/companion/enrich-lead`). No canal
+sanitizado o controller oferece só campos `missing` (nada cadastrado é
+sobrescrito sem comparação) e o background reinjeta o `lead_id` pelo
+`cycle_id` autorizado.
+
 ---
 
 ## 20. Conversation Boundary / stale contract
@@ -1169,7 +1215,7 @@ runtime; evidência de DOM fail-closed) é preservada.
 - Ordem diferente que altere monkey-patches/globals = **architecture gate
   failure**.
 
-Divergências conhecidas (não corrigidas nesta fase; FASE 3 cria as travas):
+Divergências conhecidas até a FASE 4 (a FASE 3 criou as travas):
 
 - `lead-method-guidance-runtime.js` carregado por
   `tests/e3-test-support/load-content-script.mjs`, nunca presente no
@@ -1180,6 +1226,21 @@ Divergências conhecidas (não corrigidas nesta fase; FASE 3 cria as travas):
 - ordem de carga do harness do content script diferente da ordem do
   manifest.
 
+**Estado na FASE 5 (WhatsApp):** resolvido. O harness E3
+(`load-content-script.mjs`) declara `WHATSAPP_MANIFEST_FILES` com a lista e
+a ordem exatas do `content_scripts` WhatsApp e falha o carregamento se
+divergir do manifest; todos os módulos são sempre carregados (as flags
+opcionais antigas não têm mais efeito). `lead-method-guidance-runtime.js`
+foi removido (ausente de qualquer manifest desde a FASE 16.9). As entradas
+A9 da baseline foram removidas. A divergência do harness ManyChat pertence
+à FASE 7.
+
+**Estado na FASE 7 (ManyChat):** resolvido. `load-manychat-composition.mjs`
+declara `MANYCHAT_BRIDGE_FILES` e `MANYCHAT_MANIFEST_FILES` com as listas
+e a ordem exatas dos content scripts isolated do ManyChat e falha o
+carregamento se divergirem do manifest; o E3 ManyChat roda a composição
+efetiva (inclusive o staging da flag e2e no mesmo pathname do build).
+
 ---
 
 ## 26. Dependency composition rule
@@ -1188,7 +1249,7 @@ A arquitetura alvo **NÃO** depende de monkey-patch para composição de
 controllers do Core. Preferência obrigatória: **composição explícita por
 dependências/interfaces**.
 
-Padrões conhecidos na base (não refatorados nesta fase):
+Padrões conhecidos na base até a FASE 4 (estado atual logo abaixo):
 
 - `window.YolenCompanionApi` embrulhado em cadeia
   (`loadLeadSummary` por `lead-summary-runtime-cache` e
@@ -1205,6 +1266,29 @@ Padrões conhecidos na base (não refatorados nesta fase):
   mensagem de anexo é do adapter e não escreve no DOM da plataforma
   (**UNKNOWN / TO BE VERIFIED** se existe alternativa sem escrita — ver
   §31, Q6).
+
+**Estado na FASE 5 (composição WhatsApp):**
+
+- nenhum módulo do manifest WhatsApp reatribui métodos de
+  `YolenCompanionApi`: retry/status da análise são do transporte
+  (`yolen-api.js`, dono único); retry + cache de resolução e coordenação/
+  rebase da captura são compostos explicitamente pelo Core
+  (`companion-core-api-composition.js`); cache do resumo é do
+  `companion-lead-summary-controller.js`; a MENSAGEM é o
+  `companion-message-controller.js`, sincronizado explicitamente;
+- nenhum protótipo do DOM é interceptado pela composição: a normalização de
+  `data-pre-plain-text` é explícita no adapter (antes,
+  `Element.prototype.getAttribute`) e a ação "Analisar" é do Core, com
+  delegação no próprio painel (antes, `EventTarget.prototype.addEventListener`);
+- `companion-reasoning-view.js` não sobrescreve mais o global da view: o
+  bootstrap compõe `enhanceSellerInformationView(base)`;
+- nenhum nó sintético é escrito no DOM do WhatsApp (Q6 decidida, §31);
+- permanecem, fora do Core: a interceptação de `innerHTML` na INSTÂNCIA do
+  próprio painel da Yolen (`panel-stability-runtime.js`,
+  `editable-field-stability-runtime.js`; não é protótipo nem DOM da
+  plataforma) e o hook de `HTMLMediaElement.prototype.play` no page world
+  (`whatsapp-audio-bridge.js`), mecanismo de captura de áudio do adapter
+  WhatsApp, sem papel de composição do Core.
 
 ---
 
@@ -1334,6 +1418,15 @@ implementar:
 8. ao final da reconstrução o baseline deve estar **VAZIO**;
 9. a Definition of Done exige **ZERO architecture debt allowlisted**.
 
+**FASE 7:** baseline **VAZIO**. As 12 entradas restantes (A2/A3/A5/A10,
+todas do runtime seller-facing legado do ManyChat) saíram com a remoção
+real de `manychat-capture-bootstrap.js`, `manychat-seller-panel-runtime.js`
+e `manychat-contact-link-runtime.js` (e dos runtimes que só eles usavam:
+`manychat-capture-runtime.js`, `manychat-panel-mount.js`,
+`manychat-audio-dispatch-runtime.js`). Nenhum detector foi alterado nem
+reclassificado; os self-tests continuam provando que cada gate acusa
+violações sintéticas.
+
 #### Baseline não é permissão
 
 A allowlist de migração **NÃO** torna a arquitetura legada correta. Ela
@@ -1420,9 +1513,9 @@ outra fase (ex.: "Q4 ainda está UNKNOWN" **não** bloqueia a FASE 3).
 | **Q1** | Mapeamento canônico de `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`, `MULTIPLE_MATCHES` | **DECIDED — FASE 4B.3:** todos normalizam para `RESOLUTION_ERROR`, sem criação e sem workspace até correção externa | Implementação do `companion-lead-resolution-controller` na **FASE 4** | Não |
 | **Q2** | Estados comerciais que abrem `WORKSPACE_READY` | **DECIDED — FASE 4B.4:** exige `cycle.id` + `can_analyze_conversation=true` + `is_closed=false`; `CLOSED_CYCLE` nunca abre workspace | Implementação da composição resolution → workspace na **FASE 4** | Não |
 | **Q3** | Campos autorizados do `DomainResolutionViewModel` | **DECIDED — FASE 4B.4:** mesma allowlist sanitizada em WhatsApp e ManyChat; `lead_display.name`, `ownership_display.owner_name` e `cycle.status` são nullable/omitíveis conforme autorização server-side; sem raw phone, lead_id ou payload bruto | Implementação do contrato de resolução sanitizado na **FASE 4** | Não |
-| **Q4** | Capabilities ManyChat UNKNOWN (display name confiável, interceptação de envio, pedir detalhes de contato, grupo/self, deleção/edição, última mensagem enviada) | SCHEDULED | Resolvida **por evidência técnica** na **FASE 6** (ManyChatAdapter); não inventar antes | Não |
+| **Q4** | Capabilities ManyChat UNKNOWN (display name confiável, interceptação de envio, pedir detalhes de contato, grupo/self, deleção/edição, última mensagem enviada) | **DECIDED — FASE 6 (por evidência técnica):** display name, interceptação de envio, grupo/self e deleção/edição = NÃO COMPROVADOS → indisponíveis; detalhes de contato = UNSUPPORTED por política (exigiria navegação sintética). O adapter declara `false` e o Core aplica o estado canônico de indisponibilidade; nenhum UNKNOWN foi promovido a suportado; última mensagem enviada = SUPPORTED (derivada da autoria humana validada). Evidências em `FASE_6_EXECUTION.md` | Resolvida **por evidência técnica** na **FASE 6** (ManyChatAdapter) | Não |
 | **Q5** | Política de escrita de `address` no enrichment | **DECIDED** (FASE 2.1) — DECIDED / OUT OF SCOPE FOR WRITE: `address` detectável como contexto, não confirmável/gravável; 7 campos graváveis preservados (§19.1) | — | Não |
-| **Q6** | Alternativa à escrita sintética no DOM do WhatsApp para mensagens de anexo (`phase16-9-runtime-guard.js`) | SCHEDULED | Conclusão da **FASE 5** (WhatsAppAdapter sobre o Core) | Não |
+| **Q6** | Alternativa à escrita sintética no DOM do WhatsApp para mensagens de anexo (`phase16-9-runtime-guard.js`) | **DECIDED — FASE 5:** normalização EM MEMÓRIA no WhatsAppAdapter. `message-mutations.js` descreve o anexo sem escrever no DOM (`describeAttachmentEvidence`, `describeBubbleAttachmentEvidence`, `describeAttachmentOnlyBubble`); o adapter produz "legenda + `[Arquivo: nome]`" para mensagens canônicas (inclusive cartão fora do escopo ancestral, dentro da mesma bolha segura) e transforma bolhas só de anexo (sem `data-pre-plain-text`) em mensagens com identidade `data-id`, data dos vizinhos cronológicos (divergência = não captura) e horário/arquivo do cartão (exige marcador de documento ou metadata). `phase16-9-runtime-guard.js` e o fallback de `companion-reasoning-view.js` foram removidos | — | Não |
 
 ---
 
@@ -1451,3 +1544,15 @@ A reconstrução cumpre este contrato quando:
 10. Resolução sem telefone confiável funciona por identidade externa
     segura (§10.4 caso A) e criação de lead exige `trustedPhone` em todos
     os canais (§11.1).
+
+---
+
+## 33. Regra operacional de execução de fases (FASE 5)
+
+Uma instrução autoriza iniciar e terminar a fase inteira. Checkpoints
+técnicos de ~6 arquivos de produção ou ~500 linhas líquidas são pontos
+internos de teste, revisão e commit — não são fases, entregas parciais nem
+pausas para aprovação, e não recebem sufixos (4.1, 4B.5K, 5A…). Um
+bloqueio real só interrompe a fase depois de concluído tudo o que é
+independente dele, com o estado recuperável e a única ação externa
+necessária declarada.
