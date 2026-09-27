@@ -1046,6 +1046,33 @@ function createCompanionCore(ctx) {
     return container
   }
 
+  // Troca de layout do painel (regiões ↔ casca colapsada), pedida pelo
+  // próprio clique do vendedor em minimizar/expandir. Aplicada na hora e
+  // inteira, pela API de nós — nunca pelo setter de panel.innerHTML: os
+  // runtimes de estabilidade adiam esse setter durante a interação
+  // pointerdown→click que pediu a troca (e durante a proteção de
+  // retomada). Adiada, a limpeza chegava DEPOIS de as regiões novas
+  // serem criadas e apagava o shell recém-montado, com o cache de regiões
+  // dizendo "já renderizado" — painel escuro, regiões voltando aos
+  // pedaços (FNC-03).
+  function switchPanelLayout(
+    panel,
+    layout,
+  ) {
+    if (
+      panel.dataset.yolenPanelLayout ===
+      layout
+    ) {
+      return
+    }
+
+    panel.replaceChildren()
+    panel.dataset.yolenPanelLayout =
+      layout
+    panelRegionHtmlCache.clear()
+    panelRegionPendingHtml.clear()
+  }
+
   function flushPendingPanelRegions() {
     if (
       panelRegionPendingHtml.size === 0
@@ -3429,6 +3456,7 @@ function createCompanionCore(ctx) {
     clearDeepAnalysisPollTimer()
     clearAnalysisWatchdogTimer()
     analysisController.activeAnalysisAttempt = null
+    analysisController.forgetAnalysisAttemptContent()
     clearCompanionClientContextRefreshTimer()
 
     conversationBoundary.advanceBoundary({
@@ -6562,6 +6590,38 @@ function createCompanionCore(ctx) {
     return clean || null
   }
 
+  // Estado do job de análise como linha discreta (mesmos textos e
+  // atributos dos cards de estado abaixo), usada quando já existe uma
+  // leitura persistida válida na tela.
+  function getAnalysisJobStatusLineHtml() {
+    if (state.conversationAnalysisLoading) {
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
+          ${getInlineSpinnerHtml()}
+          Analisando sua condução comercial…
+        </div>
+      `
+    }
+
+    if (state.conversationAnalysisError) {
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-analysis-error role="alert">
+          ${escapeHtml(state.conversationAnalysisError)}
+        </div>
+      `
+    }
+
+    if (isCurrentAnalysisOutdated()) {
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-analysis-outdated>
+          A conversa mudou. Atualize a leitura para avaliar a condução atual.
+        </div>
+      `
+    }
+
+    return ''
+  }
+
   function getDetailedAnalysisAreaHtml() {
     // FASE 16.6 (recalibração seller-facing de ANÁLISE): a leitura
     // detalhada não vem mais de getActiveCommercialReading() (o
@@ -6572,9 +6632,45 @@ function createCompanionCore(ctx) {
     // loading/erro/desatualização continuam ligados ao JOB de análise
     // semântica em si (conversationAnalysisLoading/Error,
     // isCurrentAnalysisOutdated()) — são sinais distintos do fetch do
-    // view model: um job de reanálise em voo/errado/desatualizado
-    // precede a leitura persistida, mesmo padrão de prioridade já usado
-    // antes da FASE 16.6.
+    // view model.
+    //
+    // Mesmo guard de escopo de getNowAttentionSnapshotHtml (AGORA,
+    // FASE 16.5) — cycleId/conversationKey/companyId batendo garante
+    // que uma troca de conversa/empresa nunca deixa a análise da
+    // conversa/empresa anterior visível (mandato FASE 16.6 §31/§32).
+    const isCurrentAnalysisViewModelContext =
+      state.analysisViewModelCycleId ===
+        getCanonicalResolutionCycleId() &&
+      state.analysisViewModelConversationKey ===
+        getCaptureConversationKey() &&
+      state.analysisViewModelCompanyId ===
+        (state.companyId || null)
+
+    // Com uma leitura persistida válida deste contexto na tela, o estado
+    // do job (reanálise em voo, falha, conversa mudou) é uma linha
+    // discreta acima dela — a leitura válida nunca some durante uma
+    // atualização legítima: "leitura → linha de atualização → leitura
+    // nova", nunca "leitura → spinner/aviso vazio → leitura nova"
+    // (FNC-04).
+    if (
+      state.analysisViewModel?.status === 'ready' &&
+      isCurrentAnalysisViewModelContext
+    ) {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
+          ${getAnalysisJobStatusLineHtml()}
+
+          ${sellerInformationViewTools.renderAnalysisViewModel(
+            state.analysisViewModel.data,
+          )}
+
+          <div class="yolen-inline-actions yolen-decision-actions">
+            ${getAnalysisActionButton()}
+          </div>
+        </div>
+      `
+    }
+
     if (state.conversationAnalysisLoading) {
       return `
         <div class="yolen-card yolen-seller-area-card">
@@ -6624,35 +6720,6 @@ function createCompanionCore(ctx) {
           <div class="yolen-seller-empty-state" data-yolen-analysis-outdated>
             A conversa mudou. Atualize a leitura para avaliar a condução atual.
           </div>
-
-          <div class="yolen-inline-actions yolen-decision-actions">
-            ${getAnalysisActionButton()}
-          </div>
-        </div>
-      `
-    }
-
-    // Mesmo guard de escopo de getNowAttentionSnapshotHtml (AGORA,
-    // FASE 16.5) — cycleId/conversationKey/companyId batendo garante
-    // que uma troca de conversa/empresa nunca deixa a análise da
-    // conversa/empresa anterior visível (mandato FASE 16.6 §31/§32).
-    const isCurrentAnalysisViewModelContext =
-      state.analysisViewModelCycleId ===
-        getCanonicalResolutionCycleId() &&
-      state.analysisViewModelConversationKey ===
-        getCaptureConversationKey() &&
-      state.analysisViewModelCompanyId ===
-        (state.companyId || null)
-
-    if (
-      state.analysisViewModel?.status === 'ready' &&
-      isCurrentAnalysisViewModelContext
-    ) {
-      return `
-        <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
-          ${sellerInformationViewTools.renderAnalysisViewModel(
-            state.analysisViewModel.data,
-          )}
 
           <div class="yolen-inline-actions yolen-decision-actions">
             ${getAnalysisActionButton()}
@@ -6835,9 +6902,29 @@ function createCompanionCore(ctx) {
       return ''
     }
 
-    return sellerInformationViewTools.renderAgoraViewModelSnapshot(
-      state.agoraDecisionState.data,
-    )
+    const snapshotHtml =
+      sellerInformationViewTools.renderAgoraViewModelSnapshot(
+        state.agoraDecisionState.data,
+      )
+
+    // Reanálise em voo: a última decisão confirmada deste contexto
+    // continua visível, sinalizada como em atualização — nunca apresentada
+    // como o resultado da tentativa nova (mandato §24) nem apagada até ela
+    // terminar (FNC-04).
+    if (
+      !snapshotHtml ||
+      !state.conversationAnalysisLoading
+    ) {
+      return snapshotHtml
+    }
+
+    return `
+      <div class="yolen-inline-loading-status" data-yolen-agora-updating role="status" aria-live="polite">
+        ${getInlineSpinnerHtml()}
+        Analisando sua condução comercial…
+      </div>
+      ${snapshotHtml}
+    `
   }
 
   function isSellerWorkspaceReady() {
@@ -8024,6 +8111,14 @@ function createCompanionCore(ctx) {
       })
 
     wireOnce(
+      panel.querySelector('[data-yolen-action="expand-companion"]'),
+      'click',
+      () => {
+        setPanelCollapsed(false)
+      },
+    )
+
+    wireOnce(
       panel.querySelector('[data-yolen-action="open-yolen"]'),
       'click',
       () => {
@@ -8224,16 +8319,17 @@ function createCompanionCore(ctx) {
           : 'Abrir Yolen Companion'
 
       // O modo colapsado é uma casca minúscula e completamente diferente
-      // do layout expandido por região — continua trocando
-      // panel.innerHTML inteiro (é uma transição rara e deliberada do
-      // vendedor, não uma atualização de fundo). Zera o layout de regiões
-      // para que, ao expandir de novo, todas as regiões sejam recriadas
-      // do zero em vez de reaproveitar containers que não existem mais.
-      panel.dataset.yolenPanelLayout = 'collapsed'
-      panelRegionHtmlCache.clear()
-      panelRegionPendingHtml.clear()
+      // do layout expandido por região (ver switchPanelLayout()). A casca
+      // é ela mesma uma região: um render de fundo enquanto recolhido só
+      // troca a casca quando o HTML dela muda, com a mesma proteção
+      // pointerdown→click das demais regiões, e o botão de expandir é
+      // ligado por wirePanelInteractions().
+      switchPanelLayout(
+        panel,
+        'collapsed',
+      )
 
-      panel.innerHTML = [
+      renderPanelRegion(panel, 'collapsed-shell', [
         '<div class="yolen-collapsed-shell">',
 
           '<button',
@@ -8266,36 +8362,21 @@ function createCompanionCore(ctx) {
           '</button>',
 
         '</div>',
-      ].join('')
+      ].join(''))
 
-      panel
-        .querySelector(
-          '[data-yolen-action="expand-companion"]',
-        )
-        ?.addEventListener(
-          'click',
-          () => {
-            setPanelCollapsed(false)
-          },
-        )
+      wirePanelInteractions(panel)
 
       return
     }
 
     // Ver renderPanelRegion(): cada card abaixo só troca de DOM quando seu
     // próprio HTML muda. Se o painel estava colapsado (ou é a primeira
-    // vez), ele não tem nenhum container de região ainda — limpa o que
-    // sobrou da casca colapsada antes de criá-los pela primeira vez.
-    if (
-      panel.dataset.yolenPanelLayout !==
-      'regions'
-    ) {
-      panel.innerHTML = ''
-      panel.dataset.yolenPanelLayout =
-        'regions'
-      panelRegionHtmlCache.clear()
-      panelRegionPendingHtml.clear()
-    }
+    // vez), ele não tem nenhum container de região ainda — a casca
+    // colapsada sai antes de as regiões serem criadas pela primeira vez.
+    switchPanelLayout(
+      panel,
+      'regions',
+    )
 
     renderPanelRegion(
       panel,
@@ -10682,7 +10763,19 @@ function createCompanionCore(ctx) {
 
     window.addEventListener(
       'focus',
-      () => {
+      (event) => {
+        // Só a janela voltando a ter foco é retomada. Em captura, a window
+        // também recebe o focus de QUALQUER elemento da página (campo de
+        // MENSAGEM, abas, minimizar/expandir, o composer do canal) — cada
+        // clique virava sessão + re-resolução + análise automática
+        // (FNC-04). Mesmo critério de panel-stability-runtime.js.
+        if (
+          event.target !==
+          document.defaultView
+        ) {
+          return
+        }
+
         scheduleRuntimeRecovery(
           'Yolen retomada. A análise será atualizada em 8 segundos se a conversa mudou.',
         )

@@ -196,19 +196,31 @@ function createCompanionLeadSummaryController(ctx) {
       return
     }
 
-    ctx.state = {
-      ...ctx.state,
-      companionLeadSummary: {
-        status: 'loading',
-      },
-      companionLeadSummaryCycleId: cycleId,
-      companionLeadSummaryConversationKey: conversationKey,
-      companionLeadSummarySaveStatus: null,
-      companionLeadSummarySaveError: null,
-      companionLeadSummaryDraftValue: null,
-    }
+    // Recarga do MESMO contexto (captura confirmada, retomada da janela):
+    // o resumo válido continua na tela até o novo chegar — nunca "resumo →
+    // carregando → resumo", que apagava o bloco do AGORA e desmontava a
+    // MENSAGEM a cada atualização em segundo plano (FNC-04). Mesmo padrão
+    // de AGORA/ANÁLISE/CLIENTE: falha da recarga mantém o dado bom.
+    const alreadyReady =
+      ctx.state.companionLeadSummary?.status === 'ready' &&
+      ctx.state.companionLeadSummaryCycleId === cycleId &&
+      ctx.state.companionLeadSummaryConversationKey === conversationKey
 
-    renderPanel()
+    if (!alreadyReady) {
+      ctx.state = {
+        ...ctx.state,
+        companionLeadSummary: {
+          status: 'loading',
+        },
+        companionLeadSummaryCycleId: cycleId,
+        companionLeadSummaryConversationKey: conversationKey,
+        companionLeadSummarySaveStatus: null,
+        companionLeadSummarySaveError: null,
+        companionLeadSummaryDraftValue: null,
+      }
+
+      renderPanel()
+    }
 
     // Além do ciclo/chave de captura, a mesma geração de conversa/empresa/
     // sessão do Core: uma carga iniciada em A₁ não sincroniza a MENSAGEM de
@@ -237,6 +249,10 @@ function createCompanionLeadSummaryController(ctx) {
       }
 
       if (!result?.ok || !result.payload?.ok) {
+        if (alreadyReady) {
+          return
+        }
+
         ctx.state = {
           ...ctx.state,
           companionLeadSummary: {
@@ -269,7 +285,10 @@ function createCompanionLeadSummaryController(ctx) {
           result.payload.data,
         )
     } catch (error) {
-      if (!isStillCurrentContext()) {
+      if (
+        !isStillCurrentContext() ||
+        alreadyReady
+      ) {
         return
       }
 

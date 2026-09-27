@@ -86,6 +86,15 @@ function createCompanionAnalysisController(ctx) {
   // isAnalysisResponseStillCurrent(), se já existe uma análise MANUAL em
   // voo para a mesma conversa/ciclo e não deva competir com ela.
   let activeAnalysisAttempt = null
+  // Conteúdo (empresa + ciclo + conversa + impressão digital das
+  // mensagens) da última análise iniciada, manual ou automática. A análise
+  // automática nunca refaz sozinha um conteúdo já tentado: uma falha ou
+  // timeout não recomeça por mutação do DOM do canal que não é mensagem
+  // (presença, rascunho, relayout), retomada da janela ou re-resolução do
+  // mesmo contexto (FNC-04). Conteúdo novo (mensagem nova, mensagem
+  // editada/apagada, transcrição incorporada), outra conversa ou o clique
+  // explícito do vendedor continuam analisando.
+  let lastAnalysisAttemptContentKey = null
   // Timer do poller de análise profunda em curso (setTimeout id). Cada novo
   // ciclo de análise (analyzeCurrentConversation) cancela o timer anterior
   // antes de, no máximo, agendar um novo — nunca existem dois timers vivos
@@ -122,6 +131,13 @@ function createCompanionAnalysisController(ctx) {
     )
   }
 
+  // Troca real de conversa (hardResetConversationWorkspace no Core) é
+  // gatilho permitido: a conversa aberta de novo pode ser analisada
+  // automaticamente uma vez, mesmo com o conteúdo já tentado antes.
+  function forgetAnalysisAttemptContent() {
+    lastAnalysisAttemptContentKey = null
+  }
+
   function clearAutomaticAnalysisTimer() {
     if (automaticAnalysisTimerId) {
       window.clearTimeout(
@@ -150,6 +166,17 @@ function createCompanionAnalysisController(ctx) {
     ].join('::')
   }
 
+  function getAnalysisContentKey(
+    conversationFingerprint,
+  ) {
+    return [
+      ctx.state.companyId || '',
+      getCanonicalResolutionCycleId() || '',
+      getCaptureConversationKey() || '',
+      conversationFingerprint || '',
+    ].join('::')
+  }
+
   function canScheduleAutomaticAnalysis() {
     const currentFingerprint =
       getCurrentConversationFingerprint()
@@ -157,6 +184,15 @@ function createCompanionAnalysisController(ctx) {
     if (
       !canAnalyzeCurrentConversation() ||
       !currentFingerprint
+    ) {
+      return false
+    }
+
+    if (
+      lastAnalysisAttemptContentKey ===
+      getAnalysisContentKey(
+        currentFingerprint,
+      )
     ) {
       return false
     }
@@ -776,6 +812,11 @@ function createCompanionAnalysisController(ctx) {
         conversationText,
       )
 
+    lastAnalysisAttemptContentKey =
+      getAnalysisContentKey(
+        conversationFingerprint,
+      )
+
     const forceReanalysis =
       !isAutomatic ||
       ctx.messageLedgerRequiresRebase
@@ -852,21 +893,14 @@ function createCompanionAnalysisController(ctx) {
       pendingSuggestedMessageSendRegistering: false,
       lastAnalysisAudioCount: getPendingAudioCountForCurrentConversation(),
 
-      // FASE 16.5 (recalibração seller-facing do AGORA): uma nova
-      // tentativa de análise começando precisa "zerar" AGORA junto com
-      // conversationAnalysis — senão AGORA continuaria mostrando a
-      // decisão da tentativa ANTERIOR como se fosse atual enquanto a
-      // nova tentativa ainda está em voo (mandato §24: loading não pode
-      // parecer decisão). O guard de escopo em getNowAttentionSnapshotHtml
-      // já usa estes dois campos para saber se o dado é do ciclo/
-      // conversa certos; aqui eles são zerados para também refletir
-      // "esta tentativa específica ainda não tem resposta", não só
-      // "conversa errada".
-      agoraDecisionState: {
-        status: 'idle',
-      },
-      agoraDecisionStateCycleId: null,
-      agoraDecisionStateConversationKey: null,
+      // AGORA não é zerado quando uma tentativa começa: o que ele mostra
+      // é a última decisão confirmada pelo servidor para este mesmo
+      // ciclo/conversa/empresa (guard de escopo em
+      // getNowAttentionSnapshotHtml), já recarregada pela captura da
+      // mensagem que motivou a reanálise, e é substituído quando a
+      // tentativa termina (loadAgoraDecisionStateForCurrentCycle com
+      // force). Zerar aqui deixava o AGORA vazio durante toda a análise —
+      // "resultado válido → vazio → novo resultado" (FNC-04).
     }
 
     renderPanel()
@@ -1306,6 +1340,7 @@ function createCompanionAnalysisController(ctx) {
     },
     isCurrentAnalysisOutdated,
     clearAutomaticAnalysisTimer,
+    forgetAnalysisAttemptContent,
     scheduleAutomaticAnalysis,
     canAnalyzeCurrentConversation,
     loadAnalysisViewModelForCurrentCycle,
