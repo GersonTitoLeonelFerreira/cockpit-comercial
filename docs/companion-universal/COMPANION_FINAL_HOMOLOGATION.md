@@ -23,15 +23,15 @@ Nenhum merge, deploy de produção ou rollout é autorizado por este documento.
 | Criação de lead | 20 tentativas controladas | 20/20 em um clique; zero duplicidade | PENDENTE DA CONTAGEM FINAL |
 | ANÁLISE | 10 conversas variadas | 10/10 terminam em sucesso ou erro claro; nenhuma indefinida | PENDENTE DA BATERIA DE 10 |
 | Latência | Mesmas 10 conversas | registrar fila, processamento e total; sem espera multi-minuto sem explicação | PARCIAL — live recente 35s e 24s |
-| Expand/collapse | 20 ciclos | shell/cabeçalho sempre presentes; sem tela escura intermediária | PENDENTE DA CONTAGEM FINAL |
+| Expand/collapse | 20 ciclos | shell/cabeçalho sempre presentes; sem tela escura intermediária | PASS LIVE — 20/20 |
 | Estabilidade AGORA | 10 min em conversa estável | nenhum card some/reaparece sem evento real | PENDENTE DA JANELA CRONOMETRADA |
 | Estabilidade ANÁLISE | 10 min em conversa estável | nenhuma reanálise automática sem gatilho válido | PENDENTE DA JANELA CRONOMETRADA |
-| MENSAGEM edição | 4 tamanhos + edição livre | sem travar, perder cursor ou sobrescrever rascunho | FUNCIONALMENTE CORRIGIDO; PENDENTE CHECK FINAL |
+| MENSAGEM edição | 4 tamanhos + edição livre | sem travar, perder cursor ou sobrescrever rascunho | PASS LIVE — edição livre, cursor, seleção e troca de aba OK |
 | Rótulos | todas as opções | sem truncamento que impeça compreensão | PASS LIVE |
 | Linguagem | AGORA/ANÁLISE/CLIENTE | zero códigos internos/termos técnicos | PASS LIVE UX; REVALIDAR NA BATERIA |
-| Empresa/marca | 5+ conversas | empresa correta; logo correta; cabeçalho estável | PASS WA/MC; PENDENTE 5+ CONVERSAS |
+| Empresa/marca | 5+ conversas | empresa correta; logo correta; cabeçalho estável | PASS LIVE — 5/5 conversas |
 | Ações por aba | todas as abas | Inserir/Copiar somente em MENSAGEM | PASS LIVE UX |
-| A→B→A | 10 ciclos rápidos | sem vazamento de cliente, scroll ou rascunho | PASS AUTOMATIZADO; PENDENTE CONTAGEM LIVE |
+| A→B→A | 10 ciclos rápidos | sem vazamento de cliente, scroll ou rascunho | PASS LIVE — 10/10 |
 
 ## Evidência já fechada antes desta homologação
 
@@ -71,3 +71,15 @@ Só declarar "Companion pronto" quando:
 - a homologação real estiver aceita;
 - o plano de canário/monitoramento/rollback estiver documentado;
 - Gerson autorizar explicitamente o rollout.
+
+
+## Homologação real — bloco 1
+
+Aceite informado por Gerson:
+
+- 5 conversas: PASS.
+- 20 ciclos expand/collapse: PASS.
+- 10 ciclos A→B→A: PASS.
+- MENSAGEM: PASS em edição livre.
+
+Resultado: bloco 1 da homologação final concluído sem blocker reproduzível.
