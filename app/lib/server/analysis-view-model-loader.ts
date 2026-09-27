@@ -18,8 +18,13 @@ import {
 } from './canonical-seller-commercial-context-loader'
 
 import {
-  loadCanonicalSellerReasoning,
+  loadCanonicalSellerReasoningBundle,
 } from './canonical-seller-reasoning-source'
+
+import {
+  buildCommercialCoachingDiagnosis,
+  type CommercialCoachingDiagnosis,
+} from '@/app/lib/companion/commercial-coaching-engine'
 
 import {
   loadCanonicalIntegratedCommercialContext,
@@ -39,6 +44,8 @@ export type AnalysisReasoningViewModel =
   AnalysisViewModel & {
     reasoning:
       SellerFacingReasoningProjection
+    coaching_diagnosis:
+      CommercialCoachingDiagnosis | null
   }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +161,7 @@ export async function loadAnalysisViewModel({
 
   const [
     integratedContext,
-    commercialReasoning,
+    reasoningBundle,
   ] =
     await Promise.all([
       loadCanonicalIntegratedCommercialContext({
@@ -172,7 +179,7 @@ export async function loadAnalysisViewModel({
         client_context:
           canonicalContext.client_context,
       }),
-      loadCanonicalSellerReasoning({
+      loadCanonicalSellerReasoningBundle({
         admin,
         context:
           canonicalContext,
@@ -192,6 +199,26 @@ export async function loadAnalysisViewModel({
         canonicalContext.client_context
           .waiting.state,
     })
+
+  const commercialReasoning =
+    reasoningBundle.reasoning
+
+  const coachingDiagnosis =
+    commercialReasoning &&
+    reasoningBundle.diagnostic_input &&
+    canonicalContext.current_reading
+      ? buildCommercialCoachingDiagnosis({
+          reading:
+            canonicalContext
+              .current_reading
+              .reading,
+          reasoning:
+            commercialReasoning,
+          diagnostic_input:
+            reasoningBundle
+              .diagnostic_input,
+        })
+      : null
 
   const reasoning =
     buildSellerFacingReasoningProjection({
@@ -224,6 +251,8 @@ export async function loadAnalysisViewModel({
     ...viewModel,
     opportunity,
     reasoning,
+    coaching_diagnosis:
+      coachingDiagnosis,
   }
 }
 
