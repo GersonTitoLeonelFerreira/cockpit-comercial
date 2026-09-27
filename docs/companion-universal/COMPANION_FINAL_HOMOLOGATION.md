@@ -110,3 +110,20 @@ Aceite informado por Gerson:
 - Nenhum estado intermediário preso reportado.
 
 Resultado: bloco 3 concluído sem blocker reproduzível.
+
+
+## Onda D — plano de canário preparado
+
+Plano operacional documentado em:
+
+`docs/companion-universal/MANYCHAT_CANARY_ROLLOUT_PLAN.md`
+
+Estado:
+
+- canário por pacote E2E separado: definido;
+- monitoramento de criação/análise/troca/composer: definido;
+- kill criteria: definidos;
+- rollback imediato: definido;
+- build normal continua com ManyChat OFF;
+- nenhum vendedor canário foi ativado por este commit;
+- rollout amplo continua sem autorização.
