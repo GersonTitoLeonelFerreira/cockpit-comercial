@@ -84,7 +84,7 @@ Prova que cliente pronto para contratar não é empurrado de volta para descober
 
 ### H05 — boa objeção
 
-Prova que uma ação correta do vendedor gera elogio específico e não inventa ponto de melhoria.
+Prova que uma ação correta do vendedor gera elogio específico, não inventa ponto de melhoria e não seleciona novamente o mesmo diagnóstico de objeção enquanto a próxima resposta depende do cliente.
 
 ### H06 — espera disciplinada
 
