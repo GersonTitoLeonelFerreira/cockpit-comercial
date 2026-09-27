@@ -532,7 +532,13 @@ function classifySellerAction(
       normalized,
       [
         'principal objetivo',
+        'principal desafio',
+        'principal problema',
+        'principal necessidade',
         'objetivo',
+        'desafio que',
+        'problema que',
+        'necessidade que',
         'quantas vezes',
         'o que voce busca',
         'o que você busca',
