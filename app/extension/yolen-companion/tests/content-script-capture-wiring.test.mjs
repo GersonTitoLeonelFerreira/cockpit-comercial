@@ -433,7 +433,7 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
 
     const resolveStart =
       contentScript.indexOf(
-        '  async function resolveCurrentLead()',
+        '  async function resolveCurrentLead(',
       )
 
     const resolveEnd =
@@ -707,7 +707,7 @@ test('captura usa corpo selecionável e chave estável', () => {
 
     const restoreEnd =
       contentScript.indexOf(
-        '\n  async function resolveCurrentLead()',
+        '\n  async function resolveCurrentLead(',
         restoreStart,
       )
 

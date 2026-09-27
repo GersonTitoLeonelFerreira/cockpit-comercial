@@ -83,7 +83,12 @@ test(
 
     assert.match(
       contentScript,
-      /Inserir no \$\{escapeHtml\(platformDisplayName\)\}/,
+      /data-yolen-seller-message-action="insert"/,
+    )
+
+    assert.match(
+      contentScript,
+      /Incluir no ' \+ escapeHtml\(platformDisplayName\)/,
     )
 
     assert.match(

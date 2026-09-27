@@ -246,7 +246,7 @@ test(
       /getOperationalSuggestionHtml/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       legacy,
       /getSuggestedMessageHtml/,
     )
