@@ -1,5 +1,7 @@
 # FASE 11 — REGISTRO DE EXECUÇÃO (gate final, PR e decisão de merge)
 
+**STATUS FASE 11: PASS — FINAL GATE: PASS.**
+
 Registro único da FASE 11. A FASE 11 é um gate. A 1ª rodada falhou por
 F11-01 (§8). A correção de F11-01 foi autorizada pelo Controle Mestre
 dentro da própria FASE 11 (sem nova fase): opção B, §8.8. Depois dela, os
@@ -399,7 +401,7 @@ execução completa. Duas repetições extras já agendadas foram
 interrompidas (processo encerrado) antes de concluir. Não contam como
 resultado, nem PASS nem FAIL.
 
-### 8.10 Live focal de scroll (Firefox real) — pendente
+### 8.10 Live focal de scroll (Firefox real) — PASS
 
 Pacote: build E2E da branch no HEAD publicado
 (`node app/extension/yolen-companion/scripts/build-package.mjs --e2e`).
@@ -414,7 +416,21 @@ Nome esperado: `Yolen Companion [E2E] <sha8 do HEAD>`. Roteiro:
 7. voltar B → A;
 8. confirmar que não há salto incorreto para o fim.
 
-Resultado: aguardando execução.
+**F11-01 LIVE: PASS** (Firefox real, executado por Gerson).
+
+| Item | Valor |
+|---|---|
+| HEAD testado | `6ad5b465` (código = `16b4cf44`; a diferença é só documentação) |
+| Pacote | `Yolen Companion [E2E] 6ad5b465` |
+| Manifest | `dist/yolen-companion/e2e/firefox/staging/manifest.json` |
+| SHA-256 do zip Firefox | `5f9d6d5b0ecdda49232fa6f7f65ba571a67f32fb030f864b39efff7e957f6a4b` |
+
+Evidência:
+- a primeira conversa abriu no topo;
+- scroll manual normal;
+- A → B normal; B → A normal;
+- nenhum salto automático para o fim;
+- nenhuma posição de scroll absurda herdada entre conversas.
 
 ## 9. Live acceptance (herdado)
 
@@ -423,7 +439,8 @@ Resultado: aguardando execução.
 | LIVE-01 | PASS (FASE 10) |
 | LIVE-02 | PASS (FASE 10) |
 | LIVE-03 | PASS (FASE 10; hotfix PR #339 na `main`, deploy READY) |
-| LIVE ACCEPTANCE | PASS — não cobriu posição de scroll (F11-01) |
+| LIVE ACCEPTANCE | PASS |
+| F11-01 LIVE (posição de scroll) | PASS (§8.10) |
 
 ## 10. Performance (follow-up, não bloqueante)
 
@@ -435,7 +452,7 @@ started_at`.
 
 | Item | Estado |
 |---|---|
-| PR `claude/companion-multichannel-repair` → `main` | **NÃO ABERTO** (gate #3 falhou; F11-01) |
+| PR `claude/companion-multichannel-repair` → `main` | aberto após o FINAL GATE PASS (ver relatório final) |
 | GitHub Actions na branch | nenhuma execução (os workflows rodam em PR). Padrão conhecido nos PRs: BILLING_BLOCKED (job de ~2 s, `runner_id: 0`, sem steps) — não é falha de teste |
 | Merge | NO |
 | Auto-merge / squash / rebase | NO |
@@ -447,11 +464,52 @@ started_at`.
 
 | Item | Resultado |
 |---|---|
-| Reconciliação com a `main` | PASS (sem conflito) |
-| 1ª rodada de gates | FAIL — F11-01 (gate 3) |
-| F11-01 | corrigido (`96d4bf69`, §8.8): red → fix → green |
-| Paridade A → B → A (timing de teste) | corrigida só no teste (`16b4cf44`, §8.9.1) |
-| Gates no HEAD de código final `16b4cf44` | **PASS** (§8.9.2) |
-| Live focal de scroll | **pendente** (§8.10) |
-| **STATUS FASE 11** | **BLOCKED** (até o live focal) |
-| PR | não aberto |
+| STATUS FASE 10 | PASS |
+| LIVE-01 | PASS |
+| LIVE-02 | PASS |
+| LIVE-03 | PASS |
+| LIVE ACCEPTANCE | PASS |
+| F11-01 | PASS (fix `96d4bf69`; live focal PASS em `6ad5b465`) |
+| Paridade A → B → A (timing de teste) | corrigida só no teste (`16b4cf44`) |
+| **STATUS FASE 11** | **PASS** |
+| **FINAL GATE** | **PASS** |
+| PERFORMANCE OBSERVATION | NON-BLOCKING |
+| Espera até o worker (`requested_at` → `started_at`) | ~2m58s |
+| Worker (`started_at` → `completed_at`) | ~20s |
+| Total | ~3m18s |
+| PERFORMANCE OPTIMIZATION | DEFERRED |
+
+### 12.1 Gates finais (HEAD de código `16b4cf44`; HEAD final difere só em docs)
+
+| Gate | Resultado |
+|---|---|
+| test:companion | 4 known failures, 0 new failures |
+| Autorização | 266/266 |
+| E3 oficial | 356/356 |
+| E3 falhas conhecidas | PASS |
+| E3 em processo | 356/356 |
+| Arquitetura | 53/53; A1–A18 PASS; NEW 0, STALE 0, LEGACY 0 |
+| Composição só-canal | 6/6 |
+| Adapter neutro | 14/14 |
+| ManyChat | 286/286 |
+| WhatsApp | 61/61 |
+| Paridade oficial | 51/51 |
+| Paridade em processo | 51/51 |
+| TypeScript | PASS |
+| `git diff --check` | PASS |
+| Lint dos arquivos alterados | 0 errors; warnings só pré-existentes na `main` |
+| Lint global | baseline inalterado: 56 errors / 123 warnings; 0 errors novos atribuíveis à reconstrução |
+| Build normal / validador | PASS / PASS |
+| ManyChat no build normal | OFF |
+| Build E2E / validador | PASS / PASS |
+| ManyChat no E2E | ON |
+| Artefatos locais do Supabase | nenhum |
+| PR #152 | intocado |
+| Login | preservado |
+| Marketing | preservado |
+
+### 12.2 Próximo passo
+
+PR final `claude/companion-multichannel-repair` → `main`. Merge, deploy,
+ativação do ManyChat em produção e rollout: NÃO, aguardando autorização
+explícita.
