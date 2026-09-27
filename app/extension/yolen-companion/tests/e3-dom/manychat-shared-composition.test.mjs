@@ -303,67 +303,75 @@ test('telefone confiável → NOT_FOUND → formulário compartilhado → confir
   assert.equal(created.ok, true)
 })
 
-test('FNC-01: resolução pré-CREATE lenta no ManyChat não consome retries falsos nem exige segundo clique', async () => {
+test('FNC-01: ManyChat faz leitura realmente nova depois do CREATE sem exigir segundo clique', async () => {
   const blockedResolve = deferred()
-  let phase = 'initial'
+  let blockNextResolve = false
+  let leadExists = false
 
   const resolutionsByPhone = {
     [PHONE_X]: async () => {
-      if (phase === 'arm-block') {
-        phase = 'blocked'
+      if (blockNextResolve) {
+        blockNextResolve = false
+        const leadExistedWhenRequestStarted = leadExists
         await blockedResolve.promise
-        phase = 'after-block'
-        return notFoundResolution(PHONE_X)
+        return leadExistedWhenRequestStarted
+          ? linkedResolution({
+              name: 'Lead Criado No ManyChat',
+              cycleId: CYCLE_X,
+            })
+          : notFoundResolution(PHONE_X)
       }
 
-      if (phase === 'after-block') {
-        return linkedResolution({
-          name: 'Lead Criado No ManyChat',
-          cycleId: CYCLE_X,
-        })
-      }
-
-      return notFoundResolution(PHONE_X)
+      return leadExists
+        ? linkedResolution({
+            name: 'Lead Criado No ManyChat',
+            cycleId: CYCLE_X,
+          })
+        : notFoundResolution(PHONE_X)
     },
   }
 
   const { document, calls } = loadManyChatComposition({
     pageHtml: page({ phone: PHONE_X }),
     resolutionsByPhone,
-    createLeadResult: {
-      ok: true,
-      lead_id: 'lead-new',
-      cycle_id: CYCLE_X,
-      owner_user_id: 'user-1',
+    createLeadResult: () => {
+      leadExists = true
+      return {
+        ok: true,
+        lead_id: 'lead-new',
+        cycle_id: CYCLE_X,
+        owner_user_id: 'user-1',
+      }
     },
   })
 
   await waitFor(() => document.querySelector('[data-yolen-lead-create-form]'))
 
-  phase = 'arm-block'
+  blockNextResolve = true
   click(
     document,
     panelOf(document).querySelector('[data-yolen-action="refresh"]'),
   )
-  await waitFor(() => phase === 'blocked')
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length >= 2,
+  )
 
   submitCreateForm(document, 'Lead Criado No ManyChat')
   await waitFor(() => createLeadCalls(calls).length === 1)
 
   await sleep(3300)
+
   const retryWasRequiredBeforeRelease = Boolean(
     document.querySelector('[data-yolen-action="retry-lead-link"]'),
   )
 
-  // Mesmo princípio do cenário WhatsApp: libera o bloqueio antes da
-  // asserção para o RED poder falhar sem deixar a composição ManyChat
-  // presa e sem impedir a continuação do runner.
   blockedResolve.resolve()
 
   assert.equal(
     retryWasRequiredBeforeRelease,
     false,
-    'ManyChat não pode cair em vínculo pendente só porque havia um RESOLVE antigo em voo',
+    'ManyChat não pode cair em vínculo pendente quando uma leitura iniciada depois do CREATE já pode enxergar o lead',
   )
 
   await waitFor(

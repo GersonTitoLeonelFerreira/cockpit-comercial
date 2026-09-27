@@ -241,27 +241,34 @@ test('TESTE 2: create sucesso com um resolve já em voo não perde o re-resolve 
   assert.equal(createLeadCalls(calls).length, 1, 'nunca um segundo CREATE')
 })
 
-test('TESTE 2B / FNC-01: resolve iniciado antes do CREATE pode ficar em voo além de todo o backoff sem consumir retries falsos nem exigir segundo clique', async () => {
+test('TESTE 2B / FNC-01: RESOLVE pré-CREATE não pode fazer o pós-CREATE consumir retries sem uma leitura realmente nova', async () => {
   let releaseBlockedResolve
   const blockedResolveGate = new Promise((resolve) => {
     releaseBlockedResolve = resolve
   })
-  let phase = 'initial'
+  let blockNextResolve = false
+  let leadExists = false
 
   const resolutions = {
     [PHONE_A]: async () => {
-      if (phase === 'arm-block') {
-        phase = 'blocked'
+      // A chamada armada aqui representa uma consulta que começou ANTES
+      // do CREATE. Ela captura esse snapshot e, mesmo terminando depois,
+      // continua legitimamente devolvendo NOT_FOUND.
+      if (blockNextResolve) {
+        blockNextResolve = false
+        const leadExistedWhenRequestStarted = leadExists
         await blockedResolveGate
-        phase = 'after-block'
-        return notFoundResolution(PHONE_A)
+        return leadExistedWhenRequestStarted
+          ? ownedResolution(PHONE_A)
+          : notFoundResolution(PHONE_A)
       }
 
-      if (phase === 'after-block') {
-        return ownedResolution(PHONE_A)
-      }
-
-      return notFoundResolution(PHONE_A)
+      // Qualquer consulta que COMEÇAR depois do CREATE deve enxergar o lead.
+      // Este é o ponto que o teste anterior modelava errado ao manter
+      // artificialmente NOT_FOUND até a promise antiga ser liberada.
+      return leadExists
+        ? ownedResolution(PHONE_A)
+        : notFoundResolution(PHONE_A)
     },
   }
 
@@ -269,11 +276,14 @@ test('TESTE 2B / FNC-01: resolve iniciado antes do CREATE pode ficar em voo alé
     initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
     resolutionsByPhone: resolutions,
     withStabilityRuntimes: true,
-    createLeadResult: {
-      ok: true,
-      lead_id: 'lead-new-1',
-      cycle_id: 'cycle-new-1',
-      owner_user_id: 'user-1',
+    createLeadResult: () => {
+      leadExists = true
+      return {
+        ok: true,
+        lead_id: 'lead-new-1',
+        cycle_id: 'cycle-new-1',
+        owner_user_id: 'user-1',
+      }
     },
   })
 
@@ -281,39 +291,35 @@ test('TESTE 2B / FNC-01: resolve iniciado antes do CREATE pode ficar em voo alé
     Boolean(document.querySelector('[data-yolen-lead-create-form]')),
   )
 
-  // Garante que já existe uma resolução da MESMA fronteira em voo ANTES
-  // do CREATE. No código pré-fix, todas as reconsultas pós-create retornam
-  // imediatamente por leadResolutionInFlightKeys e o laço consome
-  // 0 + 400 + 900 + 1600 ms sem executar nenhuma nova consulta real.
-  phase = 'arm-block'
+  // Cria uma leitura antiga que fica presa. O pós-CREATE precisa ou
+  // aguardar essa leitura e depois consultar de novo, ou executar outra
+  // leitura fresca de forma segura. O que não pode fazer é consumir o
+  // orçamento de retries em no-ops e exigir "Atualizar vínculo".
+  blockNextResolve = true
   const panel = getPanel(document)
   dispatch(panel.querySelector('[data-yolen-action="refresh"]'), 'click')
-  await waitFor(() => phase === 'blocked')
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length >= 2,
+  )
 
   await fillAndSubmit(document, 'Cliente Novo')
   await waitFor(() => createLeadCalls(calls).length === 1)
 
-  // Mantém a resolução pré-create presa além de todo o orçamento antigo.
-  // Antes da correção isso chegava a created_unresolved e obrigava o
-  // vendedor a clicar em "Atualizar vínculo" (o "segundo clique").
   await sleep(3300)
+
   const retryWasRequiredBeforeRelease = Boolean(
     document.querySelector('[data-yolen-action="retry-lead-link"]'),
   )
 
-  // Libera sempre a promise bloqueada ANTES da asserção. Assim o RED
-  // continua provando o defeito, mas não deixa handles/promise pendentes
-  // que impeçam o runner de encerrar e executar o GREEN em seguida.
   releaseBlockedResolve()
 
   assert.equal(
     retryWasRequiredBeforeRelease,
     false,
-    'uma resolução já em voo não pode consumir retries falsos nem produzir um segundo clique obrigatório',
+    'o pós-CREATE não pode cair em created_unresolved enquanto existe caminho automático para uma leitura fresca',
   )
 
-  // A resolução antiga termina ainda em NOT_FOUND. Só então a sequência
-  // pós-create faz uma nova consulta real e encontra o lead criado.
   await waitFor(
     () => Boolean(document.querySelector('[data-yolen-action="open-cycle-yolen"]')),
     { timeoutMs: 6000 },
