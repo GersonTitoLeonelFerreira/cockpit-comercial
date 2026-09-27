@@ -345,6 +345,60 @@ reaproveitado), de 2026-09-26T22:24Z a 23:14Z. `T=app/extension/yolen-companion/
   somente F11-01):** fixar o override da análise automática nos testes
   A → B → A de paridade, só no teste.
 
+### 8.9.1 Hardening test-only da paridade A → B → A (autorizado)
+
+**Commit:** `16b4cf44`. Só `tests/e3-dom/cross-channel-parity.test.mjs`.
+Nenhum arquivo de produção; `AUTOMATIC_ANALYSIS_DELAY_MS` de produção
+inalterado; asserções inalteradas.
+
+**Mudança:** os cenários A → B → A (todos via `startAba` e o de
+enriquecimento) fixam, no `beforeLoad`, o override de teste já existente
+`__yolenCompanionAutomaticAnalysisMsForTests = 2^31 - 1`, nos dois canais.
+Esse é o maior atraso aceito por `setTimeout` sem estourar para disparo
+imediato. Efeito: a análise automática nunca dispara dentro da janela do
+teste. Nenhum desses cenários testa análise automática. Sem sleep extra,
+sem timeout aumentado.
+
+**Provas:**
+
+| Prova | Resultado |
+|---|---|
+| Neutralização: fase B esticada além de 8 s (cópia descartável com pausa de 9 s antes do snapshot), chamadas automáticas de `ANALYZE_CONVERSATION` | sem o pino: 1 por canal; com o pino: 0 nos dois |
+| A. `A → B → A (análise e geração de mensagem)`, 12 oficial + 12 em processo | 24/24 |
+| A. `A → B → A (enriquecimento)`, 12 oficial + 12 em processo | 24/24 |
+
+### 8.9.2 Gates no HEAD de código final (`16b4cf44`)
+
+Execução nova em 2026-09-26T23:41Z → 2026-09-27T00:46Z. Nenhum resultado
+de `96d4bf69` foi reaproveitado.
+
+| Gate | Resultado |
+|---|---|
+| test:companion (falhas conhecidas) | 2282 testes, 2278 pass — **4 known, 0 new** → PASS |
+| Autorização | 266/266 |
+| E3 oficial | **356/356** |
+| E3 falhas conhecidas | 0 falhas → PASS |
+| E3 em processo (1 execução completa) | **356/356** |
+| Arquitetura (sem force-exit e em processo) | 53/53 ×2; A1–A18 PASS; NEW 0, STALE 0, LEGACY 0 |
+| Composição só-canal ManyChat | 6/6 |
+| Adapter neutro | 14/14 |
+| ManyChat | 286/286 |
+| WhatsApp | 61/61 |
+| Paridade oficial | 51/51 |
+| Paridade em processo | 51/51 |
+| TypeScript | PASS |
+| Lint dos arquivos alterados (132) | 0 errors; 15 warnings, todas já existentes na `main` |
+| Lint global (baseline separado) | 56 errors / 123 warnings — idêntico ao baseline |
+| Build normal + validador | PASS; `MANYCHAT_CAPTURE_ENABLED` false em dev e prod |
+| Build E2E + validador | PASS; true só em e2e |
+| `git diff --check origin/main...HEAD` | PASS |
+| Auditoria do diff | 158 extensão, 9 docs, 1 script; backend 0; `supabase/` 0; login/marketing/middleware 0 |
+
+Execuções do E3 em processo: por decisão do Controle Mestre, só **uma**
+execução completa. Duas repetições extras já agendadas foram
+interrompidas (processo encerrado) antes de concluir. Não contam como
+resultado, nem PASS nem FAIL.
+
 ### 8.10 Live focal de scroll (Firefox real) — pendente
 
 Pacote: build E2E da branch no HEAD publicado
@@ -396,8 +450,8 @@ started_at`.
 | Reconciliação com a `main` | PASS (sem conflito) |
 | 1ª rodada de gates | FAIL — F11-01 (gate 3) |
 | F11-01 | corrigido (`96d4bf69`, §8.8): red → fix → green |
-| Gates completos após a correção | PASS (§8.9) |
-| Paridade no E3 em processo (diagnóstico) | causa determinada: temporizador real de análise automática no teste (§8.9); não aplicado |
+| Paridade A → B → A (timing de teste) | corrigida só no teste (`16b4cf44`, §8.9.1) |
+| Gates no HEAD de código final `16b4cf44` | **PASS** (§8.9.2) |
 | Live focal de scroll | **pendente** (§8.10) |
 | **STATUS FASE 11** | **BLOCKED** (até o live focal) |
 | PR | não aberto |
