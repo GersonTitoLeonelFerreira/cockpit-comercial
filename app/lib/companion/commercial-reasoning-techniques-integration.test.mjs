@@ -21,7 +21,7 @@ function baseReading({
   decision = 'deepen_discovery',
   currentState = 'Conversa comercial ativa.',
   lastCustomer = 'Cliente demonstrou interesse.',
-  adherence = 'on_method',
+  objections = [],
 } = {}) {
   return {
     contract_version:
@@ -54,7 +54,11 @@ function baseReading({
       decision_criteria: [],
       preferences: [],
       open_questions: [],
-      objections: [],
+      objections:
+        objections.map(
+          summary =>
+            evidence(summary),
+        ),
       uncertainties: [],
       discussed_products: [],
       primary_product_interest:
@@ -83,7 +87,7 @@ function baseReading({
           'Próximo compromisso',
       },
       adherence: {
-        status: adherence,
+        status: 'on_method',
         summary:
           'Leitura canônica.',
         deviation_stage_order:
@@ -100,7 +104,19 @@ function baseReading({
     seller_strengths: [],
     improvement_points: [],
     risks: {
-      customer_objections: [],
+      customer_objections:
+        objections.map(
+          summary => ({
+            kind:
+              'objection',
+            severity:
+              'medium',
+            summary,
+            evidence_message_ids:
+              ['m1'],
+            memory_ids: [],
+          }),
+        ),
       service_risks: [],
     },
     best_approach: {
@@ -177,7 +193,10 @@ function state() {
   }
 }
 
-function input(turns) {
+function input({
+  turns,
+  facts = [],
+} = {}) {
   return {
     input_version:
       'phase-5-input-v1',
@@ -262,14 +281,35 @@ function input(turns) {
         steps: [],
       },
       products: [],
-      facts: [],
+      facts:
+        facts.map(
+          (
+            fact,
+            index,
+          ) => ({
+            contract_version:
+              'commercial-fact-v1',
+            definition: null,
+            validity_status:
+              'current',
+            category:
+              fact.category,
+            fact_key:
+              fact.fact_key ??
+              `fact-${index + 1}`,
+            fact_value:
+              fact.fact_value,
+            source_note:
+              'Configuração publicada.',
+          }),
+        ),
       objection_guides: [],
     },
   }
 }
 
 test(
-  'C01 passa sinais para o ranking, mas não seleciona Escolha guiada sem opções reais groundeadas',
+  'C01 sem disponibilidade oficial bloqueia guided choice e preserva a restrição de não inventar horário',
   () => {
     const result =
       buildCommercialReasoning({
@@ -283,26 +323,28 @@ test(
         cycle_state:
           state(),
         diagnostic_input:
-          input([
-            {
-              direction:
-                'incoming',
-              text:
-                'Quero fazer uma experimental.',
-            },
-            {
-              direction:
-                'outgoing',
-              text:
-                'Quando você quer fazer a experimental?',
-            },
-            {
-              direction:
-                'outgoing',
-              text:
-                'Vou te mandar nossos planos para você conhecer.',
-            },
-          ]),
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero fazer uma experimental.',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Quando você quer fazer a experimental?',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Vou te mandar nossos planos para você conhecer.',
+              },
+            ],
+          }),
       })
 
     assert.equal(
@@ -316,12 +358,9 @@ test(
     )
 
     assert.ok(
-      result.limitations
-        .some(
-          item =>
-            item ===
-              'technique_condition_unmet:technique.guided_choice:grounded_multiple_valid_options_required',
-        ),
+      result.limitations.includes(
+        'technique_condition_unmet:technique.guided_choice:grounded_multiple_valid_options_required',
+      ),
     )
 
     assert.ok(
@@ -332,20 +371,59 @@ test(
               .test(item),
         ),
     )
+  },
+)
+
+test(
+  'C01 com disponibilidade oficial seleciona guided choice',
+  () => {
+    const result =
+      buildCommercialReasoning({
+        reading:
+          baseReading({
+            currentState:
+              'Cliente quer retomar o agendamento da experimental.',
+            lastCustomer:
+              'Cliente quer fazer uma experimental.',
+          }),
+        cycle_state:
+          state(),
+        diagnostic_input:
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero fazer uma experimental.',
+              },
+            ],
+            facts: [
+              {
+                category:
+                  'availability',
+                fact_key:
+                  'experimental_slots',
+                fact_value:
+                  'Horários disponíveis: terça 18h ou quarta 19h.',
+              },
+            ],
+          }),
+      })
 
     assert.ok(
-      result.do_not_do
+      result.selected_techniques
         .some(
           item =>
-            /abandonar o objetivo comercial ativo/i
-              .test(item),
+            item.intelligence_id ===
+              'technique.guided_choice',
         ),
     )
   },
 )
 
 test(
-  'C03 conecta espera observada a commitment_wait e bloqueio de repetição',
+  'C03 mantém commitment_wait mas não repete guided choice já executada',
   () => {
     const result =
       buildCommercialReasoning({
@@ -360,20 +438,22 @@ test(
         cycle_state:
           state(),
         diagnostic_input:
-          input([
-            {
-              direction:
-                'incoming',
-              text:
-                'Quero agendar.',
-            },
-            {
-              direction:
-                'outgoing',
-              text:
-                'Tenho terça às 18h ou quarta às 19h. Qual fica melhor?',
-            },
-          ]),
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero agendar.',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Tenho terça às 18h ou quarta às 19h. Qual fica melhor?',
+              },
+            ],
+          }),
       })
 
     assert.ok(
@@ -383,6 +463,16 @@ test(
             item.intelligence_id ===
               'technique.commitment_wait',
         ),
+    )
+
+    assert.equal(
+      result.selected_techniques
+        .some(
+          item =>
+            item.intelligence_id ===
+              'technique.guided_choice',
+        ),
+      false,
     )
 
     assert.ok(
@@ -397,7 +487,68 @@ test(
 )
 
 test(
-  'C05 conecta preço prematuro a discovery_before_prescription sem inventar informação nova',
+  'C04 fato novo bloqueia commitment_wait',
+  () => {
+    const result =
+      buildCommercialReasoning({
+        reading:
+          baseReading({
+            decision: 'wait',
+            currentState:
+              'Cliente rejeitou os horários apresentados.',
+            lastCustomer:
+              'Nenhum desses horários consigo.',
+          }),
+        cycle_state:
+          state(),
+        diagnostic_input:
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero agendar.',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Tenho terça às 18h ou quarta às 19h. Qual fica melhor?',
+              },
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Nenhum desses horários consigo.',
+              },
+            ],
+          }),
+      })
+
+    assert.equal(
+      result.selected_techniques
+        .some(
+          item =>
+            item.intelligence_id ===
+              'technique.commitment_wait',
+        ),
+      false,
+    )
+
+    assert.ok(
+      result.limitations
+        .some(
+          item =>
+            item ===
+              'technique_condition_unmet:technique.commitment_wait:no_new_customer_fact_after_action',
+        ),
+    )
+  },
+)
+
+test(
+  'C05 mantém discovery_before_prescription aplicável quando preço foi apresentado cedo',
   () => {
     const result =
       buildCommercialReasoning({
@@ -411,20 +562,22 @@ test(
         cycle_state:
           state(),
         diagnostic_input:
-          input([
-            {
-              direction:
-                'incoming',
-              text:
-                'Queria saber como funciona.',
-            },
-            {
-              direction:
-                'outgoing',
-              text:
-                'O plano custa R$ 199 e inclui estes benefícios.',
-            },
-          ]),
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Queria saber como funciona.',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'O plano custa R$ 199 e inclui estes benefícios.',
+              },
+            ],
+          }),
       })
 
     assert.ok(
@@ -435,13 +588,63 @@ test(
               'technique.discovery_before_prescription',
         ),
     )
+  },
+)
 
-    assert.ok(
-      result.do_not_do
+test(
+  'probe de objeção já executado não seleciona novo objection diagnosis enquanto aguarda resposta',
+  () => {
+    const result =
+      buildCommercialReasoning({
+        reading:
+          baseReading({
+            decision:
+              'handle_objection',
+            currentState:
+              'Cliente trouxe restrição de cartão e vendedor perguntou a causa.',
+            lastCustomer:
+              'Estou sem limite no cartão.',
+            objections: [
+              'Cliente está sem limite no cartão.',
+            ],
+          }),
+        cycle_state:
+          state(),
+        diagnostic_input:
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Estou sem limite no cartão.',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'O bloqueio é limite disponível ou você está sem o cartão agora?',
+              },
+            ],
+          }),
+      })
+
+    assert.equal(
+      result.selected_techniques
         .some(
           item =>
-            /não prescrever produto ou preço/i
-              .test(item),
+            item.intelligence_id ===
+              'technique.objection_diagnosis',
+        ),
+      false,
+    )
+
+    assert.ok(
+      result.limitations
+        .some(
+          item =>
+            item ===
+              'technique_condition_unmet:technique.objection_diagnosis:do_not_repeat_objection_probe',
         ),
     )
   },
