@@ -21,11 +21,11 @@ Nenhum merge, deploy de produção ou rollout é autorizado por este documento.
 | Área | Prova exigida pelo handoff | Critério | Estado atual |
 |---|---|---|---|
 | Criação de lead | 20 tentativas controladas | 20/20 em um clique; zero duplicidade | PENDENTE DA CONTAGEM FINAL |
-| ANÁLISE | 10 conversas variadas | 10/10 terminam em sucesso ou erro claro; nenhuma indefinida | PENDENTE DA BATERIA DE 10 |
-| Latência | Mesmas 10 conversas | registrar fila, processamento e total; sem espera multi-minuto sem explicação | PARCIAL — live recente 35s e 24s |
+| ANÁLISE | 10 conversas variadas | 10/10 terminam em sucesso ou erro claro; nenhuma indefinida | PASS LIVE — 10/10 sucesso |
+| Latência | Mesmas 10 conversas | registrar fila, processamento e total; sem espera multi-minuto sem explicação | PASS OPERACIONAL — amostras reportadas 25–31s; nenhum caso multi-minuto na bateria. Tempos 4–9 não foram discriminados individualmente. |
 | Expand/collapse | 20 ciclos | shell/cabeçalho sempre presentes; sem tela escura intermediária | PASS LIVE — 20/20 |
-| Estabilidade AGORA | 10 min em conversa estável | nenhum card some/reaparece sem evento real | PENDENTE DA JANELA CRONOMETRADA |
-| Estabilidade ANÁLISE | 10 min em conversa estável | nenhuma reanálise automática sem gatilho válido | PENDENTE DA JANELA CRONOMETRADA |
+| Estabilidade AGORA | 10 min em conversa estável | nenhum card some/reaparece sem evento real | PASS LIVE — 10 min estável |
+| Estabilidade ANÁLISE | 10 min em conversa estável | nenhuma reanálise automática sem gatilho válido | PASS LIVE — 10 min sem reanálise automática |
 | MENSAGEM edição | 4 tamanhos + edição livre | sem travar, perder cursor ou sobrescrever rascunho | PASS LIVE — edição livre, cursor, seleção e troca de aba OK |
 | Rótulos | todas as opções | sem truncamento que impeça compreensão | PASS LIVE |
 | Linguagem | AGORA/ANÁLISE/CLIENTE | zero códigos internos/termos técnicos | PASS LIVE UX; REVALIDAR NA BATERIA |
@@ -83,3 +83,18 @@ Aceite informado por Gerson:
 - MENSAGEM: PASS em edição livre.
 
 Resultado: bloco 1 da homologação final concluído sem blocker reproduzível.
+
+
+## Homologação real — bloco 2
+
+Aceite informado por Gerson:
+
+- 10 conversas analisadas: 10/10 sucesso.
+- Tempos explicitamente informados: 28s, 31s, 25s e 29s.
+- As conversas 4–9 foram confirmadas como sucesso, mas os tempos individuais não foram discriminados no relato.
+- Nenhum caso multi-minuto foi reportado nesta bateria.
+- Janela estável de 10 minutos: PASS.
+- AGORA não oscilou sem evento real.
+- ANÁLISE não reiniciou sozinha.
+
+Resultado: bloco 2 concluído sem blocker reproduzível.
