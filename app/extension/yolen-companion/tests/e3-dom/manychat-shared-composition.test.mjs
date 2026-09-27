@@ -303,8 +303,11 @@ test('telefone confiável → NOT_FOUND → formulário compartilhado → confir
   assert.equal(created.ok, true)
 })
 
-test('FNC-01: ManyChat faz leitura realmente nova depois do CREATE sem exigir segundo clique', async () => {
+test('FNC-01: ManyChat não exige segundo clique quando um RESOLVE stale começou antes da confirmação do CREATE', async () => {
   const blockedResolve = deferred()
+  const blockedResolveStarted = deferred()
+  const createGate = deferred()
+
   let blockNextResolve = false
   let leadExists = false
 
@@ -313,7 +316,9 @@ test('FNC-01: ManyChat faz leitura realmente nova depois do CREATE sem exigir se
       if (blockNextResolve) {
         blockNextResolve = false
         const leadExistedWhenRequestStarted = leadExists
+        blockedResolveStarted.resolve()
         await blockedResolve.promise
+
         return leadExistedWhenRequestStarted
           ? linkedResolution({
               name: 'Lead Criado No ManyChat',
@@ -334,8 +339,10 @@ test('FNC-01: ManyChat faz leitura realmente nova depois do CREATE sem exigir se
   const { document, calls } = loadManyChatComposition({
     pageHtml: page({ phone: PHONE_X }),
     resolutionsByPhone,
-    createLeadResult: () => {
+    createLeadResult: async () => {
+      await createGate.promise
       leadExists = true
+
       return {
         ok: true,
         lead_id: 'lead-new',
@@ -347,18 +354,25 @@ test('FNC-01: ManyChat faz leitura realmente nova depois do CREATE sem exigir se
 
   await waitFor(() => document.querySelector('[data-yolen-lead-create-form]'))
 
+  // CREATE iniciado por uma única submissão, mas ainda sem confirmação.
+  submitCreateForm(document, 'Lead Criado No ManyChat')
+  await waitFor(() => createLeadCalls(calls).length === 1)
+
+  // RESOLVE stale começa enquanto o CREATE está em voo.
   blockNextResolve = true
   click(
     document,
     panelOf(document).querySelector('[data-yolen-action="refresh"]'),
   )
+  await blockedResolveStarted.promise
+
+  // CREATE confirma; o RESOLVE antigo continua preso com snapshot NOT_FOUND.
+  createGate.resolve()
 
   await waitFor(
-    () => resolveLeadCalls(calls).length >= 2,
+    () => panelText(document).includes('Lead criado. Atualizando o vínculo...'),
+    { timeoutMs: 4000 },
   )
-
-  submitCreateForm(document, 'Lead Criado No ManyChat')
-  await waitFor(() => createLeadCalls(calls).length === 1)
 
   await sleep(3300)
 
@@ -371,7 +385,7 @@ test('FNC-01: ManyChat faz leitura realmente nova depois do CREATE sem exigir se
   assert.equal(
     retryWasRequiredBeforeRelease,
     false,
-    'ManyChat não pode cair em vínculo pendente quando uma leitura iniciada depois do CREATE já pode enxergar o lead',
+    'ManyChat não pode cair em vínculo pendente por causa de uma leitura stale anterior à confirmação do CREATE',
   )
 
   await waitFor(
