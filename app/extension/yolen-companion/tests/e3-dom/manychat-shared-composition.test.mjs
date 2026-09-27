@@ -927,197 +927,52 @@ function analysisFixture() {
   }
 }
 
-test('ANÁLISE: composer ocupado exige confirmação humana; inserção confirmada escreve no ManyChat e nunca envia', async () => {
-  const { document, window, calls } = loadManyChatComposition({
+test('UX-04: ANÁLISE não oferece composer; MENSAGEM concentra Incluir e Copiar no ManyChat', async () => {
+  const { document, calls } = loadManyChatComposition({
     pageHtml: page(),
     resolutionsByIdentity: { [KEY_X]: linkedResolution({ name: 'Lead Xis', cycleId: CYCLE_X }) },
     ...analysisFixture(),
-  })
-
-  const confirmations = []
-  window.confirm = (text) => {
-    confirmations.push(text)
-    return confirmations.length > 1
-  }
-  let sendClicks = 0
-  document.querySelector('[data-test-id="send"]').addEventListener('click', () => {
-    sendClicks += 1
+    messageGenerationResult: {
+      status: 'ready',
+      message: SUGGESTED,
+      error: null,
+    },
   })
 
   await waitFor(() => ingestCalls(calls).length > 0)
   await waitFor(() => document.querySelector('[data-yolen-action="analyze-conversation"]'))
   click(document, document.querySelector('[data-yolen-action="analyze-conversation"]'))
-  const insertButton = await waitFor(() => document.querySelector('[data-yolen-action="insert-suggested-message"]'), { timeoutMs: 12000 })
-  assert.match(insertButton.textContent, /Inserir no ManyChat/)
 
-  composer(document).value = 'Rascunho do vendedor'
-  click(document, insertButton)
-  await sleep(150)
-  assert.equal(composer(document).value, 'Rascunho do vendedor', 'recusa preserva o rascunho')
-  assert.match(confirmations[0], /O campo do ManyChat já tem texto/)
-
-  click(document, document.querySelector('[data-yolen-action="insert-suggested-message"]'))
-  await waitFor(() => actionCalls(calls, 'REGISTER_MESSAGE_ACTION').some((call) => call.payload?.action === 'inserted'))
-  assert.equal(composer(document).value, SUGGESTED)
-  const inserted = actionCalls(calls, 'REGISTER_MESSAGE_ACTION').find((call) => call.payload?.action === 'inserted')
-  assert.equal(inserted.payload.cycle_id, CYCLE_X)
-  await sleep(300)
-  assert.equal(sendClicks, 0, 'inserir nunca envia')
-})
-
-// ---------------------------------------------------------------------------
-// Mesmo domínio → mesmo estado seller-facing nos dois canais
-// ---------------------------------------------------------------------------
-
-test('mesmo domínio: AGORA, MENSAGEM, ANÁLISE e CLIENTE saem idênticos no WhatsApp e no ManyChat (Core compartilhado, capabilities diferentes)', async () => {
-  const PHONE = '5511988887777'
-  const resolution = defaultLeadResolution({
-    phone: PHONE,
-    lead: { id: 'lead-dominio', name: 'Lead Dominio Compartilhado', phone: PHONE, email: null, cpf_cnpj: null, deleted_at: null },
-    cycle: { id: 'cycle-dominio', status: 'contato', owner_user_id: 'user-1', owner_name: 'Vendedor Teste' },
-  })
-  const domain = {
-    decisionStateResult: defaultAgoraDecisionState(),
-    clientContextResult: defaultClientContext(),
-    leadSummaryResult: defaultLeadSummary(),
-  }
-
-  const whatsApp = loadContentScript({
-    initialHtml: `<!doctype html><html><body><div id="app"><div id="main"><header><span title="+55 11 98888-7777">+55 11 98888-7777</span></header><div id="conversation-body">${buildMessageHtml({ id: 'm1', prePlainText: '[10:00, 21/08/2026] Cliente: ', text: 'Quanto custa o plano?' })}</div><footer><div contenteditable="true" role="textbox" data-lexical-editor="true"></div></footer></div></div></body></html>`,
-    resolutionsByPhone: { [PHONE]: resolution },
-    ...domain,
-  })
-  const manyChat = loadManyChatComposition({
-    pageHtml: page({ messages: [{ mid: 'm1', text: 'Quanto custa o plano?' }] }),
-    resolutionsByIdentity: { [KEY_X]: resolution },
-    ...domain,
-  })
-
-  for (const runtime of [whatsApp, manyChat]) {
-    await waitFor(() => actionCalls(runtime.calls, 'LOAD_CUSTOMER_VIEW_MODEL').length > 0, { timeoutMs: 20000 })
-  }
-  await sleep(1500)
-
-  // As capabilities físicas diferem (Q4) e a verdade comercial não.
-  assert.notDeepEqual(
-    { ...manyChat.sandbox.YolenManyChatChannelAdapter.MANYCHAT_CAPABILITIES },
-    { ...manyChat.sandbox.YolenManyChatChannelAdapter.MANYCHAT_CAPABILITIES, canInterceptSend: true, canProvideDisplayName: true },
+  await waitFor(
+    () => actionCalls(calls, 'GET_ANALYSIS_JOB_STATUS').length > 0,
+    { timeoutMs: 12000 },
   )
+  await sleep(500)
 
-  // Só o nome do canal e as chaves de conversa (dados do canal) diferem.
-  const normalize = (html) =>
-    html
-      .replace(/WhatsApp|ManyChat/g, 'CANAL')
-      .replace(/manychat:[^"'<\s]+|phone:\d+|title:[^"'<\s]+/g, 'CHAVE')
-      .replace(/\s+/g, ' ')
+  assert.equal(document.querySelector('[data-yolen-action="insert-suggested-message"]'), null)
+  assert.equal(document.querySelector('[data-yolen-action="copy-suggested-message"]'), null)
 
-  for (const area of ['now', 'message', 'analysis', 'client']) {
-    const fromWhatsApp = whatsApp.document.querySelector(`[data-yolen-seller-panel="${area}"]`)
-    const fromManyChat = manyChat.document.querySelector(`[data-yolen-seller-panel="${area}"]`)
-    assert.ok(fromWhatsApp && fromManyChat, area)
-    assert.equal(normalize(fromManyChat.innerHTML), normalize(fromWhatsApp.innerHTML), `área ${area} diverge entre canais`)
-  }
-  assert.match(panelText(manyChat.document), /Lead Dominio Compartilhado/)
-})
-
-// ---------------------------------------------------------------------------
-// Composer: indisponível, não confirmado, erro físico, conversa trocada
-// ---------------------------------------------------------------------------
-
-const MESSAGE_TO_INSERT = 'Posso te mandar a proposta do plano anual?'
-
-function messageOptions() {
-  return {
-    resolutionsByIdentity: {
-      [KEY_X]: linkedResolution({ name: 'Lead Xis', cycleId: CYCLE_X }),
-      [KEY_Y]: linkedResolution({ name: 'Lead Ypsilon', cycleId: CYCLE_Y, phone: PHONE_Y }),
-    },
-    messageGenerationResult: { status: 'ready', message: MESSAGE_TO_INSERT, error: null },
-    leadSummaryResult: (_count, request) => ({
-      ok: true,
-      data: {
-        identity: { company_id: 'company-1', lead_id: null, cycle_id: request?.cycle_id, conversation_key: request?.conversation_key },
-        summary: { summary: 'Cliente pediu a proposta.', version: 1, updated_at: '2026-09-20T12:00:00.000Z' },
-        working_summary: 'Cliente pediu a proposta.',
-      },
-    }),
-  }
-}
-
-async function generateMessage(document, window, calls) {
-  await waitFor(() => actionCalls(calls, 'LOAD_LEAD_SUMMARY').length > 0)
-  await waitFor(() => document.querySelector('[data-yolen-seller-area="message"]'))
   click(document, document.querySelector('[data-yolen-seller-area="message"]'))
   await waitFor(() => document.querySelector('[data-yolen-seller-message-intent]'))
+
   const intent = document.querySelector('[data-yolen-seller-message-intent]')
-  intent.value = 'Oferecer a proposta.'
-  intent.dispatchEvent(new window.Event('input', { bubbles: true }))
+  intent.value = 'Responder ao ponto principal do cliente.'
+  intent.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }))
   click(document, document.querySelector('[data-yolen-seller-message-action="generate"]'))
-  return waitFor(() => document.querySelector('[data-yolen-seller-message-action="insert"]'))
-}
 
-test('composer indisponível no ManyChat: estado canônico "Use Copiar", nada escrito', async () => {
-  const { document, window, calls } = loadManyChatComposition({
-    pageHtml: page().replace('<textarea></textarea>', ''),
-    ...messageOptions(),
-  })
+  await waitFor(
+    () => document.querySelector('[data-yolen-seller-message-action="insert"]'),
+    { timeoutMs: 12000 },
+  )
 
-  const insert = await generateMessage(document, window, calls)
-  click(document, insert)
-  await waitFor(() => panelText(document).includes('Não encontrei o campo de mensagem do ManyChat. Use Copiar.'))
-  assert.equal(document.querySelector('footer textarea'), null)
-})
-
-test('inserção não confirmada pelo ManyChat: feedback canônico de não confirmação, nunca "incluída"', async () => {
-  const { document, window, calls } = loadManyChatComposition({ pageHtml: page(), ...messageOptions() })
-
-  // O composer do ManyChat não reflete o valor escrito (verificação falha).
-  Object.defineProperty(composer(document), 'value', { configurable: true, get: () => '', set: () => {} })
-
-  const insert = await generateMessage(document, window, calls)
-  click(document, insert)
-  await waitFor(() => /Não foi possível (confirmar a inserção|incluir automaticamente)\. Use Copiar\./.test(panelText(document)))
-  assert.doesNotMatch(panelText(document), /Mensagem incluída no ManyChat/)
-})
-
-test('erro físico do adapter ao inserir: o Core mostra falha canônica e segue funcional', async () => {
-  const { document, window, calls } = loadManyChatComposition({ pageHtml: page(), ...messageOptions() })
-
-  const insert = await generateMessage(document, window, calls)
-  Object.defineProperty(composer(document), 'value', {
-    configurable: true,
-    get: () => {
-      throw new Error('falha física do DOM do ManyChat')
-    },
-  })
-
-  click(document, insert)
-  await waitFor(() => panelText(document).includes('Não foi possível incluir automaticamente. Use Copiar.'))
-  assert.doesNotMatch(panelText(document), /Mensagem incluída no ManyChat/)
-  // Continua respondendo: a área ainda está montada e copiar segue disponível.
+  assert.equal(
+    document.querySelector('[data-yolen-seller-message-action="insert"]').textContent,
+    'Incluir no ManyChat',
+  )
   assert.ok(document.querySelector('[data-yolen-seller-message-action="copy"]'))
 })
 
-test('conversa trocada no instante da inserção (antes do Core observar): nada é escrito no composer de B', async () => {
-  const runtime = loadManyChatComposition({
-    pageHtml: page(),
-    currentIdentity: () => (runtime?.window?.location?.href === CHAT_B_URL ? KEY_Y : KEY_X),
-    ...messageOptions(),
-  })
-  const { document, window, calls } = runtime
-
-  const insert = await generateMessage(document, window, calls)
-  runtime.navigate(CHAT_B_URL)
-  click(document, insert)
-
-  await sleep(200)
-  assert.equal(composer(document).value, '', 'mensagem de A nunca entra na conversa B')
-  await waitFor(() => panelText(document).includes('Lead Ypsilon'), { timeoutMs: 10000 })
-  assert.equal(composer(document).value, '')
-  assert.doesNotMatch(panelText(document), /Mensagem incluída no ManyChat/)
-})
-
-test('ANÁLISE: erro físico do adapter ao inserir vira falha canônica, sem registro de uso', async () => {
+test('UX-04: ANÁLISE não exibe preview nem ações da mensagem sugerida legada', async () => {
   const { document, calls } = loadManyChatComposition({
     pageHtml: page(),
     resolutionsByIdentity: { [KEY_X]: linkedResolution({ name: 'Lead Xis', cycleId: CYCLE_X }) },
@@ -1127,24 +982,17 @@ test('ANÁLISE: erro físico do adapter ao inserir vira falha canônica, sem reg
   await waitFor(() => ingestCalls(calls).length > 0)
   await waitFor(() => document.querySelector('[data-yolen-action="analyze-conversation"]'))
   click(document, document.querySelector('[data-yolen-action="analyze-conversation"]'))
-  await waitFor(() => document.querySelector('[data-yolen-action="insert-suggested-message"]'), { timeoutMs: 12000 })
-  await sleep(300)
 
-  Object.defineProperty(composer(document), 'value', {
-    configurable: true,
-    get: () => {
-      throw new Error('falha física do DOM do ManyChat')
-    },
-  })
-  click(document, document.querySelector('[data-yolen-action="insert-suggested-message"]'))
+  await waitFor(
+    () => actionCalls(calls, 'GET_ANALYSIS_JOB_STATUS').length > 0,
+    { timeoutMs: 12000 },
+  )
+  await sleep(500)
 
-  // Leitura física do composer falhou: tratada como composer indisponível
-  // pelo Core — nenhuma exceção solta (node:test falha o teste numa
-  // rejeição não tratada), nada registrado como inserido, ação disponível.
-  await sleep(800)
-  assert.equal(actionCalls(calls, 'REGISTER_MESSAGE_ACTION').filter((call) => call.payload?.action === 'inserted').length, 0)
-  assert.ok(document.querySelector('[data-yolen-action="insert-suggested-message"]'))
-  assert.match(panelText(document), /Lead Xis/)
+  assert.equal(document.querySelector('[data-yolen-action="insert-suggested-message"]'), null)
+  assert.equal(document.querySelector('[data-yolen-action="copy-suggested-message"]'), null)
+  assert.doesNotMatch(panelText(document), new RegExp(SUGGESTED.slice(0, 28)))
+  assert.ok(document.querySelector('[data-yolen-action="analyze-conversation"]'))
 })
 
 test('A → B → A: análise de A concluída depois da troca nunca aparece em B nem vira inserção em B', async () => {

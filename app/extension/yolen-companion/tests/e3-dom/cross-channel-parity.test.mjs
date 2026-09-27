@@ -790,7 +790,7 @@ async function clickAnalyze(runtimes) {
   await waitForBoth(runtimes, hasCall('ANALYZE_CONVERSATION'))
 }
 
-test('ANÁLISE loading → ready: mesma leitura comercial, mesma orientação e mesma sugestão nos dois canais', async () => {
+test('ANÁLISE loading → ready: mesma leitura comercial e mesma orientação nos dois canais', async () => {
   const gate = deferred()
   const runtimes = start({
     resolution: leadResolution('OWNED_BY_ME'),
@@ -807,8 +807,8 @@ test('ANÁLISE loading → ready: mesma leitura comercial, mesma orientação e 
   assertParity(runtimes, 'ANÁLISE loading')
 
   gate.resolve()
-  await waitForBoth(runtimes, (runtime) => Boolean(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]')), { timeoutMs: 20000 })
-  await waitForQuiet(runtimes)
+  await waitForBoth(runtimes, hasCall('GET_ANALYSIS_JOB_STATUS'), { timeoutMs: 20000 })
+  await waitForQuiet(runtimes, 1500)
   const snapshots = assertParity(runtimes, 'ANÁLISE ready')
   const analyzePayloads = runtimes.map((runtime) => normalizeParityText(JSON.stringify(coreIntents(runtime).find((intent) => intent.action === 'ANALYZE_CONVERSATION'))))
   assert.equal(analyzePayloads[0], analyzePayloads[1], 'mesmo pedido de análise (mensagens, ciclo, janela)')
@@ -1294,53 +1294,36 @@ function clearComposer(runtime) {
   else node.value = ''
 }
 
-test('A → B → A (inserção e feedback): registro tardio da inserção de A nunca muda B nem A₂ — igual nos dois canais', async () => {
-  const gate = deferred()
-  const conversations = {
-    A: { resolution: conversationResolution('A'), messages: [{ mid: 'm1', text: 'Quanto custa o plano anual?' }] },
-    B: { resolution: conversationResolution('B'), messages: [{ mid: 'm1', text: 'Podemos remarcar?' }] },
-  }
-  const runtimes = startAba(conversations, {
-    analysisResult: QUEUED,
-    analysisJobStatusResult: jobStatus('succeeded'),
-    messageActionResult: async (payload) => {
-      if (payload?.action === 'inserted' && isConversationA(payload)) await gate.promise
-      return { ok: true, data: { already_registered: false } }
-    },
+test('UX-04: ANÁLISE não oferece Inserir/Copiar e MENSAGEM oferece as duas ações nos dois canais', async () => {
+  const runtimes = start({
+    resolution: leadResolution('OWNED_BY_ME'),
+    backend: baseBackend({
+      analysisResult: QUEUED,
+      analysisJobStatusResult: jobStatus('succeeded'),
+      messageGenerationResult: {
+        status: 'ready',
+        message: GENERATED_MESSAGE,
+        error: null,
+      },
+    }),
   })
 
   await clickAnalyze(runtimes)
-  await waitForBoth(runtimes, (runtime) => Boolean(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]')), { timeoutMs: 20000 })
-  everyRuntime(runtimes, (runtime) => click(runtime, runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]')))
-  await waitForBoth(runtimes, (runtime) => registerCalls(runtime, 'inserted').length === 1)
-  everyRuntime(runtimes, (runtime) => {
-    assert.equal(composerText(runtime).trim(), GENERATED_MESSAGE, 'inserção em A acontece normalmente')
-    assert.equal(registerCalls(runtime, 'inserted')[0].payload.cycle_id, 'cycle-conv-a')
-  })
-
-  everyRuntime(runtimes, (runtime) => {
-    clearComposer(runtime)
-    switchParityConversation(runtime, 'B')
-  })
-  await settle(runtimes, areasLoadedFor('cycle-conv-b', 'Lead Beta'))
-
-  gate.resolve()
-  await sleep(600)
+  await waitForBoth(runtimes, hasCall('GET_ANALYSIS_JOB_STATUS'), { timeoutMs: 20000 })
   await waitForQuiet(runtimes)
-  assertParity(runtimes, 'inserção: B depois do registro tardio de A', { levels: ['canonical', 'view'], cycleId: 'cycle-conv-b' })
+
   everyRuntime(runtimes, (runtime) => {
-    assert.equal(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]'), null, 'sugestão de A nunca oferecida em B')
-    assert.doesNotMatch(panelText(runtime), /Mensagem incluída/)
-    assert.equal(composerText(runtime).trim(), '', 'nada é escrito no campo de B')
+    assert.equal(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]'), null)
+    assert.equal(runtime.document.querySelector('[data-yolen-action="copy-suggested-message"]'), null)
+    click(runtime, runtime.document.querySelector('[data-yolen-seller-area="message"]'))
   })
 
-  everyRuntime(runtimes, (runtime) => switchParityConversation(runtime, 'A'))
-  await settle(runtimes, areasLoadedFor('cycle-conv-a', 'Lead Alfa'))
-  assertParity(runtimes, 'inserção: A₂', { levels: ['canonical', 'view'], cycleId: 'cycle-conv-a' })
+  await generateMessage(runtimes)
+  assertParity(runtimes, 'UX-04 MENSAGEM concentra ações')
+
   everyRuntime(runtimes, (runtime) => {
-    assert.equal(registerCalls(runtime, 'inserted').length, 1, 'o registro tardio não é repetido')
-    assert.equal(registerCalls(runtime, 'sent').length, 0, 'inserir nunca envia')
-    assert.doesNotMatch(panelText(runtime), /Lead Beta/)
+    assert.ok(runtime.document.querySelector('[data-yolen-seller-message-action="insert"]'))
+    assert.ok(runtime.document.querySelector('[data-yolen-seller-message-action="copy"]'))
   })
 })
 
