@@ -6196,11 +6196,6 @@ function createCompanionCore(ctx) {
       `
     }
 
-    const messageAvailable =
-      Boolean(
-        getSuggestedMessage(),
-      )
-
     const applyButton =
       canApplyCurrentSuggestion()
         ? `
@@ -6216,37 +6211,13 @@ function createCompanionCore(ctx) {
         `
         : ''
 
-    const insertMessageButton =
-      messageAvailable
-        ? `
-          <button
-            class="${applyButton ? 'yolen-secondary-button' : 'yolen-primary-button'}"
-            type="button"
-            data-yolen-action="insert-suggested-message"
-          >
-            Inserir no ${escapeHtml(platformDisplayName)}
-          </button>
-        `
-        : ''
-
-    const copyMessageButton =
-      messageAvailable
-        ? `
-          <button
-            class="yolen-secondary-button"
-            type="button"
-            data-yolen-action="copy-suggested-message"
-          >
-            Copiar mensagem
-          </button>
-        `
-        : ''
-
+    // UX-04 — ANÁLISE explica e mantém apenas ações analíticas/operacionais.
+    // Inserir/copiar mensagem pertence exclusivamente ao composer de
+    // MENSAGEM (companion-message-controller.js), que já possui os mesmos
+    // guards de conversa e nunca envia automaticamente.
     return `
       ${applyButton}
       ${transcribeAudioButton}
-      ${insertMessageButton}
-      ${copyMessageButton}
 
       <button
         class="yolen-tertiary-button"
@@ -6571,8 +6542,6 @@ function createCompanionCore(ctx) {
         ${getOperationalSuggestionHtml()}
 
         ${getAudioTranscriptionHtml()}
-
-        ${getSuggestedMessageHtml()}
 
         <div class="yolen-inline-actions yolen-decision-actions">
           ${getAnalysisActionButton()}
