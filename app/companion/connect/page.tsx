@@ -10,20 +10,11 @@ type CompanionRole = 'admin' | 'manager' | 'member'
 
 type CompanyMembershipRow = {
   company_id: string
+  company_name: string | null
+  trade_name: string | null
+  legal_name: string | null
   role: CompanionRole
   is_active: boolean
-  companies:
-    | {
-        name: string | null
-        trade_name: string | null
-        legal_name: string | null
-      }
-    | {
-        name: string | null
-        trade_name: string | null
-        legal_name: string | null
-      }[]
-    | null
 }
 
 type ConnectResult =
@@ -135,14 +126,10 @@ function createCompanionToken(payload: {
 }
 
 function getCompanyName(membership: CompanyMembershipRow) {
-  const rawCompany = Array.isArray(membership.companies)
-    ? membership.companies[0] ?? null
-    : membership.companies
-
   return (
-    rawCompany?.trade_name ||
-    rawCompany?.name ||
-    rawCompany?.legal_name ||
+    membership.trade_name ||
+    membership.company_name ||
+    membership.legal_name ||
     'Empresa sem nome'
   )
 }
@@ -196,24 +183,14 @@ async function buildCompanionConnection(): Promise<ConnectResult> {
       }
     }
 
-    const { data: membership, error: membershipError } = await supabase
-      .from('company_memberships')
-      .select(
-        `
-        company_id,
-        role,
-        is_active,
-        companies (
-          name,
-          trade_name,
-          legal_name
-        )
-      `,
-      )
-      .eq('company_id', activeCompanyId)
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .maybeSingle<CompanyMembershipRow>()
+    const { data: membershipsData, error: membershipError } = await supabase.rpc(
+      'get_user_company_memberships',
+    )
+
+    const membership =
+      ((membershipsData ?? []) as CompanyMembershipRow[]).find(
+        (company) => company.company_id === activeCompanyId,
+      ) ?? null
 
     if (membershipError) {
       return {
