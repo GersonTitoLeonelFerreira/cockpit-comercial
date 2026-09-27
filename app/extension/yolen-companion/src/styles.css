@@ -2414,3 +2414,258 @@ html.yolen-companion-collapsed #app {
   font-size: 11.5px;
   line-height: 1.4;
 }
+
+
+/* YOLEN UX-01–04 — SELLER-FACING VISUAL DIRECTION */
+
+#yolen-companion-panel {
+  --yolen-ux-bg: #0b1220;
+  --yolen-ux-surface: #142033;
+  --yolen-ux-surface-elevated: #1d2d46;
+  --yolen-ux-text: #eff4ff;
+  --yolen-ux-text-secondary: #b5c4dc;
+  --yolen-ux-text-muted: #9badca;
+  --yolen-ux-action: #2359d9;
+  --yolen-ux-accent: #79b4ff;
+  --yolen-ux-focus: #b1d0ff;
+  --yolen-ux-border: rgba(181, 196, 220, 0.14);
+  --yolen-ux-motion-fast: 140ms;
+  --yolen-ux-motion-standard: 180ms;
+
+  background:
+    radial-gradient(circle at 18% 0%, rgba(35, 89, 217, 0.16), transparent 30%),
+    linear-gradient(180deg, #0b1220 0%, #08101c 100%);
+  color: var(--yolen-ux-text);
+  border-left-color: var(--yolen-ux-border);
+  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.34);
+}
+
+#yolen-companion-panel :focus-visible {
+  outline: 2px solid var(--yolen-ux-focus);
+  outline-offset: 2px;
+}
+
+.yolen-panel-header-final {
+  border-bottom-color: var(--yolen-ux-border);
+  background: rgba(11, 18, 32, 0.94);
+}
+
+.yolen-title,
+.yolen-lead-name,
+.yolen-card-title,
+.yolen-seller-section-heading h3,
+.yolen-message-objective-title,
+.yolen-message-result-text {
+  color: var(--yolen-ux-text);
+}
+
+.yolen-subtitle,
+.yolen-card-description,
+.yolen-seller-detail-copy,
+.yolen-method-adherence-copy,
+.yolen-method-stage-copy,
+.yolen-message-objective-help,
+.yolen-message-feedback,
+.yolen-message-footnote {
+  color: var(--yolen-ux-text-secondary);
+}
+
+.yolen-section-label,
+.yolen-decision-kicker,
+.yolen-seller-section-eyebrow,
+.yolen-seller-detail-label,
+.yolen-seller-evidence {
+  color: var(--yolen-ux-text-muted);
+}
+
+.yolen-card,
+.yolen-message-objective-card,
+.yolen-message-result-card {
+  border-color: var(--yolen-ux-border);
+  background: rgba(20, 32, 51, 0.78);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
+}
+
+.yolen-seller-insight,
+.yolen-now-snapshot,
+.yolen-now-attention,
+.yolen-message-status {
+  border-color: var(--yolen-ux-border);
+  background: rgba(11, 18, 32, 0.56);
+}
+
+.yolen-seller-tabs {
+  border-color: var(--yolen-ux-border);
+  background: rgba(8, 16, 28, 0.68);
+  box-shadow: inset 0 1px 0 rgba(239, 244, 255, 0.025);
+}
+
+.yolen-seller-tab {
+  color: var(--yolen-ux-text-muted);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  transition:
+    color var(--yolen-ux-motion-fast) ease,
+    background var(--yolen-ux-motion-fast) ease,
+    border-color var(--yolen-ux-motion-fast) ease;
+}
+
+.yolen-seller-tab:hover {
+  color: var(--yolen-ux-text);
+  background: rgba(35, 89, 217, 0.10);
+}
+
+.yolen-seller-tab--active {
+  color: var(--yolen-ux-text);
+  border-color: rgba(121, 180, 255, 0.34);
+  background: rgba(35, 89, 217, 0.28);
+  box-shadow: 0 5px 14px rgba(35, 89, 217, 0.14);
+}
+
+.yolen-primary-button {
+  color: #ffffff;
+  background: linear-gradient(135deg, #2359d9 0%, #3575ee 100%);
+  box-shadow: 0 10px 24px rgba(35, 89, 217, 0.24);
+  transition:
+    filter var(--yolen-ux-motion-fast) ease,
+    transform var(--yolen-ux-motion-fast) ease;
+}
+
+.yolen-primary-button:hover {
+  filter: brightness(1.08);
+}
+
+.yolen-secondary-button,
+.yolen-icon-button {
+  color: var(--yolen-ux-text-secondary);
+  border-color: var(--yolen-ux-border);
+  background: rgba(20, 32, 51, 0.72);
+  transition:
+    color var(--yolen-ux-motion-fast) ease,
+    background var(--yolen-ux-motion-fast) ease,
+    border-color var(--yolen-ux-motion-fast) ease;
+}
+
+.yolen-secondary-button:hover,
+.yolen-icon-button:hover {
+  color: var(--yolen-ux-text);
+  border-color: rgba(121, 180, 255, 0.36);
+  background: rgba(29, 45, 70, 0.86);
+}
+
+.yolen-tertiary-button {
+  color: var(--yolen-ux-text-muted);
+}
+
+.yolen-tertiary-button:hover {
+  color: var(--yolen-ux-text-secondary);
+}
+
+.yolen-now-attention {
+  margin-top: 0;
+  padding: 14px;
+  border-radius: 14px;
+}
+
+.yolen-now-attention-decision {
+  color: var(--yolen-ux-text);
+  font-size: 14px;
+  font-weight: 780;
+  line-height: 1.42;
+}
+
+.yolen-now-attention-action {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--yolen-ux-border);
+  color: var(--yolen-ux-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.yolen-now-attention-action > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--yolen-ux-accent);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.yolen-now-attention--information {
+  border-color: rgba(121, 180, 255, 0.28);
+  background: rgba(35, 89, 217, 0.12);
+}
+
+.yolen-now-attention--warning {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: rgba(146, 64, 14, 0.10);
+}
+
+.yolen-now-attention--risk {
+  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(127, 29, 29, 0.11);
+}
+
+.yolen-now-rationale {
+  margin-top: 10px;
+}
+
+.yolen-now-rationale-main {
+  margin-top: 0;
+  padding: 11px 12px;
+  border-left: 2px solid rgba(121, 180, 255, 0.48);
+  border-radius: 0 10px 10px 0;
+  background: rgba(35, 89, 217, 0.07);
+}
+
+.yolen-now-secondary-details {
+  margin-top: 10px;
+}
+
+.yolen-seller-secondary-details > summary,
+.yolen-client-intelligence-group > summary,
+.yolen-client-timeline > summary {
+  color: var(--yolen-ux-text-secondary);
+  transition: color var(--yolen-ux-motion-fast) ease;
+}
+
+.yolen-seller-secondary-details > summary:hover,
+.yolen-client-intelligence-group > summary:hover,
+.yolen-client-timeline > summary:hover {
+  color: var(--yolen-ux-text);
+}
+
+.yolen-message-preset--active {
+  border-color: rgba(121, 180, 255, 0.52);
+  background: rgba(35, 89, 217, 0.22);
+  color: var(--yolen-ux-text);
+}
+
+.yolen-message-intent {
+  border-color: var(--yolen-ux-border);
+  background: #0d1726;
+  color: var(--yolen-ux-text);
+}
+
+.yolen-message-intent:focus {
+  border-color: rgba(121, 180, 255, 0.70);
+  box-shadow: 0 0 0 3px rgba(35, 89, 217, 0.16);
+}
+
+.yolen-message-result-label {
+  color: var(--yolen-ux-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #yolen-companion-panel *,
+  #yolen-companion-panel *::before,
+  #yolen-companion-panel *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
