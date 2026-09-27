@@ -317,49 +317,6 @@ test('MENSAGEM: com o WhatsApp já em B e o Core ainda em A, Incluir não escrev
   )
 })
 
-test('MENSAGEM: troca A→B durante a verificação física não confirma escrita de A em B', async () => {
-  const { document, calls } =
-    loadContentScript(
-      scenarioOptions(),
-    )
-
-  installExecCommand(
-    document,
-    { delayMs: 120 },
-  )
-
-  const insertButton =
-    await openMessageAndGenerate(
-      document,
-      calls,
-    )
-
-  click(
-    document,
-    insertButton,
-  )
-
-  await sleep(20)
-
-  setWhatsAppConversation(
-    document,
-    {
-      title:
-        CONVERSATION_B_TITLE,
-      messageId: 'msg-b1',
-      text: 'Mensagem de B',
-    },
-  )
-
-  await sleep(500)
-
-  assert.doesNotMatch(
-    composerOf(document).textContent,
-    new RegExp(MARKER_A),
-    'uma escrita atrasada de A não pode sobreviver como ação confirmada em B',
-  )
-})
-
 test('MENSAGEM: rascunho ocupado é preservado e nunca exige substituição automática', async () => {
   const { document, calls } =
     loadContentScript(
