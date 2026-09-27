@@ -4,7 +4,9 @@ Registro do pacote de estabilização de interface do Yolen Companion
 (FNC-03, FNC-04, MSG-01). **Não é uma nova FASE.** Nenhuma arquitetura nova,
 nenhum redesign, nenhum backend, nenhuma flag/rollout alterados.
 
-**STATUS: GREEN técnico — LIVE ACCEPTANCE PENDENTE (Gerson).**
+**STATUS: GREEN técnico.** Live (Gerson, Firefox real): FNC-03 **PASS**,
+FNC-04 **PASS**, MSG-01 **PARCIAL** (seleção de trecho com o mouse) →
+correção focal pós-live na §14; **live focal da seleção PENDENTE**.
 
 ## 1. Estado inicial (auditoria antes de editar)
 
@@ -396,3 +398,127 @@ Não alterados: adapters (WhatsApp/ManyChat), bootstrap, views, runtimes de
 estabilidade, backend (`app/lib`, `app/api`), `supabase/`, manifest, build,
 feature flags, ledger, transcrição, identidade, envio. Commits:
 `54499c6b` (código + testes) e o commit deste registro.
+
+## 14. Correção focal pós-live — MSG-01: seleção de trecho com o mouse
+
+### 14.1 Estado e auditoria
+
+| Item | Valor |
+|---|---|
+| Branch | `claude/companion-ui-stability-p0` (a mesma) |
+| HEAD antes (local = remoto) | `3f25847ed5ebef34ab2e4b6421e0db31ecfa0ce3`; árvore limpa |
+| Live anterior | FNC-03 PASS; FNC-04 PASS; MSG-01 PARCIAL — digitação, Backspace, Delete, cursor por clique, abas, minimizar/expandir, Cmd+A, copiar/apagar tudo: PASS; **arrastar o mouse sobre parte do texto não seleciona** |
+
+### 14.2 Reprodução e causa comprovada
+
+Diagnóstico nas composições reais dos dois canais: `Event.prototype.preventDefault`
+instrumentado registrou quem cancela eventos na textarea da MENSAGEM durante
+`pointerdown → mousedown → selectstart → mousemove → mouseup`.
+
+| Evento | WhatsApp | ManyChat | Quem cancela |
+|---|---|---|---|
+| `pointerdown`, `selectstart`, `pointermove`, `mousemove`, `pointerup`, `mouseup` | ação padrão permitida | ação padrão permitida | — |
+| `mousedown` | **CANCELADO** | **CANCELADO** | `panel-stability-runtime.js:948` (listener `mousedown` em captura no `document`) |
+
+- **Evento físico:** botão do mouse pressionado sobre
+  `[data-yolen-seller-message-intent]`.
+- **Listener:** `panel-stability-runtime.js`, `mousedown` em captura:
+  registrava a trava `intent`, chamava `event.preventDefault()` e focava o
+  campo manualmente com `focus({ preventScroll: true })`, restaurando o
+  scroll do workspace. Pré-existente (já na `main` `3a76df9c`; o pacote P0
+  não tinha tocado nos runtimes).
+- **Mecanismo:** a ação padrão do `mousedown` num campo de texto é focar,
+  posicionar o cursor e **iniciar a seleção por arrasto**. Cancelada, o
+  Firefox não inicia o arrasto (sem estado de arrasto, movimento não
+  estende seleção); no `mouseup` ele ainda posiciona o cursor no ponto de
+  soltura. Por isso o live viu clique posicionando o cursor (PASS) e arrasto
+  sem seleção (FAIL); Cmd+A e Shift+setas não passam por `mousedown`.
+- Descartados: CSS (`user-select: none` só em `.yolen-rich-details-summary`
+  do CLIENTE; o contador sobre a textarea tem `pointer-events: none`),
+  `selectstart` (nenhum listener), locks por região do Core (só ações:
+  botões/abas), `ux8-interaction-consistency-runtime.js` (só abas),
+  reconciliação do composer (não recria o campo; a seleção sobrevive a
+  renders — provado abaixo).
+
+### 14.3 Correção (1 arquivo de produção)
+
+`src/panel-stability-runtime.js`: o `mousedown` no campo de intenção é
+**edição nativa de texto**, não interação de controle — deixa de ser
+cancelado; o listener só registra a trava de interação do campo. A posição
+de leitura do workspace continua protegida pelo lock de campo editável
+(`editable-field-stability-runtime.js`: scroll registrado no `pointerdown`
+e restaurado no `focusin`). Nenhuma outra proteção `pointerdown→click`
+(botões, abas, minimizar/expandir) foi alterada; nenhum runtime desativado;
+nenhum CSS; nenhum timeout.
+
+### 14.4 Testes
+
+`tests/e3-dom/product-stability-p0-message-selection.test.mjs` (WhatsApp e
+ManyChat). O fluxo físico `pointerdown → mousedown → movimento → mouseup` é
+dirigido por `mouseSelectText()` (`e3-test-support/product-stability.mjs`),
+que aplica a semântica do navegador que o jsdom não tem: ação padrão do
+mousedown (foco, cursor, início do arrasto) só se não cancelado; arrasto
+estende a seleção; com mousedown cancelado, cursor no ponto de soltura
+(Firefox). `pressKeyInField()` aplica a ação padrão de tecla sobre a seleção.
+
+| Caso | RED (`3f25847e`) | GREEN |
+|---|---|---|
+| clique simples posiciona o cursor (controle, igual ao live) | PASS ×2 | PASS ×2 |
+| arrastar sobre uma palavra no meio do texto; seleção sobrevive a render de fundo | FAIL ×2 (`40 !== 35`: só cursor no ponto de soltura) | PASS ×2 |
+| arrastar da direita para a esquerda sobre várias palavras (`selectionDirection` `backward`) | FAIL ×2 | PASS ×2 |
+| digitar substitui a seleção; "Gerar mensagem" envia o texto novo | FAIL ×2 (`…preçoX…`: inseriu em vez de substituir) | PASS ×2 |
+| Delete sobre a seleção | FAIL ×2 (apagou 1 caractere) | PASS ×2 |
+| Backspace sobre a seleção | FAIL ×2 (apagou 1 caractere) | PASS ×2 |
+
+RED: 12 testes, 2 pass (controles), 10 fail. GREEN: 12/12.
+
+### 14.5 Gates (código `e6b06b75`)
+
+`T=app/extension/yolen-companion/tests`. Rodada sequencial em
+2026-09-27, 04:22Z → 04:31Z.
+
+| # | Gate | Comando | Resultado |
+|---|---|---|---|
+| 1 | Focal seleção (RED → GREEN) | `node --test --test-force-exit $T/e3-dom/product-stability-p0-message-selection.test.mjs` | 2/12 → **12/12** |
+| 2 | MSG-01 completo + FNC-03 + FNC-04 (focais) | `… product-stability-p0-message-draft`, `…-message-selection`, `…-expand-collapse`, `…-analysis-triggers` | 48/48 |
+| 3 | E3 relevante (scroll, campo editável, MENSAGEM, runtime UX8, locks de região, elegibilidade) | 9 arquivos E3 | 57/57 |
+| 4 | Unitários dos runtimes e contratos | `panel-render-stability`, `ux8-scroll-owner-structure`, `message-controller-contract`, `ux8-message-design-structure` | 47/47 |
+| 5 | test:companion (falhas conhecidas) | `node scripts/companion-known-failures-gate.mjs companion` | 2282 testes, 2278 pass — **4 known, 0 new** |
+| 6 | Autorização | `npm run test:companion-authorization` | 266/266 |
+| 7 | E3 oficial (inclui paridade 51, A→B→A, scroll F11-01, FNC-03/FNC-04/MSG-01) | `node scripts/companion-known-failures-gate.mjs e3` | **404/404** (392 + 12 novos); 0 known, 0 new |
+| 8 | Arquitetura | `node --test $T/companion-core-architecture-gates.test.mjs` | 53/53; NEW 0, STALE 0, LEGACY 0 |
+| 9 | Composição só-canal ManyChat | `node --test --test-force-exit $T/manychat-channel-only-architecture.test.mjs` | 6/6 |
+| 10 | TypeScript | `./node_modules/.bin/tsc --noEmit` | PASS |
+| 11 | Lint | `npx eslint` nos 3 arquivos tocados; `npx eslint . --ignore-pattern "dist/**"` | 0/0 nos tocados; global 56 errors / 51 warnings = baseline da `main` |
+| 12 | Build normal + validador | `build-package.mjs` + `validate-release-candidate.mjs` | PASS; ManyChat **false** em dev e prod |
+| 13 | Build E2E + validador | `build-package.mjs --e2e` + `validate-release-candidate.mjs --e2e` | PASS (HEAD final); ManyChat true só no E2E |
+| 14 | Whitespace | `git diff --check` | PASS |
+
+### 14.6 Arquivos
+
+| Arquivo | Tipo |
+|---|---|
+| `app/extension/yolen-companion/src/panel-stability-runtime.js` | produção (runtime compartilhado) |
+| `app/extension/yolen-companion/tests/e3-test-support/product-stability.mjs` | suporte de teste (`mouseSelectText`, `pressKeyInField`) |
+| `app/extension/yolen-companion/tests/e3-dom/product-stability-p0-message-selection.test.mjs` | teste focal (novo) |
+| `docs/companion-universal/PRODUCT_STABILITY_P0_UI_EXECUTION.md` | este registro |
+
+Nenhum teste antigo alterado. Nenhuma allowlist.
+
+### 14.7 Build E2E e live focal (pendente — Gerson)
+
+Pacote gerado do HEAD final da branch (diferença de `e6b06b75` só de
+documentação): `Yolen Companion [E2E] <sha8 do HEAD da branch>`, manifest
+`dist/yolen-companion/e2e/firefox/staging/manifest.json`, ManyChat ON só no
+E2E. Nome exato no relatório final.
+
+1. **Seleção com o mouse:** MENSAGEM, digitar uma frase; arrastar sobre uma
+   palavra no meio; depois sobre várias palavras, da direita para a
+   esquerda; esperar ~1 min com a seleção ativa. Esperado: o trecho fica
+   destacado e continua selecionado; clique simples ainda posiciona o
+   cursor.
+2. **Substituir/apagar:** selecionar um trecho e digitar (substitui);
+   selecionar e Delete; selecionar e Backspace; selecionar e copiar/colar.
+   Clicar "Gerar mensagem" — usa o texto atual.
+3. **A→B→A:** rascunho em A → abrir B (campo vazio, nada de A) → voltar a A
+   (campo vazio pela política; nada de B).
