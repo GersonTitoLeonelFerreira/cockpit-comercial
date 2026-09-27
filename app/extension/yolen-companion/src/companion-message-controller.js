@@ -236,16 +236,10 @@ function createCompanionMessageController({
   }
 
   function shortPresetLabel(value) {
-    const normalized = String(value || '')
+    return String(value || '')
       .replace(/^Quero\s+/i, '')
       .replace(/[.]$/, '')
       .trim()
-
-    if (normalized.length <= 26) {
-      return normalized
-    }
-
-    return `${normalized.slice(0, 25).trim()}…`
   }
 
   const INTENT_MAX_LENGTH = 1000

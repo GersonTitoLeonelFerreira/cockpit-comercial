@@ -197,6 +197,36 @@ test('a barra de abas usa grid de 4 colunas — achado da inspeção visual dest
   assert.match(block, /grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/)
 })
 
+test('MSG-02: atalhos de objetivo não truncam o texto e podem quebrar linha', () => {
+  const labelStart = sellerRuntime.indexOf(
+    'function shortPresetLabel(value)',
+  )
+  const labelEnd = sellerRuntime.indexOf(
+    'const INTENT_MAX_LENGTH',
+    labelStart,
+  )
+  const labelBlock = sellerRuntime.slice(
+    labelStart,
+    labelEnd,
+  )
+
+  assert.notEqual(labelStart, -1)
+  assert.doesNotMatch(labelBlock, /slice\(0,\s*25\)/)
+  assert.doesNotMatch(labelBlock, /…/)
+  assert.match(labelBlock, /\.trim\(\)/)
+
+  const { start, block } = cssBlock(
+    styles,
+    '.yolen-message-preset {',
+  )
+
+  assert.notEqual(start, -1)
+  assert.match(block, /white-space:\s*normal/)
+  assert.match(block, /overflow-wrap:\s*anywhere/)
+  assert.match(block, /text-align:\s*left/)
+  assert.doesNotMatch(block, /text-overflow:\s*ellipsis/)
+})
+
 test('presets continuam vindo da orientação contextual (getPresets), com estado ativo calculado, não strings fixas', () => {
   assert.doesNotMatch(
     sellerRuntime,

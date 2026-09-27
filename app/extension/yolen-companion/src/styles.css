@@ -2105,17 +2105,18 @@ html.yolen-companion-collapsed #app {
 
 .yolen-message-preset {
   max-width: 100%;
-  overflow: hidden;
   border: 1px solid rgba(126, 153, 194, 0.25);
-  border-radius: 999px;
+  border-radius: 12px;
   background: rgba(21, 36, 57, 0.65);
   color: #cfe1f7;
   padding: 7px 12px;
   font: inherit;
   font-size: 11px;
   font-weight: 700;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
   cursor: pointer;
 }
 
