@@ -557,6 +557,8 @@ export async function POST(request: Request) {
               diagnostic_input:
                 reasoningBundle
                   .diagnostic_input,
+              seller_intent:
+                sellerIntent,
             })
           : null
 
