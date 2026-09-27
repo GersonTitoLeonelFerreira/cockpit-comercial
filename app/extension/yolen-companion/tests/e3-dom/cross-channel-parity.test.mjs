@@ -764,6 +764,27 @@ function jobStatus(status) {
       analysis_job_id: JOB_ID,
       status,
       message_watermark: 'wm-1',
+      attempt_count:
+        status === 'queued' ? 0 : 1,
+      requested_at: '2026-09-27T12:00:00.000Z',
+      started_at:
+        status === 'queued'
+          ? null
+          : '2026-09-27T12:00:05.000Z',
+      completed_at:
+        status === 'succeeded' ||
+        status === 'failed' ||
+        status === 'superseded'
+          ? '2026-09-27T12:00:25.000Z'
+          : null,
+      timings: {
+        queue_wait_ms: 5000,
+        processing_ms:
+          status === 'queued'
+            ? null
+            : 20000,
+        total_ms: 25000,
+      },
       result: status === 'succeeded'
         ? {
             contract_version: 'phase12a-deep-seller-v1',
@@ -846,6 +867,116 @@ test('ANÁLISE timeout (watchdog): mesmo estado e mesmo retry nos dois canais', 
   everyRuntime(runtimes, (runtime) => {
     assert.equal(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]'), null)
     assert.ok(runtime.document.querySelector('[data-yolen-action="analyze-conversation"]'), 'retry disponível')
+  })
+})
+
+test('FNC-02: job ainda queued após a janela ativa sai do spinner para estado neutro e pode ser verificado de novo', async () => {
+  let allowSuccess = false
+
+  const runtimes = start(
+    {
+      resolution: leadResolution('OWNED_BY_ME'),
+      backend: baseBackend({
+        analysisResult: QUEUED,
+        analysisJobStatusResult: () =>
+          allowSuccess
+            ? jobStatus('succeeded')
+            : jobStatus('queued'),
+      }),
+    },
+    {
+      beforeLoad: ({ dom }) => {
+        dom.window.__yolenCompanionDeepAnalysisPollTimeoutMsForTests = 450
+      },
+    },
+  )
+
+  await clickAnalyze(runtimes)
+
+  await waitForBoth(
+    runtimes,
+    (runtime) =>
+      Boolean(
+        runtime.document.querySelector(
+          '[data-yolen-analysis-pending]',
+        ),
+      ),
+    { timeoutMs: 5000 },
+  )
+
+  await waitForQuiet(runtimes)
+
+  assertParity(
+    runtimes,
+    'FNC-02 queued recuperável',
+  )
+
+  everyRuntime(runtimes, (runtime) => {
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-loading]',
+      ),
+      null,
+      'spinner contínuo precisa terminar',
+    )
+
+    assert.match(
+      panelText(runtime),
+      /continua na fila da Yolen/,
+    )
+
+    const retry =
+      runtime.document.querySelector(
+        '[data-yolen-action="analyze-conversation"]',
+      )
+
+    assert.ok(retry)
+    assert.match(
+      retry.textContent,
+      /Verificar análise/,
+    )
+  })
+
+  allowSuccess = true
+
+  everyRuntime(runtimes, (runtime) =>
+    click(
+      runtime,
+      runtime.document.querySelector(
+        '[data-yolen-action="analyze-conversation"]',
+      ),
+    ),
+  )
+
+  await waitForBoth(
+    runtimes,
+    (runtime) =>
+      /Resumo profundo/.test(
+        panelText(runtime),
+      ),
+    { timeoutMs: 10000 },
+  )
+
+  await waitForQuiet(runtimes)
+
+  assertParity(
+    runtimes,
+    'FNC-02 queued → verificação → succeeded',
+  )
+
+  everyRuntime(runtimes, (runtime) => {
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-pending]',
+      ),
+      null,
+    )
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-loading]',
+      ),
+      null,
+    )
   })
 })
 

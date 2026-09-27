@@ -670,6 +670,8 @@ function createCompanionCore(ctx) {
     automaticAnalysisStatus: null,
     deepAnalysisStatus: null,
     deepAnalysisResult: null,
+    deepAnalysisTimings: null,
+    deepAnalysisNotice: null,
     // CLIENTE precisa continuar mostrando a última inteligência comercial
     // válida enquanto uma nova tentativa de análise (automática ou manual)
     // está em voo ou termina em erro — ver getLastKnownClientCommercialReading.
@@ -6117,6 +6119,18 @@ function createCompanionCore(ctx) {
       `
     }
 
+    if (state.deepAnalysisNotice) {
+      return `
+        <button
+          class="yolen-primary-button"
+          type="button"
+          data-yolen-action="analyze-conversation"
+        >
+          Verificar análise
+        </button>
+      `
+    }
+
     const totalAudioCount =
       Number(
         state.audioCount || 0,
@@ -6571,10 +6585,25 @@ function createCompanionCore(ctx) {
   // leitura persistida válida na tela.
   function getAnalysisJobStatusLineHtml() {
     if (state.conversationAnalysisLoading) {
+      const loadingCopy =
+        state.deepAnalysisStatus === 'queued'
+          ? 'A análise está na fila da Yolen…'
+          : state.deepAnalysisStatus === 'running'
+            ? 'A Yolen está processando esta conversa…'
+            : 'Analisando sua condução comercial…'
+
       return `
         <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
           ${getInlineSpinnerHtml()}
-          Analisando sua condução comercial…
+          ${escapeHtml(loadingCopy)}
+        </div>
+      `
+    }
+
+    if (state.deepAnalysisNotice) {
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-analysis-pending role="status" aria-live="polite">
+          ${escapeHtml(state.deepAnalysisNotice)}
         </div>
       `
     }
@@ -6648,12 +6677,34 @@ function createCompanionCore(ctx) {
     }
 
     if (state.conversationAnalysisLoading) {
+      const loadingCopy =
+        state.deepAnalysisStatus === 'queued'
+          ? 'A análise está na fila da Yolen…'
+          : state.deepAnalysisStatus === 'running'
+            ? 'A Yolen está processando esta conversa…'
+            : 'Analisando sua condução comercial…'
+
       return `
         <div class="yolen-card yolen-seller-area-card">
           <div class="yolen-section-label">Análise</div>
           <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
             ${getInlineSpinnerHtml()}
-            Analisando sua condução comercial…
+            ${escapeHtml(loadingCopy)}
+          </div>
+
+          <div class="yolen-inline-actions yolen-decision-actions">
+            ${getAnalysisActionButton()}
+          </div>
+        </div>
+      `
+    }
+
+    if (state.deepAnalysisNotice) {
+      return `
+        <div class="yolen-card yolen-seller-area-card">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-pending role="status" aria-live="polite">
+            ${escapeHtml(state.deepAnalysisNotice)}
           </div>
 
           <div class="yolen-inline-actions yolen-decision-actions">
@@ -8552,6 +8603,8 @@ function createCompanionCore(ctx) {
               automaticAnalysisStatus: null,
               deepAnalysisStatus: null,
               deepAnalysisResult: null,
+              deepAnalysisTimings: null,
+              deepAnalysisNotice: null,
               lastKnownCommercialReading: null,
               lastKnownCommercialReadingContext: null,
               // FASE 16.5 (achado do Codex, PR #283, rodada 3): sem isto,

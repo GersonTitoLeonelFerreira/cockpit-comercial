@@ -102,6 +102,23 @@ function createCompanionAnalysisController(ctx) {
   let deepAnalysisPollTimerId = 0
   const DEEP_ANALYSIS_POLL_DELAYS_MS = [1500, 2000, 3000, 4000, 5000]
   const DEEP_ANALYSIS_POLL_TIMEOUT_MS = 240000
+
+  // FNC-02: este teto limita só quanto tempo o painel fica em spinner
+  // contínuo. Ele NÃO declara o job do servidor como failed. Se o backend
+  // ainda disser queued/running ao atingir o teto, a UI passa para um
+  // estado neutro e recuperável e o vendedor pode verificar novamente.
+  function getDeepAnalysisPollTimeoutMs() {
+    const override =
+      window.__yolenCompanionDeepAnalysisPollTimeoutMsForTests
+
+    return (
+      typeof override === 'number' &&
+      Number.isFinite(override) &&
+      override >= 0
+    )
+      ? override
+      : DEEP_ANALYSIS_POLL_TIMEOUT_MS
+  }
   // Timer do watchdog da resposta rápida de analyze-conversation. Igual ao
   // padrão de deepAnalysisPollTimerId: cada novo ciclo de análise cancela o
   // timer anterior antes de agendar um novo — nunca existem dois vivos ao
@@ -558,23 +575,45 @@ function createCompanionAnalysisController(ctx) {
 
     const startedAtMs = Date.now()
     let attempt = 0
+    let lastObservedJobStatus = null
+    let lastObservedTimings = null
 
     const scheduleNextTick = () => {
       if (!isAnalysisResponseStillCurrent()) {
         return
       }
 
-      if (Date.now() - startedAtMs >= DEEP_ANALYSIS_POLL_TIMEOUT_MS) {
+      if (
+        Date.now() - startedAtMs >=
+          getDeepAnalysisPollTimeoutMs()
+      ) {
         activeAnalysisAttempt = null
+
+        const serverStillProcessing =
+          lastObservedJobStatus === 'queued' ||
+          lastObservedJobStatus === 'running'
 
         ctx.state = {
           ...ctx.state,
           conversationAnalysisLoading: false,
           conversationAnalysisError:
-            'A análise demorou mais que o esperado. Tente novamente.',
+            serverStillProcessing
+              ? null
+              : 'A análise demorou mais que o esperado. Tente novamente.',
           automaticAnalysisStatus: null,
-          deepAnalysisStatus: 'failed',
+          deepAnalysisStatus:
+            serverStillProcessing
+              ? lastObservedJobStatus
+              : 'failed',
           deepAnalysisResult: null,
+          deepAnalysisTimings:
+            lastObservedTimings,
+          deepAnalysisNotice:
+            lastObservedJobStatus === 'queued'
+              ? 'A análise continua na fila da Yolen. Você pode continuar trabalhando e verificar novamente em alguns instantes.'
+              : lastObservedJobStatus === 'running'
+                ? 'A Yolen ainda está processando esta conversa. Você pode continuar trabalhando e verificar novamente em alguns instantes.'
+                : null,
         }
 
         renderPanel()
@@ -633,6 +672,33 @@ function createCompanionAnalysisController(ctx) {
       }
 
       if (data.status === 'queued' || data.status === 'running') {
+        const statusChanged =
+          lastObservedJobStatus !==
+            data.status
+
+        lastObservedJobStatus =
+          data.status
+
+        lastObservedTimings =
+          data.timings &&
+          typeof data.timings === 'object'
+            ? data.timings
+            : null
+
+        ctx.state = {
+          ...ctx.state,
+          deepAnalysisStatus:
+            data.status,
+          deepAnalysisTimings:
+            lastObservedTimings,
+          deepAnalysisNotice:
+            null,
+        }
+
+        if (statusChanged) {
+          renderPanel()
+        }
+
         scheduleNextTick()
         return
       }
@@ -652,6 +718,12 @@ function createCompanionAnalysisController(ctx) {
               : null,
           deepAnalysisStatus: 'succeeded',
           deepAnalysisResult: data.result || null,
+          deepAnalysisTimings:
+            data.timings &&
+            typeof data.timings === 'object'
+              ? data.timings
+              : lastObservedTimings,
+          deepAnalysisNotice: null,
           ...ctx.rememberLastKnownClientCommercialReadingIfPresent({
             fingerprint:
               conversationFingerprint,
@@ -705,6 +777,12 @@ function createCompanionAnalysisController(ctx) {
           automaticAnalysisStatus: null,
           deepAnalysisStatus: null,
           deepAnalysisResult: null,
+          deepAnalysisTimings:
+            data.timings &&
+            typeof data.timings === 'object'
+              ? data.timings
+              : lastObservedTimings,
+          deepAnalysisNotice: null,
         }
 
         renderPanel()
@@ -721,6 +799,12 @@ function createCompanionAnalysisController(ctx) {
         automaticAnalysisStatus: null,
         deepAnalysisStatus: 'failed',
         deepAnalysisResult: null,
+        deepAnalysisTimings:
+          data?.timings &&
+          typeof data.timings === 'object'
+            ? data.timings
+            : lastObservedTimings,
+        deepAnalysisNotice: null,
       }
 
       renderPanel()
@@ -884,6 +968,8 @@ function createCompanionAnalysisController(ctx) {
           : null,
       deepAnalysisStatus: null,
       deepAnalysisResult: null,
+      deepAnalysisTimings: null,
+      deepAnalysisNotice: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
@@ -1069,8 +1155,13 @@ function createCompanionAnalysisController(ctx) {
       ) {
         ctx.state = {
           ...ctx.state,
-          deepAnalysisStatus: 'pending',
+          deepAnalysisStatus:
+            deepAnalysisJob.status === 'succeeded'
+              ? 'running'
+              : deepAnalysisJob.status,
           deepAnalysisResult: null,
+          deepAnalysisTimings: null,
+          deepAnalysisNotice: null,
         }
 
         renderPanel()
@@ -1104,6 +1195,8 @@ function createCompanionAnalysisController(ctx) {
               ? 'failed'
               : null,
           deepAnalysisResult: null,
+          deepAnalysisTimings: null,
+          deepAnalysisNotice: null,
         }
 
         renderPanel()
