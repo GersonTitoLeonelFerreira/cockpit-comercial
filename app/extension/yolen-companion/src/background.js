@@ -196,6 +196,148 @@ async function getValidCachedSession() {
   return null
 }
 
+function needsIdentityRefresh(session) {
+  const companyName =
+    String(
+      session?.payload?.active_company?.name ||
+      '',
+    )
+      .trim()
+      .toLowerCase()
+
+  const userName =
+    String(
+      session?.payload?.user?.full_name ||
+      session?.payload?.user?.email ||
+      '',
+    ).trim()
+
+  return (
+    !userName ||
+    !companyName ||
+    companyName ===
+      'empresa sem nome' ||
+    companyName ===
+      'empresa não carregada'
+  )
+}
+
+async function refreshCachedSessionIdentity(
+  message,
+  cachedSession,
+) {
+  if (!needsIdentityRefresh(cachedSession)) {
+    return cachedSession
+  }
+
+  const sessionBaseUrl =
+    cachedSession.origin ===
+      LOCAL_BASE_URL ||
+    cachedSession.origin ===
+      DEFAULT_BASE_URL
+      ? cachedSession.origin
+      : null
+
+  const baseUrl =
+    getAllowedBaseUrl(
+      sessionBaseUrl ||
+      message.baseUrl ||
+      DEFAULT_BASE_URL,
+    )
+
+  const token =
+    cachedSession
+      .payload
+      .companion_token
+
+  try {
+    const response =
+      await fetch(
+        `${baseUrl}/api/companion/me`,
+        {
+          method: 'GET',
+          credentials: 'omit',
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+          },
+        },
+      )
+
+    const payload =
+      await response
+        .json()
+        .catch(
+          () => null,
+        )
+
+    if (!response.ok) {
+      if (
+        response.status === 401 ||
+        response.status === 403
+      ) {
+        await storageRemove(
+          SESSION_STORAGE_KEY,
+        )
+
+        return {
+          ok: false,
+          statusCode:
+            response.status,
+          payload,
+          origin:
+            cachedSession.origin,
+          capturedAt:
+            cachedSession.capturedAt,
+          fromCache:
+            false,
+        }
+      }
+
+      return cachedSession
+    }
+
+    if (
+      !payload ||
+      payload.ok !== true
+    ) {
+      return cachedSession
+    }
+
+    const refreshedSession = {
+      ok: true,
+      statusCode:
+        response.status,
+      payload: {
+        ...cachedSession.payload,
+        ...payload,
+        companion_token:
+          token,
+        expires_at:
+          cachedSession
+            .payload
+            .expires_at,
+      },
+      origin:
+        cachedSession.origin,
+      capturedAt:
+        new Date().toISOString(),
+    }
+
+    await setCachedSession(
+      refreshedSession,
+    )
+
+    return {
+      ...refreshedSession,
+      fromCache:
+        false,
+    }
+  } catch {
+    return cachedSession
+  }
+}
+
 async function handleSetSession(message) {
   if (isValidSession(message.payload?.session)) {
     await setCachedSession(message.payload.session)
@@ -519,10 +661,14 @@ async function handleCompanionMessage(message, sender) {
   }
 
   if (message.action === 'GET_ME') {
-    const cachedSession = await getValidCachedSession()
+    const cachedSession =
+      await getValidCachedSession()
 
     if (cachedSession) {
-      return cachedSession
+      return refreshCachedSessionIdentity(
+        message,
+        cachedSession,
+      )
     }
 
     return {
