@@ -279,5 +279,8 @@ C2 → decisão de produção:
 - Plano de canário: DOCUMENTADO.
 - Kill switch normal: OFF.
 - Canary package: ainda NÃO distribuído a vendedores.
+- C1/C2: ADIADOS por decisão operacional de Gerson.
+- Evidência aceita nesta rodada: testes live realizados por Gerson.
 - Rollout amplo: NÃO AUTORIZADO.
 - Produção ManyChat: NÃO ALTERADA.
+- Retomada futura: iniciar em C1, sem repetir os testes já aprovados salvo evidência de regressão.
