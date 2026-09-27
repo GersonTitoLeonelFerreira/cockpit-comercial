@@ -189,7 +189,8 @@
         "assets/yolen-mark.png"
       ],
       "matches": [
-        "https://web.whatsapp.com/*"
+        "https://web.whatsapp.com/*",
+        "https://app.manychat.com/*"
       ]
     }
   ],
