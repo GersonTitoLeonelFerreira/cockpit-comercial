@@ -53,9 +53,10 @@
     {
       "id": "H05",
       "industry": "generic_services",
-      "scenario": "Cliente apresenta objeção de pagamento e vendedor investiga a causa antes de oferecer alternativa.",
+      "scenario": "Cliente apresenta objeção de pagamento e vendedor já investigou a causa; o sistema deve reconhecer a boa condução sem pedir o mesmo probe novamente.",
       "must_hold": [
-        "objection_diagnosis_selected",
+        "objection_probe_recognized_as_correct_seller_action",
+        "objection_diagnosis_not_reselected_while_waiting_for_customer",
         "specific_seller_strength_without_fabricated_mistake"
       ]
     },
