@@ -155,7 +155,7 @@
             <div class="yolen-seller-detail">
               <div class="yolen-seller-detail-label">Evite agora</div>
               <ul class="yolen-seller-text-list">
-                ${doNotDo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+                ${doNotDo.map((item) => `<li>${escapeHtml(sellerText(item, 'Cuidado comercial'))}</li>`).join('')}
               </ul>
             </div>
           ` : ''}
