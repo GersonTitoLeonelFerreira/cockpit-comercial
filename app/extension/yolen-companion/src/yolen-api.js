@@ -7,6 +7,10 @@
   const LOCAL_BASE_URL =
     'http://localhost:3000'
 
+  // TEMP-IDENTITY-LIVE: Preview isolado da validação final.
+  const TEMP_IDENTITY_PREVIEW_BASE_URL =
+    'https://cockpit-comercial-vocn-git-claude-companion-sessio-35a10b-yolen.vercel.app'
+
   let sessionBaseUrl = null
   let lastLeadLookupContext = null
 
@@ -41,7 +45,8 @@
   function getAllowedSessionBaseUrl(value) {
     if (
       value === DEFAULT_BASE_URL ||
-      value === LOCAL_BASE_URL
+      value === LOCAL_BASE_URL ||
+      value === TEMP_IDENTITY_PREVIEW_BASE_URL
     ) {
       return value
     }

@@ -9,3 +9,15 @@ Purpose:
 - keep production untouched.
 
 This branch is temporary validation infrastructure and must not be merged.
+
+
+## Final Preview routing
+
+Preview: `https://cockpit-comercial-vocn-git-claude-companion-sessio-35a10b-yolen.vercel.app`
+
+This temporary branch:
+- forces /companion/connect to stamp the exact Preview origin into the session;
+- allows the E2E extension transport to call that Preview;
+- allows Bearer GET /api/companion/me identity rehydration against that Preview;
+- ignores production SESSION_UPDATE while the Preview session is cached;
+- leaves production untouched.

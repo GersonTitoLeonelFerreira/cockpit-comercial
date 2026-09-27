@@ -4,6 +4,10 @@ const SESSION_STORAGE_KEY = 'yolen_companion_session'
 const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
 const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
 const LOCAL_BASE_URL = 'http://localhost:3000'
+// TEMP-IDENTITY-LIVE: Preview isolado da validação final.
+// Remover com esta branch temporária.
+const TEMP_IDENTITY_PREVIEW_BASE_URL =
+  'https://cockpit-comercial-vocn-git-claude-companion-sessio-35a10b-yolen.vercel.app'
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
 
@@ -62,6 +66,10 @@ function getAllowedBaseUrl(baseUrl) {
 
   if (baseUrl === DEFAULT_BASE_URL) {
     return DEFAULT_BASE_URL
+  }
+
+  if (baseUrl === TEMP_IDENTITY_PREVIEW_BASE_URL) {
+    return TEMP_IDENTITY_PREVIEW_BASE_URL
   }
 
   return DEFAULT_BASE_URL
@@ -234,7 +242,9 @@ async function refreshCachedSessionIdentity(
     cachedSession.origin ===
       LOCAL_BASE_URL ||
     cachedSession.origin ===
-      DEFAULT_BASE_URL
+      DEFAULT_BASE_URL ||
+    cachedSession.origin ===
+      TEMP_IDENTITY_PREVIEW_BASE_URL
       ? cachedSession.origin
       : null
 
@@ -382,7 +392,9 @@ async function requestYolenWithToken(message, path, body) {
     cachedSession.origin ===
       LOCAL_BASE_URL ||
     cachedSession.origin ===
-      DEFAULT_BASE_URL
+      DEFAULT_BASE_URL ||
+    cachedSession.origin ===
+      TEMP_IDENTITY_PREVIEW_BASE_URL
       ? cachedSession.origin
       : null
 
@@ -923,6 +935,26 @@ async function handleCompanionMessage(message, sender) {
 async function handleBridgeMessage(message) {
   if (message.action === 'SESSION_UPDATE') {
     if (isValidSession(message.session)) {
+      const cachedSession =
+        await getValidCachedSession()
+
+      if (
+        cachedSession?.origin ===
+          TEMP_IDENTITY_PREVIEW_BASE_URL &&
+        message.session?.origin !==
+          TEMP_IDENTITY_PREVIEW_BASE_URL
+      ) {
+        return {
+          ok: true,
+          statusCode: 200,
+          payload: {
+            ok: true,
+            status:
+              'SESSION_IGNORED_DURING_IDENTITY_PREVIEW',
+          },
+        }
+      }
+
       await setCachedSession(message.session)
 
       return {

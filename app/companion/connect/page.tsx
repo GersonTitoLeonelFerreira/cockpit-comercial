@@ -37,6 +37,11 @@ const PRODUCTION_COMPANION_BASE_URL =
 const LOCAL_COMPANION_BASE_URL =
   'http://localhost:3000'
 
+// TEMP-IDENTITY-LIVE: Preview isolado da validação final.
+// Esta branch é temporária e não deve ser mergeada.
+const TEMP_IDENTITY_PREVIEW_BASE_URL =
+  'https://cockpit-comercial-vocn-git-claude-companion-sessio-35a10b-yolen.vercel.app'
+
 async function getCompanionBaseUrl() {
   const headerStore =
     await headers()
@@ -77,14 +82,12 @@ async function getCompanionBaseUrl() {
 
   if (
     candidate ===
-      LOCAL_COMPANION_BASE_URL ||
-    candidate ===
-      PRODUCTION_COMPANION_BASE_URL
+      LOCAL_COMPANION_BASE_URL
   ) {
-    return candidate
+    return LOCAL_COMPANION_BASE_URL
   }
 
-  return PRODUCTION_COMPANION_BASE_URL
+  return TEMP_IDENTITY_PREVIEW_BASE_URL
 }
 
 function getTokenSecret() {
