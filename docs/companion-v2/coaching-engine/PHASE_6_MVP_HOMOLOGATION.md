@@ -125,6 +125,8 @@ Ele executa:
 13. paridade cross-channel WhatsApp/ManyChat;
 14. `tsc --noEmit`.
 
+A suíte E3 de paridade usa `--test-force-exit` porque o próprio harness carrega o `content-script.js` real, que mantém timers recorrentes intencionais de uma aba de navegador. A flag só é aplicada a essa suíte, depois que o test runner reporta os resultados, para permitir que o gate avance ao `tsc --noEmit` sem alterar o runtime de produção.
+
 O build Next.js continua sendo gate adicional de release:
 
 `npm run build`.

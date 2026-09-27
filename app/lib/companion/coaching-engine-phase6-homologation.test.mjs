@@ -1094,3 +1094,35 @@ test(
     )
   },
 )
+
+
+test(
+  'gate do MVP força encerramento somente do harness E3 com timers recorrentes',
+  () => {
+    const packageJson =
+      JSON.parse(
+        readFileSync(
+          new URL(
+            '../../../package.json',
+            import.meta.url,
+          ),
+          'utf8',
+        ),
+      )
+
+    const gate =
+      packageJson.scripts[
+        'gate:coaching-engine-mvp'
+      ]
+
+    assert.match(
+      gate,
+      /node --test --test-force-exit app\/extension\/yolen-companion\/tests\/e3-dom\/cross-channel-parity\.test\.mjs/,
+    )
+
+    assert.match(
+      gate,
+      /&& tsc --noEmit$/,
+    )
+  },
+)
