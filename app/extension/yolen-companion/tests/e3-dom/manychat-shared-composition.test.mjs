@@ -351,13 +351,20 @@ test('FNC-01: resolução pré-CREATE lenta no ManyChat não consome retries fal
   await waitFor(() => createLeadCalls(calls).length === 1)
 
   await sleep(3300)
-  assert.equal(
+  const retryWasRequiredBeforeRelease = Boolean(
     document.querySelector('[data-yolen-action="retry-lead-link"]'),
-    null,
-    'ManyChat não pode cair em vínculo pendente só porque havia um RESOLVE antigo em voo',
   )
 
+  // Mesmo princípio do cenário WhatsApp: libera o bloqueio antes da
+  // asserção para o RED poder falhar sem deixar a composição ManyChat
+  // presa e sem impedir a continuação do runner.
   blockedResolve.resolve()
+
+  assert.equal(
+    retryWasRequiredBeforeRelease,
+    false,
+    'ManyChat não pode cair em vínculo pendente só porque havia um RESOLVE antigo em voo',
+  )
 
   await waitFor(
     () =>

@@ -297,13 +297,20 @@ test('TESTE 2B / FNC-01: resolve iniciado antes do CREATE pode ficar em voo alé
   // Antes da correção isso chegava a created_unresolved e obrigava o
   // vendedor a clicar em "Atualizar vínculo" (o "segundo clique").
   await sleep(3300)
-  assert.equal(
+  const retryWasRequiredBeforeRelease = Boolean(
     document.querySelector('[data-yolen-action="retry-lead-link"]'),
-    null,
-    'uma resolução já em voo não pode consumir retries falsos nem produzir um segundo clique obrigatório',
   )
 
+  // Libera sempre a promise bloqueada ANTES da asserção. Assim o RED
+  // continua provando o defeito, mas não deixa handles/promise pendentes
+  // que impeçam o runner de encerrar e executar o GREEN em seguida.
   releaseBlockedResolve()
+
+  assert.equal(
+    retryWasRequiredBeforeRelease,
+    false,
+    'uma resolução já em voo não pode consumir retries falsos nem produzir um segundo clique obrigatório',
+  )
 
   // A resolução antiga termina ainda em NOT_FOUND. Só então a sequência
   // pós-create faz uma nova consulta real e encontra o lead criado.
