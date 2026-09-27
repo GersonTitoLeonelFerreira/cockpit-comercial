@@ -58,8 +58,16 @@ import {
 } from '../../../lib/server/canonical-seller-commercial-context-loader'
 
 import {
-  loadCanonicalSellerReasoning,
+  loadCanonicalSellerReasoningBundle,
 } from '../../../lib/server/canonical-seller-reasoning-source'
+
+import {
+  buildCommercialCoachingDiagnosis,
+} from '../../../lib/companion/commercial-coaching-engine'
+
+import {
+  buildCommercialMessageStrategy,
+} from '../../../lib/companion/commercial-message-strategy'
 
 import {
   buildSellerFacingReasoningProjection,
@@ -526,11 +534,48 @@ export async function POST(request: Request) {
           reference_time: shadowReferenceTime,
         })
 
-      const canonicalReasoning =
-        await loadCanonicalSellerReasoning({
+      const reasoningBundle =
+        await loadCanonicalSellerReasoningBundle({
           admin,
           context: canonicalContext,
         })
+
+      const canonicalReasoning =
+        reasoningBundle.reasoning
+
+      const coachingDiagnosis =
+        canonicalReasoning &&
+        reasoningBundle.diagnostic_input &&
+        canonicalContext.current_reading
+          ? buildCommercialCoachingDiagnosis({
+              reading:
+                canonicalContext
+                  .current_reading
+                  .reading,
+              reasoning:
+                canonicalReasoning,
+              diagnostic_input:
+                reasoningBundle
+                  .diagnostic_input,
+            })
+          : null
+
+      const messageStrategy =
+        canonicalReasoning &&
+        coachingDiagnosis &&
+        reasoningBundle.diagnostic_input
+          ? buildCommercialMessageStrategy({
+              reasoning:
+                canonicalReasoning,
+              coaching:
+                coachingDiagnosis,
+              diagnostic_input:
+                reasoningBundle
+                  .diagnostic_input,
+              seller_intent:
+                sellerIntent,
+            })
+          : null
 
       const reasoningProjection =
         buildSellerFacingReasoningProjection({
@@ -548,6 +593,8 @@ export async function POST(request: Request) {
         sellerIntent,
         method,
         reasoning: canonicalReasoning,
+        messageStrategy:
+          messageStrategy,
         roles: reasoningProjection.customer_roles,
         provider,
       })
