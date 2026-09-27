@@ -676,3 +676,42 @@ test('todo conteúdo seller-facing escapa HTML não confiável', () => {
   assert.doesNotMatch(clientHtml, /<script>/)
   assert.match(clientHtml, /&lt;script&gt;/)
 })
+
+
+test('UX-01 sellerText traduz códigos conhecidos e nunca expõe enum técnico cru', () => {
+  assert.equal(
+    view.sellerText('discovery_gap'),
+    'Ainda falta aprofundar a descoberta.',
+  )
+  assert.equal(
+    view.sellerText('Canal recomendado: wait.'),
+    'Aguardar antes de retomar o contato.',
+  )
+  assert.equal(
+    view.sellerText('enum_interno_desconhecido', 'Orientação comercial'),
+    'Orientação comercial',
+  )
+})
+
+test('UX-02 AGORA separa decisão e ação e recolhe sinais secundários', () => {
+  const html = view.renderAgoraViewModelSnapshot(
+    buildAgoraViewModel({
+      primary: buildAgoraSignal({
+        headline: 'Cliente está avaliando a proposta.',
+        action: 'Confirme qual ponto ainda impede a decisão.',
+      }),
+      secondary: [
+        buildAgoraSignal({
+          headline: 'Há uma objeção secundária.',
+          action: 'Retome esse ponto depois da decisão principal.',
+        }),
+      ],
+    }),
+  )
+
+  assert.match(html, /Cliente está avaliando a proposta/)
+  assert.match(html, /Próxima ação/)
+  assert.match(html, /Confirme qual ponto ainda impede a decisão/)
+  assert.match(html, /<summary>Ver outros sinais \(1\)<\/summary>/)
+  assert.match(html, /Há uma objeção secundária/)
+})

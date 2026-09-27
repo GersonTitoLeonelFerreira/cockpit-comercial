@@ -88,24 +88,28 @@ test(
     )
     assert.match(
       html,
-      /Por que agora/,
+      /Por que essa ação/,
     )
     assert.match(
       html,
       /Não inventar condição de pagamento/,
     )
 
-    // "Sem criar nova prioridade": a única prioridade continua sendo a
-    // decisão principal; técnica e cuidados ficam recolhidos (UX validada
-    // da FASE 16.9: Próximo movimento → Por que agora → Ver técnica e
-    // cuidados).
+    // UX-02: a decisão e a próxima ação ficam no card principal; o
+    // raciocínio acrescenta somente a justificativa curta e mantém técnica
+    // e cuidados em progressive disclosure.
     assert.equal(
       (html.match(/data-yolen-alert-priority=/g) || []).length,
       1,
     )
     assert.match(
       html,
-      /Próximo movimento[\s\S]*Por que agora[\s\S]*<summary>Ver técnica e cuidados<\/summary>[\s\S]*Diagnóstico de objeção/,
+      /Próxima ação[\s\S]*Por que essa ação[\s\S]*<summary>Ver técnica e cuidados<\/summary>[\s\S]*Diagnóstico de objeção/,
+    )
+    assert.doesNotMatch(
+      html,
+      /Há intenção de compra e uma trava de pagamento específica/,
+      'a justificativa interna de ranking da técnica não é seller-facing',
     )
   },
 )
@@ -159,6 +163,44 @@ test(
     assert.match(html, /Interlocutor \/ intermediário/)
     assert.match(html, /Irmã/)
     assert.match(html, /Pessoa relacionada à oportunidade/)
+  },
+)
+
+test(
+  'CLIENTE nunca expõe enum cru quando recebe um papel desconhecido',
+  () => {
+    const html =
+      view.renderCustomerViewModel({
+        available: true,
+        unavailable_reason: null,
+        preferences: [],
+        communication_patterns: [],
+        knowledge_gaps: [],
+        opportunity_context: {
+          objectives: [],
+          needs: [],
+          interests: [],
+          problems: [],
+          impacts: [],
+          decision_criteria: [],
+          discussed_products: [],
+          primary_product_interest: null,
+          competitors: [],
+          communication_events: [],
+        },
+        provenance: {},
+        roles: [
+          {
+            scope: 'related',
+            role: 'unknown_internal_role',
+            label: null,
+            evidence_message_ids: [],
+          },
+        ],
+      })
+
+    assert.match(html, /Papel comercial/)
+    assert.doesNotMatch(html, /unknown_internal_role/)
   },
 )
 
