@@ -54,9 +54,9 @@ test('menu aberto mostra usuário completo, empresa completa, perfil e sessão',
   assert.match(block, /getCompanyRoleLabel\(\)/)
   assert.match(block, /getCompactConnectionLabel\(\)/)
   assert.match(block, /Usuário do sistema/)
-  assert.match(block, />Empresa</)
-  assert.match(block, />Perfil</)
-  assert.match(block, />Sessão</)
+  assert.match(block, /['"]Empresa['"]/)
+  assert.match(block, /['"]Perfil['"]/)
+  assert.match(block, /['"]Sessão['"]/)
 })
 
 test('nome completo e empresa podem quebrar linha dentro do menu', () => {
