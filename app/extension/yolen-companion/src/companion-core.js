@@ -3550,6 +3550,8 @@ function createCompanionCore(ctx) {
       automaticAnalysisStatus: null,
       deepAnalysisStatus: null,
       deepAnalysisResult: null,
+      deepAnalysisTimings: null,
+      deepAnalysisNotice: null,
       lastKnownCommercialReading: null,
       lastKnownCommercialReadingContext: null,
       suggestionApplyLoading: false,
