@@ -142,6 +142,8 @@ function createCompanionCore(ctx) {
   const MAX_RETAINED_PRE_RESOLUTION_CAPTURES = 20
 
   let panelCollapsed = false
+  let accountMenuOpen = false
+  let accountMenuDocumentListenersInstalled = false
 
   const conversationBoundary =
     conversationBoundaryRuntime
@@ -781,6 +783,52 @@ function createCompanionCore(ctx) {
       'click',
       handleUnwiredAnalyzeActionClick,
     )
+
+    if (!accountMenuDocumentListenersInstalled) {
+      accountMenuDocumentListenersInstalled = true
+
+      document.addEventListener(
+        'click',
+        (event) => {
+          if (!accountMenuOpen) {
+            return
+          }
+
+          const target =
+            event.target
+
+          if (
+            target?.closest?.(
+              '[data-yolen-account-menu]',
+            ) ||
+            target?.closest?.(
+              '[data-yolen-action="toggle-account-menu"]',
+            )
+          ) {
+            return
+          }
+
+          accountMenuOpen = false
+          renderPanel()
+        },
+      )
+
+      window.addEventListener(
+        'keydown',
+        (event) => {
+          if (
+            event.key !== 'Escape' ||
+            !accountMenuOpen
+          ) {
+            return
+          }
+
+          accountMenuOpen = false
+          renderPanel()
+        },
+        true,
+      )
+    }
 
     mountPoint.appendChild(panel)
 
@@ -7812,6 +7860,10 @@ function createCompanionCore(ctx) {
     panelCollapsed =
       nextCollapsed
 
+    if (panelCollapsed) {
+      accountMenuOpen = false
+    }
+
     if (
       panelCollapsed &&
       (
@@ -7841,7 +7893,157 @@ function createCompanionCore(ctx) {
     renderPanel()
   }
 
+  function getCurrentUserInitials() {
+    const source =
+      String(
+        state.userName || '',
+      ).trim()
+
+    if (!source) {
+      return 'YU'
+    }
+
+    if (source.includes('@')) {
+      const username =
+        source.split('@')[0] || ''
+
+      const alpha =
+        username.replace(
+          /[^a-zA-ZÀ-ÿ]/g,
+          '',
+        )
+
+      return (
+        alpha.slice(0, 2) ||
+        username.slice(0, 2) ||
+        'YU'
+      ).toUpperCase()
+    }
+
+    const parts =
+      source
+        .split(/\s+/)
+        .filter(Boolean)
+
+    if (parts.length >= 2) {
+      return (
+        parts[0][0] +
+        parts[parts.length - 1][0]
+      ).toUpperCase()
+    }
+
+    return (
+      parts[0]?.slice(0, 2) ||
+      'YU'
+    ).toUpperCase()
+  }
+
+  function getCompanyRoleLabel() {
+    if (state.companyRole === 'admin') {
+      return 'Administrador'
+    }
+
+    if (state.companyRole === 'manager') {
+      return 'Gestor'
+    }
+
+    if (state.companyRole === 'member') {
+      return 'Membro'
+    }
+
+    return 'Usuário do sistema'
+  }
+
+  function getAccountMenuHtml() {
+    if (
+      !accountMenuOpen ||
+      !state.connected ||
+      !state.userName
+    ) {
+      return ''
+    }
+
+    return [
+      '<div',
+        ' class="yolen-account-menu"',
+        ' data-yolen-account-menu',
+        ' role="group"',
+        ' aria-label="Conta Yolen"',
+      '>',
+
+        '<div class="yolen-account-menu-head">',
+
+          '<span class="yolen-account-avatar yolen-account-avatar-large">',
+            escapeHtml(
+              getCurrentUserInitials(),
+            ),
+          '</span>',
+
+          '<div class="yolen-account-menu-identity">',
+
+            '<div class="yolen-account-menu-name">',
+              escapeHtml(
+                state.userName,
+              ),
+            '</div>',
+
+            '<div class="yolen-account-menu-caption">',
+              'Usuário do sistema',
+            '</div>',
+
+          '</div>',
+
+        '</div>',
+
+        '<div class="yolen-account-menu-details">',
+
+          '<div class="yolen-account-detail">',
+            '<span class="yolen-account-detail-label">',
+              'Empresa',
+            '</span>',
+            '<span class="yolen-account-detail-value">',
+              escapeHtml(
+                state.companyName ||
+                'Empresa não carregada',
+              ),
+            '</span>',
+          '</div>',
+
+          '<div class="yolen-account-detail">',
+            '<span class="yolen-account-detail-label">',
+              'Perfil',
+            '</span>',
+            '<span class="yolen-account-detail-value">',
+              escapeHtml(
+                getCompanyRoleLabel(),
+              ),
+            '</span>',
+          '</div>',
+
+          '<div class="yolen-account-detail">',
+            '<span class="yolen-account-detail-label">',
+              'Sessão',
+            '</span>',
+            '<span class="yolen-account-detail-value">',
+              escapeHtml(
+                getCompactConnectionLabel(),
+              ),
+            '</span>',
+          '</div>',
+
+        '</div>',
+
+      '</div>',
+    ].join('')
+  }
+
   function getPanelHeaderHtml() {
+    const accountAvailable =
+      Boolean(
+        state.connected &&
+        state.userName,
+      )
+
     return [
       '<div class="yolen-panel-header yolen-panel-header-final">',
 
@@ -7865,12 +8067,48 @@ function createCompanionCore(ctx) {
               'Yolen Companion',
             '</div>',
 
-            '<div class="yolen-subtitle">',
-              escapeHtml(
-                state.companyName ||
-                'Empresa não carregada',
-              ),
-            '</div>',
+            accountAvailable
+              ? [
+                  '<button',
+                    ' class="yolen-account-trigger"',
+                    ' type="button"',
+                    ' data-yolen-action="toggle-account-menu"',
+                    ' aria-expanded="' +
+                      String(accountMenuOpen) +
+                    '"',
+                    ' aria-label="Abrir dados da conta Yolen"',
+                  '>',
+
+                    '<span class="yolen-account-avatar">',
+                      escapeHtml(
+                        getCurrentUserInitials(),
+                      ),
+                    '</span>',
+
+                    '<span class="yolen-account-trigger-name">',
+                      escapeHtml(
+                        state.userName,
+                      ),
+                    '</span>',
+
+                    '<span',
+                      ' class="yolen-account-chevron"',
+                      ' aria-hidden="true"',
+                    '>',
+                      '⌄',
+                    '</span>',
+
+                  '</button>',
+                ].join('')
+              : [
+                  '<div class="yolen-subtitle">',
+                    escapeHtml(
+                      state.loading
+                        ? 'Carregando usuário...'
+                        : 'Usuário não conectado',
+                    ),
+                  '</div>',
+                ].join(''),
 
           '</div>',
 
@@ -7913,6 +8151,8 @@ function createCompanionCore(ctx) {
           '</button>',
 
         '</div>',
+
+        getAccountMenuHtml(),
 
       '</div>',
     ].join('')
@@ -8003,6 +8243,25 @@ function createCompanionCore(ctx) {
           button,
           'keydown',
           handleSellerAreaKeyboard,
+        )
+      })
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="toggle-account-menu"]',
+      )
+      .forEach((button) => {
+        wireOnce(
+          button,
+          'click',
+          (event) => {
+            event.stopPropagation()
+
+            accountMenuOpen =
+              !accountMenuOpen
+
+            renderPanel()
+          },
         )
       })
 
@@ -8511,6 +8770,8 @@ function createCompanionCore(ctx) {
         // (antes: clearSession() envolvido por lead-resolution-runtime-cache).
         coreApiComposition.clearLeadResolutionCache()
         lastSessionUserId = null
+
+        accountMenuOpen = false
 
         state = {
           ...state,
