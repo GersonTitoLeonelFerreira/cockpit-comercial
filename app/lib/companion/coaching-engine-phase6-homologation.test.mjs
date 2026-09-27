@@ -757,7 +757,7 @@ test(
 )
 
 test(
-  'H05 objeção: probe correto seleciona diagnóstico e gera elogio específico',
+  'H05 objeção: probe correto gera elogio específico e não repete o diagnóstico enquanto aguarda resposta',
   () => {
     const result =
       runPipeline({
@@ -799,7 +799,17 @@ test(
         result,
         'technique.objection_diagnosis',
       ),
-      true,
+      false,
+    )
+
+    assert.ok(
+      result.reasoning.limitations
+        .some(
+          item =>
+            item.includes(
+              'do_not_repeat_objection_probe',
+            ),
+        ),
     )
 
     assert.match(
