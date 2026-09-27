@@ -121,6 +121,20 @@
     other: 'Outro ponto',
   }
 
+  // UX-01 — vocabulário técnico que pode chegar à camada de apresentação.
+  // O domínio continua intacto; a tradução acontece somente na view.
+  const SELLER_TEXT_LABELS = {
+    discovery_gap: 'Ainda falta aprofundar a descoberta.',
+    qualification_gap: 'Ainda faltam informações para qualificar a oportunidade.',
+    wait: 'Aguardar antes de retomar o contato.',
+    respond: 'Responder agora.',
+    follow_up: 'Retomar o contato.',
+    handle_objection: 'Tratar a objeção antes de avançar.',
+    deepen_discovery: 'Aprofundar a descoberta antes de avançar.',
+    give_space: 'Dar espaço ao cliente neste momento.',
+    no_intervention: 'Nenhuma intervenção comercial é necessária agora.',
+  }
+
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -137,6 +151,35 @@
 
     const clean = value.trim()
     return clean || null
+  }
+
+  function sellerText(value, fallback = null) {
+    const clean = displayText(value)
+
+    if (!clean) {
+      return fallback
+    }
+
+    if (SELLER_TEXT_LABELS[clean]) {
+      return SELLER_TEXT_LABELS[clean]
+    }
+
+    const channelRecommendation =
+      clean.match(/^Canal recomendado:\s*([a-z][a-z0-9_]*)\.?$/i)
+
+    if (channelRecommendation) {
+      const translated =
+        SELLER_TEXT_LABELS[channelRecommendation[1].toLowerCase()]
+
+      return translated || fallback || 'Revise o contexto antes de decidir o próximo contato.'
+    }
+
+    // Token técnico puro nunca vira copy visível por fallback.
+    if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/i.test(clean)) {
+      return fallback
+    }
+
+    return clean
   }
 
   function displayItems(items) {
@@ -703,7 +746,7 @@
         <div class="yolen-seller-stack">
           ${groups.map(({ status, entries }) => `
             <div class="yolen-commitment-group" data-yolen-commitment-status="${escapeHtml(status)}">
-              <div class="yolen-commitment-group-title">${escapeHtml(ANALYSIS_COMMITMENT_STATUS_LABELS[status] || status)}</div>
+              <div class="yolen-commitment-group-title">${escapeHtml(ANALYSIS_COMMITMENT_STATUS_LABELS[status] || 'Status do compromisso')}</div>
               ${entries.map(({ item, summary }) => `
                 <article class="yolen-seller-insight">
                   <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
@@ -1449,15 +1492,23 @@
   // renderAgoraViewModelSnapshot logo abaixo.
   function renderAttentionItem({
     label,
-    copy,
+    headline,
+    action,
     priority,
     source,
     tone,
     variant,
   }) {
-    const clean = displayText(copy)
+    const cleanHeadline =
+      sellerText(
+        headline,
+        'Há um ponto comercial que merece atenção.',
+      )
 
-    if (!clean) {
+    const cleanAction =
+      sellerText(action)
+
+    if (!cleanHeadline) {
       return ''
     }
 
@@ -1469,7 +1520,13 @@
         ${variant ? `data-yolen-now-attention-variant="${escapeHtml(variant)}"` : ''}
       >
         <div class="yolen-decision-kicker">${escapeHtml(label)}</div>
-        <div class="yolen-now-attention-copy">${escapeHtml(clean)}</div>
+        <div class="yolen-now-attention-decision">${escapeHtml(cleanHeadline)}</div>
+        ${cleanAction ? `
+          <div class="yolen-now-attention-action">
+            <span>Próxima ação</span>
+            ${escapeHtml(cleanAction)}
+          </div>
+        ` : ''}
       </div>
     `
   }
@@ -1495,9 +1552,8 @@
 
     return renderAttentionItem({
       label,
-      copy: signal.action
-        ? `${signal.headline} ${signal.action}`
-        : signal.headline,
+      headline: signal.headline,
+      action: signal.action,
       priority: signal.priority || '',
       source: signal.status,
       tone,
@@ -1531,14 +1587,37 @@
         ? renderAgoraSignal(agoraViewModel.primary, 'primary')
         : ''
 
-    return (
-      primaryHtml +
-      secondaryHtml
-    )
+    if (!primaryHtml) {
+      return secondaryHtml
+    }
+
+    if (!secondaryHtml) {
+      return primaryHtml
+    }
+
+    const secondaryCount =
+      Math.min(
+        2,
+        (agoraViewModel.secondary || []).length,
+      )
+
+    return `
+      ${primaryHtml}
+      <details
+        class="yolen-seller-secondary-details yolen-now-secondary-details"
+        data-yolen-preserve-details="agora-secondary-signals"
+      >
+        <summary>Ver outros sinais (${secondaryCount})</summary>
+        <div class="yolen-seller-stack">
+          ${secondaryHtml}
+        </div>
+      </details>
+    `
   }
 
   const api = Object.freeze({
     escapeHtml,
+    sellerText,
     getMethodStatusLabel,
     getMethodAdherenceLabel,
     getNeutralSessionCopy,

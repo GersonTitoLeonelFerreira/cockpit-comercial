@@ -14,6 +14,18 @@
         ? base.escapeHtml
         : (value) => String(value ?? '')
 
+    const sellerText =
+      typeof base.sellerText === 'function'
+        ? base.sellerText
+        : (value, fallback = null) => {
+            const clean =
+              typeof value === 'string'
+                ? value.trim()
+                : ''
+
+            return clean || fallback
+          }
+
     function text(value) {
       return typeof value === 'string' && value.trim()
         ? value.trim()
@@ -52,29 +64,29 @@
       }
 
       if (mode === 'agora') {
+        const safeWhyNow =
+          sellerText(
+            whyNow,
+            null,
+          )
+
+        if (
+          !safeWhyNow &&
+          !technique &&
+          doNotDo.length === 0
+        ) {
+          return ''
+        }
+
         return `
           <section
-            class="yolen-seller-section yolen-reasoning-section"
+            class="yolen-seller-section yolen-reasoning-section yolen-now-rationale"
             data-yolen-reasoning="agora"
           >
-            <div class="yolen-seller-section-heading">
-              <div>
-                <div class="yolen-seller-section-eyebrow">Coaching</div>
-                <h3>Como conduzir agora</h3>
-              </div>
-            </div>
-
-            ${nextAction ? `
-              <article class="yolen-seller-insight yolen-seller-insight--improvement">
-                <div class="yolen-seller-insight-type">Próximo movimento</div>
-                <div class="yolen-seller-insight-title">${escapeHtml(nextAction)}</div>
-              </article>
-            ` : ''}
-
-            ${whyNow ? `
-              <div class="yolen-seller-detail">
-                <div class="yolen-seller-detail-label">Por que agora</div>
-                <div class="yolen-seller-detail-copy">${escapeHtml(whyNow)}</div>
+            ${safeWhyNow ? `
+              <div class="yolen-seller-detail yolen-now-rationale-main">
+                <div class="yolen-seller-detail-label">Por que essa ação</div>
+                <div class="yolen-seller-detail-copy">${escapeHtml(safeWhyNow)}</div>
               </div>
             ` : ''}
 
@@ -90,12 +102,7 @@
                     ${technique ? `
                       <div class="yolen-seller-detail">
                         <div class="yolen-seller-detail-label">Técnica aplicável</div>
-                        <div class="yolen-seller-detail-copy">${escapeHtml(technique.title || '')}</div>
-                        ${
-                          text(technique.why_applicable)
-                            ? `<div class="yolen-seller-detail-copy">${escapeHtml(technique.why_applicable)}</div>`
-                            : ''
-                        }
+                        <div class="yolen-seller-detail-copy">${escapeHtml(sellerText(technique.title, 'Técnica comercial'))}</div>
                       </div>
                     ` : ''}
 
@@ -103,7 +110,7 @@
                       <div class="yolen-seller-detail">
                         <div class="yolen-seller-detail-label">Evite agora</div>
                         <ul class="yolen-seller-text-list">
-                          ${doNotDo.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+                          ${doNotDo.map((item) => `<li>${escapeHtml(sellerText(item, 'Cuidado comercial'))}</li>`).join('')}
                         </ul>
                       </div>
                     ` : ''}
@@ -122,27 +129,26 @@
         <section class="yolen-seller-section yolen-reasoning-section" data-yolen-reasoning="${escapeHtml(mode)}">
           <div class="yolen-seller-section-heading">
             <div>
-              <div class="yolen-seller-section-eyebrow">Commercial Brain</div>
+              <div class="yolen-seller-section-eyebrow">Orientação comercial</div>
               <h3>${escapeHtml(heading)}</h3>
             </div>
           </div>
           ${technique ? `
             <article class="yolen-seller-insight yolen-seller-insight--positive">
               <div class="yolen-seller-insight-type">Técnica aplicável</div>
-              <div class="yolen-seller-insight-title">${escapeHtml(technique.title || '')}</div>
-              ${text(technique.why_applicable) ? `<div class="yolen-seller-detail-copy">${escapeHtml(technique.why_applicable)}</div>` : ''}
+              <div class="yolen-seller-insight-title">${escapeHtml(sellerText(technique.title, 'Técnica comercial'))}</div>
             </article>
           ` : ''}
           ${whyNow ? `
             <div class="yolen-seller-detail">
               <div class="yolen-seller-detail-label">Por que agora</div>
-              <div class="yolen-seller-detail-copy">${escapeHtml(whyNow)}</div>
+              <div class="yolen-seller-detail-copy">${escapeHtml(sellerText(whyNow, 'Há um motivo comercial para tratar este ponto agora.'))}</div>
             </div>
           ` : ''}
           ${nextAction && mode !== 'agora' ? `
             <div class="yolen-seller-detail">
               <div class="yolen-seller-detail-label">Melhor próximo movimento</div>
-              <div class="yolen-seller-detail-copy">${escapeHtml(nextAction)}</div>
+              <div class="yolen-seller-detail-copy">${escapeHtml(sellerText(nextAction, 'Revise o contexto antes de avançar.'))}</div>
             </div>
           ` : ''}
           ${doNotDo.length > 0 ? `
@@ -157,7 +163,7 @@
             <details class="yolen-seller-secondary-details" data-yolen-preserve-details="reasoning-knowledge">
               <summary>Regras da empresa consideradas</summary>
               <ul class="yolen-seller-text-list">
-                ${knowledge.map((item) => `<li>${escapeHtml(item.title || item.source_type || 'Conhecimento publicado')}</li>`).join('')}
+                ${knowledge.map((item) => `<li>${escapeHtml(sellerText(item.title, 'Conhecimento publicado'))}</li>`).join('')}
               </ul>
             </details>
           ` : ''}
@@ -192,8 +198,8 @@
           <div class="yolen-seller-stack">
             ${visible.map((role) => `
               <article class="yolen-seller-insight">
-                <div class="yolen-seller-insight-type">${escapeHtml(ROLE_LABELS[role.role] || role.role || 'Papel comercial')}</div>
-                <div class="yolen-seller-insight-title">${escapeHtml(role.label || ROLE_LABELS[role.role] || '')}</div>
+                <div class="yolen-seller-insight-type">${escapeHtml(ROLE_LABELS[role.role] || 'Papel comercial')}</div>
+                <div class="yolen-seller-insight-title">${escapeHtml(sellerText(role.label, ROLE_LABELS[role.role] || 'Pessoa relacionada à oportunidade'))}</div>
                 <div class="yolen-seller-detail-copy">${role.scope === 'current_contact' ? 'Pessoa que está falando nesta conversa.' : 'Pessoa relacionada à oportunidade.'}</div>
               </article>
             `).join('')}
