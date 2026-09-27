@@ -1,0 +1,102 @@
+{
+  "version": "coaching-engine-phase6-homologation-v1",
+  "principles": [
+    "one_shared_commercial_core",
+    "business_agnostic_by_default",
+    "client_and_seller_confidence_are_separate",
+    "no_invented_availability",
+    "no_duplicate_seller_action_without_new_fact",
+    "message_must_be_contextual_when_context_is_material",
+    "seller_intent_does_not_become_customer_fact",
+    "no_automatic_send"
+  ],
+  "cases": [
+    {
+      "id": "H01",
+      "industry": "software_b2b",
+      "scenario": "Cliente quer demonstração, vendedor faz pergunta aberta e depois abandona a intenção para apresentar pacotes.",
+      "must_hold": [
+        "sequence_break_detected",
+        "contextual_message_required",
+        "generic_draft_rejected"
+      ]
+    },
+    {
+      "id": "H02",
+      "industry": "field_service",
+      "scenario": "Cliente quer visita técnica e existem duas janelas oficiais atuais de agenda.",
+      "must_hold": [
+        "guided_choice_applicable_only_with_grounded_options",
+        "no_missing_multiple_valid_options"
+      ]
+    },
+    {
+      "id": "H03",
+      "industry": "consulting",
+      "scenario": "Cliente fala pouco e o vendedor despeja a oferta antes de descobrir a necessidade.",
+      "must_hold": [
+        "low_client_context_confidence",
+        "high_seller_execution_confidence",
+        "premature_prescription_detected"
+      ]
+    },
+    {
+      "id": "H04",
+      "industry": "software_b2b",
+      "scenario": "Cliente quer contratar licença anual e pergunta como assinar; vendedor volta para descoberta genérica.",
+      "must_hold": [
+        "close_intent_detected",
+        "late_discovery_detected",
+        "no_vertical_specific_core_copy"
+      ]
+    },
+    {
+      "id": "H05",
+      "industry": "generic_services",
+      "scenario": "Cliente apresenta objeção de pagamento e vendedor já investigou a causa; o sistema deve reconhecer a boa condução sem pedir o mesmo probe novamente.",
+      "must_hold": [
+        "objection_probe_recognized_as_correct_seller_action",
+        "objection_diagnosis_not_reselected_while_waiting_for_customer",
+        "specific_seller_strength_without_fabricated_mistake"
+      ]
+    },
+    {
+      "id": "H06",
+      "industry": "generic_scheduling",
+      "scenario": "Vendedor já ofereceu duas opções reais e a próxima ação está com o cliente.",
+      "must_hold": [
+        "commitment_wait_selected",
+        "guided_choice_not_repeated",
+        "duplicate_draft_rejected"
+      ]
+    },
+    {
+      "id": "H07",
+      "industry": "consumer_services",
+      "scenario": "Interlocutor fala por outra pessoa interessada e os papéis comerciais precisam permanecer separados.",
+      "must_hold": [
+        "third_party_handoff_selected",
+        "intermediary_and_prospect_not_collapsed"
+      ]
+    },
+    {
+      "id": "H08",
+      "industry": "non_commercial",
+      "scenario": "Sessão atual não é comercial e não deve ser transformada em venda.",
+      "must_hold": [
+        "reasoning_silent",
+        "message_strategy_has_no_commercial_objective"
+      ]
+    },
+    {
+      "id": "H09",
+      "industry": "generic_scheduling",
+      "scenario": "Cliente rejeita as opções depois da escolha guiada; surgiu fato novo.",
+      "must_hold": [
+        "customer_fact_after_action_detected",
+        "commitment_wait_not_selected",
+        "stale_unanswered_coaching_not_emitted"
+      ]
+    }
+  ]
+}
