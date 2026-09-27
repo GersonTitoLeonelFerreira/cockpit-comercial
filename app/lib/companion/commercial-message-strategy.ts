@@ -127,6 +127,18 @@ function anchorsFrom(
   ).slice(0, 8)
 }
 
+function sellerIntentIsContextLight(
+  value: string | null | undefined,
+): boolean {
+  if (!value) {
+    return false
+  }
+
+  return /\b(agradec|obrigad|desped|encerr|disposicao|cumpriment|paraben|pedir desculp|desculp)\w*/.test(
+    comparable(value),
+  )
+}
+
 function activeMessageText(
   message:
     CompanionDiagnosticInput[
@@ -293,6 +305,7 @@ export function buildCommercialMessageStrategy({
   reasoning,
   coaching,
   diagnostic_input,
+  seller_intent = null,
 }: {
   reasoning:
     CommercialReasoning
@@ -300,6 +313,8 @@ export function buildCommercialMessageStrategy({
     CommercialCoachingDiagnosis
   diagnostic_input:
     CompanionDiagnosticInput
+  seller_intent?:
+    string | null
 }): CommercialMessageStrategy {
   const reference =
     latestCustomerReference(
@@ -315,6 +330,11 @@ export function buildCommercialMessageStrategy({
 
   const requiredInDraft =
     Boolean(
+      reasoning.status !==
+        'silent' &&
+      !sellerIntentIsContextLight(
+        seller_intent,
+      ) &&
       reference &&
       referenceAnchors.length > 0 &&
       (
