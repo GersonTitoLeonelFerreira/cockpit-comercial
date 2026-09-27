@@ -20,7 +20,7 @@ Nenhum merge, deploy de produção ou rollout é autorizado por este documento.
 
 | Área | Prova exigida pelo handoff | Critério | Estado atual |
 |---|---|---|---|
-| Criação de lead | 20 tentativas controladas | 20/20 em um clique; zero duplicidade | PENDENTE DA CONTAGEM FINAL |
+| Criação de lead | 20 tentativas controladas | 20/20 em um clique; zero duplicidade | PASS LIVE — 20/20 em um clique; zero duplicidade reportada |
 | ANÁLISE | 10 conversas variadas | 10/10 terminam em sucesso ou erro claro; nenhuma indefinida | PASS LIVE — 10/10 sucesso |
 | Latência | Mesmas 10 conversas | registrar fila, processamento e total; sem espera multi-minuto sem explicação | PASS OPERACIONAL — amostras reportadas 25–31s; nenhum caso multi-minuto na bateria. Tempos 4–9 não foram discriminados individualmente. |
 | Expand/collapse | 20 ciclos | shell/cabeçalho sempre presentes; sem tela escura intermediária | PASS LIVE — 20/20 |
@@ -98,3 +98,15 @@ Aceite informado por Gerson:
 - ANÁLISE não reiniciou sozinha.
 
 Resultado: bloco 2 concluído sem blocker reproduzível.
+
+
+## Homologação real — bloco 3
+
+Aceite informado por Gerson:
+
+- 20 tentativas controladas de criação de lead: PASS.
+- 20/20 concluídas em um clique.
+- Zero duplicidade reportada.
+- Nenhum estado intermediário preso reportado.
+
+Resultado: bloco 3 concluído sem blocker reproduzível.
