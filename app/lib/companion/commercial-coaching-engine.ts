@@ -519,24 +519,36 @@ function lastValidMove(
 function firstReadingImprovement({
   reading,
   waitingForCustomer,
+  customerFactAfterAction,
 }: {
   reading: CommercialReading
   waitingForCustomer: boolean
+  customerFactAfterAction: boolean
 }):
   | CommercialReadingImprovementPoint
   | undefined {
-  if (!waitingForCustomer) {
+  if (waitingForCustomer) {
     return reading
-      .improvement_points[0]
+      .improvement_points
+      .find(
+        point =>
+          !WAITING_FILTERED_IMPROVEMENT_KINDS
+            .has(point.kind),
+      )
+  }
+
+  if (customerFactAfterAction) {
+    return reading
+      .improvement_points
+      .find(
+        point =>
+          point.kind !==
+            'unanswered_question',
+      )
   }
 
   return reading
-    .improvement_points
-    .find(
-      point =>
-        !WAITING_FILTERED_IMPROVEMENT_KINDS
-          .has(point.kind),
-    )
+    .improvement_points[0]
 }
 
 export function buildCommercialCoachingDiagnosis({
@@ -574,6 +586,9 @@ export function buildCommercialCoachingDiagnosis({
         waitingForCustomer:
           sequenceMethod.sequence
             .waiting_for_customer,
+        customerFactAfterAction:
+          sequenceMethod.sequence
+            .customer_fact_after_action,
       }),
     )
 
