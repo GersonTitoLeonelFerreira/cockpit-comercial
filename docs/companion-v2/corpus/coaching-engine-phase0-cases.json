@@ -1,0 +1,284 @@
+{
+  "version": "coaching-engine-phase0-corpus-v1",
+  "cases": [
+    {
+      "id": "C01",
+      "title": "Experimental: pergunta aberta, silêncio e quebra de sequência",
+      "scenario": "A cliente declara que quer fazer uma experimental. O vendedor pergunta de forma aberta quando ela quer ir, não recebe resposta e no dia seguinte envia planos sem retomar o compromisso original.",
+      "turns": [
+        {"direction": "incoming", "text": "Quero fazer uma experimental."},
+        {"direction": "outgoing", "text": "Quando você quer fazer a experimental?"},
+        {"direction": "outgoing", "text": "Vou te mandar nossos planos para você conhecer."}
+      ],
+      "available_real_options": [],
+      "expected": {
+        "client_context_confidence": "high",
+        "seller_execution_confidence": "high",
+        "client_signal": "intenção explícita de experimentar antes de decidir",
+        "seller_action": "tentou agendar com pergunta aberta e depois abandonou o objetivo ao enviar planos",
+        "seller_strength": "reconheceu corretamente que o próximo passo era agendar",
+        "seller_mistake": "pergunta de alta fricção seguida de quebra de sequência",
+        "sequence_break": true,
+        "method_state": "retomar o compromisso de experimental antes de apresentar outra etapa",
+        "technique_ids": ["technique.guided_choice"],
+        "technique_condition": "usar escolha guiada somente se existirem opções reais conhecidas",
+        "next_action": "retomar a experimental e reduzir a fricção do microcompromisso",
+        "message_strategy": "reconectar com a intenção declarada e oferecer poucas opções reais quando disponíveis",
+        "must_not": [
+          "inventar horários",
+          "agir como se a cliente tivesse pedido planos",
+          "repetir a mesma pergunta aberta sem contexto"
+        ]
+      }
+    },
+    {
+      "id": "C02",
+      "title": "Cliente fala pouco, vendedor despeja planos",
+      "scenario": "O cliente fornece pouco contexto. O vendedor responde com uma mensagem longa de produtos e preços antes de descobrir necessidade suficiente.",
+      "turns": [
+        {"direction": "incoming", "text": "Tenho interesse."},
+        {"direction": "outgoing", "text": "Temos o Start, o Open, o Em Dobro e outras opções. Vou te explicar todos os valores e condições..."}
+      ],
+      "available_real_options": [],
+      "expected": {
+        "client_context_confidence": "low",
+        "seller_execution_confidence": "high",
+        "client_signal": "interesse comercial real, porém pouco especificado",
+        "seller_action": "prescreveu várias opções antes de descobrir contexto",
+        "seller_strength": null,
+        "seller_mistake": "excesso de prescrição com pouca descoberta",
+        "sequence_break": false,
+        "method_state": "descoberta insuficiente antes da apresentação",
+        "technique_ids": ["technique.discovery_before_prescription"],
+        "technique_condition": null,
+        "next_action": "fazer uma pergunta curta que descubra o critério mais útil para avançar",
+        "message_strategy": "reduzir carga e abrir descoberta contextual",
+        "must_not": [
+          "tratar baixa fala do cliente como baixa capacidade de avaliar o vendedor",
+          "despejar catálogo novamente"
+        ]
+      }
+    },
+    {
+      "id": "C03",
+      "title": "Vendedor já perguntou e cliente ainda não respondeu",
+      "scenario": "O vendedor já ofereceu duas opções reais e transferiu a próxima ação ao cliente. Não existe fato novo.",
+      "turns": [
+        {"direction": "incoming", "text": "Quero agendar."},
+        {"direction": "outgoing", "text": "Tenho terça às 18h ou quarta às 19h. Qual fica melhor?"}
+      ],
+      "available_real_options": ["terça 18h", "quarta 19h"],
+      "expected": {
+        "client_context_confidence": "high",
+        "seller_execution_confidence": "high",
+        "client_signal": "intenção de agendamento",
+        "seller_action": "fez escolha guiada com opções reais",
+        "seller_strength": "reduziu fricção e transferiu a decisão ao cliente",
+        "seller_mistake": null,
+        "sequence_break": false,
+        "method_state": "aguardando resposta do cliente",
+        "technique_ids": ["technique.commitment_wait", "anti_pattern.repeat_completed_action"],
+        "technique_condition": null,
+        "next_action": "aguardar sem repetir a pergunta no mesmo momento",
+        "message_strategy": "nenhuma nova mensagem enquanto não houver fato novo ou cadência de follow-up",
+        "must_not": [
+          "perguntar de novo qual horário prefere",
+          "inventar urgência"
+        ]
+      }
+    },
+    {
+      "id": "C04",
+      "title": "Fato novo depois da espera",
+      "scenario": "Depois de o vendedor oferecer horários, o cliente responde que nenhum deles funciona. A espera deixa de ser a decisão correta porque surgiu fato novo.",
+      "turns": [
+        {"direction": "incoming", "text": "Quero agendar."},
+        {"direction": "outgoing", "text": "Tenho terça às 18h ou quarta às 19h. Qual fica melhor?"},
+        {"direction": "incoming", "text": "Nenhum desses horários consigo."}
+      ],
+      "available_real_options": ["terça 18h", "quarta 19h"],
+      "expected": {
+        "client_context_confidence": "high",
+        "seller_execution_confidence": "high",
+        "client_signal": "mantém intenção, mas rejeita as opções oferecidas",
+        "seller_action": "a ação anterior foi válida, porém ficou superada por fato novo",
+        "seller_strength": "ofereceu opções concretas inicialmente",
+        "seller_mistake": null,
+        "sequence_break": false,
+        "method_state": "reabrir o microcompromisso de agendamento",
+        "technique_ids": [],
+        "technique_condition": "não selecionar espera disciplinada como decisão final após o fato novo",
+        "next_action": "buscar outras opções reais ou colher uma preferência útil para consultar disponibilidade",
+        "message_strategy": "reconhecer a restrição e avançar sem repetir as opções rejeitadas",
+        "must_not": [
+          "continuar em wait apesar do fato novo",
+          "repetir os mesmos horários"
+        ]
+      }
+    },
+    {
+      "id": "C05",
+      "title": "Preço antes da necessidade",
+      "scenario": "O cliente demonstra interesse genérico e o vendedor responde imediatamente com preço e produto sem contexto suficiente.",
+      "turns": [
+        {"direction": "incoming", "text": "Queria saber como funciona."},
+        {"direction": "outgoing", "text": "O plano custa R$ 199 e inclui estes benefícios..."}
+      ],
+      "available_real_options": [],
+      "expected": {
+        "client_context_confidence": "low",
+        "seller_execution_confidence": "high",
+        "client_signal": "interesse inicial sem necessidade esclarecida",
+        "seller_action": "apresentou preço e solução antes de descobrir o problema",
+        "seller_strength": null,
+        "seller_mistake": "prescrição prematura",
+        "sequence_break": false,
+        "method_state": "descoberta deve anteceder a prescrição",
+        "technique_ids": ["technique.discovery_before_prescription", "risk.premature_stage_advance"],
+        "technique_condition": null,
+        "next_action": "recuperar descoberta com uma pergunta curta e relevante",
+        "message_strategy": "voltar ao contexto sem fingir que o preço não foi enviado",
+        "must_not": [
+          "recomeçar a conversa do zero",
+          "repetir preço como se fosse resposta suficiente"
+        ]
+      }
+    },
+    {
+      "id": "C06",
+      "title": "Cliente pronto para fechar, vendedor continua descobrindo",
+      "scenario": "O cliente declara que quer fechar e pergunta como pagar. O vendedor continua fazendo perguntas de descoberta que já não movem a venda.",
+      "turns": [
+        {"direction": "incoming", "text": "Quero fechar esse plano. Como faço o pagamento?"},
+        {"direction": "outgoing", "text": "Antes disso, me conta qual é o seu principal objetivo e quantas vezes pretende vir por semana?"}
+      ],
+      "available_real_options": [],
+      "expected": {
+        "client_context_confidence": "high",
+        "seller_execution_confidence": "high",
+        "client_signal": "intenção explícita de fechamento e pedido operacional de pagamento",
+        "seller_action": "manteve descoberta quando o cliente já avançou para decisão",
+        "seller_strength": null,
+        "seller_mistake": "avanço tardio por excesso de descoberta",
+        "sequence_break": true,
+        "method_state": "responder o pedido de fechamento usando somente regras publicadas",
+        "technique_ids": ["principle.company_rules_before_claim"],
+        "technique_condition": null,
+        "next_action": "responder como concluir o pagamento e pedir o próximo compromisso necessário",
+        "message_strategy": "ser direto, factual e orientado ao fechamento",
+        "must_not": [
+          "continuar interrogatório de descoberta",
+          "inventar forma de pagamento"
+        ]
+      }
+    },
+    {
+      "id": "C07",
+      "title": "Boa condução de objeção deve gerar elogio específico",
+      "scenario": "O cliente traz uma objeção de cartão. O vendedor diagnostica a causa e usa uma alternativa realmente publicada pela empresa.",
+      "turns": [
+        {"direction": "incoming", "text": "Estou sem limite no cartão."},
+        {"direction": "outgoing", "text": "Entendi. O bloqueio é limite disponível ou você está sem o cartão agora? Dependendo disso eu verifico a alternativa correta para você."}
+      ],
+      "available_real_options": [],
+      "expected": {
+        "client_context_confidence": "high",
+        "seller_execution_confidence": "high",
+        "client_signal": "objeção real de pagamento",
+        "seller_action": "diagnosticou a causa antes de prescrever alternativa",
+        "seller_strength": "isolou a causa da objeção em vez de chutar uma solução",
+        "seller_mistake": null,
+        "sequence_break": false,
+        "method_state": "tratamento de objeção em curso",
+        "technique_ids": ["technique.objection_diagnosis", "principle.company_rules_before_claim"],
+        "technique_condition": null,
+        "next_action": "aguardar a resposta diagnóstica e então usar apenas condição oficial",
+        "message_strategy": "preservar a boa condução sem inventar crítica para preencher a análise",
+        "must_not": [
+          "inventar ponto de melhoria",
+          "oferecer condição não publicada"
+        ]
+      }
+    },
+    {
+      "id": "C08",
+      "title": "Intermediário e prospect não podem ser colapsados",
+      "scenario": "O contato atual fala em nome da irmã, que é a pessoa interessada no produto.",
+      "turns": [
+        {"direction": "incoming", "text": "Minha irmã quer começar. Como faço para ela conhecer a academia?"}
+      ],
+      "available_real_options": [],
+      "expected": {
+        "client_context_confidence": "high",
+        "seller_execution_confidence": "low",
+        "client_signal": "o interlocutor é intermediário e existe prospect relacionado",
+        "seller_action": "ainda não há ação suficiente do vendedor para avaliar",
+        "seller_strength": null,
+        "seller_mistake": null,
+        "sequence_break": false,
+        "method_state": "preservar os papéis e conduzir o handoff",
+        "technique_ids": ["technique.third_party_handoff"],
+        "technique_condition": null,
+        "next_action": "facilitar a passagem para a prospect sem atribuir a ela fatos do intermediário",
+        "message_strategy": "tratar a irmã como prospect distinto",
+        "must_not": [
+          "tratar interlocutor e prospect como a mesma pessoa"
+        ]
+      }
+    },
+    {
+      "id": "C09",
+      "title": "Mensagem genérica deve falhar no transplant test",
+      "scenario": "O diagnóstico pode estar correto, mas a mensagem sugerida é genérica o suficiente para ser enviada quase igual a qualquer lead.",
+      "turns": [
+        {"direction": "incoming", "text": "Quero fazer uma experimental antes de decidir."},
+        {"direction": "outgoing", "text": "Claro, podemos verificar isso para você."}
+      ],
+      "available_real_options": [],
+      "expected": {
+        "client_context_confidence": "high",
+        "seller_execution_confidence": "high",
+        "client_signal": "intenção específica de experimentar antes da decisão",
+        "seller_action": "respondeu sem transformar a intenção em próximo compromisso",
+        "seller_strength": null,
+        "seller_mistake": "resposta genérica sem avanço contextual",
+        "sequence_break": false,
+        "method_state": "transformar intenção explícita em microcompromisso",
+        "technique_ids": [],
+        "technique_condition": null,
+        "next_action": "usar a intenção de experimental como âncora da próxima mensagem",
+        "message_strategy": "a mensagem precisa conter contexto que não seja transplantável para leads diferentes",
+        "must_not": [
+          "usar mensagem que poderia servir sem alteração para dez situações comerciais diferentes"
+        ]
+      }
+    },
+    {
+      "id": "C10",
+      "title": "Disponibilidade desconhecida não autoriza horário inventado",
+      "scenario": "O cliente quer fazer experimental, mas a fotografia atual não contém horários disponíveis confiáveis.",
+      "turns": [
+        {"direction": "incoming", "text": "Quero fazer a experimental. Que horário tem?"}
+      ],
+      "available_real_options": [],
+      "expected": {
+        "client_context_confidence": "high",
+        "seller_execution_confidence": "low",
+        "client_signal": "intenção explícita de agendar e pergunta factual sobre disponibilidade",
+        "seller_action": "não há resposta do vendedor ainda",
+        "seller_strength": null,
+        "seller_mistake": null,
+        "sequence_break": false,
+        "method_state": "obter fato real de disponibilidade antes de oferecer escolha guiada",
+        "technique_ids": [],
+        "technique_condition": "technique.guided_choice só pode ser usada depois de obter opções reais",
+        "next_action": "consultar disponibilidade real ou fazer uma pergunta de preferência que não afirme agenda inexistente",
+        "message_strategy": "não fabricar horário, promessa ou vaga",
+        "must_not": [
+          "inventar horários",
+          "afirmar disponibilidade sem fonte"
+        ]
+      }
+    }
+  ]
+}
