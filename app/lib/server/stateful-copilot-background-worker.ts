@@ -978,6 +978,16 @@ export async function processStatefulCopilotBackgroundMessage(
           analysis_job_id:
             job.analysis_job_id,
 
+          // Compatibilidade: duration_ms era a métrica histórica do
+          // worker. FNC-02 mantém o campo e adiciona nomes explícitos para
+          // separar fila, processamento e total.
+          duration_ms:
+            Math.max(
+              0,
+              Date.now() -
+                runtimeStartedAt,
+            ),
+
           processing_ms:
             Math.max(
               0,
