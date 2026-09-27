@@ -180,3 +180,29 @@ UX-01 through UX-04 are technically implemented with the focal contract/regressi
 Next product step:
 
 build the E2E Firefox extension and perform visual/live acceptance of the new seller-facing Companion before any merge decision.
+
+
+## Live Firefox acceptance
+
+Date: 2026-09-27.
+
+Live acceptance was completed by Gerson using the E2E Firefox build in ManyChat.
+
+Observed and approved in the live seller-facing UI:
+
+- AGORA with the simplified decision → next action → rationale hierarchy;
+- secondary details available through progressive disclosure;
+- ANÁLISE without seller-facing Insert/Copy composer actions;
+- MENSAGEM as the sole seller-facing owner of message generation/copy/channel insertion;
+- CLIENTE layout and information hierarchy;
+- Yolen V2 dark/cold-gray/blue visual direction;
+- navigation between AGORA, MENSAGEM, ANÁLISE and CLIENTE;
+- lead already linked to the seller workspace;
+- no regression reported in the tested live flow.
+
+User acceptance result:
+
+**APPROVED — "TESTEI E GOSTEI. TUDO FUNCIONANDO."**
+
+This is live product acceptance of UX-01 through UX-04 on Firefox/ManyChat E2E. It does not authorize merge, deploy or ManyChat production rollout.
+
