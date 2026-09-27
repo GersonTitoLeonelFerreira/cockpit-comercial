@@ -4,6 +4,10 @@ const SESSION_STORAGE_KEY = 'yolen_companion_session'
 const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
 const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
 const LOCAL_BASE_URL = 'http://localhost:3000'
+// TEMP-ID01-LIVE: Preview isolado da validação. Esta constante e as
+// salvaguardas associadas existem só nesta branch temporária.
+const TEMP_ID01_PREVIEW_BASE_URL =
+  'https://cockpit-comercial-vocn-git-claude-companion-id-01-9d3d8a-yolen.vercel.app'
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
 
@@ -62,6 +66,10 @@ function getAllowedBaseUrl(baseUrl) {
 
   if (baseUrl === DEFAULT_BASE_URL) {
     return DEFAULT_BASE_URL
+  }
+
+  if (baseUrl === TEMP_ID01_PREVIEW_BASE_URL) {
+    return TEMP_ID01_PREVIEW_BASE_URL
   }
 
   return DEFAULT_BASE_URL
@@ -240,7 +248,9 @@ async function requestYolenWithToken(message, path, body) {
     cachedSession.origin ===
       LOCAL_BASE_URL ||
     cachedSession.origin ===
-      DEFAULT_BASE_URL
+      DEFAULT_BASE_URL ||
+    cachedSession.origin ===
+      TEMP_ID01_PREVIEW_BASE_URL
       ? cachedSession.origin
       : null
 
@@ -777,6 +787,30 @@ async function handleCompanionMessage(message, sender) {
 async function handleBridgeMessage(message) {
   if (message.action === 'SESSION_UPDATE') {
     if (isValidSession(message.session)) {
+      // TEMP-ID01-LIVE: se a sessão de Preview já foi capturada via
+      // /companion/connect, uma aba de produção aberta continua publicando
+      // SESSION_UPDATE a cada 15s. Durante esta validação isolada ela não
+      // pode sobrescrever a sessão de Preview com o backend antigo.
+      const cachedSession =
+        await getValidCachedSession()
+
+      if (
+        cachedSession?.origin ===
+          TEMP_ID01_PREVIEW_BASE_URL &&
+        message.session?.origin !==
+          TEMP_ID01_PREVIEW_BASE_URL
+      ) {
+        return {
+          ok: true,
+          statusCode: 200,
+          payload: {
+            ok: true,
+            status:
+              'SESSION_IGNORED_DURING_ID01_PREVIEW',
+          },
+        }
+      }
+
       await setCachedSession(message.session)
 
       return {

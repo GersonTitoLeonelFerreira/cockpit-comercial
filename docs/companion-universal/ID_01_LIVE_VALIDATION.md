@@ -9,3 +9,16 @@ Purpose:
 - keep production untouched.
 
 This branch is temporary validation infrastructure and is not intended for merge.
+
+
+## Validation routing diagnosis
+
+The first Preview-generated hash session carried the correct company name, but production dashboard tabs keep publishing a production SESSION_UPDATE every 15 seconds through the installed bridge. That production session can overwrite the Preview session in extension storage.
+
+This temporary branch therefore:
+- gives the Preview connection session its real Preview origin;
+- authorizes exactly this Preview origin in the E2E extension transport;
+- ignores production bridge SESSION_UPDATE only while a valid Preview session is already cached;
+- leaves the production branch untouched.
+
+Preview: `https://cockpit-comercial-vocn-git-claude-companion-id-01-9d3d8a-yolen.vercel.app`
