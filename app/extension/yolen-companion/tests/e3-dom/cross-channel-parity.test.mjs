@@ -939,6 +939,16 @@ test('FNC-02: job ainda queued após a janela ativa sai do spinner para estado n
 
   allowSuccess = true
 
+  const statusCallsBeforeVerification =
+    runtimes.map(
+      (runtime) =>
+        runtime.calls.filter(
+          (call) =>
+            call.action ===
+            'GET_ANALYSIS_JOB_STATUS',
+        ).length,
+    )
+
   everyRuntime(runtimes, (runtime) =>
     click(
       runtime,
@@ -950,10 +960,38 @@ test('FNC-02: job ainda queued após a janela ativa sai do spinner para estado n
 
   await waitForBoth(
     runtimes,
-    (runtime) =>
-      /Resumo profundo/.test(
-        panelText(runtime),
-      ),
+    (runtime) => {
+      const runtimeIndex =
+        runtimes.indexOf(runtime)
+
+      const statusCalls =
+        runtime.calls.filter(
+          (call) =>
+            call.action ===
+            'GET_ANALYSIS_JOB_STATUS',
+        ).length
+
+      return (
+        statusCalls >
+          statusCallsBeforeVerification[
+            runtimeIndex
+          ] &&
+        !runtime.document.querySelector(
+          '[data-yolen-analysis-pending]',
+        ) &&
+        !runtime.document.querySelector(
+          '[data-yolen-analysis-loading]',
+        ) &&
+        !runtime.document.querySelector(
+          '[data-yolen-analysis-error]',
+        ) &&
+        Boolean(
+          runtime.document.querySelector(
+            '[data-yolen-analysis-empty]',
+          ),
+        )
+      )
+    },
     { timeoutMs: 10000 },
   )
 
@@ -976,6 +1014,18 @@ test('FNC-02: job ainda queued após a janela ativa sai do spinner para estado n
         '[data-yolen-analysis-loading]',
       ),
       null,
+    )
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-error]',
+      ),
+      null,
+    )
+    assert.ok(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-empty]',
+      ),
+      'o deep result succeeded foi promovido; a fixture não possui seções detalhadas renderizáveis',
     )
   })
 })
