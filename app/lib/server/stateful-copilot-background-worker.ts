@@ -579,6 +579,39 @@ export async function processStatefulCopilotBackgroundMessage(
   const runtimeStartedAt =
     Date.now()
 
+  const requestedAtMs =
+    Date.parse(
+      job.requested_at,
+    )
+
+  const queueWaitMs =
+    Number.isFinite(
+      requestedAtMs,
+    )
+      ? Math.max(
+          0,
+          runtimeStartedAt -
+            requestedAtMs,
+        )
+      : null
+
+  console.info(
+    'YOLEN_COMPANION_STATEFUL_BACKGROUND',
+    JSON.stringify({
+      event:
+        'background_analysis_started',
+      company_id:
+        job.company_id,
+      cycle_id:
+        job.cycle_id,
+      analysis_job_id:
+        job.analysis_job_id,
+      delivery_count,
+      queue_wait_ms:
+        queueWaitMs,
+    }),
+  )
+
   try {
     const statefulResult =
       await runRuntime({
@@ -945,12 +978,36 @@ export async function processStatefulCopilotBackgroundMessage(
           analysis_job_id:
             job.analysis_job_id,
 
+          // Compatibilidade: duration_ms era a métrica histórica do
+          // worker. FNC-02 mantém o campo e adiciona nomes explícitos para
+          // separar fila, processamento e total.
           duration_ms:
             Math.max(
               0,
               Date.now() -
                 runtimeStartedAt,
             ),
+
+          processing_ms:
+            Math.max(
+              0,
+              Date.now() -
+                runtimeStartedAt,
+            ),
+
+          queue_wait_ms:
+            queueWaitMs,
+
+          total_ms:
+            Number.isFinite(
+              requestedAtMs,
+            )
+              ? Math.max(
+                  0,
+                  Date.now() -
+                    requestedAtMs,
+                )
+              : null,
 
           communication_attempts:
             statefulResult

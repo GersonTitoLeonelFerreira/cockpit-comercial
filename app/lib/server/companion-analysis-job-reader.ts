@@ -549,8 +549,145 @@ export type CompanionAnalysisJobStatusResult = {
   message_watermark: string
   candidate_state_version: number | null
   failure_code: string | null
+  attempt_count: number
+  requested_at: string
+  started_at: string | null
+  completed_at: string | null
+  timings: {
+    queue_wait_ms: number
+    processing_ms: number | null
+    total_ms: number
+  }
   result: CompanionDeepSellerResult | null
   result_generated_at: string | null
+}
+
+function normalizeJobTimestamp(
+  value: unknown,
+  {
+    required,
+  }: {
+    required: boolean
+  },
+): string | null {
+  if (value === null && !required) {
+    return null
+  }
+
+  if (typeof value !== 'string') {
+    failIntegrity()
+  }
+
+  const timestamp =
+    Date.parse(value)
+
+  if (!Number.isFinite(timestamp)) {
+    failIntegrity()
+  }
+
+  return new Date(timestamp).toISOString()
+}
+
+function buildJobTimingSnapshot({
+  status,
+  requested_at,
+  started_at,
+  completed_at,
+}: {
+  status: StatefulCopilotBackgroundJobStatus
+  requested_at: unknown
+  started_at: unknown
+  completed_at: unknown
+}) {
+  const requestedAt =
+    normalizeJobTimestamp(
+      requested_at,
+      { required: true },
+    )
+
+  if (!requestedAt) {
+    failIntegrity()
+  }
+
+  const startedAt =
+    normalizeJobTimestamp(
+      started_at,
+      { required: false },
+    )
+
+  const completedAt =
+    normalizeJobTimestamp(
+      completed_at,
+      { required: false },
+    )
+
+  const requestedAtMs =
+    Date.parse(requestedAt)
+
+  const startedAtMs =
+    startedAt
+      ? Date.parse(startedAt)
+      : null
+
+  const completedAtMs =
+    completedAt
+      ? Date.parse(completedAt)
+      : null
+
+  const nowMs =
+    Date.now()
+
+  const queueEndMs =
+    startedAtMs ??
+    (
+      status === 'queued'
+        ? nowMs
+        : requestedAtMs
+    )
+
+  const processingEndMs =
+    completedAtMs ??
+    (
+      status === 'running'
+        ? nowMs
+        : startedAtMs
+    )
+
+  const totalEndMs =
+    completedAtMs ??
+    nowMs
+
+  return {
+    requested_at:
+      requestedAt,
+    started_at:
+      startedAt,
+    completed_at:
+      completedAt,
+    timings: {
+      queue_wait_ms:
+        Math.max(
+          0,
+          queueEndMs -
+            requestedAtMs,
+        ),
+      processing_ms:
+        startedAtMs === null ||
+        processingEndMs === null
+          ? null
+          : Math.max(
+              0,
+              processingEndMs -
+                startedAtMs,
+            ),
+      total_ms:
+        Math.max(
+          0,
+          totalEndMs -
+            requestedAtMs,
+        ),
+    },
+  }
 }
 
 export async function loadCompanionAnalysisJobStatus({
@@ -600,7 +737,7 @@ export async function loadCompanionAnalysisJobStatus({
         'companion_background_analysis_jobs',
       )
       .select(
-        'analysis_job_id, status, company_id, cycle_id, conversation_key, message_watermark, candidate_state_version, failure_code',
+        'analysis_job_id, status, company_id, cycle_id, conversation_key, message_watermark, candidate_state_version, failure_code, attempt_count, requested_at, started_at, completed_at',
       )
       .eq(
         'analysis_job_id',
@@ -677,6 +814,25 @@ export async function loadCompanionAnalysisJobStatus({
       ? job.failure_code
       : null
 
+  const attemptCount =
+    typeof job.attempt_count === 'number' &&
+    Number.isSafeInteger(job.attempt_count) &&
+    job.attempt_count >= 0
+      ? job.attempt_count
+      : 0
+
+  const timingSnapshot =
+    buildJobTimingSnapshot({
+      status:
+        job.status,
+      requested_at:
+        job.requested_at,
+      started_at:
+        job.started_at,
+      completed_at:
+        job.completed_at,
+    })
+
   if (job.status !== 'succeeded') {
     return {
       analysis_job_id: analysisJobId,
@@ -686,6 +842,8 @@ export async function loadCompanionAnalysisJobStatus({
       message_watermark: job.message_watermark,
       candidate_state_version: candidateStateVersion,
       failure_code: failureCode,
+      attempt_count: attemptCount,
+      ...timingSnapshot,
       result: null,
       result_generated_at: null,
     }
@@ -772,6 +930,8 @@ export async function loadCompanionAnalysisJobStatus({
     message_watermark: job.message_watermark,
     candidate_state_version: candidateStateVersion,
     failure_code: failureCode,
+    attempt_count: attemptCount,
+    ...timingSnapshot,
     result:
       buildSellerResult(
         event.normalized_output,

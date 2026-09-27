@@ -19,7 +19,12 @@ function createCompanionMessageController({
   captureOperationContext = () => null,
   isOperationContextCurrent = () => true,
 } = {}) {
-  const stateByContext = new Map()
+  // Estado da MENSAGEM por conversa (cycle_id + conversation_key). O
+  // rascunho da intenção é do vendedor e da conversa: sobrevive a um
+  // resumo recarregado da MESMA conversa (ex.: mensagem nova do cliente);
+  // só o resultado gerado a partir do resumo anterior deixa de valer
+  // (MSG-01). Trocar de conversa limpa tudo (clear()).
+  const stateByConversation = new Map()
   let currentContext = null
   let renderQueued = false
 
@@ -121,18 +126,12 @@ function createCompanionMessageController({
 
     if (!requestKey) {
       currentContext = null
-      stateByContext.clear()
+      stateByConversation.clear()
       removeVisibleComposer()
       return
     }
 
-    const prefix = `${requestKey}::`
-
-    for (const key of stateByContext.keys()) {
-      if (key.startsWith(prefix)) {
-        stateByContext.delete(key)
-      }
-    }
+    stateByConversation.delete(requestKey)
 
     if (
       currentContext &&
@@ -150,9 +149,31 @@ function createCompanionMessageController({
       return null
     }
 
-    if (!stateByContext.has(context.key)) {
-      stateByContext.set(context.key, {
+    const conversationKey =
+      buildRequestContextKey(context.payload)
+
+    let state =
+      stateByConversation.get(conversationKey)
+
+    if (!state) {
+      state = {
+        contextKey: context.key,
         intent: '',
+        status: 'idle',
+        message: null,
+        error: null,
+        feedback: null,
+      }
+
+      stateByConversation.set(
+        conversationKey,
+        state,
+      )
+    } else if (state.contextKey !== context.key) {
+      // Resumo novo da MESMA conversa: a mensagem gerada a partir do
+      // resumo anterior deixa de valer; o rascunho continua.
+      Object.assign(state, {
+        contextKey: context.key,
         status: 'idle',
         message: null,
         error: null,
@@ -160,7 +181,16 @@ function createCompanionMessageController({
       })
     }
 
-    return stateByContext.get(context.key)
+    return state
+  }
+
+  function isStateCurrent(context, state) {
+    return (
+      stateByConversation.get(
+        buildRequestContextKey(context.payload),
+      ) === state &&
+      state.contextKey === context.key
+    )
   }
 
   function getGuidance(context) {
@@ -206,16 +236,10 @@ function createCompanionMessageController({
   }
 
   function shortPresetLabel(value) {
-    const normalized = String(value || '')
+    return String(value || '')
       .replace(/^Quero\s+/i, '')
       .replace(/[.]$/, '')
       .trim()
-
-    if (normalized.length <= 26) {
-      return normalized
-    }
-
-    return `${normalized.slice(0, 25).trim()}…`
   }
 
   const INTENT_MAX_LENGTH = 1000
@@ -380,7 +404,123 @@ function createCompanionMessageController({
       'data-yolen-render-key',
       renderKey,
     )
-    box.innerHTML = html
+    applyComposerHtml(
+      box,
+      html,
+      context,
+      state,
+    )
+  }
+
+  const INTENT_FIELD_SELECTOR =
+    '[data-yolen-seller-message-intent]'
+
+  // O campo de intenção é criado uma vez por conversa e nunca recriado por
+  // render: enquanto o vendedor edita, o valor do DOM é a autoridade (o
+  // evento input o copia para o estado). O resto do composer (atalhos,
+  // contador, botão, resultado) é trocado quando o HTML calculado muda.
+  // Antes, todo render com texto novo trocava box.innerHTML inteiro: o
+  // campo era recriado a cada render de fundo (polling, AGORA/ANÁLISE,
+  // sessão) e o vendedor perdia foco, cursor e seleção no meio da
+  // digitação (MSG-01).
+  function applyComposerHtml(
+    box,
+    html,
+    context,
+    state,
+  ) {
+    const conversationKey =
+      buildRequestContextKey(context.payload)
+
+    const field = box.querySelector(
+      INTENT_FIELD_SELECTOR,
+    )
+
+    if (
+      !field ||
+      box.__yolenComposerConversationKey !==
+        conversationKey
+    ) {
+      box.innerHTML = html
+      box.__yolenComposerConversationKey =
+        conversationKey
+      return
+    }
+
+    const template =
+      document.createElement('template')
+    template.innerHTML = html
+
+    let kept = field
+    let nextKept =
+      template.content.querySelector(
+        INTENT_FIELD_SELECTOR,
+      )
+
+    while (kept !== box) {
+      replaceChangedSiblings(
+        kept,
+        nextKept,
+      )
+      kept = kept.parentNode
+      nextKept = nextKept.parentNode
+    }
+
+    // Só uma mudança feita pela própria MENSAGEM (atalho escolhido)
+    // diverge do campo; a digitação já está no estado.
+    if (field.value !== state.intent) {
+      field.value = state.intent
+    }
+  }
+
+  function serializeNodes(nodes) {
+    return nodes
+      .map((node) => node.outerHTML ?? node.textContent)
+      .join('')
+  }
+
+  // Troca os irmãos de `kept` (antes e depois dele) pelos de `nextKept`
+  // quando o HTML deles mudou; `kept` permanece o mesmo nó.
+  function replaceChangedSiblings(
+    kept,
+    nextKept,
+  ) {
+    const parent = kept.parentNode
+    const current = Array.from(parent.childNodes)
+    const next = Array.from(
+      nextKept.parentNode.childNodes,
+    )
+    const keptIndex = current.indexOf(kept)
+    const nextKeptIndex = next.indexOf(nextKept)
+
+    for (const [
+      currentNodes,
+      nextNodes,
+      reference,
+    ] of [
+      [
+        current.slice(0, keptIndex),
+        next.slice(0, nextKeptIndex),
+        kept,
+      ],
+      [
+        current.slice(keptIndex + 1),
+        next.slice(nextKeptIndex + 1),
+        null,
+      ],
+    ]) {
+      if (
+        serializeNodes(currentNodes) ===
+        serializeNodes(nextNodes)
+      ) {
+        continue
+      }
+
+      currentNodes.forEach((node) => node.remove())
+      nextNodes.forEach((node) =>
+        parent.insertBefore(node, reference),
+      )
+    }
   }
 
   function queueRender() {
@@ -423,7 +563,7 @@ function createCompanionMessageController({
     // Resposta de uma geração cujo contexto já não é o atual (troca de
     // conversa, A→B→A, empresa ou sessão) é descartada sem tocar em nada.
     const isStillCurrent = () =>
-      stateByContext.get(context.key) === state &&
+      isStateCurrent(context, state) &&
       isOperationContextCurrent(context.operationContext)
 
     // FASE 16.9 — a mensagem não envia mais uma orientação própria
@@ -579,7 +719,7 @@ function createCompanionMessageController({
     }
 
     if (
-      stateByContext.get(context.key) !== state ||
+      !isStateCurrent(context, state) ||
       !isOperationContextCurrent(context.operationContext)
     ) {
       return

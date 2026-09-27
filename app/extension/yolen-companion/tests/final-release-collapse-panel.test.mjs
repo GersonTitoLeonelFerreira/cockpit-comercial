@@ -84,34 +84,42 @@ test(
 )
 
 test(
-  'Companion utiliza o mesmo logo oficial da Yolen empacotado na extensão',
+  'Companion utiliza o mesmo logo oficial da Yolen no WhatsApp e no ManyChat',
   () => {
     assert.match(
       contentScript,
       /assets\/yolen-mark\.png/,
     )
 
-    const whatsappResources =
+    const brandResources =
       manifest
         .web_accessible_resources
         ?.find(
           entry =>
             entry
-              .matches
+              .resources
               ?.includes(
-                'https://web.whatsapp.com/*',
+                'assets/yolen-mark.png',
               ),
         )
 
     assert.ok(
-      whatsappResources,
+      brandResources,
     )
 
     assert.ok(
-      whatsappResources
-        .resources
+      brandResources
+        .matches
         .includes(
-          'assets/yolen-mark.png',
+          'https://web.whatsapp.com/*',
+        ),
+    )
+
+    assert.ok(
+      brandResources
+        .matches
+        .includes(
+          'https://app.manychat.com/*',
         ),
     )
   },

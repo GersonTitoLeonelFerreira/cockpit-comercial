@@ -323,7 +323,7 @@ test('G) SOFT_DELETED -> lead C ativo -> summary C ready: mount reaparece, somen
   assert.doesNotMatch(messagePanelHtml(document), new RegExp(MARKER_A))
 })
 
-test('H) summary de contexto elegível está loading: mount some temporariamente, mas nenhum clear global apaga o intent legítimo da mesma conversa', async () => {
+test('H) summary de contexto elegível recarregando: mount continua com o resumo válido e nenhum clear global apaga o intent legítimo da mesma conversa', async () => {
   // O resumo fica preso a partir do gatilho abaixo (todas as cargas dali
   // em diante) e é liberado de uma vez.
   let holdSummaries = false
@@ -360,9 +360,13 @@ test('H) summary de contexto elegível está loading: mount some temporariamente
   await waitFor(() => heldSummaries.length > 0, { timeoutMs: 10000 })
   await sleep(30)
 
+  // Pacote de estabilização P0 (FNC-04/MSG-01): recarga do resumo da
+  // MESMA conversa mantém o resumo válido na tela até o novo chegar — a
+  // MENSAGEM continua montada em vez de sumir durante a atualização em
+  // segundo plano.
   switchToTab(document, 'message')
   await sleep(30)
-  assert.equal(hasMount(document), false, 'enquanto loading, o mount não aparece ainda')
+  assert.equal(hasMount(document), true, 'enquanto o resumo recarrega, o mount continua com o resumo válido')
 
   holdSummaries = false
   for (const release of heldSummaries) release()

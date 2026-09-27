@@ -764,6 +764,27 @@ function jobStatus(status) {
       analysis_job_id: JOB_ID,
       status,
       message_watermark: 'wm-1',
+      attempt_count:
+        status === 'queued' ? 0 : 1,
+      requested_at: '2026-09-27T12:00:00.000Z',
+      started_at:
+        status === 'queued'
+          ? null
+          : '2026-09-27T12:00:05.000Z',
+      completed_at:
+        status === 'succeeded' ||
+        status === 'failed' ||
+        status === 'superseded'
+          ? '2026-09-27T12:00:25.000Z'
+          : null,
+      timings: {
+        queue_wait_ms: 5000,
+        processing_ms:
+          status === 'queued'
+            ? null
+            : 20000,
+        total_ms: 25000,
+      },
       result: status === 'succeeded'
         ? {
             contract_version: 'phase12a-deep-seller-v1',
@@ -790,7 +811,7 @@ async function clickAnalyze(runtimes) {
   await waitForBoth(runtimes, hasCall('ANALYZE_CONVERSATION'))
 }
 
-test('ANÁLISE loading → ready: mesma leitura comercial, mesma orientação e mesma sugestão nos dois canais', async () => {
+test('ANÁLISE loading → ready: mesma leitura comercial e mesma orientação nos dois canais', async () => {
   const gate = deferred()
   const runtimes = start({
     resolution: leadResolution('OWNED_BY_ME'),
@@ -807,8 +828,8 @@ test('ANÁLISE loading → ready: mesma leitura comercial, mesma orientação e 
   assertParity(runtimes, 'ANÁLISE loading')
 
   gate.resolve()
-  await waitForBoth(runtimes, (runtime) => Boolean(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]')), { timeoutMs: 20000 })
-  await waitForQuiet(runtimes)
+  await waitForBoth(runtimes, hasCall('GET_ANALYSIS_JOB_STATUS'), { timeoutMs: 20000 })
+  await waitForQuiet(runtimes, 1500)
   const snapshots = assertParity(runtimes, 'ANÁLISE ready')
   const analyzePayloads = runtimes.map((runtime) => normalizeParityText(JSON.stringify(coreIntents(runtime).find((intent) => intent.action === 'ANALYZE_CONVERSATION'))))
   assert.equal(analyzePayloads[0], analyzePayloads[1], 'mesmo pedido de análise (mensagens, ciclo, janela)')
@@ -846,6 +867,243 @@ test('ANÁLISE timeout (watchdog): mesmo estado e mesmo retry nos dois canais', 
   everyRuntime(runtimes, (runtime) => {
     assert.equal(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]'), null)
     assert.ok(runtime.document.querySelector('[data-yolen-action="analyze-conversation"]'), 'retry disponível')
+  })
+})
+
+test('FNC-02: job ainda queued após a janela ativa sai do spinner para estado neutro e pode ser verificado de novo', async () => {
+  let allowSuccess = false
+
+  const runtimes = start(
+    {
+      resolution: leadResolution('OWNED_BY_ME'),
+      backend: baseBackend({
+        analysisResult: QUEUED,
+        analysisJobStatusResult: () =>
+          allowSuccess
+            ? jobStatus('succeeded')
+            : jobStatus('queued'),
+      }),
+    },
+    {
+      beforeLoad: ({ dom }) => {
+        dom.window.__yolenCompanionDeepAnalysisPollTimeoutMsForTests = 450
+      },
+    },
+  )
+
+  await clickAnalyze(runtimes)
+
+  await waitForBoth(
+    runtimes,
+    (runtime) =>
+      Boolean(
+        runtime.document.querySelector(
+          '[data-yolen-analysis-pending]',
+        ),
+      ),
+    { timeoutMs: 5000 },
+  )
+
+  await waitForQuiet(runtimes)
+
+  assertParity(
+    runtimes,
+    'FNC-02 queued recuperável',
+  )
+
+  everyRuntime(runtimes, (runtime) => {
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-loading]',
+      ),
+      null,
+      'spinner contínuo precisa terminar',
+    )
+
+    assert.match(
+      panelText(runtime),
+      /continua na fila da Yolen/,
+    )
+
+    const retry =
+      runtime.document.querySelector(
+        '[data-yolen-action="analyze-conversation"]',
+      )
+
+    assert.ok(retry)
+    assert.match(
+      retry.textContent,
+      /Verificar análise/,
+    )
+  })
+
+  allowSuccess = true
+
+  const statusCallsBeforeVerification =
+    runtimes.map(
+      (runtime) =>
+        runtime.calls.filter(
+          (call) =>
+            call.action ===
+            'GET_ANALYSIS_JOB_STATUS',
+        ).length,
+    )
+
+  everyRuntime(runtimes, (runtime) =>
+    click(
+      runtime,
+      runtime.document.querySelector(
+        '[data-yolen-action="analyze-conversation"]',
+      ),
+    ),
+  )
+
+  await waitForBoth(
+    runtimes,
+    (runtime) => {
+      const runtimeIndex =
+        runtimes.indexOf(runtime)
+
+      const statusCalls =
+        runtime.calls.filter(
+          (call) =>
+            call.action ===
+            'GET_ANALYSIS_JOB_STATUS',
+        ).length
+
+      return (
+        statusCalls >
+          statusCallsBeforeVerification[
+            runtimeIndex
+          ] &&
+        !runtime.document.querySelector(
+          '[data-yolen-analysis-pending]',
+        ) &&
+        !runtime.document.querySelector(
+          '[data-yolen-analysis-loading]',
+        ) &&
+        !runtime.document.querySelector(
+          '[data-yolen-analysis-error]',
+        ) &&
+        Boolean(
+          runtime.document.querySelector(
+            '[data-yolen-analysis-section="method"]',
+          ),
+        ) &&
+        /Método comercial não configurado/.test(
+          panelText(runtime),
+        )
+      )
+    },
+    { timeoutMs: 10000 },
+  )
+
+  await waitForQuiet(runtimes)
+
+  assertParity(
+    runtimes,
+    'FNC-02 queued → verificação → succeeded',
+  )
+
+  everyRuntime(runtimes, (runtime) => {
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-pending]',
+      ),
+      null,
+    )
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-loading]',
+      ),
+      null,
+    )
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-error]',
+      ),
+      null,
+    )
+    assert.ok(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-section="method"]',
+      ),
+      'o deep result succeeded foi promovido e o fallback de ANÁLISE foi renderizado',
+    )
+    assert.match(
+      panelText(runtime),
+      /Método comercial não configurado/,
+    )
+  })
+})
+
+test('FNC-02: job running após a janela ativa também vira estado neutro sem falso failed', async () => {
+  const runningResponse = {
+    ok: true,
+    data: {
+      deep_analysis: {
+        analysis_job_id: JOB_ID,
+        status: 'running',
+        message_watermark: 'wm-1',
+      },
+    },
+  }
+
+  const runtimes = start(
+    {
+      resolution: leadResolution('OWNED_BY_ME'),
+      backend: baseBackend({
+        analysisResult: runningResponse,
+        analysisJobStatusResult: jobStatus('running'),
+      }),
+    },
+    {
+      beforeLoad: ({ dom }) => {
+        dom.window.__yolenCompanionDeepAnalysisPollTimeoutMsForTests = 450
+      },
+    },
+  )
+
+  await clickAnalyze(runtimes)
+
+  await waitForBoth(
+    runtimes,
+    (runtime) =>
+      Boolean(
+        runtime.document.querySelector(
+          '[data-yolen-analysis-pending]',
+        ),
+      ),
+    { timeoutMs: 5000 },
+  )
+
+  await waitForQuiet(runtimes)
+
+  assertParity(
+    runtimes,
+    'FNC-02 running recuperável',
+  )
+
+  everyRuntime(runtimes, (runtime) => {
+    assert.equal(
+      runtime.document.querySelector(
+        '[data-yolen-analysis-error]',
+      ),
+      null,
+      'running do servidor nunca pode virar falha inventada pelo cliente',
+    )
+
+    assert.match(
+      panelText(runtime),
+      /ainda está processando esta conversa/,
+    )
+
+    assert.match(
+      runtime.document.querySelector(
+        '[data-yolen-action="analyze-conversation"]',
+      ).textContent,
+      /Verificar análise/,
+    )
   })
 })
 
@@ -1294,53 +1552,36 @@ function clearComposer(runtime) {
   else node.value = ''
 }
 
-test('A → B → A (inserção e feedback): registro tardio da inserção de A nunca muda B nem A₂ — igual nos dois canais', async () => {
-  const gate = deferred()
-  const conversations = {
-    A: { resolution: conversationResolution('A'), messages: [{ mid: 'm1', text: 'Quanto custa o plano anual?' }] },
-    B: { resolution: conversationResolution('B'), messages: [{ mid: 'm1', text: 'Podemos remarcar?' }] },
-  }
-  const runtimes = startAba(conversations, {
-    analysisResult: QUEUED,
-    analysisJobStatusResult: jobStatus('succeeded'),
-    messageActionResult: async (payload) => {
-      if (payload?.action === 'inserted' && isConversationA(payload)) await gate.promise
-      return { ok: true, data: { already_registered: false } }
-    },
+test('UX-04: ANÁLISE não oferece Inserir/Copiar e MENSAGEM oferece as duas ações nos dois canais', async () => {
+  const runtimes = start({
+    resolution: leadResolution('OWNED_BY_ME'),
+    backend: baseBackend({
+      analysisResult: QUEUED,
+      analysisJobStatusResult: jobStatus('succeeded'),
+      messageGenerationResult: {
+        status: 'ready',
+        message: GENERATED_MESSAGE,
+        error: null,
+      },
+    }),
   })
 
   await clickAnalyze(runtimes)
-  await waitForBoth(runtimes, (runtime) => Boolean(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]')), { timeoutMs: 20000 })
-  everyRuntime(runtimes, (runtime) => click(runtime, runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]')))
-  await waitForBoth(runtimes, (runtime) => registerCalls(runtime, 'inserted').length === 1)
-  everyRuntime(runtimes, (runtime) => {
-    assert.equal(composerText(runtime).trim(), GENERATED_MESSAGE, 'inserção em A acontece normalmente')
-    assert.equal(registerCalls(runtime, 'inserted')[0].payload.cycle_id, 'cycle-conv-a')
-  })
-
-  everyRuntime(runtimes, (runtime) => {
-    clearComposer(runtime)
-    switchParityConversation(runtime, 'B')
-  })
-  await settle(runtimes, areasLoadedFor('cycle-conv-b', 'Lead Beta'))
-
-  gate.resolve()
-  await sleep(600)
+  await waitForBoth(runtimes, hasCall('GET_ANALYSIS_JOB_STATUS'), { timeoutMs: 20000 })
   await waitForQuiet(runtimes)
-  assertParity(runtimes, 'inserção: B depois do registro tardio de A', { levels: ['canonical', 'view'], cycleId: 'cycle-conv-b' })
+
   everyRuntime(runtimes, (runtime) => {
-    assert.equal(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]'), null, 'sugestão de A nunca oferecida em B')
-    assert.doesNotMatch(panelText(runtime), /Mensagem incluída/)
-    assert.equal(composerText(runtime).trim(), '', 'nada é escrito no campo de B')
+    assert.equal(runtime.document.querySelector('[data-yolen-action="insert-suggested-message"]'), null)
+    assert.equal(runtime.document.querySelector('[data-yolen-action="copy-suggested-message"]'), null)
+    click(runtime, runtime.document.querySelector('[data-yolen-seller-area="message"]'))
   })
 
-  everyRuntime(runtimes, (runtime) => switchParityConversation(runtime, 'A'))
-  await settle(runtimes, areasLoadedFor('cycle-conv-a', 'Lead Alfa'))
-  assertParity(runtimes, 'inserção: A₂', { levels: ['canonical', 'view'], cycleId: 'cycle-conv-a' })
+  await generateMessage(runtimes)
+  assertParity(runtimes, 'UX-04 MENSAGEM concentra ações')
+
   everyRuntime(runtimes, (runtime) => {
-    assert.equal(registerCalls(runtime, 'inserted').length, 1, 'o registro tardio não é repetido')
-    assert.equal(registerCalls(runtime, 'sent').length, 0, 'inserir nunca envia')
-    assert.doesNotMatch(panelText(runtime), /Lead Beta/)
+    assert.ok(runtime.document.querySelector('[data-yolen-seller-message-action="insert"]'))
+    assert.ok(runtime.document.querySelector('[data-yolen-seller-message-action="copy"]'))
   })
 })
 

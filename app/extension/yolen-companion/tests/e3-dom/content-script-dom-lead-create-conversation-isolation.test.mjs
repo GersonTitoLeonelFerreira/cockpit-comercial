@@ -241,6 +241,132 @@ test('TESTE 2: create sucesso com um resolve já em voo não perde o re-resolve 
   assert.equal(createLeadCalls(calls).length, 1, 'nunca um segundo CREATE')
 })
 
+test('TESTE 2B / FNC-01: RESOLVE iniciado antes da confirmação do CREATE não pode consumir os retries pós-create nem exigir segundo clique', async () => {
+  let releaseBlockedResolve
+  let markBlockedResolveStarted
+  let releaseCreate
+
+  const blockedResolveGate = new Promise((resolve) => {
+    releaseBlockedResolve = resolve
+  })
+  const blockedResolveStarted = new Promise((resolve) => {
+    markBlockedResolveStarted = resolve
+  })
+  const createGate = new Promise((resolve) => {
+    releaseCreate = resolve
+  })
+
+  let blockNextResolve = false
+  let leadExists = false
+
+  const resolutions = {
+    [PHONE_A]: async () => {
+      if (blockNextResolve) {
+        blockNextResolve = false
+        const leadExistedWhenRequestStarted = leadExists
+        markBlockedResolveStarted()
+        await blockedResolveGate
+
+        return leadExistedWhenRequestStarted
+          ? ownedResolution(PHONE_A)
+          : notFoundResolution(PHONE_A)
+      }
+
+      return leadExists
+        ? ownedResolution(PHONE_A)
+        : notFoundResolution(PHONE_A)
+    },
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    createLeadResult: async () => {
+      // O POST de CREATE já saiu, mas a persistência/retorno fica retida.
+      // Isso permite iniciar um RESOLVE que é legitimamente anterior à
+      // confirmação do CREATE e, portanto, pode terminar depois com NOT_FOUND.
+      await createGate
+      leadExists = true
+
+      return {
+        ok: true,
+        lead_id: 'lead-new-1',
+        cycle_id: 'cycle-new-1',
+        owner_user_id: 'user-1',
+      }
+    },
+  })
+
+  await waitFor(() =>
+    Boolean(document.querySelector('[data-yolen-lead-create-form]')),
+  )
+
+  // 1) Um único clique inicia o CREATE e deixa a UI em "creating".
+  const nameInput = document.querySelector('[name="yolen-lead-name"]')
+  nameInput.value = 'Cliente Novo'
+  dispatch(nameInput, 'input')
+
+  const form = document.querySelector('[data-yolen-lead-create-form]')
+  const submitButton = form.querySelector('.yolen-lead-create-submit')
+  dispatch(submitButton, 'pointerdown')
+  dispatch(submitButton, 'click')
+  dispatch(form, 'submit')
+
+  await waitFor(() => createLeadCalls(calls).length === 1)
+
+  // 2) Enquanto o CREATE ainda NÃO confirmou, inicia um RESOLVE que captura
+  // "lead ainda não existe" e fica preso em voo. É a janela real da corrida.
+  blockNextResolve = true
+  const panel = getPanel(document)
+  dispatch(panel.querySelector('[data-yolen-action="refresh"]'), 'click')
+  await blockedResolveStarted
+
+  // 3) Agora o CREATE confirma/persiste. Qualquer RESOLVE que COMEÇAR daqui
+  // em diante deve enxergar o lead, mas o RESOLVE antigo continua preso.
+  releaseCreate()
+
+  await waitFor(
+    () =>
+      document.body.textContent.includes(
+        'Lead criado. Atualizando o vínculo...',
+      ),
+    { timeoutMs: 4000 },
+  )
+
+  // Mantém a leitura stale presa além de todo o backoff antigo
+  // (0 + 400 + 900 + 1600 ms). O fluxo corrigido deve continuar aguardando
+  // de forma automática; o antigo queimava os retries em no-op e mostrava
+  // "Atualizar vínculo", exigindo o segundo clique.
+  await sleep(3300)
+
+  const retryWasRequiredBeforeRelease = Boolean(
+    document.querySelector('[data-yolen-action="retry-lead-link"]'),
+  )
+
+  releaseBlockedResolve()
+
+  assert.equal(
+    retryWasRequiredBeforeRelease,
+    false,
+    'um RESOLVE stale em voo não pode transformar o pós-CREATE em segundo clique obrigatório',
+  )
+
+  // O RESOLVE antigo termina com NOT_FOUND; o fluxo corrigido precisa fazer
+  // uma leitura NOVA, iniciada depois do CREATE, e abrir o workspace sozinho.
+  await waitFor(
+    () => Boolean(document.querySelector('[data-yolen-action="open-cycle-yolen"]')),
+    { timeoutMs: 6000 },
+  )
+
+  assert.equal(createLeadCalls(calls).length, 1, 'um clique = um único CREATE')
+  assert.equal(
+    document.querySelector('[data-yolen-lead-create-form]'),
+    null,
+    'o workspace precisa sair de Novo contato automaticamente',
+  )
+})
+
 test('TESTE 3: primeiro resolve pós-create ainda NOT_FOUND -> retry limitado -> segundo OWNED_BY_ME -> nenhum segundo CREATE', async () => {
   let armEventualConsistencyOnNextCall = false
   let firstPostCreateSeen = false

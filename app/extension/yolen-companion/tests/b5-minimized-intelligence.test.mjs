@@ -385,9 +385,25 @@ test(
       /data-yolen-action="expand-companion"/,
     )
 
+    // FNC-03 (pacote de estabilização P0): o clique de expandir é ligado
+    // por wirePanelInteractions(), chamada pelo próprio render recolhido —
+    // assim a casca também fica ligada quando é aplicada depois de retida
+    // por uma interação. O único setPanelCollapsed(false) continua sendo
+    // o handler de click desse botão.
     assert.match(
       renderBlock,
-      /addEventListener\([\s\S]*'click'[\s\S]*setPanelCollapsed\(false\)/,
+      /wirePanelInteractions\(panel\)/,
+    )
+
+    const wireBlock =
+      getBlock(
+        'function wirePanelInteractions(panel)',
+        'function renderPanel()',
+      )
+
+    assert.match(
+      wireBlock,
+      /wireOnce\(\s*panel\.querySelector\('\[data-yolen-action="expand-companion"\]'\),\s*'click',\s*\(\) => \{\s*setPanelCollapsed\(false\)/,
     )
   },
 )

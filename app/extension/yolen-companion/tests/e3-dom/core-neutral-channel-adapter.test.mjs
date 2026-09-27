@@ -222,13 +222,17 @@ function analysisOptions() {
   }
 }
 
-async function analyzeUntilInsertAvailable(document, calls) {
+async function analyzeUntilReady(document, calls) {
   await waitFor(() => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0)
   await waitFor(() => document.querySelector('[data-yolen-action="analyze-conversation"]'))
   click(document, document.querySelector('[data-yolen-action="analyze-conversation"]'))
 
-  return waitFor(
-    () => document.querySelector('[data-yolen-action="insert-suggested-message"]'),
+  await waitFor(
+    () => calls.some((call) => call.action === 'GET_ANALYSIS_JOB_STATUS'),
+    { timeoutMs: 12000 },
+  )
+  await waitFor(
+    () => !document.querySelector('[data-yolen-analysis-loading]'),
     { timeoutMs: 12000 },
   )
 }
@@ -344,40 +348,35 @@ test('MENSAGEM: geração, cópia e inclusão pelo contrato; rascunho ocupado é
   assert.deepEqual(controls.violations, [])
 })
 
-test('ANÁLISE: inserção com rascunho ocupado exige confirmação humana e registra o uso da conversa atual', async () => {
-  const { document, window, calls, controls } = startNeutralCompanion(analysisOptions())
+test('UX-04: ANÁLISE não tem composer e MENSAGEM mantém as ações do canal', async () => {
+  const { document, calls } = startNeutralCompanion({
+    ...analysisOptions(),
+    messageGenerationResult: {
+      status: 'ready',
+      message: MESSAGE_A,
+      error: null,
+    },
+  })
 
-  const confirmations = []
-  window.confirm = (text) => {
-    confirmations.push(text)
-    return confirmations.length > 1
-  }
+  await analyzeUntilReady(document, calls)
 
-  const insertButton = await analyzeUntilInsertAvailable(document, calls)
-  assert.match(insertButton.textContent, /Inserir no Canal Contrato/)
+  assert.equal(document.querySelector('[data-yolen-action="insert-suggested-message"]'), null)
+  assert.equal(document.querySelector('[data-yolen-action="copy-suggested-message"]'), null)
 
-  controls.current.draft = 'Rascunho do vendedor'
-  click(document, insertButton)
-  await sleep(100)
-  assert.equal(controls.current.draft, 'Rascunho do vendedor', 'recusa preserva o rascunho')
-  assert.match(confirmations[0], /O campo do Canal Contrato já tem texto/)
-  assert.equal(registerCalls(calls, 'inserted').length, 0)
+  await openMessageAreaAndGenerate(document, calls)
+  await waitFor(() => document.querySelector('[data-yolen-seller-message-action="insert"]'))
 
-  click(document, document.querySelector('[data-yolen-action="insert-suggested-message"]'))
-  await waitFor(() => registerCalls(calls, 'inserted').length === 1)
-  assert.equal(controls.current.draft, MESSAGE_A)
-  assert.equal(registerCalls(calls, 'inserted')[0].payload.cycle_id, CYCLE_A)
-  assert.deepEqual(
-    controls.calls.filter((call) => call.name === 'applyMessage').map((call) => ({ ...call.detail.expected })),
-    [{ conversationKey: 'conv-a', replaceExisting: true }],
+  assert.equal(
+    document.querySelector('[data-yolen-seller-message-action="insert"]').textContent,
+    'Incluir no Canal Contrato',
   )
-  assert.deepEqual(controls.violations, [])
+  assert.ok(document.querySelector('[data-yolen-seller-message-action="copy"]'))
 })
 
 test('pré-envio: o Core decide sobre a tentativa normalizada; "Enviar mesmo assim" envia uma única vez o rascunho confirmado', async () => {
   const { document, calls, controls } = startNeutralCompanion(analysisOptions())
 
-  await analyzeUntilInsertAvailable(document, calls)
+  await analyzeUntilReady(document, calls)
 
   const risky = 'Te dou 20% de desconto se fechar hoje'
   controls.typeDraft(risky)

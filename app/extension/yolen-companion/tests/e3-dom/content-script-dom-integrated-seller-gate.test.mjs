@@ -887,15 +887,20 @@ test(
       'ANÁLISE precisa refletir a tentativa em curso (loading), não o resultado da tentativa anterior',
     )
 
-    // AGORA não pode continuar "presa" mostrando a decisão da leitura
-    // anterior como se fosse a atual — getActiveCommercialReading() já foi
-    // zerado para esta nova tentativa, então AGORA fica quieta em vez de
-    // usar dado stale como base de decisão.
+    // Pacote de estabilização P0 (FNC-04, política canônica): AGORA
+    // mantém a última decisão confirmada deste contexto enquanto a
+    // reanálise está em voo — nunca "decisão válida → vazio → decisão
+    // nova" — e a sinaliza como em atualização, para que ela nunca seja
+    // apresentada como o resultado da tentativa nova (mandato §24).
     await waitForSellerAreaOpen(document, 'now')
-    assert.equal(
-      document.querySelector('[data-yolen-now-attention]'),
-      null,
-      'AGORA não pode usar a leitura da tentativa anterior como decisão atual enquanto a reanálise está em voo',
+    assert.match(
+      getSellerPanelText(document, 'now'),
+      /Objeção de preço precisa ser tratada antes de avançar\./,
+      'AGORA mantém a última decisão confirmada enquanto a reanálise está em voo',
+    )
+    assert.ok(
+      document.querySelector('[data-yolen-seller-panel="now"] [data-yolen-agora-updating]'),
+      'AGORA sinaliza que a decisão exibida está em atualização (não é o resultado da tentativa nova)',
     )
 
     // CLIENTE, por outro lado, precisa continuar mostrando o conhecimento

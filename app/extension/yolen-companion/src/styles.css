@@ -2105,17 +2105,18 @@ html.yolen-companion-collapsed #app {
 
 .yolen-message-preset {
   max-width: 100%;
-  overflow: hidden;
   border: 1px solid rgba(126, 153, 194, 0.25);
-  border-radius: 999px;
+  border-radius: 12px;
   background: rgba(21, 36, 57, 0.65);
   color: #cfe1f7;
   padding: 7px 12px;
   font: inherit;
   font-size: 11px;
   font-weight: 700;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -2413,4 +2414,419 @@ html.yolen-companion-collapsed #app {
   border-radius: 8px;
   font-size: 11.5px;
   line-height: 1.4;
+}
+
+
+/* YOLEN UX-01–04 — SELLER-FACING VISUAL DIRECTION */
+
+#yolen-companion-panel {
+  --yolen-ux-bg: #0b1220;
+  --yolen-ux-surface: #142033;
+  --yolen-ux-surface-elevated: #1d2d46;
+  --yolen-ux-text: #eff4ff;
+  --yolen-ux-text-secondary: #b5c4dc;
+  --yolen-ux-text-muted: #9badca;
+  --yolen-ux-action: #2359d9;
+  --yolen-ux-accent: #79b4ff;
+  --yolen-ux-focus: #b1d0ff;
+  --yolen-ux-border: rgba(181, 196, 220, 0.14);
+  --yolen-ux-motion-fast: 140ms;
+  --yolen-ux-motion-standard: 180ms;
+
+  background:
+    radial-gradient(circle at 18% 0%, rgba(35, 89, 217, 0.16), transparent 30%),
+    linear-gradient(180deg, #0b1220 0%, #08101c 100%);
+  color: var(--yolen-ux-text);
+  border-left-color: var(--yolen-ux-border);
+  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.34);
+}
+
+#yolen-companion-panel :focus-visible {
+  outline: 2px solid var(--yolen-ux-focus);
+  outline-offset: 2px;
+}
+
+.yolen-panel-header-final {
+  border-bottom-color: var(--yolen-ux-border);
+  background: rgba(11, 18, 32, 0.94);
+}
+
+.yolen-title,
+.yolen-lead-name,
+.yolen-card-title,
+.yolen-seller-section-heading h3,
+.yolen-message-objective-title,
+.yolen-message-result-text {
+  color: var(--yolen-ux-text);
+}
+
+.yolen-subtitle,
+.yolen-card-description,
+.yolen-seller-detail-copy,
+.yolen-method-adherence-copy,
+.yolen-method-stage-copy,
+.yolen-message-objective-help,
+.yolen-message-feedback,
+.yolen-message-footnote {
+  color: var(--yolen-ux-text-secondary);
+}
+
+.yolen-section-label,
+.yolen-decision-kicker,
+.yolen-seller-section-eyebrow,
+.yolen-seller-detail-label,
+.yolen-seller-evidence {
+  color: var(--yolen-ux-text-muted);
+}
+
+.yolen-card,
+.yolen-message-objective-card,
+.yolen-message-result-card {
+  border-color: var(--yolen-ux-border);
+  background: rgba(20, 32, 51, 0.78);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
+}
+
+.yolen-seller-insight,
+.yolen-now-snapshot,
+.yolen-now-attention,
+.yolen-message-status {
+  border-color: var(--yolen-ux-border);
+  background: rgba(11, 18, 32, 0.56);
+}
+
+.yolen-seller-tabs {
+  border-color: var(--yolen-ux-border);
+  background: rgba(8, 16, 28, 0.68);
+  box-shadow: inset 0 1px 0 rgba(239, 244, 255, 0.025);
+}
+
+.yolen-seller-tab {
+  color: var(--yolen-ux-text-muted);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  transition:
+    color var(--yolen-ux-motion-fast) ease,
+    background var(--yolen-ux-motion-fast) ease,
+    border-color var(--yolen-ux-motion-fast) ease;
+}
+
+.yolen-seller-tab:hover {
+  color: var(--yolen-ux-text);
+  background: rgba(35, 89, 217, 0.10);
+}
+
+.yolen-seller-tab--active {
+  color: var(--yolen-ux-text);
+  border-color: rgba(121, 180, 255, 0.34);
+  background: rgba(35, 89, 217, 0.28);
+  box-shadow: 0 5px 14px rgba(35, 89, 217, 0.14);
+}
+
+.yolen-primary-button {
+  color: #ffffff;
+  background: linear-gradient(135deg, #2359d9 0%, #3575ee 100%);
+  box-shadow: 0 10px 24px rgba(35, 89, 217, 0.24);
+  transition:
+    filter var(--yolen-ux-motion-fast) ease,
+    transform var(--yolen-ux-motion-fast) ease;
+}
+
+.yolen-primary-button:hover {
+  filter: brightness(1.08);
+}
+
+.yolen-secondary-button,
+.yolen-icon-button {
+  color: var(--yolen-ux-text-secondary);
+  border-color: var(--yolen-ux-border);
+  background: rgba(20, 32, 51, 0.72);
+  transition:
+    color var(--yolen-ux-motion-fast) ease,
+    background var(--yolen-ux-motion-fast) ease,
+    border-color var(--yolen-ux-motion-fast) ease;
+}
+
+.yolen-secondary-button:hover,
+.yolen-icon-button:hover {
+  color: var(--yolen-ux-text);
+  border-color: rgba(121, 180, 255, 0.36);
+  background: rgba(29, 45, 70, 0.86);
+}
+
+.yolen-tertiary-button {
+  color: var(--yolen-ux-text-muted);
+}
+
+.yolen-tertiary-button:hover {
+  color: var(--yolen-ux-text-secondary);
+}
+
+.yolen-now-attention {
+  margin-top: 0;
+  padding: 14px;
+  border-radius: 14px;
+}
+
+.yolen-now-attention-decision {
+  color: var(--yolen-ux-text);
+  font-size: 14px;
+  font-weight: 780;
+  line-height: 1.42;
+}
+
+.yolen-now-attention-action {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--yolen-ux-border);
+  color: var(--yolen-ux-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.yolen-now-attention-action > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--yolen-ux-accent);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.yolen-now-attention--information {
+  border-color: rgba(121, 180, 255, 0.28);
+  background: rgba(35, 89, 217, 0.12);
+}
+
+.yolen-now-attention--warning {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: rgba(146, 64, 14, 0.10);
+}
+
+.yolen-now-attention--risk {
+  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(127, 29, 29, 0.11);
+}
+
+.yolen-now-rationale {
+  margin-top: 10px;
+}
+
+.yolen-now-rationale-main {
+  margin-top: 0;
+  padding: 11px 12px;
+  border-left: 2px solid rgba(121, 180, 255, 0.48);
+  border-radius: 0 10px 10px 0;
+  background: rgba(35, 89, 217, 0.07);
+}
+
+.yolen-now-secondary-details {
+  margin-top: 10px;
+}
+
+.yolen-seller-secondary-details > summary,
+.yolen-client-intelligence-group > summary,
+.yolen-client-timeline > summary {
+  color: var(--yolen-ux-text-secondary);
+  transition: color var(--yolen-ux-motion-fast) ease;
+}
+
+.yolen-seller-secondary-details > summary:hover,
+.yolen-client-intelligence-group > summary:hover,
+.yolen-client-timeline > summary:hover {
+  color: var(--yolen-ux-text);
+}
+
+.yolen-message-preset--active {
+  border-color: rgba(121, 180, 255, 0.52);
+  background: rgba(35, 89, 217, 0.22);
+  color: var(--yolen-ux-text);
+}
+
+.yolen-message-intent {
+  border-color: var(--yolen-ux-border);
+  background: #0d1726;
+  color: var(--yolen-ux-text);
+}
+
+.yolen-message-intent:focus {
+  border-color: rgba(121, 180, 255, 0.70);
+  box-shadow: 0 0 0 3px rgba(35, 89, 217, 0.16);
+}
+
+.yolen-message-result-label {
+  color: var(--yolen-ux-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #yolen-companion-panel *,
+  #yolen-companion-panel *::before,
+  #yolen-companion-panel *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+
+/* YOLEN P1 — USER-FIRST ACCOUNT HEADER */
+
+.yolen-panel-header-final {
+  position: relative;
+}
+
+.yolen-account-trigger {
+  width: min(100%, 165px);
+  min-width: 0;
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: #9fb0c6;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.yolen-account-trigger:hover {
+  color: #dbeafe;
+}
+
+.yolen-account-avatar {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(
+      140deg,
+      #1e3a8a 0%,
+      #1d4ed8 60%,
+      #2563eb 100%
+    );
+  color: #bfdbfe;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.yolen-account-trigger-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.yolen-account-chevron {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  transform:
+    rotate(
+      var(--yolen-account-chevron-rotation, 0deg)
+    );
+}
+
+.yolen-account-trigger[aria-expanded="true"]
+.yolen-account-chevron {
+  --yolen-account-chevron-rotation:
+    180deg;
+}
+
+.yolen-account-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% - 4px);
+  left: 16px;
+  right: 16px;
+  overflow: hidden;
+  border:
+    1px solid
+    rgba(126, 153, 194, 0.18);
+  border-radius: 12px;
+  background: #0f1622;
+  box-shadow:
+    0 22px 54px
+    rgba(0, 0, 0, 0.52);
+}
+
+.yolen-account-menu-head {
+  padding: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom:
+    1px solid
+    rgba(126, 153, 194, 0.12);
+  background:
+    rgba(20, 32, 51, 0.86);
+}
+
+.yolen-account-avatar-large {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+
+.yolen-account-menu-identity {
+  min-width: 0;
+}
+
+.yolen-account-menu-name {
+  color: #eff4ff;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.yolen-account-menu-caption {
+  margin-top: 2px;
+  color: #7f91aa;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.yolen-account-menu-details {
+  display: grid;
+  gap: 10px;
+  padding: 12px 13px 13px;
+}
+
+.yolen-account-detail {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.yolen-account-detail-label {
+  color: #7f91aa;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.yolen-account-detail-value {
+  min-width: 0;
+  color: #d9e4f3;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

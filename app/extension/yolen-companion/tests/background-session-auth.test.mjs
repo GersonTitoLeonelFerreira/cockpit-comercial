@@ -9,7 +9,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { loadBackgroundScript } from './e2-test-support/load-background-script.mjs'
+import {
+  createFakeFetchQueue,
+  jsonResponse,
+  loadBackgroundScript,
+} from './e2-test-support/load-background-script.mjs'
 
 const SESSION_KEY = 'yolen_companion_session'
 
@@ -31,6 +35,19 @@ function validSession(overrides = {}) {
       ok: true,
       companion_token: 'fake.token.value',
       expires_at: futureIso(6 * 60 * 60),
+      user: {
+        id: 'user-1',
+        full_name: 'Usuário Teste',
+        email: 'usuario@example.com',
+        is_platform_admin: false,
+      },
+      active_company: {
+        id: 'company-1',
+        name: 'Empresa Teste',
+        role: 'admin',
+        is_active: true,
+      },
+      companion: {},
     },
     ...overrides,
   }
@@ -58,6 +75,157 @@ test('background/GET_ME: com sessão válida em cache retorna a sessão (do cach
   assert.equal(response.ok, true)
   assert.equal(response.payload.companion_token, 'fake.token.value')
   assert.equal(response.fromCache, true)
+})
+
+test('background/GET_ME: identidade antiga Empresa sem nome é reidratada pelo backend canônico e persistida', async () => {
+  const stale = validSession()
+  stale.payload.active_company.name =
+    'Empresa sem nome'
+
+  const {
+    fetchFn,
+    calls,
+  } = createFakeFetchQueue([
+    () =>
+      jsonResponse(
+        200,
+        {
+          ok: true,
+          status: 'CONNECTED',
+          user: {
+            id: 'user-1',
+            full_name:
+              'Gerson Conta Principal',
+            email:
+              'gerson@example.com',
+            is_platform_admin:
+              false,
+          },
+          active_company: {
+            id: 'company-1',
+            name:
+              'Engenharia do Corpo Joinville',
+            role: 'admin',
+            is_active: true,
+          },
+          companion: {},
+        },
+      ),
+  ])
+
+  const bg =
+    loadBackgroundScript({
+      fetchFn,
+      initialStorage: {
+        [SESSION_KEY]:
+          stale,
+      },
+    })
+
+  const response =
+    await bg.sendMessage({
+      source:
+        'YOLEN_COMPANION',
+      action:
+        'GET_ME',
+    })
+
+  assert.equal(
+    response.ok,
+    true,
+  )
+  assert.equal(
+    response.fromCache,
+    false,
+  )
+  assert.equal(
+    response.payload.active_company.name,
+    'Engenharia do Corpo Joinville',
+  )
+  assert.equal(
+    response.payload.user.full_name,
+    'Gerson Conta Principal',
+  )
+  assert.equal(
+    response.payload.companion_token,
+    'fake.token.value',
+  )
+
+  assert.equal(
+    bg.storage[
+      SESSION_KEY
+    ].payload.active_company.name,
+    'Engenharia do Corpo Joinville',
+  )
+
+  assert.equal(
+    calls.length,
+    1,
+  )
+  assert.equal(
+    calls[0].url,
+    'https://cockpit-comercial-vocn.vercel.app/api/companion/me',
+  )
+  assert.equal(
+    calls[0].init.method,
+    'GET',
+  )
+  assert.equal(
+    calls[0].init.headers.Authorization,
+    'Bearer fake.token.value',
+  )
+})
+
+test('background/GET_ME: 401/403 na reidratação revoga a sessão cacheada', async () => {
+  const stale = validSession()
+  stale.payload.active_company.name =
+    'Empresa sem nome'
+
+  const {
+    fetchFn,
+  } = createFakeFetchQueue([
+    () =>
+      jsonResponse(
+        401,
+        {
+          ok: false,
+          status:
+            'INVALID_COMPANION_SESSION',
+        },
+      ),
+  ])
+
+  const bg =
+    loadBackgroundScript({
+      fetchFn,
+      initialStorage: {
+        [SESSION_KEY]:
+          stale,
+      },
+    })
+
+  const response =
+    await bg.sendMessage({
+      source:
+        'YOLEN_COMPANION',
+      action:
+        'GET_ME',
+    })
+
+  assert.equal(
+    response.ok,
+    false,
+  )
+  assert.equal(
+    response.statusCode,
+    401,
+  )
+  assert.equal(
+    bg.storage[
+      SESSION_KEY
+    ],
+    undefined,
+  )
 })
 
 test('background/GET_ME: sessão EXPIRADA em cache é tratada como ausente e é removida do storage', async () => {

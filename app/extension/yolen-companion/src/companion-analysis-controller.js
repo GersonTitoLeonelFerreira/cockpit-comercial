@@ -86,6 +86,15 @@ function createCompanionAnalysisController(ctx) {
   // isAnalysisResponseStillCurrent(), se já existe uma análise MANUAL em
   // voo para a mesma conversa/ciclo e não deva competir com ela.
   let activeAnalysisAttempt = null
+  // Conteúdo (empresa + ciclo + conversa + impressão digital das
+  // mensagens) da última análise iniciada, manual ou automática. A análise
+  // automática nunca refaz sozinha um conteúdo já tentado: uma falha ou
+  // timeout não recomeça por mutação do DOM do canal que não é mensagem
+  // (presença, rascunho, relayout), retomada da janela ou re-resolução do
+  // mesmo contexto (FNC-04). Conteúdo novo (mensagem nova, mensagem
+  // editada/apagada, transcrição incorporada), outra conversa ou o clique
+  // explícito do vendedor continuam analisando.
+  let lastAnalysisAttemptContentKey = null
   // Timer do poller de análise profunda em curso (setTimeout id). Cada novo
   // ciclo de análise (analyzeCurrentConversation) cancela o timer anterior
   // antes de, no máximo, agendar um novo — nunca existem dois timers vivos
@@ -93,6 +102,23 @@ function createCompanionAnalysisController(ctx) {
   let deepAnalysisPollTimerId = 0
   const DEEP_ANALYSIS_POLL_DELAYS_MS = [1500, 2000, 3000, 4000, 5000]
   const DEEP_ANALYSIS_POLL_TIMEOUT_MS = 240000
+
+  // FNC-02: este teto limita só quanto tempo o painel fica em spinner
+  // contínuo. Ele NÃO declara o job do servidor como failed. Se o backend
+  // ainda disser queued/running ao atingir o teto, a UI passa para um
+  // estado neutro e recuperável e o vendedor pode verificar novamente.
+  function getDeepAnalysisPollTimeoutMs() {
+    const override =
+      window.__yolenCompanionDeepAnalysisPollTimeoutMsForTests
+
+    return (
+      typeof override === 'number' &&
+      Number.isFinite(override) &&
+      override >= 0
+    )
+      ? override
+      : DEEP_ANALYSIS_POLL_TIMEOUT_MS
+  }
   // Timer do watchdog da resposta rápida de analyze-conversation. Igual ao
   // padrão de deepAnalysisPollTimerId: cada novo ciclo de análise cancela o
   // timer anterior antes de agendar um novo — nunca existem dois vivos ao
@@ -120,6 +146,13 @@ function createCompanionAnalysisController(ctx) {
       currentFingerprint !==
       ctx.state.analyzedConversationFingerprint
     )
+  }
+
+  // Troca real de conversa (hardResetConversationWorkspace no Core) é
+  // gatilho permitido: a conversa aberta de novo pode ser analisada
+  // automaticamente uma vez, mesmo com o conteúdo já tentado antes.
+  function forgetAnalysisAttemptContent() {
+    lastAnalysisAttemptContentKey = null
   }
 
   function clearAutomaticAnalysisTimer() {
@@ -150,6 +183,17 @@ function createCompanionAnalysisController(ctx) {
     ].join('::')
   }
 
+  function getAnalysisContentKey(
+    conversationFingerprint,
+  ) {
+    return [
+      ctx.state.companyId || '',
+      getCanonicalResolutionCycleId() || '',
+      getCaptureConversationKey() || '',
+      conversationFingerprint || '',
+    ].join('::')
+  }
+
   function canScheduleAutomaticAnalysis() {
     const currentFingerprint =
       getCurrentConversationFingerprint()
@@ -157,6 +201,15 @@ function createCompanionAnalysisController(ctx) {
     if (
       !canAnalyzeCurrentConversation() ||
       !currentFingerprint
+    ) {
+      return false
+    }
+
+    if (
+      lastAnalysisAttemptContentKey ===
+      getAnalysisContentKey(
+        currentFingerprint,
+      )
     ) {
       return false
     }
@@ -522,23 +575,45 @@ function createCompanionAnalysisController(ctx) {
 
     const startedAtMs = Date.now()
     let attempt = 0
+    let lastObservedJobStatus = null
+    let lastObservedTimings = null
 
     const scheduleNextTick = () => {
       if (!isAnalysisResponseStillCurrent()) {
         return
       }
 
-      if (Date.now() - startedAtMs >= DEEP_ANALYSIS_POLL_TIMEOUT_MS) {
+      if (
+        Date.now() - startedAtMs >=
+          getDeepAnalysisPollTimeoutMs()
+      ) {
         activeAnalysisAttempt = null
+
+        const serverStillProcessing =
+          lastObservedJobStatus === 'queued' ||
+          lastObservedJobStatus === 'running'
 
         ctx.state = {
           ...ctx.state,
           conversationAnalysisLoading: false,
           conversationAnalysisError:
-            'A análise demorou mais que o esperado. Tente novamente.',
+            serverStillProcessing
+              ? null
+              : 'A análise demorou mais que o esperado. Tente novamente.',
           automaticAnalysisStatus: null,
-          deepAnalysisStatus: 'failed',
+          deepAnalysisStatus:
+            serverStillProcessing
+              ? lastObservedJobStatus
+              : 'failed',
           deepAnalysisResult: null,
+          deepAnalysisTimings:
+            lastObservedTimings,
+          deepAnalysisNotice:
+            lastObservedJobStatus === 'queued'
+              ? 'A análise continua na fila da Yolen. Você pode continuar trabalhando e verificar novamente em alguns instantes.'
+              : lastObservedJobStatus === 'running'
+                ? 'A Yolen ainda está processando esta conversa. Você pode continuar trabalhando e verificar novamente em alguns instantes.'
+                : null,
         }
 
         renderPanel()
@@ -597,6 +672,33 @@ function createCompanionAnalysisController(ctx) {
       }
 
       if (data.status === 'queued' || data.status === 'running') {
+        const statusChanged =
+          lastObservedJobStatus !==
+            data.status
+
+        lastObservedJobStatus =
+          data.status
+
+        lastObservedTimings =
+          data.timings &&
+          typeof data.timings === 'object'
+            ? data.timings
+            : null
+
+        ctx.state = {
+          ...ctx.state,
+          deepAnalysisStatus:
+            data.status,
+          deepAnalysisTimings:
+            lastObservedTimings,
+          deepAnalysisNotice:
+            null,
+        }
+
+        if (statusChanged) {
+          renderPanel()
+        }
+
         scheduleNextTick()
         return
       }
@@ -616,6 +718,12 @@ function createCompanionAnalysisController(ctx) {
               : null,
           deepAnalysisStatus: 'succeeded',
           deepAnalysisResult: data.result || null,
+          deepAnalysisTimings:
+            data.timings &&
+            typeof data.timings === 'object'
+              ? data.timings
+              : lastObservedTimings,
+          deepAnalysisNotice: null,
           ...ctx.rememberLastKnownClientCommercialReadingIfPresent({
             fingerprint:
               conversationFingerprint,
@@ -669,6 +777,12 @@ function createCompanionAnalysisController(ctx) {
           automaticAnalysisStatus: null,
           deepAnalysisStatus: null,
           deepAnalysisResult: null,
+          deepAnalysisTimings:
+            data.timings &&
+            typeof data.timings === 'object'
+              ? data.timings
+              : lastObservedTimings,
+          deepAnalysisNotice: null,
         }
 
         renderPanel()
@@ -685,6 +799,12 @@ function createCompanionAnalysisController(ctx) {
         automaticAnalysisStatus: null,
         deepAnalysisStatus: 'failed',
         deepAnalysisResult: null,
+        deepAnalysisTimings:
+          data?.timings &&
+          typeof data.timings === 'object'
+            ? data.timings
+            : lastObservedTimings,
+        deepAnalysisNotice: null,
       }
 
       renderPanel()
@@ -776,6 +896,11 @@ function createCompanionAnalysisController(ctx) {
         conversationText,
       )
 
+    lastAnalysisAttemptContentKey =
+      getAnalysisContentKey(
+        conversationFingerprint,
+      )
+
     const forceReanalysis =
       !isAutomatic ||
       ctx.messageLedgerRequiresRebase
@@ -843,6 +968,8 @@ function createCompanionAnalysisController(ctx) {
           : null,
       deepAnalysisStatus: null,
       deepAnalysisResult: null,
+      deepAnalysisTimings: null,
+      deepAnalysisNotice: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
@@ -852,21 +979,14 @@ function createCompanionAnalysisController(ctx) {
       pendingSuggestedMessageSendRegistering: false,
       lastAnalysisAudioCount: getPendingAudioCountForCurrentConversation(),
 
-      // FASE 16.5 (recalibração seller-facing do AGORA): uma nova
-      // tentativa de análise começando precisa "zerar" AGORA junto com
-      // conversationAnalysis — senão AGORA continuaria mostrando a
-      // decisão da tentativa ANTERIOR como se fosse atual enquanto a
-      // nova tentativa ainda está em voo (mandato §24: loading não pode
-      // parecer decisão). O guard de escopo em getNowAttentionSnapshotHtml
-      // já usa estes dois campos para saber se o dado é do ciclo/
-      // conversa certos; aqui eles são zerados para também refletir
-      // "esta tentativa específica ainda não tem resposta", não só
-      // "conversa errada".
-      agoraDecisionState: {
-        status: 'idle',
-      },
-      agoraDecisionStateCycleId: null,
-      agoraDecisionStateConversationKey: null,
+      // AGORA não é zerado quando uma tentativa começa: o que ele mostra
+      // é a última decisão confirmada pelo servidor para este mesmo
+      // ciclo/conversa/empresa (guard de escopo em
+      // getNowAttentionSnapshotHtml), já recarregada pela captura da
+      // mensagem que motivou a reanálise, e é substituído quando a
+      // tentativa termina (loadAgoraDecisionStateForCurrentCycle com
+      // force). Zerar aqui deixava o AGORA vazio durante toda a análise —
+      // "resultado válido → vazio → novo resultado" (FNC-04).
     }
 
     renderPanel()
@@ -1035,8 +1155,13 @@ function createCompanionAnalysisController(ctx) {
       ) {
         ctx.state = {
           ...ctx.state,
-          deepAnalysisStatus: 'pending',
+          deepAnalysisStatus:
+            deepAnalysisJob.status === 'succeeded'
+              ? 'running'
+              : deepAnalysisJob.status,
           deepAnalysisResult: null,
+          deepAnalysisTimings: null,
+          deepAnalysisNotice: null,
         }
 
         renderPanel()
@@ -1070,6 +1195,8 @@ function createCompanionAnalysisController(ctx) {
               ? 'failed'
               : null,
           deepAnalysisResult: null,
+          deepAnalysisTimings: null,
+          deepAnalysisNotice: null,
         }
 
         renderPanel()
@@ -1306,6 +1433,7 @@ function createCompanionAnalysisController(ctx) {
     },
     isCurrentAnalysisOutdated,
     clearAutomaticAnalysisTimer,
+    forgetAnalysisAttemptContent,
     scheduleAutomaticAnalysis,
     canAnalyzeCurrentConversation,
     loadAnalysisViewModelForCurrentCycle,

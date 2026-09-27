@@ -142,6 +142,8 @@ function createCompanionCore(ctx) {
   const MAX_RETAINED_PRE_RESOLUTION_CAPTURES = 20
 
   let panelCollapsed = false
+  let accountMenuOpen = false
+  let accountMenuDocumentListenersInstalled = false
 
   const conversationBoundary =
     conversationBoundaryRuntime
@@ -185,6 +187,13 @@ function createCompanionCore(ctx) {
 
   const leadResolutionInFlightKeys =
     new Set()
+  // Conclusão da resolução atualmente em voo por fronteira+conversa.
+  // O contrato normal continua deduplicando por no-op. O pós-CREATE pode
+  // pedir explicitamente uma leitura "fresh after in-flight": nesse caso
+  // aguarda a resolução pré-existente e executa uma nova consulta iniciada
+  // depois dela, sem criar concorrência nem consumir retries falsos (FNC-01).
+  const leadResolutionCompletionByKey =
+    new Map()
   let autoContactLookupInFlight = false
   let autoContactLookupConversationRefreshPending =
     false
@@ -663,6 +672,8 @@ function createCompanionCore(ctx) {
     automaticAnalysisStatus: null,
     deepAnalysisStatus: null,
     deepAnalysisResult: null,
+    deepAnalysisTimings: null,
+    deepAnalysisNotice: null,
     // CLIENTE precisa continuar mostrando a última inteligência comercial
     // válida enquanto uma nova tentativa de análise (automática ou manual)
     // está em voo ou termina em erro — ver getLastKnownClientCommercialReading.
@@ -772,6 +783,52 @@ function createCompanionCore(ctx) {
       'click',
       handleUnwiredAnalyzeActionClick,
     )
+
+    if (!accountMenuDocumentListenersInstalled) {
+      accountMenuDocumentListenersInstalled = true
+
+      document.addEventListener(
+        'click',
+        (event) => {
+          if (!accountMenuOpen) {
+            return
+          }
+
+          const target =
+            event.target
+
+          if (
+            target?.closest?.(
+              '[data-yolen-account-menu]',
+            ) ||
+            target?.closest?.(
+              '[data-yolen-action="toggle-account-menu"]',
+            )
+          ) {
+            return
+          }
+
+          accountMenuOpen = false
+          renderPanel()
+        },
+      )
+
+      window.addEventListener(
+        'keydown',
+        (event) => {
+          if (
+            event.key !== 'Escape' ||
+            !accountMenuOpen
+          ) {
+            return
+          }
+
+          accountMenuOpen = false
+          renderPanel()
+        },
+        true,
+      )
+    }
 
     mountPoint.appendChild(panel)
 
@@ -1044,6 +1101,33 @@ function createCompanionCore(ctx) {
     )
 
     return container
+  }
+
+  // Troca de layout do painel (regiões ↔ casca colapsada), pedida pelo
+  // próprio clique do vendedor em minimizar/expandir. Aplicada na hora e
+  // inteira, pela API de nós — nunca pelo setter de panel.innerHTML: os
+  // runtimes de estabilidade adiam esse setter durante a interação
+  // pointerdown→click que pediu a troca (e durante a proteção de
+  // retomada). Adiada, a limpeza chegava DEPOIS de as regiões novas
+  // serem criadas e apagava o shell recém-montado, com o cache de regiões
+  // dizendo "já renderizado" — painel escuro, regiões voltando aos
+  // pedaços (FNC-03).
+  function switchPanelLayout(
+    panel,
+    layout,
+  ) {
+    if (
+      panel.dataset.yolenPanelLayout ===
+      layout
+    ) {
+      return
+    }
+
+    panel.replaceChildren()
+    panel.dataset.yolenPanelLayout =
+      layout
+    panelRegionHtmlCache.clear()
+    panelRegionPendingHtml.clear()
   }
 
   function flushPendingPanelRegions() {
@@ -3429,6 +3513,7 @@ function createCompanionCore(ctx) {
     clearDeepAnalysisPollTimer()
     clearAnalysisWatchdogTimer()
     analysisController.activeAnalysisAttempt = null
+    analysisController.forgetAnalysisAttemptContent()
     clearCompanionClientContextRefreshTimer()
 
     conversationBoundary.advanceBoundary({
@@ -3513,6 +3598,8 @@ function createCompanionCore(ctx) {
       automaticAnalysisStatus: null,
       deepAnalysisStatus: null,
       deepAnalysisResult: null,
+      deepAnalysisTimings: null,
+      deepAnalysisNotice: null,
       lastKnownCommercialReading: null,
       lastKnownCommercialReadingContext: null,
       suggestionApplyLoading: false,
@@ -6082,6 +6169,18 @@ function createCompanionCore(ctx) {
       `
     }
 
+    if (state.deepAnalysisNotice) {
+      return `
+        <button
+          class="yolen-primary-button"
+          type="button"
+          data-yolen-action="analyze-conversation"
+        >
+          Verificar análise
+        </button>
+      `
+    }
+
     const totalAudioCount =
       Number(
         state.audioCount || 0,
@@ -6161,11 +6260,6 @@ function createCompanionCore(ctx) {
       `
     }
 
-    const messageAvailable =
-      Boolean(
-        getSuggestedMessage(),
-      )
-
     const applyButton =
       canApplyCurrentSuggestion()
         ? `
@@ -6181,37 +6275,13 @@ function createCompanionCore(ctx) {
         `
         : ''
 
-    const insertMessageButton =
-      messageAvailable
-        ? `
-          <button
-            class="${applyButton ? 'yolen-secondary-button' : 'yolen-primary-button'}"
-            type="button"
-            data-yolen-action="insert-suggested-message"
-          >
-            Inserir no ${escapeHtml(platformDisplayName)}
-          </button>
-        `
-        : ''
-
-    const copyMessageButton =
-      messageAvailable
-        ? `
-          <button
-            class="yolen-secondary-button"
-            type="button"
-            data-yolen-action="copy-suggested-message"
-          >
-            Copiar mensagem
-          </button>
-        `
-        : ''
-
+    // UX-04 — ANÁLISE explica e mantém apenas ações analíticas/operacionais.
+    // Inserir/copiar mensagem pertence exclusivamente ao composer de
+    // MENSAGEM (companion-message-controller.js), que já possui os mesmos
+    // guards de conversa e nunca envia automaticamente.
     return `
       ${applyButton}
       ${transcribeAudioButton}
-      ${insertMessageButton}
-      ${copyMessageButton}
 
       <button
         class="yolen-tertiary-button"
@@ -6537,8 +6607,6 @@ function createCompanionCore(ctx) {
 
         ${getAudioTranscriptionHtml()}
 
-        ${getSuggestedMessageHtml()}
-
         <div class="yolen-inline-actions yolen-decision-actions">
           ${getAnalysisActionButton()}
         </div>
@@ -6562,6 +6630,53 @@ function createCompanionCore(ctx) {
     return clean || null
   }
 
+  // Estado do job de análise como linha discreta (mesmos textos e
+  // atributos dos cards de estado abaixo), usada quando já existe uma
+  // leitura persistida válida na tela.
+  function getAnalysisJobStatusLineHtml() {
+    if (state.conversationAnalysisLoading) {
+      const loadingCopy =
+        state.deepAnalysisStatus === 'queued'
+          ? 'A análise está na fila da Yolen…'
+          : state.deepAnalysisStatus === 'running'
+            ? 'A Yolen está processando esta conversa…'
+            : 'Analisando sua condução comercial…'
+
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
+          ${getInlineSpinnerHtml()}
+          ${escapeHtml(loadingCopy)}
+        </div>
+      `
+    }
+
+    if (state.deepAnalysisNotice) {
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-analysis-pending role="status" aria-live="polite">
+          ${escapeHtml(state.deepAnalysisNotice)}
+        </div>
+      `
+    }
+
+    if (state.conversationAnalysisError) {
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-analysis-error role="alert">
+          ${escapeHtml(state.conversationAnalysisError)}
+        </div>
+      `
+    }
+
+    if (isCurrentAnalysisOutdated()) {
+      return `
+        <div class="yolen-seller-empty-state" data-yolen-analysis-outdated>
+          A conversa mudou. Atualize a leitura para avaliar a condução atual.
+        </div>
+      `
+    }
+
+    return ''
+  }
+
   function getDetailedAnalysisAreaHtml() {
     // FASE 16.6 (recalibração seller-facing de ANÁLISE): a leitura
     // detalhada não vem mais de getActiveCommercialReading() (o
@@ -6572,16 +6687,74 @@ function createCompanionCore(ctx) {
     // loading/erro/desatualização continuam ligados ao JOB de análise
     // semântica em si (conversationAnalysisLoading/Error,
     // isCurrentAnalysisOutdated()) — são sinais distintos do fetch do
-    // view model: um job de reanálise em voo/errado/desatualizado
-    // precede a leitura persistida, mesmo padrão de prioridade já usado
-    // antes da FASE 16.6.
+    // view model.
+    //
+    // Mesmo guard de escopo de getNowAttentionSnapshotHtml (AGORA,
+    // FASE 16.5) — cycleId/conversationKey/companyId batendo garante
+    // que uma troca de conversa/empresa nunca deixa a análise da
+    // conversa/empresa anterior visível (mandato FASE 16.6 §31/§32).
+    const isCurrentAnalysisViewModelContext =
+      state.analysisViewModelCycleId ===
+        getCanonicalResolutionCycleId() &&
+      state.analysisViewModelConversationKey ===
+        getCaptureConversationKey() &&
+      state.analysisViewModelCompanyId ===
+        (state.companyId || null)
+
+    // Com uma leitura persistida válida deste contexto na tela, o estado
+    // do job (reanálise em voo, falha, conversa mudou) é uma linha
+    // discreta acima dela — a leitura válida nunca some durante uma
+    // atualização legítima: "leitura → linha de atualização → leitura
+    // nova", nunca "leitura → spinner/aviso vazio → leitura nova"
+    // (FNC-04).
+    if (
+      state.analysisViewModel?.status === 'ready' &&
+      isCurrentAnalysisViewModelContext
+    ) {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
+          ${getAnalysisJobStatusLineHtml()}
+
+          ${sellerInformationViewTools.renderAnalysisViewModel(
+            state.analysisViewModel.data,
+          )}
+
+          <div class="yolen-inline-actions yolen-decision-actions">
+            ${getAnalysisActionButton()}
+          </div>
+        </div>
+      `
+    }
+
     if (state.conversationAnalysisLoading) {
+      const loadingCopy =
+        state.deepAnalysisStatus === 'queued'
+          ? 'A análise está na fila da Yolen…'
+          : state.deepAnalysisStatus === 'running'
+            ? 'A Yolen está processando esta conversa…'
+            : 'Analisando sua condução comercial…'
+
       return `
         <div class="yolen-card yolen-seller-area-card">
           <div class="yolen-section-label">Análise</div>
           <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
             ${getInlineSpinnerHtml()}
-            Analisando sua condução comercial…
+            ${escapeHtml(loadingCopy)}
+          </div>
+
+          <div class="yolen-inline-actions yolen-decision-actions">
+            ${getAnalysisActionButton()}
+          </div>
+        </div>
+      `
+    }
+
+    if (state.deepAnalysisNotice) {
+      return `
+        <div class="yolen-card yolen-seller-area-card">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-pending role="status" aria-live="polite">
+            ${escapeHtml(state.deepAnalysisNotice)}
           </div>
 
           <div class="yolen-inline-actions yolen-decision-actions">
@@ -6624,35 +6797,6 @@ function createCompanionCore(ctx) {
           <div class="yolen-seller-empty-state" data-yolen-analysis-outdated>
             A conversa mudou. Atualize a leitura para avaliar a condução atual.
           </div>
-
-          <div class="yolen-inline-actions yolen-decision-actions">
-            ${getAnalysisActionButton()}
-          </div>
-        </div>
-      `
-    }
-
-    // Mesmo guard de escopo de getNowAttentionSnapshotHtml (AGORA,
-    // FASE 16.5) — cycleId/conversationKey/companyId batendo garante
-    // que uma troca de conversa/empresa nunca deixa a análise da
-    // conversa/empresa anterior visível (mandato FASE 16.6 §31/§32).
-    const isCurrentAnalysisViewModelContext =
-      state.analysisViewModelCycleId ===
-        getCanonicalResolutionCycleId() &&
-      state.analysisViewModelConversationKey ===
-        getCaptureConversationKey() &&
-      state.analysisViewModelCompanyId ===
-        (state.companyId || null)
-
-    if (
-      state.analysisViewModel?.status === 'ready' &&
-      isCurrentAnalysisViewModelContext
-    ) {
-      return `
-        <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
-          ${sellerInformationViewTools.renderAnalysisViewModel(
-            state.analysisViewModel.data,
-          )}
 
           <div class="yolen-inline-actions yolen-decision-actions">
             ${getAnalysisActionButton()}
@@ -6835,9 +6979,29 @@ function createCompanionCore(ctx) {
       return ''
     }
 
-    return sellerInformationViewTools.renderAgoraViewModelSnapshot(
-      state.agoraDecisionState.data,
-    )
+    const snapshotHtml =
+      sellerInformationViewTools.renderAgoraViewModelSnapshot(
+        state.agoraDecisionState.data,
+      )
+
+    // Reanálise em voo: a última decisão confirmada deste contexto
+    // continua visível, sinalizada como em atualização — nunca apresentada
+    // como o resultado da tentativa nova (mandato §24) nem apagada até ela
+    // terminar (FNC-04).
+    if (
+      !snapshotHtml ||
+      !state.conversationAnalysisLoading
+    ) {
+      return snapshotHtml
+    }
+
+    return `
+      <div class="yolen-inline-loading-status" data-yolen-agora-updating role="status" aria-live="polite">
+        ${getInlineSpinnerHtml()}
+        Analisando sua condução comercial…
+      </div>
+      ${snapshotHtml}
+    `
   }
 
   function isSellerWorkspaceReady() {
@@ -7696,6 +7860,10 @@ function createCompanionCore(ctx) {
     panelCollapsed =
       nextCollapsed
 
+    if (panelCollapsed) {
+      accountMenuOpen = false
+    }
+
     if (
       panelCollapsed &&
       (
@@ -7725,7 +7893,157 @@ function createCompanionCore(ctx) {
     renderPanel()
   }
 
+  function getCurrentUserInitials() {
+    const source =
+      String(
+        state.userName || '',
+      ).trim()
+
+    if (!source) {
+      return 'YU'
+    }
+
+    if (source.includes('@')) {
+      const username =
+        source.split('@')[0] || ''
+
+      const alpha =
+        username.replace(
+          /[^a-zA-ZÀ-ÿ]/g,
+          '',
+        )
+
+      return (
+        alpha.slice(0, 2) ||
+        username.slice(0, 2) ||
+        'YU'
+      ).toUpperCase()
+    }
+
+    const parts =
+      source
+        .split(/\s+/)
+        .filter(Boolean)
+
+    if (parts.length >= 2) {
+      return (
+        parts[0][0] +
+        parts[parts.length - 1][0]
+      ).toUpperCase()
+    }
+
+    return (
+      parts[0]?.slice(0, 2) ||
+      'YU'
+    ).toUpperCase()
+  }
+
+  function getCompanyRoleLabel() {
+    if (state.companyRole === 'admin') {
+      return 'Administrador'
+    }
+
+    if (state.companyRole === 'manager') {
+      return 'Gestor'
+    }
+
+    if (state.companyRole === 'member') {
+      return 'Membro'
+    }
+
+    return 'Usuário do sistema'
+  }
+
+  function getAccountMenuHtml() {
+    if (
+      !accountMenuOpen ||
+      !state.connected ||
+      !state.userName
+    ) {
+      return ''
+    }
+
+    return [
+      '<div',
+        ' class="yolen-account-menu"',
+        ' data-yolen-account-menu',
+        ' role="group"',
+        ' aria-label="Conta Yolen"',
+      '>',
+
+        '<div class="yolen-account-menu-head">',
+
+          '<span class="yolen-account-avatar yolen-account-avatar-large">',
+            escapeHtml(
+              getCurrentUserInitials(),
+            ),
+          '</span>',
+
+          '<div class="yolen-account-menu-identity">',
+
+            '<div class="yolen-account-menu-name">',
+              escapeHtml(
+                state.userName,
+              ),
+            '</div>',
+
+            '<div class="yolen-account-menu-caption">',
+              'Usuário do sistema',
+            '</div>',
+
+          '</div>',
+
+        '</div>',
+
+        '<div class="yolen-account-menu-details">',
+
+          '<div class="yolen-account-detail">',
+            '<span class="yolen-account-detail-label">',
+              'Empresa',
+            '</span>',
+            '<span class="yolen-account-detail-value">',
+              escapeHtml(
+                state.companyName ||
+                'Empresa não carregada',
+              ),
+            '</span>',
+          '</div>',
+
+          '<div class="yolen-account-detail">',
+            '<span class="yolen-account-detail-label">',
+              'Perfil',
+            '</span>',
+            '<span class="yolen-account-detail-value">',
+              escapeHtml(
+                getCompanyRoleLabel(),
+              ),
+            '</span>',
+          '</div>',
+
+          '<div class="yolen-account-detail">',
+            '<span class="yolen-account-detail-label">',
+              'Sessão',
+            '</span>',
+            '<span class="yolen-account-detail-value">',
+              escapeHtml(
+                getCompactConnectionLabel(),
+              ),
+            '</span>',
+          '</div>',
+
+        '</div>',
+
+      '</div>',
+    ].join('')
+  }
+
   function getPanelHeaderHtml() {
+    const accountAvailable =
+      Boolean(
+        state.connected &&
+        state.userName,
+      )
+
     return [
       '<div class="yolen-panel-header yolen-panel-header-final">',
 
@@ -7749,12 +8067,48 @@ function createCompanionCore(ctx) {
               'Yolen Companion',
             '</div>',
 
-            '<div class="yolen-subtitle">',
-              escapeHtml(
-                state.companyName ||
-                'Empresa não carregada',
-              ),
-            '</div>',
+            accountAvailable
+              ? [
+                  '<button',
+                    ' class="yolen-account-trigger"',
+                    ' type="button"',
+                    ' data-yolen-action="toggle-account-menu"',
+                    ' aria-expanded="' +
+                      String(accountMenuOpen) +
+                    '"',
+                    ' aria-label="Abrir dados da conta Yolen"',
+                  '>',
+
+                    '<span class="yolen-account-avatar">',
+                      escapeHtml(
+                        getCurrentUserInitials(),
+                      ),
+                    '</span>',
+
+                    '<span class="yolen-account-trigger-name">',
+                      escapeHtml(
+                        state.userName,
+                      ),
+                    '</span>',
+
+                    '<span',
+                      ' class="yolen-account-chevron"',
+                      ' aria-hidden="true"',
+                    '>',
+                      '⌄',
+                    '</span>',
+
+                  '</button>',
+                ].join('')
+              : [
+                  '<div class="yolen-subtitle">',
+                    escapeHtml(
+                      state.loading
+                        ? 'Carregando usuário...'
+                        : 'Usuário não conectado',
+                    ),
+                  '</div>',
+                ].join(''),
 
           '</div>',
 
@@ -7797,6 +8151,8 @@ function createCompanionCore(ctx) {
           '</button>',
 
         '</div>',
+
+        getAccountMenuHtml(),
 
       '</div>',
     ].join('')
@@ -7887,6 +8243,25 @@ function createCompanionCore(ctx) {
           button,
           'keydown',
           handleSellerAreaKeyboard,
+        )
+      })
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="toggle-account-menu"]',
+      )
+      .forEach((button) => {
+        wireOnce(
+          button,
+          'click',
+          (event) => {
+            event.stopPropagation()
+
+            accountMenuOpen =
+              !accountMenuOpen
+
+            renderPanel()
+          },
         )
       })
 
@@ -8022,6 +8397,14 @@ function createCompanionCore(ctx) {
           setPanelCollapsed(true)
         })
       })
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="expand-companion"]'),
+      'click',
+      () => {
+        setPanelCollapsed(false)
+      },
+    )
 
     wireOnce(
       panel.querySelector('[data-yolen-action="open-yolen"]'),
@@ -8224,16 +8607,17 @@ function createCompanionCore(ctx) {
           : 'Abrir Yolen Companion'
 
       // O modo colapsado é uma casca minúscula e completamente diferente
-      // do layout expandido por região — continua trocando
-      // panel.innerHTML inteiro (é uma transição rara e deliberada do
-      // vendedor, não uma atualização de fundo). Zera o layout de regiões
-      // para que, ao expandir de novo, todas as regiões sejam recriadas
-      // do zero em vez de reaproveitar containers que não existem mais.
-      panel.dataset.yolenPanelLayout = 'collapsed'
-      panelRegionHtmlCache.clear()
-      panelRegionPendingHtml.clear()
+      // do layout expandido por região (ver switchPanelLayout()). A casca
+      // é ela mesma uma região: um render de fundo enquanto recolhido só
+      // troca a casca quando o HTML dela muda, com a mesma proteção
+      // pointerdown→click das demais regiões, e o botão de expandir é
+      // ligado por wirePanelInteractions().
+      switchPanelLayout(
+        panel,
+        'collapsed',
+      )
 
-      panel.innerHTML = [
+      renderPanelRegion(panel, 'collapsed-shell', [
         '<div class="yolen-collapsed-shell">',
 
           '<button',
@@ -8266,36 +8650,21 @@ function createCompanionCore(ctx) {
           '</button>',
 
         '</div>',
-      ].join('')
+      ].join(''))
 
-      panel
-        .querySelector(
-          '[data-yolen-action="expand-companion"]',
-        )
-        ?.addEventListener(
-          'click',
-          () => {
-            setPanelCollapsed(false)
-          },
-        )
+      wirePanelInteractions(panel)
 
       return
     }
 
     // Ver renderPanelRegion(): cada card abaixo só troca de DOM quando seu
     // próprio HTML muda. Se o painel estava colapsado (ou é a primeira
-    // vez), ele não tem nenhum container de região ainda — limpa o que
-    // sobrou da casca colapsada antes de criá-los pela primeira vez.
-    if (
-      panel.dataset.yolenPanelLayout !==
-      'regions'
-    ) {
-      panel.innerHTML = ''
-      panel.dataset.yolenPanelLayout =
-        'regions'
-      panelRegionHtmlCache.clear()
-      panelRegionPendingHtml.clear()
-    }
+    // vez), ele não tem nenhum container de região ainda — a casca
+    // colapsada sai antes de as regiões serem criadas pela primeira vez.
+    switchPanelLayout(
+      panel,
+      'regions',
+    )
 
     renderPanelRegion(
       panel,
@@ -8402,6 +8771,8 @@ function createCompanionCore(ctx) {
         coreApiComposition.clearLeadResolutionCache()
         lastSessionUserId = null
 
+        accountMenuOpen = false
+
         state = {
           ...state,
           connected: false,
@@ -8495,6 +8866,8 @@ function createCompanionCore(ctx) {
               automaticAnalysisStatus: null,
               deepAnalysisStatus: null,
               deepAnalysisResult: null,
+              deepAnalysisTimings: null,
+              deepAnalysisNotice: null,
               lastKnownCommercialReading: null,
               lastKnownCommercialReadingContext: null,
               // FASE 16.5 (achado do Codex, PR #283, rodada 3): sem isto,
@@ -8766,7 +9139,11 @@ function createCompanionCore(ctx) {
     }
   }
 
-  async function resolveCurrentLead() {
+  async function resolveCurrentLead(
+    {
+      requireFreshAfterInFlight = false,
+    } = {},
+  ) {
     if (
       !state.connected ||
       state.isSelfConversation
@@ -8824,11 +9201,65 @@ function createCompanionCore(ctx) {
         resolutionInFlightKey,
       )
     ) {
-      return
+      // O comportamento padrão continua sendo o contrato anterior:
+      // chamadores concorrentes comuns não geram fila nem request storm.
+      if (!requireFreshAfterInFlight) {
+        return
+      }
+
+      // Pós-CREATE é diferente: ele precisa de uma leitura que tenha
+      // começado DEPOIS da criação. Se havia um RESOLVE pré-CREATE em voo,
+      // aguardamos sua conclusão e, ainda na mesma fronteira/conversa,
+      // executamos uma nova resolução. Apenas "aguardar e retornar" não é
+      // suficiente: a resposta aguardada pode ser o NOT_FOUND antigo.
+      const inFlightCompletion =
+        leadResolutionCompletionByKey.get(
+          resolutionInFlightKey,
+        )
+
+      if (!inFlightCompletion) {
+        return
+      }
+
+      await inFlightCompletion
+
+      const requestContextStillCurrent =
+        conversationBoundary.isTokenCurrent(
+          boundaryTokenAtRequest,
+        ) &&
+        state.conversationKey ===
+          keyAtRequest &&
+        state.conversationPhone ===
+          phoneAtRequest &&
+        (state.conversationExternalIdentity?.key ??
+          null) ===
+          (externalIdentityAtRequest?.key ??
+            null)
+
+      if (!requestContextStillCurrent) {
+        return
+      }
+
+      // Nova chamada sem exigir uma segunda "fresh-after-in-flight":
+      // se outra resolução JÁ começou após a conclusão anterior, basta
+      // aderir ao contrato normal (ela já é fresca em relação ao CREATE).
+      return resolveCurrentLead()
     }
+
+    let releaseResolutionCompletion
+
+    const resolutionCompletion =
+      new Promise((resolve) => {
+        releaseResolutionCompletion =
+          resolve
+      })
 
     leadResolutionInFlightKeys.add(
       resolutionInFlightKey,
+    )
+    leadResolutionCompletionByKey.set(
+      resolutionInFlightKey,
+      resolutionCompletion,
     )
 
     const canPreserveResolvedContext =
@@ -9111,6 +9542,17 @@ function createCompanionCore(ctx) {
       leadResolutionInFlightKeys.delete(
         resolutionInFlightKey,
       )
+
+      if (
+        leadResolutionCompletionByKey.get(
+          resolutionInFlightKey,
+        ) === resolutionCompletion
+      ) {
+        leadResolutionCompletionByKey.delete(
+          resolutionInFlightKey,
+        )
+        releaseResolutionCompletion?.()
+      }
     }
   }
 
@@ -10682,7 +11124,19 @@ function createCompanionCore(ctx) {
 
     window.addEventListener(
       'focus',
-      () => {
+      (event) => {
+        // Só a janela voltando a ter foco é retomada. Em captura, a window
+        // também recebe o focus de QUALQUER elemento da página (campo de
+        // MENSAGEM, abas, minimizar/expandir, o composer do canal) — cada
+        // clique virava sessão + re-resolução + análise automática
+        // (FNC-04). Mesmo critério de panel-stability-runtime.js.
+        if (
+          event.target !==
+          document.defaultView
+        ) {
+          return
+        }
+
         scheduleRuntimeRecovery(
           'Yolen retomada. A análise será atualizada em 8 segundos se a conversa mudou.',
         )

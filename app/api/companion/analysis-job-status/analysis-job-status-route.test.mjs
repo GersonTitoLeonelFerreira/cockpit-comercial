@@ -188,6 +188,10 @@ function jobRow({
   status,
   candidateStateVersion = null,
   failureCode = null,
+  requestedAt = '2026-08-23T10:00:00.000Z',
+  startedAt = null,
+  completedAt = null,
+  attemptCount = 0,
 }) {
   return {
     analysis_job_id: analysisJobId,
@@ -198,6 +202,10 @@ function jobRow({
     status,
     candidate_state_version: candidateStateVersion,
     failure_code: failureCode,
+    attempt_count: attemptCount,
+    requested_at: requestedAt,
+    started_at: startedAt,
+    completed_at: completedAt,
   }
 }
 
@@ -292,12 +300,23 @@ test('queued: cliente envia somente analysis_job_id; ciclo/conversa são derivad
   assert.equal(body.data.cycle_id, IDS.cycleA)
   assert.equal(body.data.conversation_key, CONVERSATION_KEY)
   assert.equal(body.data.result, null)
+  assert.equal(body.data.requested_at, '2026-08-23T10:00:00.000Z')
+  assert.equal(body.data.started_at, null)
+  assert.equal(body.data.completed_at, null)
+  assert.equal(body.data.attempt_count, 0)
+  assert.ok(body.data.timings.queue_wait_ms >= 0)
+  assert.equal(body.data.timings.processing_ms, null)
+  assert.ok(body.data.timings.total_ms >= body.data.timings.queue_wait_ms)
 })
 
 test('running: retorna metadata sem resultado', async () => {
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
   const fixtures = baseFixtures()
-  fixtures.jobs.push(jobRow({ status: 'running' }))
+  fixtures.jobs.push(jobRow({
+    status: 'running',
+    startedAt: '2026-08-23T10:00:05.000Z',
+    attemptCount: 1,
+  }))
 
   const { status, body } = await callStatus(fixtures, token, {
     analysis_job_id: ANALYSIS_JOB_ID_A,
@@ -306,6 +325,9 @@ test('running: retorna metadata sem resultado', async () => {
   assert.equal(status, 200)
   assert.equal(body.data.status, 'running')
   assert.equal(body.data.result, null)
+  assert.equal(body.data.timings.queue_wait_ms, 5000)
+  assert.ok(body.data.timings.processing_ms >= 0)
+  assert.ok(body.data.timings.total_ms >= body.data.timings.queue_wait_ms)
 })
 
 test('succeeded: projeta DTO seller-facing e não expõe normalized_output cru', async () => {
@@ -314,6 +336,9 @@ test('succeeded: projeta DTO seller-facing e não expõe normalized_output cru',
   fixtures.jobs.push(jobRow({
     status: 'succeeded',
     candidateStateVersion: 1,
+    startedAt: '2026-08-23T10:00:05.000Z',
+    completedAt: '2026-08-23T10:00:25.000Z',
+    attemptCount: 1,
   }))
   fixtures.events.push(eventRow({}))
 
@@ -332,6 +357,10 @@ test('succeeded: projeta DTO seller-facing e não expõe normalized_output cru',
   assert.equal(body.data.result.state_patch, undefined)
   assert.equal(body.data.result.operational_suggestions, undefined)
   assert.equal(body.data.result.communication, undefined)
+  assert.equal(body.data.timings.queue_wait_ms, 5000)
+  assert.equal(body.data.timings.processing_ms, 20000)
+  assert.equal(body.data.timings.total_ms, 25000)
+  assert.equal(body.data.attempt_count, 1)
 })
 
 test('failed e superseded nunca devolvem result', async () => {
