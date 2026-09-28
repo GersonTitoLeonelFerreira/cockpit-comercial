@@ -51,7 +51,7 @@ test('após resolver o lead, busca e renderiza o relacionamento com o cliente', 
 
   assert.ok(card, 'esperava o card de relacionamento no DOM')
   assert.match(card.textContent, /Primeiro contato/)
-  assert.match(card.textContent, /Cliente aguardando você/)
+  assert.match(card.textContent, /Última mensagem foi do cliente/)
 
   const waitingRow = document.querySelector('[data-yolen-waiting-state="customer_waiting_for_seller"]')
 
