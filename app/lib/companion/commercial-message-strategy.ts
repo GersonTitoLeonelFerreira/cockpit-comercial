@@ -45,6 +45,8 @@ export type CommercialMessageStrategy = {
   prohibited_moves: string[]
   blocked_action_types?:
     SellerExecutionActionType[]
+  required_action_type?:
+    SellerExecutionActionType | null
 
   tone: string | null
   max_length: number
@@ -225,6 +227,28 @@ function latestCustomerReference(
           latest.message.id,
       }
     : null
+}
+
+function requiredActionForTechnique(
+  techniqueId:
+    string | null | undefined,
+): SellerExecutionActionType | null {
+  switch (techniqueId) {
+    case 'technique.contextual_reengagement':
+      return 'reengagement'
+
+    case 'technique.guided_choice':
+      return 'scheduling_guided_choice'
+
+    case 'technique.objection_diagnosis':
+      return 'objection_probe'
+
+    case 'technique.explicit_close_execution':
+      return 'close_request'
+
+    default:
+      return null
+  }
 }
 
 function desiredMicrocommitment({
@@ -472,6 +496,11 @@ export function buildCommercialMessageStrategy({
       prohibitedMoves,
     blocked_action_types:
       blockedActionTypes,
+    required_action_type:
+      requiredActionForTechnique(
+        coaching.chosen_technique
+          ?.id,
+      ),
     tone:
       diagnostic_input
         .commercial_context
@@ -652,13 +681,22 @@ export function evaluateCommercialMessageDraft({
       message,
     )
 
-  if (
+  const requiredAction =
+    strategy.required_action_type ??
+    null
+
+  const blockedByAction =
     (
       strategy.blocked_action_types ??
       []
     ).includes(
       candidateAction,
-    ) ||
+    ) &&
+    candidateAction !==
+      requiredAction
+
+  if (
+    blockedByAction ||
     repeatsRecentOutgoing({
       message,
       recent_outgoing_messages,
@@ -692,17 +730,10 @@ export function evaluateCommercialMessageDraft({
     strategy.technique_id
 
   const techniqueMismatch =
-    (
-      techniqueId ===
-        'technique.contextual_reengagement' &&
+    Boolean(
+      requiredAction &&
       candidateAction !==
-        'reengagement'
-    ) ||
-    (
-      techniqueId ===
-        'technique.objection_diagnosis' &&
-      candidateAction !==
-        'objection_probe'
+        requiredAction,
     )
 
   if (techniqueMismatch) {
