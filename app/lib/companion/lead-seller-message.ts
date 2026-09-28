@@ -592,10 +592,25 @@ function addressedGreetingName(
 ): string | null {
   const match =
     message.match(
-      /^(?:oi|olá|ola|bom dia|boa tarde|boa noite)\s*,?\s+([A-ZÀ-Ý][\p{L}'-]{1,40})(?:[!,]|$)/iu,
+      /^(?:oi|olá|ola|bom dia|boa tarde|boa noite)\s*,?\s+([\p{L}][\p{L}'-]*(?:\s+[\p{L}][\p{L}'-]*){0,3})(?:[!,]|$)/iu,
     )
 
-  return match?.[1] ?? null
+  return match?.[1]?.trim() ?? null
+}
+
+function formalToneAllowsFullName(
+  strategy:
+    CommercialMessageStrategy | null,
+): boolean {
+  const tone =
+    comparable(
+      strategy?.tone ?? '',
+    )
+
+  return /\b(formal|institucional|cerimonioso)\b/
+    .test(
+      tone,
+    )
 }
 
 function validateMessage({
@@ -604,6 +619,7 @@ function validateMessage({
   interaction,
   intent,
   reasoning,
+  messageStrategy,
   recipientName,
 }: {
   message: string
@@ -611,6 +627,8 @@ function validateMessage({
   interaction: readonly SellerMessageCurrentInteraction[]
   intent: string
   reasoning: SellerMessageCanonicalReasoning | null
+  messageStrategy:
+    CommercialMessageStrategy | null
   recipientName: string | null
 }): string | null {
   if (message.length > MAX_MESSAGE_LENGTH) {
@@ -633,15 +651,38 @@ function validateMessage({
         .split(/\s+/)[0] ??
       ''
 
-    if (
+    const addressedToken =
       normalizeNameToken(
         addressedName,
-      ) !==
+      )
+    const expectedFirstToken =
       normalizeNameToken(
         expectedFirstName,
       )
+    const expectedFullToken =
+      normalizeNameToken(
+        recipientName,
+      )
+
+    if (
+      addressedToken !==
+        expectedFirstToken &&
+      addressedToken !==
+        expectedFullToken
     ) {
       return `A mensagem chamou o cliente de "${addressedName}", mas o destinatário canônico é "${recipientName}".`
+    }
+
+    if (
+      addressedToken ===
+        expectedFullToken &&
+      addressedToken !==
+        expectedFirstToken &&
+      !formalToneAllowsFullName(
+        messageStrategy,
+      )
+    ) {
+      return `A saudação usou o nome completo "${addressedName}" sem necessidade de formalidade. Use apenas "${expectedFirstName}" para manter naturalidade no WhatsApp.`
     }
   }
 
@@ -782,6 +823,7 @@ async function runAttempt({
         'commercial_reasoning, quando presente, já decidiu a situação atual, o objetivo agora, a técnica aplicável e o conhecimento de empresa relevante. Você NÃO pode redecidir nenhum desses pontos — apenas redigir a mensagem dentro deles.',
         'message_strategy é o plano determinístico de redação derivado do mesmo reasoning e do coaching. Quando presente, execute objective, relationship_bridge, context_reference, technique_id, desired_microcommitment e tone sem criar uma estratégia paralela.',
         'A mensagem deve perseguir UM único microcompromisso principal. Evite empilhar perguntas; por padrão use no máximo uma pergunta clara.',
+        'Não desperdice a única pergunta com uma saudação fática como "tudo bem?" quando o objetivo comercial exige uma resposta clara. A pergunta principal deve executar o microcompromisso comercial.',
         'A técnica selecionada precisa aparecer na CONDUÇÃO da mensagem, não no vocabulário. Nunca cite nome de técnica ao cliente.',
         'Em retomada contextual, reconheça continuidade e reabra o objetivo já demonstrado; não reformule a mesma pergunta operacional que ficou sem resposta.',
         'Em diagnóstico de objeção, faça uma pergunta curta para entender a causa antes de argumentar, conceder ou prescrever.',
@@ -800,7 +842,7 @@ async function runAttempt({
         'Evite linguagem de robô, jargão de CRM, abstrações comerciais, listas longas e texto excessivamente formal.',
         'A saída precisa ser customer-facing: deve falar com o cliente, nunca com o vendedor nem com a Yolen.',
         recipientName
-          ? `O nome canônico do destinatário atual é "${recipientName}". Se usar nome na saudação, use somente esse nome; nunca use nome extraído de mensagem outgoing do vendedor.`
+          ? `O nome canônico do destinatário atual é "${recipientName}". Em WhatsApp, use preferencialmente só o primeiro nome "${recipientName.trim().split(/\s+/)[0] ?? recipientName}" na saudação. Só use o nome completo se message_strategy.tone exigir tratamento formal. Nunca use nome extraído de mensagem outgoing do vendedor.`
           : 'Não existe nome canônico seguro do destinatário neste contexto. Não invente nem copie para a saudação um nome visto em mensagem outgoing do vendedor.',
         'Entregue somente a mensagem, sem comentário adicional.',
         ...correction,
@@ -882,6 +924,7 @@ async function runAttempt({
       interaction,
       intent,
       reasoning,
+      messageStrategy,
       recipientName,
     })
 
@@ -941,7 +984,17 @@ async function runAttempt({
                         'technique_mismatch',
                       )
                     ? 'A mensagem não executou a técnica comercial escolhida para este momento.'
-                    : 'A mensagem não passou pelo critic da estratégia comercial.'
+                    : strategyCritic.violations
+                        .includes(
+                          'generic_filler',
+                        )
+                      ? 'A mensagem usou fechamento genérico que não ajuda o cliente a tomar o próximo microcompromisso.'
+                      : strategyCritic.violations
+                          .includes(
+                            'weak_microcommitment',
+                          )
+                        ? 'A mensagem de retomada não formulou um microcompromisso comercial claro em forma de pergunta.'
+                        : 'A mensagem não passou pelo critic da estratégia comercial.'
 
     const failure =
       validationFailure ||
@@ -996,10 +1049,12 @@ async function reviewCustomerFacingMessage({
         'Uma entrada de áudio ainda sem transcrição não autoriza inferir nenhum conteúdo.',
         'Se houver inversão de papel, intenção não executada, mensagem não customer-facing, conflito com o contexto ou contradição canônica, reescreva usando somente os fatos disponíveis e as decisões já tomadas por commercial_reasoning.',
         'A revisão deve preservar um único microcompromisso, no máximo uma pergunta principal, a técnica definida em message_strategy e o limite de pressão do contexto.',
+        'Em retomada, a pergunta principal deve perguntar diretamente pelo microcompromisso comercial; "tudo bem?" não conta como avanço.',
+        'Remova frases vazias como "fico à disposição", "posso ajudar com o que for necessário" ou "para avançarmos" quando elas não acrescentarem uma ação concreta.',
         'Se a mensagem já estiver correta, devolva exatamente a mesma mensagem e issue_code="none".',
         'Nunca acrescente preço, percentual, data, horário, promessa ou fato não presente nas fontes.',
         recipientName
-          ? `O nome canônico do destinatário é "${recipientName}". Qualquer saudação nominal diferente disso é role_inversion/context_conflict e deve ser corrigida.`
+          ? `O nome canônico do destinatário é "${recipientName}". Em WhatsApp, prefira o primeiro nome "${recipientName.trim().split(/\s+/)[0] ?? recipientName}" salvo quando message_strategy.tone exigir formalidade; qualquer outro nome é role_inversion/context_conflict.`
           : 'Sem nome canônico do destinatário, remova qualquer saudação nominal que possa ter sido copiada do vendedor.',
         ...(thirdParty
           ? [
@@ -1053,6 +1108,7 @@ async function reviewCustomerFacingMessage({
       interaction,
       intent,
       reasoning,
+      messageStrategy,
       recipientName,
     })
 
