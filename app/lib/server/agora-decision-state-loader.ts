@@ -167,18 +167,28 @@ export async function loadAgoraViewModel({
         viewModel.primary?.action ?? null,
     })
 
-  // A headline existente já era segura, porém podia ficar descritiva.
-  // Quando o reasoning possui uma situação comercial atual explícita,
-  // AGORA usa essa situação como enquadramento sem mexer na ação concreta
-  // que Decision State já priorizou.
+  // Decision State continua definindo prioridade, urgência e provenance.
+  // Quando o Commercial Reasoning está disponível, porém, ele passa a ser
+  // a autoridade sobre o CONTEÚDO da ação seller-facing. Isso impede que
+  // uma recomendação legada contradiga técnica, sequência ou método já
+  // avaliados pelo novo motor comercial.
+  const expertAction =
+    reasoning.status === 'ready' ||
+    reasoning.status === 'limited'
+      ? reasoning.next_best_action
+      : null
+
   const primary =
     viewModel.primary &&
-    reasoning.status !== 'silent' &&
-    reasoning.what_is_happening
+    reasoning.status !== 'silent'
       ? {
           ...viewModel.primary,
           headline:
-            reasoning.what_is_happening,
+            reasoning.what_is_happening ||
+            viewModel.primary.headline,
+          action:
+            expertAction ||
+            viewModel.primary.action,
         }
       : viewModel.primary
 

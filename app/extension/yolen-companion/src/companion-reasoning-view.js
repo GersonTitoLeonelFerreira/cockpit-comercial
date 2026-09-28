@@ -97,7 +97,11 @@
                     class="yolen-seller-secondary-details"
                     data-yolen-preserve-details="agora-technique"
                   >
-                    <summary>Ver técnica e cuidados</summary>
+                    <summary>${
+                      technique
+                        ? `Técnica: ${escapeHtml(sellerText(technique.title, 'Técnica comercial'))}${doNotDo.length > 0 ? ' · cuidados' : ''}`
+                        : 'Ver cuidados'
+                    }</summary>
 
                     ${technique ? `
                       <div class="yolen-seller-detail">

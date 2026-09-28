@@ -38,6 +38,7 @@ export type CommercialReasoningKnowledgeReference = {
   source_id: string | null
   product_id: string | null
   why_relevant: string
+  grounded_content?: string
 }
 
 export type CommercialReasoningSellerAssessment = {

@@ -76,40 +76,31 @@ test(
 )
 
 test(
-  'ANÁLISE renderiza resumo de coaching antes dos detalhes existentes',
+  'ANÁLISE usa coaching canônico como autoridade e não empilha coaching legado concorrente',
   () => {
     assert.match(
       sellerView,
       /function renderCoachingDiagnosis/,
     )
 
-    const diagnosisIndex =
-      sellerView.indexOf(
-        'renderCoachingDiagnosis(analysisViewModel.coaching_diagnosis)',
-      )
-
-    const improvementsIndex =
-      sellerView.indexOf(
-        'renderImprovements(analysisViewModel.improvements)',
-      )
-
-    assert.ok(
-      diagnosisIndex >= 0,
-    )
-
-    assert.ok(
-      improvementsIndex >
-        diagnosisIndex,
+    assert.match(
+      sellerView,
+      /const hasCoachingDiagnosis/,
     )
 
     assert.match(
       sellerView,
-      /Principal acerto/,
+      /hasCoachingDiagnosis[\s\S]*\? ''[\s\S]*: renderImprovements/,
     )
 
     assert.match(
       sellerView,
-      /Principal ajuste/,
+      /hasCoachingDiagnosis[\s\S]*\? ''[\s\S]*: renderStrengths/,
+    )
+
+    assert.match(
+      sellerView,
+      /Técnica recomendada/,
     )
   },
 )
@@ -164,8 +155,20 @@ test(
           method: null,
           stage_divergence: false,
         },
-        strengths: [],
-        improvements: [],
+        strengths: [
+          {
+            kind: 'other',
+            summary:
+              'LEGACY_ACERTO_NAO_DEVE_APARECER',
+          },
+        ],
+        improvements: [
+          {
+            kind: 'other',
+            summary:
+              'LEGACY_AJUSTE_NAO_DEVE_APARECER',
+          },
+        ],
         continuity: {
           cycle_conversation_count: 1,
           cross_conversation_signals: [],
@@ -210,7 +213,15 @@ test(
             action_label:
               'Pergunta aberta de agendamento',
           },
-          chosen_technique: null,
+          chosen_technique: {
+            id:
+              'technique.contextual_reengagement',
+            title:
+              'Retomada contextual',
+            why_now:
+              'A conversa perdeu continuidade.',
+            risks: [],
+          },
           sequence_break: {
             happened: true,
             what_changed:
@@ -251,6 +262,16 @@ test(
     assert.match(
       html,
       /Concluir o próximo compromisso/,
+    )
+
+    assert.match(
+      html,
+      /Técnica recomendada[\s\S]*Retomada contextual/,
+    )
+
+    assert.doesNotMatch(
+      html,
+      /LEGACY_ACERTO_NAO_DEVE_APARECER|LEGACY_AJUSTE_NAO_DEVE_APARECER/,
     )
 
     assert.doesNotMatch(

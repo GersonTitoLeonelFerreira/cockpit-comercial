@@ -395,6 +395,79 @@ function buildDecision({
 
   if (
     id ===
+      'technique.contextual_reengagement'
+  ) {
+    if (
+      context.sequence
+        .customer_fact_after_action
+    ) {
+      return {
+        intelligence_id:
+          id,
+        status: 'blocked',
+        score:
+          ranked.score,
+        reasons: [
+          ...reasons,
+          'Surgiu fato novo do cliente; a prioridade é responder ao novo contexto, não executar uma retomada.',
+        ],
+        unmet_requirements: [
+          'no_new_customer_fact_after_action',
+        ],
+      }
+    }
+
+    if (
+      context.sequence
+        .waiting_for_customer &&
+      context.sequence
+        .last_action_type ===
+          'reengagement'
+    ) {
+      return {
+        intelligence_id:
+          id,
+        status: 'blocked',
+        score:
+          ranked.score,
+        reasons: [
+          ...reasons,
+          'A retomada já foi executada e agora a próxima resposta depende do cliente.',
+        ],
+        unmet_requirements: [
+          'do_not_repeat_reengagement',
+        ],
+      }
+    }
+
+    const hasRecoverySignal =
+      contains(
+        context.signals,
+        'sequence_break',
+      ) ||
+      contains(
+        context.situations,
+        'duplicate_followup',
+      )
+
+    if (!hasRecoverySignal) {
+      return {
+        intelligence_id:
+          id,
+        status:
+          'conditional',
+        score:
+          ranked.score,
+        reasons,
+        unmet_requirements: [
+          'continuity_break_required',
+        ],
+      }
+    }
+  }
+
+  if (
+    id ===
       'technique.discovery_before_prescription'
   ) {
     if (

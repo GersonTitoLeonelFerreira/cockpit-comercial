@@ -358,6 +358,25 @@ test(
     )
 
     assert.ok(
+      result.selected_techniques
+        .some(
+          item =>
+            item.intelligence_id ===
+              'technique.contextual_reengagement',
+        ),
+    )
+
+    assert.match(
+      result.objective_now,
+      /retomar.*intenção|continuidade/i,
+    )
+
+    assert.doesNotMatch(
+      result.objective_now,
+      /qual dia|qual horário|perguntar.*horário/i,
+    )
+
+    assert.ok(
       result.limitations.includes(
         'technique_condition_unmet:technique.guided_choice:grounded_multiple_valid_options_required',
       ),

@@ -4,6 +4,7 @@ import test from 'node:test'
 
 import {
   buildSellerExecutionTrace,
+  classifySellerActionText,
 } from './seller-execution-trace.ts'
 
 const CORPUS =
@@ -424,6 +425,103 @@ test(
     assert.equal(
       trace.events.length,
       1,
+    )
+  },
+)
+
+test(
+  'live Lorena preserva intenção de agendamento e distingue retomada de repetição da pergunta',
+  () => {
+    const diagnosticInput =
+      inputFromCase('C01')
+
+    diagnosticInput.conversation.messages = [
+      {
+        ...diagnosticInput.conversation.messages[0],
+        id: 'm1',
+        sequence: 1,
+        direction: 'incoming',
+        author_kind: 'customer',
+        text_content:
+          'Podemos fazer uma aula experimental hoje?',
+      },
+      {
+        ...diagnosticInput.conversation.messages[1],
+        id: 'm2',
+        sequence: 2,
+        direction: 'outgoing',
+        author_kind: 'human_agent',
+        text_content:
+          'Você já fez a aula experimental?',
+      },
+      {
+        ...diagnosticInput.conversation.messages[0],
+        id: 'm3',
+        sequence: 3,
+        direction: 'incoming',
+        author_kind: 'customer',
+        text_content:
+          'Não fiz ainda.',
+      },
+      {
+        ...diagnosticInput.conversation.messages[1],
+        id: 'm4',
+        sequence: 4,
+        direction: 'outgoing',
+        author_kind: 'human_agent',
+        text_content:
+          'Qual dia e horário fica melhor para você?',
+      },
+      {
+        ...diagnosticInput.conversation.messages[1],
+        id: 'm5',
+        sequence: 5,
+        direction: 'outgoing',
+        author_kind: 'human_agent',
+        text_content:
+          'Vou te mandar nossos planos para você conhecer.',
+      },
+    ]
+
+    const trace =
+      buildSellerExecutionTrace({
+        diagnostic_input:
+          diagnosticInput,
+      })
+
+    assert.equal(
+      trace.summary
+        .active_customer_intent
+        .kind,
+      'scheduling',
+    )
+
+    assert.equal(
+      trace.summary
+        .active_customer_intent
+        .confidence,
+      'high',
+    )
+
+    assert.equal(
+      trace.events.at(-1)
+        .sequence
+        .breaks_active_customer_goal,
+      true,
+    )
+
+    assert.equal(
+      classifySellerActionText(
+        'Quando seria um bom dia e horário para você fazer a experimental?',
+      ),
+      'scheduling_open_question',
+    )
+
+    assert.equal(
+      classifySellerActionText(
+        'Ainda faz sentido retomarmos sua experimental?',
+      ),
+      'reengagement',
     )
   },
 )

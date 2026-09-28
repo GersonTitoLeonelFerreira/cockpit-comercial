@@ -385,6 +385,13 @@
             </article>
           ` : ''}
 
+          ${technique?.title ? `
+            <article class="yolen-seller-insight yolen-seller-insight--positive">
+              <div class="yolen-seller-insight-type">Técnica recomendada</div>
+              <div class="yolen-seller-insight-title">${escapeHtml(displayText(technique.title))}</div>
+            </article>
+          ` : ''}
+
           ${renderLabeledCopy('Próximo objetivo', diagnosis.next_action)}
 
           <details
@@ -394,7 +401,6 @@
             <summary>Ver raciocínio</summary>
             ${renderLabeledCopy('Intenção atual do cliente', intent?.label)}
             ${renderLabeledCopy('Último movimento válido do vendedor', lastMove?.action_label)}
-            ${renderLabeledCopy('Técnica selecionada', technique?.title)}
             ${renderLabeledCopy('Por que esta técnica', technique?.why_now)}
             ${diagnosis.sequence_break?.happened
               ? renderLabeledCopy('Quebra de sequência', diagnosis.sequence_break.what_changed)
@@ -1122,10 +1128,20 @@
       ].filter(Boolean).join('')
     }
 
+    const hasCoachingDiagnosis =
+      Boolean(
+        analysisViewModel.coaching_diagnosis &&
+        analysisViewModel.coaching_diagnosis.status !== 'silent',
+      )
+
     const sections = [
       renderCoachingDiagnosis(analysisViewModel.coaching_diagnosis),
-      renderImprovements(analysisViewModel.improvements),
-      renderStrengths(analysisViewModel.strengths),
+      hasCoachingDiagnosis
+        ? ''
+        : renderImprovements(analysisViewModel.improvements),
+      hasCoachingDiagnosis
+        ? ''
+        : renderStrengths(analysisViewModel.strengths),
       renderOpportunityHeader(analysisViewModel.opportunity, analysisViewModel.current_moment),
       renderMethod(analysisViewModel.seller_conduct?.method),
       renderObjections(analysisViewModel.objections_open),

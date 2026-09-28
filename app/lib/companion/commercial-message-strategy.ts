@@ -10,6 +10,11 @@ import type {
   CommercialCoachingDiagnosis,
 } from './commercial-coaching-engine'
 
+import {
+  classifySellerActionText,
+  type SellerExecutionActionType,
+} from './seller-execution-trace'
+
 export const COMMERCIAL_MESSAGE_STRATEGY_VERSION =
   'commercial-message-strategy-v1' as const
 
@@ -38,6 +43,8 @@ export type CommercialMessageStrategy = {
   facts_required_but_missing: string[]
 
   prohibited_moves: string[]
+  blocked_action_types?:
+    SellerExecutionActionType[]
 
   tone: string | null
   max_length: number
@@ -239,6 +246,9 @@ function desiredMicrocommitment({
     case 'technique.discovery_before_prescription':
       return 'Obter uma informação de descoberta que realmente altere a recomendação.'
 
+    case 'technique.contextual_reengagement':
+      return 'Obter um microcompromisso simples que confirme se o cliente ainda quer avançar no objetivo já demonstrado, sem repetir a pergunta anterior.'
+
     case 'technique.commitment_wait':
       return null
 
@@ -351,6 +361,7 @@ export function buildCommercialMessageStrategy({
       .company_knowledge_used
       .map(
         item =>
+          item.grounded_content ??
           item.why_relevant,
       )
 
@@ -358,6 +369,37 @@ export function buildCommercialMessageStrategy({
     missingFacts(
       reasoning,
     )
+
+  const lastMoveAction =
+    coaching.seller_last_valid_move
+      ?.action_type
+
+  const shouldBlockLastMove =
+    Boolean(
+      lastMoveAction &&
+      (
+        coaching.sequence_break
+          .happened ||
+        coaching.chosen_technique
+          ?.id ===
+          'technique.contextual_reengagement' ||
+        reasoning.do_not_do.some(
+          item =>
+            /não repetir/i.test(
+              item,
+            ),
+        )
+      ),
+    )
+
+  const blockedActionTypes:
+    SellerExecutionActionType[] =
+      shouldBlockLastMove &&
+      lastMoveAction
+        ? [
+            lastMoveAction,
+          ]
+        : []
 
   const prohibitedMoves =
     unique([
@@ -422,6 +464,8 @@ export function buildCommercialMessageStrategy({
       factsMissing,
     prohibited_moves:
       prohibitedMoves,
+    blocked_action_types:
+      blockedActionTypes,
     tone:
       diagnostic_input
         .commercial_context
@@ -541,7 +585,18 @@ export function evaluateCommercialMessageDraft({
     }
   }
 
+  const candidateAction =
+    classifySellerActionText(
+      message,
+    )
+
   if (
+    (
+      strategy.blocked_action_types ??
+      []
+    ).includes(
+      candidateAction,
+    ) ||
     repeatsRecentOutgoing({
       message,
       recent_outgoing_messages,

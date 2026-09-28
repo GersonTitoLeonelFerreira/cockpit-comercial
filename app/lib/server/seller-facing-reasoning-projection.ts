@@ -44,6 +44,7 @@ export type SellerFacingReasoningProjection = {
     title: string
     source_type: string
     why_relevant: string
+    grounded_content?: string
   }>
   customer_roles: SellerFacingCommercialRole[]
   message: {
@@ -166,8 +167,10 @@ export function buildSellerFacingReasoningProjection({
     why_now:
       reasoning.decision_reason,
     next_best_action:
-      fallback_action ||
-      reasoning.objective_now,
+      reasoning.status === 'silent'
+        ? fallback_action
+        : reasoning.objective_now ||
+          fallback_action,
     technique:
       selectedTechnique
         ? {
@@ -196,6 +199,8 @@ export function buildSellerFacingReasoningProjection({
             item.source_type,
           why_relevant:
             item.why_relevant,
+          grounded_content:
+            item.grounded_content,
         })),
     customer_roles:
       buildCustomerRoles(state),
