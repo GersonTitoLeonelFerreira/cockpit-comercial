@@ -641,3 +641,132 @@ test(
     )
   },
 )
+
+test(
+  'live Lorena sem deviation_stage_order ainda remove elogio contraditório e recupera etapa parcial anterior',
+  () => {
+    const currentReading =
+      reading({
+        strengths: [
+          {
+            kind: 'good_presentation',
+            summary:
+              'O vendedor apresentou uma oferta promocional detalhada com planos, preços e links.',
+            why_it_matters:
+              'A oferta trouxe informações comerciais.',
+            evidence_message_ids: [
+              'm5',
+            ],
+            memory_ids: [],
+          },
+        ],
+        adherence:
+          'partially_on_method',
+      })
+
+    currentReading.method.stages = [
+      {
+        step_order: 1,
+        stage_key:
+          'discovery',
+        name: 'Descoberta',
+        status: 'partial',
+        explanation:
+          'O objetivo de agendamento ainda não foi concluído.',
+        evidence_message_ids: [
+          'm4',
+        ],
+        memory_ids: [],
+      },
+      {
+        step_order: 2,
+        stage_key:
+          'presentation',
+        name: 'Apresentação',
+        status: 'active',
+        explanation:
+          'Planos foram apresentados antes da conclusão do compromisso anterior.',
+        evidence_message_ids: [
+          'm5',
+        ],
+        memory_ids: [],
+      },
+    ]
+    currentReading.method.current_stage = {
+      step_order: 2,
+      stage_key:
+        'presentation',
+      name: 'Apresentação',
+    }
+    currentReading.method.adherence.deviation_stage_order = null
+    currentReading.method.recovery_guidance = null
+
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          currentReading,
+        reasoning:
+          reasoning({
+            objective:
+              'Retomar a intenção de agendamento sem repetir a pergunta anterior.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Podemos fazer uma aula experimental hoje?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Você já fez a aula experimental?',
+            },
+            {
+              direction:
+                'incoming',
+              text:
+                'Não fiz ainda.',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Qual dia e horário fica melhor para você?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Vou te mandar nossos planos. O plano custa R$ 209,90.',
+            },
+          ]),
+      })
+
+    assert.doesNotMatch(
+      diagnosis.seller_strength
+        ?.summary ?? '',
+      /oferta promocional|planos, preços|links/i,
+    )
+
+    assert.equal(
+      diagnosis.sequence_break
+        .happened,
+      true,
+    )
+
+    assert.equal(
+      diagnosis.method_state
+        .current_stage_name,
+      'Apresentação',
+    )
+
+    assert.equal(
+      diagnosis.method_state
+        .recommended_stage_name,
+      'Descoberta',
+    )
+  },
+)
