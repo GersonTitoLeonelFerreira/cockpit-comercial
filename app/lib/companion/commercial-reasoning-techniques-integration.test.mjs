@@ -396,6 +396,21 @@ test(
       /demonstrou intenção|perdeu continuidade|retomada/i,
     )
 
+    assert.equal(
+      result.decision,
+      'follow_up',
+    )
+
+    assert.match(
+      result.current_situation,
+      /demonstrou um objetivo comercial|perdeu continuidade/i,
+    )
+
+    assert.doesNotMatch(
+      result.current_situation,
+      /aguardar resposta com a disponibilidade/i,
+    )
+
     assert.doesNotMatch(
       result.decision_reason,
       /sequence_break|seller_already|customer_intent_hot|next_step_choice/,
