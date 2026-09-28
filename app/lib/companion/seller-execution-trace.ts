@@ -451,6 +451,12 @@ function containsReengagementLanguage(
     [
       'ainda faz sentido',
       'ainda quer',
+      'ainda tem interesse',
+      'ainda têm interesse',
+      'segue interessado',
+      'segue interessada',
+      'continua interessado',
+      'continua interessada',
       'quer seguir',
       'podemos retomar',
       'retomar',
@@ -589,6 +595,21 @@ function classifySellerAction(
   }
 
   if (
+    includesAny(
+      normalized,
+      [
+        'ultima chance',
+        'última chance',
+        'so hoje',
+        'só hoje',
+        'agora ou perde',
+      ].map(normalizeText),
+    )
+  ) {
+    return 'pressure_or_false_urgency'
+  }
+
+  if (
     /r\$\s*\d/i.test(text) ||
     includesAny(
       normalized,
@@ -660,21 +681,6 @@ function classifySellerAction(
     question
   ) {
     return 'clarification_question'
-  }
-
-  if (
-    includesAny(
-      normalized,
-      [
-        'ultima chance',
-        'última chance',
-        'so hoje',
-        'só hoje',
-        'agora ou perde',
-      ].map(normalizeText),
-    )
-  ) {
-    return 'pressure_or_false_urgency'
   }
 
   if (
