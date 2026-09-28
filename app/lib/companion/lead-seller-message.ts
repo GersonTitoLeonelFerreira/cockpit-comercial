@@ -42,6 +42,11 @@ export type SellerMessageCanonicalReasoning =
 export type SellerMessageCommercialRole =
   SellerFacingCommercialRole
 
+export type SellerMessageParticipants = {
+  recipient_name: string | null
+  seller_name: string | null
+}
+
 export type SellerMessageCurrentInteraction = {
   direction: 'incoming' | 'outgoing'
   occurred_at: string | null
@@ -261,6 +266,78 @@ function normalizeCurrentInteraction(
       ): message is SellerMessageCurrentInteraction =>
         Boolean(message.text),
     )
+}
+
+function normalizeParticipants(
+  value:
+    | SellerMessageParticipants
+    | null
+    | undefined,
+): SellerMessageParticipants {
+  return {
+    recipient_name:
+      clean(
+        value?.recipient_name,
+      ),
+    seller_name:
+      clean(
+        value?.seller_name,
+      ),
+  }
+}
+
+function firstName(
+  value: string | null,
+): string | null {
+  return value
+    ? clean(
+        value.split(/\s+/)[0],
+      )
+    : null
+}
+
+function startsByAddressingName({
+  message,
+  name,
+}: {
+  message: string
+  name: string | null
+}): boolean {
+  const candidate =
+    firstName(name)
+
+  if (!candidate) {
+    return false
+  }
+
+  const firstWords =
+    comparable(
+      message.slice(0, 90),
+    )
+
+  const normalizedName =
+    comparable(candidate)
+
+  return new RegExp(
+    `^(?:oi|ola|bom dia|boa tarde|boa noite)?\\s*${normalizedName}\\b`,
+    'i',
+  ).test(firstWords)
+}
+
+const DEFAULT_SELLER_INTENT =
+  'Quero responder ao ponto principal desta conversa.'
+
+function sellerIntentMode(
+  value: string,
+):
+  | 'default_follow_reasoning'
+  | 'explicit_override' {
+  return comparable(value) ===
+    comparable(
+      DEFAULT_SELLER_INTENT,
+    )
+    ? 'default_follow_reasoning'
+    : 'explicit_override'
 }
 
 function normalizeForGrounding(value: string) {
@@ -577,15 +654,36 @@ function validateMessage({
   interaction,
   intent,
   reasoning,
+  participants,
 }: {
   message: string
   summary: string
   interaction: readonly SellerMessageCurrentInteraction[]
   intent: string
   reasoning: SellerMessageCanonicalReasoning | null
+  participants: SellerMessageParticipants
 }): string | null {
   if (message.length > MAX_MESSAGE_LENGTH) {
     return 'A mensagem excedeu o tamanho permitido.'
+  }
+
+  const recipientName =
+    participants.recipient_name
+  const sellerName =
+    participants.seller_name
+
+  if (
+    sellerName &&
+    comparable(sellerName) !==
+      comparable(
+        recipientName ?? '',
+      ) &&
+    startsByAddressingName({
+      message,
+      name: sellerName,
+    })
+  ) {
+    return 'A mensagem tratou o nome do vendedor como se fosse o nome do cliente.'
   }
 
   const interactionText = interaction
@@ -671,6 +769,7 @@ async function runAttempt({
   reasoning,
   messageStrategy,
   roles,
+  participants,
   provider,
   correctionReason,
 }: {
@@ -681,6 +780,7 @@ async function runAttempt({
   reasoning: SellerMessageCanonicalReasoning | null
   messageStrategy: CommercialMessageStrategy | null
   roles: readonly SellerMessageCommercialRole[]
+  participants: SellerMessageParticipants
   provider: StatefulCopilotProvider
   correctionReason?: string | null
 }): Promise<MessageAttempt> {
@@ -698,6 +798,8 @@ async function runAttempt({
       ]
     : []
   const thirdParty = hasThirdPartyOpportunity(roles)
+  const intentMode =
+    sellerIntentMode(intent)
 
   try {
     const response = await provider({
@@ -706,10 +808,18 @@ async function runAttempt({
         OUTPUT_CONTRACT_VERSION,
       system_prompt: [
         'Você escreve uma mensagem de WhatsApp EM NOME DO VENDEDOR DA YOLEN e DIRIGIDA AO CLIENTE com quem ele está conversando.',
+        'participants.recipient_name, quando presente, é o nome oficial do cliente nesta conversa. participants.seller_name é o nome oficial do vendedor. Nunca use seller_name para cumprimentar ou chamar o cliente.',
+        'Se recipient_name estiver ausente, não tente descobrir o nome do cliente lendo mensagens outgoing do vendedor. Prefira mensagem sem nome.',
         'seller_intent é uma instrução privada do vendedor sobre o que ELE quer comunicar. Nunca responda ao seller_intent como se o vendedor fosse o destinatário.',
         'Transforme a intenção do vendedor em uma fala pronta que o próprio vendedor poderia enviar diretamente ao cliente.',
         'Exemplo: seller_intent="Quero fazer uma pergunta para avançar com clareza." exige uma pergunta ao CLIENTE; é proibido responder "Pode mandar sua pergunta".',
-        'A intenção do vendedor é a ação principal a executar. Ela é soberana sobre a orientação da Yolen, que funciona como recomendação e contexto, não como ordem.',
+        ...(intentMode === 'explicit_override'
+          ? [
+              'A intenção do vendedor é a ação principal a executar quando seller_intent_mode=explicit_override. Nesse modo, ela pode contrariar a recomendação da Yolen, desde que não viole fatos, segurança ou grounding.',
+            ]
+          : [
+              'O seller_intent atual é apenas o preset genérico da interface. Ele NÃO é uma decisão comercial do vendedor e não pode substituir commercial_reasoning ou message_strategy. Neste modo, escreva a melhor próxima mensagem recomendada pelo especialista da Yolen.',
+            ]),
         'Use o resumo e a interação canônica atual como únicas fontes de fatos sobre o relacionamento e o cliente.',
         'Mensagens de current_interaction com direction="outgoing" já foram enviadas pelo vendedor. Não repita como nova mensagem uma pergunta, confirmação, explicação ou cobrança que acabou de ser enviada, salvo se houver nova resposta incoming que justifique a repetição.',
         'Uma entrada marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" é um áudio real cujo conteúdo é desconhecido: nunca invente ou presuma o que foi dito nele.',
@@ -745,6 +855,8 @@ async function runAttempt({
       ].join('\n'),
       user_prompt: JSON.stringify({
         seller_intent: intent,
+        seller_intent_mode:
+          intentMode,
         working_summary: summary,
         current_interaction: interaction,
         context_specificity_anchors:
@@ -755,6 +867,7 @@ async function runAttempt({
           messageStrategy,
         customer_roles:
           describeRoles(roles),
+        participants,
         published_method: {
           name: method.name,
           description: method.description,
@@ -818,6 +931,7 @@ async function runAttempt({
       interaction,
       intent,
       reasoning,
+      participants,
     })
 
     const strategyCritic =
@@ -902,6 +1016,7 @@ async function reviewCustomerFacingMessage({
   reasoning,
   messageStrategy,
   roles,
+  participants,
   provider,
 }: {
   candidateMessage: string
@@ -911,9 +1026,12 @@ async function reviewCustomerFacingMessage({
   reasoning: SellerMessageCanonicalReasoning | null
   messageStrategy: CommercialMessageStrategy | null
   roles: readonly SellerMessageCommercialRole[]
+  participants: SellerMessageParticipants
   provider: StatefulCopilotProvider
 }): Promise<MessageAttempt> {
   const thirdParty = hasThirdPartyOpportunity(roles)
+  const intentMode =
+    sellerIntentMode(intent)
 
   try {
     const response = await provider({
@@ -922,7 +1040,16 @@ async function reviewCustomerFacingMessage({
       system_prompt: [
         'Você é o gate final de papel comunicacional e comercial da Yolen.',
         'Revise uma mensagem que será enviada pelo vendedor diretamente ao cliente.',
-        'seller_intent é uma instrução privada do vendedor. A mensagem final precisa EXECUTAR essa intenção como fala do vendedor PARA o cliente.',
+        'seller_intent é uma instrução privada do vendedor. A mensagem final precisa interpretá-la conforme seller_intent_mode.',
+        ...(intentMode === 'explicit_override'
+          ? [
+              'Em explicit_override, a mensagem deve EXECUTAR a intenção específica do vendedor como fala do vendedor PARA o cliente.',
+            ]
+          : [
+              'Em default_follow_reasoning, o preset genérico não pode substituir commercial_reasoning/message_strategy; valide a mensagem pela recomendação canônica da Yolen.',
+            ]),
+        'participants.recipient_name é o destinatário oficial quando presente; participants.seller_name é o emissor. Tratar seller_name como nome do cliente é role_inversion e deve ser corrigido.',
+        'Se recipient_name estiver ausente, não infira nome de cliente a partir de mensagens outgoing.',
         'Detecte role_inversion: mensagem que responde ao vendedor, pede ao vendedor que faça algo ou trata o vendedor como destinatário.',
         'Detecte context_conflict: repetir uma pergunta, confirmação, explicação ou cobrança que já aparece como última ação outgoing sem nova resposta incoming que justifique a repetição.',
         'Detecte canonical_contradiction: a mensagem contraria commercial_reasoning.current_situation, ignora commercial_reasoning.objective_now, faz algo listado em commercial_reasoning.do_not_do, contraria message_strategy.objective/context_reference, viola message_strategy.prohibited_moves ou usa algo de message_strategy.facts_required_but_missing como se fosse fato disponível; quando customer_roles indicar terceiro, também é contradição tratar o intermediário desta conversa como se ele fosse o prospect/comprador.',
@@ -940,6 +1067,8 @@ async function reviewCustomerFacingMessage({
       ].join('\n'),
       user_prompt: JSON.stringify({
         seller_intent: intent,
+        seller_intent_mode:
+          intentMode,
         candidate_message: candidateMessage,
         working_summary: summary,
         current_interaction: interaction,
@@ -949,6 +1078,7 @@ async function reviewCustomerFacingMessage({
           messageStrategy,
         customer_roles:
           describeRoles(roles),
+        participants,
       }),
       structured_output_format: CUSTOMER_FACING_REVIEW_FORMAT,
     })
@@ -981,6 +1111,7 @@ async function reviewCustomerFacingMessage({
       interaction,
       intent,
       reasoning,
+      participants,
     })
 
     const strategyCritic =
@@ -1039,6 +1170,10 @@ export async function composeSellerMessage({
   reasoning = null,
   messageStrategy = null,
   roles = [],
+  participants = {
+    recipient_name: null,
+    seller_name: null,
+  },
   provider,
 }: {
   workingSummary: string | null
@@ -1048,12 +1183,17 @@ export async function composeSellerMessage({
   reasoning?: SellerMessageCanonicalReasoning | null
   messageStrategy?: CommercialMessageStrategy | null
   roles?: readonly SellerMessageCommercialRole[]
+  participants?: SellerMessageParticipants
   provider: StatefulCopilotProvider
 }): Promise<SellerMessageGenerationResult> {
   const summary = clean(workingSummary)
   const intent = clean(sellerIntent)
   const interaction =
     normalizeCurrentInteraction(currentInteraction)
+  const normalizedParticipants =
+    normalizeParticipants(
+      participants,
+    )
 
   if (!summary) {
     return {
@@ -1081,6 +1221,8 @@ export async function composeSellerMessage({
     reasoning,
     messageStrategy,
     roles,
+    participants:
+      normalizedParticipants,
     provider,
   })
 
@@ -1096,6 +1238,8 @@ export async function composeSellerMessage({
       reasoning,
       messageStrategy,
       roles,
+      participants:
+        normalizedParticipants,
       provider,
       correctionReason:
         first.failure ||
@@ -1125,6 +1269,8 @@ export async function composeSellerMessage({
     reasoning,
     messageStrategy,
     roles,
+    participants:
+      normalizedParticipants,
     provider,
   })
 

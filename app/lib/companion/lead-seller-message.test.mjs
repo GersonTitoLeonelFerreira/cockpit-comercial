@@ -624,3 +624,192 @@ test('papel de terceiro é transmitido ao gerador e ao gate de revisão', async 
     ),
   )
 })
+
+test(
+  'nome oficial do vendedor nunca pode virar nome do cliente',
+  async () => {
+    const calls = []
+
+    const result =
+      await composeSellerMessage({
+        workingSummary:
+          'Lorena demonstrou interesse em retomar a aula experimental.',
+        currentInteraction: [
+          {
+            direction:
+              'outgoing',
+            occurred_at:
+              '2026-09-10T16:14:00.000Z',
+            text:
+              'Olá, sou a Mayara e vou dar continuidade ao seu atendimento.',
+          },
+        ],
+        sellerIntent:
+          'Quero retomar a aula experimental de forma natural.',
+        method,
+        participants: {
+          recipient_name:
+            'Lorena Galvão',
+          seller_name:
+            'Mayara Souza',
+        },
+        provider:
+          createProvider(
+            [
+              {
+                message:
+                  'Oi, Mayara! Ainda faz sentido retomarmos sua aula experimental?',
+              },
+              {
+                message:
+                  'Oi, Lorena! Ainda faz sentido retomarmos sua aula experimental?',
+              },
+              reviewedSame(
+                'Oi, Lorena! Ainda faz sentido retomarmos sua aula experimental?',
+              ),
+            ],
+            calls,
+          ),
+      })
+
+    assert.equal(
+      result.status,
+      'ready',
+    )
+
+    assert.match(
+      result.message,
+      /^Oi, Lorena!/,
+    )
+
+    assert.doesNotMatch(
+      result.message,
+      /^Oi, Mayara!/,
+    )
+
+    assert.equal(
+      calls.length,
+      3,
+    )
+
+    const generationPrompt =
+      JSON.parse(
+        calls[0].user_prompt,
+      )
+
+    assert.equal(
+      generationPrompt
+        .participants
+        .recipient_name,
+      'Lorena Galvão',
+    )
+
+    assert.equal(
+      generationPrompt
+        .participants
+        .seller_name,
+      'Mayara Souza',
+    )
+
+    assert.match(
+      calls[0].system_prompt,
+      /Nunca use seller_name para cumprimentar/i,
+    )
+  },
+)
+
+test(
+  'preset genérico segue Commercial Reasoning em vez de virar override comercial',
+  async () => {
+    const calls = []
+    const message =
+      'Oi, Lorena! Sua aula experimental ficou em aberto. Ainda faz sentido retomarmos?',
+
+    const result =
+      await composeSellerMessage({
+        workingSummary:
+          'Lorena demonstrou interesse em aula experimental, o vendedor pediu disponibilidade e a conversa ficou sem conclusão.',
+        currentInteraction: [
+          {
+            direction:
+              'outgoing',
+            occurred_at:
+              '2026-09-24T18:00:00.000Z',
+            text:
+              'Qual dia e horário fica melhor para você?',
+          },
+        ],
+        sellerIntent:
+          'Quero responder ao ponto principal desta conversa.',
+        method,
+        reasoning:
+          buildReasoning({
+            decision:
+              'follow_up',
+            current_situation:
+              'A oportunidade esfriou depois de um compromisso de agenda não concluído.',
+            objective_now:
+              'Retomar a intenção já demonstrada sem repetir a pergunta de disponibilidade.',
+            selected_techniques: [
+              {
+                intelligence_id:
+                  'technique.contextual_reengagement',
+                title:
+                  'Retomada contextual',
+                kind: 'technique',
+                scope: 'general',
+                why_applicable:
+                  'A espera ficou antiga e a conversa precisa ser reaberta com um novo microcompromisso.',
+                risks: [],
+              },
+            ],
+          }),
+        participants: {
+          recipient_name:
+            'Lorena Galvão',
+          seller_name:
+            'Mayara Souza',
+        },
+        provider:
+          createProvider(
+            [
+              { message },
+              reviewedSame(message),
+            ],
+            calls,
+          ),
+      })
+
+    assert.equal(
+      result.status,
+      'ready',
+    )
+
+    const generationPrompt =
+      JSON.parse(
+        calls[0].user_prompt,
+      )
+
+    assert.equal(
+      generationPrompt
+        .seller_intent_mode,
+      'default_follow_reasoning',
+    )
+
+    assert.match(
+      calls[0].system_prompt,
+      /não pode substituir commercial_reasoning/i,
+    )
+
+    const reviewPrompt =
+      JSON.parse(
+        calls[1].user_prompt,
+      )
+
+    assert.equal(
+      reviewPrompt
+        .seller_intent_mode,
+      'default_follow_reasoning',
+    )
+  },
+)

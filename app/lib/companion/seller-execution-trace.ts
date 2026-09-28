@@ -691,6 +691,10 @@ function classifySellerAction(
         'entendi',
         'claro',
         'combinado',
+        'otimo',
+        'ótimo',
+        'que otimo',
+        'que ótimo',
       ].map(normalizeText),
     ) &&
     wordCount(text) <= 14

@@ -14,8 +14,9 @@ import type {
   SellerExecutionTrace,
 } from './seller-execution-trace'
 
-import type {
-  SellerSequenceMethodAssessment,
+import {
+  SELLER_SEQUENCE_DEFAULT_STALE_WAIT_MS,
+  type SellerSequenceMethodAssessment,
 } from './seller-sequence-method-assessment'
 
 export const COMMERCIAL_TECHNIQUES_ENGINE_VERSION =
@@ -51,6 +52,7 @@ export type CommercialTechniqueContext = {
 
   sequence: {
     waiting_for_customer: boolean
+    stale_waiting_for_customer: boolean
     customer_fact_after_action: boolean
     last_action_type: string | null
   }
@@ -356,6 +358,26 @@ function buildDecision({
   ) {
     if (
       context.sequence
+        .stale_waiting_for_customer
+    ) {
+      return {
+        intelligence_id:
+          id,
+        status: 'blocked',
+        score:
+          ranked.score,
+        reasons: [
+          ...reasons,
+          'A espera já ultrapassou a janela operacional padrão; continuar aguardando passivamente deixa de ser o melhor próximo movimento.',
+        ],
+        unmet_requirements: [
+          'fresh_wait_required',
+        ],
+      }
+    }
+
+    if (
+      context.sequence
         .customer_fact_after_action
     ) {
       return {
@@ -448,7 +470,9 @@ function buildDecision({
       contains(
         context.situations,
         'duplicate_followup',
-      )
+      ) ||
+      context.sequence
+        .stale_waiting_for_customer
 
     if (!hasRecoverySignal) {
       return {
@@ -856,6 +880,40 @@ export function buildCommercialTechniqueContext({
     !sequence_method.sequence
       .customer_fact_after_action
 
+  const referenceTimestamp =
+    Date.parse(
+      diagnostic_input.reference_time,
+    )
+
+  const lastEventTimestamp =
+    lastEvent
+      ? Date.parse(
+          lastEvent.occurred_at,
+        )
+      : Number.NaN
+
+  const readingWaitAgeMs =
+    readingWaitsForCustomer &&
+    Number.isFinite(
+      referenceTimestamp,
+    ) &&
+    Number.isFinite(
+      lastEventTimestamp,
+    )
+      ? Math.max(
+          0,
+          referenceTimestamp -
+            lastEventTimestamp,
+        )
+      : null
+
+  const readingWaitIsStale =
+    readingWaitsForCustomer &&
+    typeof readingWaitAgeMs ===
+      'number' &&
+    readingWaitAgeMs >=
+      SELLER_SEQUENCE_DEFAULT_STALE_WAIT_MS
+
   return {
     contract_version:
       COMMERCIAL_TECHNIQUES_ENGINE_VERSION,
@@ -880,6 +938,10 @@ export function buildCommercialTechniqueContext({
         sequence_method.sequence
           .waiting_for_customer ||
         readingWaitsForCustomer,
+      stale_waiting_for_customer:
+        sequence_method.sequence
+          .stale_waiting_for_customer ||
+        readingWaitIsStale,
       customer_fact_after_action:
         sequence_method.sequence
           .customer_fact_after_action,
@@ -1005,20 +1067,6 @@ export function selectApplicableCommercialTechniques({
   ) {
     restrictions.push(
       'Não repetir uma escolha guiada que já foi apresentada enquanto a resposta ainda depende do cliente.',
-    )
-  }
-
-  if (
-    decisions.some(
-      decision =>
-        decision.unmet_requirements
-          .includes(
-            'no_new_customer_fact_after_action',
-          ),
-    )
-  ) {
-    restrictions.push(
-      'Não permanecer em espera quando o cliente trouxe fato novo que exige reavaliação.',
     )
   }
 

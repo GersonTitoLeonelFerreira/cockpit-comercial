@@ -102,6 +102,11 @@ test(
       sellerView,
       /Técnica recomendada/,
     )
+
+    assert.match(
+      sellerView,
+      /hasCoachingDiagnosis[\s\S]*\? ''[\s\S]*: renderOpportunityHeader/,
+    )
   },
 )
 
@@ -144,7 +149,11 @@ test(
         neutral: false,
         neutral_headline: null,
         neutral_description: null,
-        opportunity: null,
+        opportunity: {
+          status: 'presentation',
+          headline:
+            'LEGACY_AVANCANDO_APRESENTACAO_NAO_DEVE_APARECER',
+        },
         current_moment: {
           is_active_session: true,
         },
@@ -272,6 +281,11 @@ test(
     assert.doesNotMatch(
       html,
       /LEGACY_ACERTO_NAO_DEVE_APARECER|LEGACY_AJUSTE_NAO_DEVE_APARECER/,
+    )
+
+    assert.doesNotMatch(
+      html,
+      /LEGACY_AVANCANDO_APRESENTACAO_NAO_DEVE_APARECER/,
     )
 
     assert.doesNotMatch(

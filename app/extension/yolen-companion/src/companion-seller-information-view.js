@@ -1186,7 +1186,9 @@
       hasCoachingDiagnosis
         ? ''
         : renderStrengths(analysisViewModel.strengths),
-      renderOpportunityHeader(analysisViewModel.opportunity, analysisViewModel.current_moment),
+      hasCoachingDiagnosis
+        ? ''
+        : renderOpportunityHeader(analysisViewModel.opportunity, analysisViewModel.current_moment),
       renderMethod(
         analysisViewModel.seller_conduct?.method,
         analysisViewModel.coaching_diagnosis?.method_state,

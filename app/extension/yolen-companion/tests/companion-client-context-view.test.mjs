@@ -236,7 +236,7 @@ test(
 
     assert.match(
       html,
-      /Cliente aguardando você/,
+      /Última mensagem foi do cliente/,
     )
 
     assert.match(
@@ -261,7 +261,7 @@ test(
 
     assert.match(
       html,
-      /Aguardando resposta do cliente/,
+      /Última mensagem foi do vendedor/,
     )
   },
 )
@@ -287,7 +287,7 @@ test(
 
     assert.match(
       html,
-      /Sem pendência de resposta/,
+      /Sem pendência operacional/,
     )
   },
 )
@@ -762,6 +762,36 @@ test(
         null,
       ),
       null,
+    )
+  },
+)
+
+test(
+  'CLIENTE apresenta espera apenas como direção histórica e distingue status do CRM',
+  () => {
+    const html =
+      view.renderRelationshipCard(
+        buildContext(),
+      )
+
+    assert.match(
+      html,
+      /Última direção da conversa/,
+    )
+
+    assert.match(
+      html,
+      /Etapa no CRM/,
+    )
+
+    assert.doesNotMatch(
+      html,
+      />Situação</,
+    )
+
+    assert.doesNotMatch(
+      html,
+      />Etapa atual</,
     )
   },
 )

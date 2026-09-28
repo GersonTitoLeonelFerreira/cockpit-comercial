@@ -90,6 +90,95 @@ const CURRENT_INTERACTION_GAP_MS =
 const CURRENT_INTERACTION_LIMIT = 40
 const MAX_SELLER_INTENT_LENGTH = 1000
 
+function optionalName(
+  value: unknown,
+): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized =
+    value.replace(/\s+/g, ' ').trim()
+
+  return normalized || null
+}
+
+async function loadMessageParticipants({
+  admin,
+  companyId,
+  leadId,
+  sellerUserId,
+}: {
+  admin:
+    StatefulCopilotRealContextSupabaseClient
+  companyId: string
+  leadId: string
+  sellerUserId: string
+}) {
+  try {
+    const [
+      leadResult,
+      sellerResult,
+    ] = await Promise.all([
+      admin
+        .from('leads')
+        .select('name')
+        .eq(
+          'company_id',
+          companyId,
+        )
+        .eq(
+          'id',
+          leadId,
+        )
+        .maybeSingle(),
+
+      admin
+        .from('profiles')
+        .select('full_name')
+        .eq(
+          'id',
+          sellerUserId,
+        )
+        .maybeSingle(),
+    ])
+
+    return {
+      recipient_name:
+        leadResult.error
+          ? null
+          : optionalName(
+              (
+                leadResult.data as
+                  | {
+                      name?: unknown
+                    }
+                  | null
+              )?.name,
+            ),
+      seller_name:
+        sellerResult.error
+          ? null
+          : optionalName(
+              (
+                sellerResult.data as
+                  | {
+                      full_name?: unknown
+                    }
+                  | null
+              )?.full_name,
+            ),
+    }
+  } catch {
+    // Identity improves message safety, but a transient lookup failure must
+    // not create a second commercial authority or invent a name.
+    return {
+      recipient_name: null,
+      seller_name: null,
+    }
+  }
+}
+
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
 
@@ -587,6 +676,17 @@ export async function POST(request: Request) {
               : null,
         })
 
+      const participants =
+        await loadMessageParticipants({
+          admin,
+          companyId:
+            identity.company_id,
+          leadId:
+            identity.lead_id,
+          sellerUserId:
+            token.sub,
+        })
+
       const generation = await composeSellerMessage({
         workingSummary: workingSummary || null,
         currentInteraction,
@@ -596,6 +696,7 @@ export async function POST(request: Request) {
         messageStrategy:
           messageStrategy,
         roles: reasoningProjection.customer_roles,
+        participants,
         provider,
       })
 

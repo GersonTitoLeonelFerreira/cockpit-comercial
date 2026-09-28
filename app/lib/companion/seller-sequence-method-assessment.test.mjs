@@ -408,3 +408,52 @@ test(
     )
   },
 )
+
+test(
+  'espera antiga vira stale_waiting_for_customer sem apagar o fato de que o vendedor já pediu o compromisso',
+  () => {
+    const diagnosticInput =
+      inputFromCase('C03')
+
+    diagnosticInput.reference_time =
+      '2026-09-30T17:00:00-03:00'
+
+    const trace =
+      buildSellerExecutionTrace({
+        diagnostic_input:
+          diagnosticInput,
+      })
+
+    const result =
+      buildSellerSequenceMethodAssessment({
+        reading: reading(),
+        diagnostic_input:
+          diagnosticInput,
+        trace,
+      })
+
+    assert.equal(
+      result.sequence
+        .waiting_for_customer,
+      true,
+    )
+
+    assert.equal(
+      result.sequence
+        .stale_waiting_for_customer,
+      true,
+    )
+
+    assert.ok(
+      result.sequence
+        .waiting_duration_ms >=
+        48 * 60 * 60 * 1000,
+    )
+
+    assert.ok(
+      result.signals.includes(
+        'stale_waiting_for_customer',
+      ),
+    )
+  },
+)

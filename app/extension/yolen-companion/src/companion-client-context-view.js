@@ -7,13 +7,13 @@
 
   const WAITING_STATE_LABELS = {
     customer_waiting_for_seller:
-      'Cliente aguardando você',
+      'Última mensagem foi do cliente',
 
     seller_waiting_for_customer:
-      'Aguardando resposta do cliente',
+      'Última mensagem foi do vendedor',
 
     no_pending_response:
-      'Sem pendência de resposta',
+      'Sem pendência operacional',
 
     unknown:
       'Ainda sem dados suficientes',
@@ -256,7 +256,7 @@
     return (
       '<div class="yolen-client-relationship-row yolen-client-relationship-waiting" ' +
       `data-yolen-waiting-state="${escapeHtml(waiting?.state || 'unknown')}">` +
-      `<span class="yolen-client-relationship-label">Situação</span>` +
+      `<span class="yolen-client-relationship-label">Última direção da conversa</span>` +
       `<span class="yolen-client-relationship-value">${escapeHtml(label)}${
         duration ? ` · ${escapeHtml(duration)}` : ''
       }</span>` +
@@ -361,7 +361,7 @@
 
     return (
       '<div class="yolen-client-relationship-row yolen-client-identity-row">' +
-      '<span class="yolen-client-relationship-label">Etapa atual</span>' +
+      '<span class="yolen-client-relationship-label">Etapa no CRM</span>' +
       `<span class="yolen-client-relationship-value">${escapeHtml(
         LEAD_STATUS_LABELS[status] || status,
       )}</span>` +

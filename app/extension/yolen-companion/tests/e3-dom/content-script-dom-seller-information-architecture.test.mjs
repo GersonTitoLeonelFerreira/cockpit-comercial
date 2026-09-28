@@ -433,7 +433,7 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   assert.ok(clientPanel.querySelector('[data-yolen-client-communication="requests_data_or_numbers"]'))
   assert.ok(clientPanel.querySelector('[data-yolen-customer-gap-topic="impact"]'))
   assert.match(clientPanel.textContent, /Relacionamento e histórico/)
-  assert.match(clientPanel.textContent, /Cliente aguardando você/)
+  assert.match(clientPanel.textContent, /Última mensagem foi do cliente/)
   assert.match(clientPanel.textContent, /Risco alto/)
   assert.match(clientPanel.textContent, /Ver histórico/)
   assert.ok(clientPanel.querySelector('details.yolen-client-timeline'))
