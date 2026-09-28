@@ -571,21 +571,78 @@ type MessageAttempt = {
   failure: string | null
 }
 
+function normalizeNameToken(
+  value: string,
+): string {
+  return value
+    .normalize('NFD')
+    .replace(
+      /[\u0300-\u036f]/g,
+      '',
+    )
+    .toLowerCase()
+    .replace(
+      /[^a-z'-]/g,
+      '',
+    )
+}
+
+function addressedGreetingName(
+  message: string,
+): string | null {
+  const match =
+    message.match(
+      /^(?:oi|olá|ola)\s*,?\s+([A-ZÀ-Ý][\p{L}'-]{1,40})(?:[!,]|$)/u,
+    )
+
+  return match?.[1] ?? null
+}
+
 function validateMessage({
   message,
   summary,
   interaction,
   intent,
   reasoning,
+  recipientName,
 }: {
   message: string
   summary: string
   interaction: readonly SellerMessageCurrentInteraction[]
   intent: string
   reasoning: SellerMessageCanonicalReasoning | null
+  recipientName: string | null
 }): string | null {
   if (message.length > MAX_MESSAGE_LENGTH) {
     return 'A mensagem excedeu o tamanho permitido.'
+  }
+
+  const addressedName =
+    addressedGreetingName(
+      message,
+    )
+
+  if (addressedName) {
+    if (!recipientName) {
+      return 'A mensagem usou um nome de destinatário sem existir identidade canônica para esse nome.'
+    }
+
+    const expectedFirstName =
+      recipientName
+        .trim()
+        .split(/\s+/)[0] ??
+      ''
+
+    if (
+      normalizeNameToken(
+        addressedName,
+      ) !==
+      normalizeNameToken(
+        expectedFirstName,
+      )
+    ) {
+      return `A mensagem chamou o cliente de "${addressedName}", mas o destinatário canônico é "${recipientName}".`
+    }
   }
 
   const interactionText = interaction
@@ -671,6 +728,7 @@ async function runAttempt({
   reasoning,
   messageStrategy,
   roles,
+  recipientName,
   provider,
   correctionReason,
 }: {
@@ -681,6 +739,7 @@ async function runAttempt({
   reasoning: SellerMessageCanonicalReasoning | null
   messageStrategy: CommercialMessageStrategy | null
   roles: readonly SellerMessageCommercialRole[]
+  recipientName: string | null
   provider: StatefulCopilotProvider
   correctionReason?: string | null
 }): Promise<MessageAttempt> {
@@ -740,6 +799,9 @@ async function runAttempt({
         'Escreva como mensagem real de WhatsApp: natural, clara, humana e pronta para revisão do vendedor.',
         'Evite linguagem de robô, jargão de CRM, abstrações comerciais, listas longas e texto excessivamente formal.',
         'A saída precisa ser customer-facing: deve falar com o cliente, nunca com o vendedor nem com a Yolen.',
+        recipientName
+          ? `O nome canônico do destinatário atual é "${recipientName}". Se usar nome na saudação, use somente esse nome; nunca use nome extraído de mensagem outgoing do vendedor.`
+          : 'Não existe nome canônico seguro do destinatário neste contexto. Não invente nem copie para a saudação um nome visto em mensagem outgoing do vendedor.',
         'Entregue somente a mensagem, sem comentário adicional.',
         ...correction,
       ].join('\n'),
@@ -755,6 +817,8 @@ async function runAttempt({
           messageStrategy,
         customer_roles:
           describeRoles(roles),
+        recipient_name:
+          recipientName,
         published_method: {
           name: method.name,
           description: method.description,
@@ -818,6 +882,7 @@ async function runAttempt({
       interaction,
       intent,
       reasoning,
+      recipientName,
     })
 
     const strategyCritic =
@@ -902,6 +967,7 @@ async function reviewCustomerFacingMessage({
   reasoning,
   messageStrategy,
   roles,
+  recipientName,
   provider,
 }: {
   candidateMessage: string
@@ -911,6 +977,7 @@ async function reviewCustomerFacingMessage({
   reasoning: SellerMessageCanonicalReasoning | null
   messageStrategy: CommercialMessageStrategy | null
   roles: readonly SellerMessageCommercialRole[]
+  recipientName: string | null
   provider: StatefulCopilotProvider
 }): Promise<MessageAttempt> {
   const thirdParty = hasThirdPartyOpportunity(roles)
@@ -931,6 +998,9 @@ async function reviewCustomerFacingMessage({
         'A revisão deve preservar um único microcompromisso, no máximo uma pergunta principal, a técnica definida em message_strategy e o limite de pressão do contexto.',
         'Se a mensagem já estiver correta, devolva exatamente a mesma mensagem e issue_code="none".',
         'Nunca acrescente preço, percentual, data, horário, promessa ou fato não presente nas fontes.',
+        recipientName
+          ? `O nome canônico do destinatário é "${recipientName}". Qualquer saudação nominal diferente disso é role_inversion/context_conflict e deve ser corrigida.`
+          : 'Sem nome canônico do destinatário, remova qualquer saudação nominal que possa ter sido copiada do vendedor.',
         ...(thirdParty
           ? [
               'customer_roles indica uma oportunidade de terceiro: quem está nesta conversa é o intermediário, o prospect real está em related. A mensagem precisa falar com o intermediário e ajudá-lo a encaminhar o prospect, nunca tratar o intermediário como comprador direto.',
@@ -949,6 +1019,8 @@ async function reviewCustomerFacingMessage({
           messageStrategy,
         customer_roles:
           describeRoles(roles),
+        recipient_name:
+          recipientName,
       }),
       structured_output_format: CUSTOMER_FACING_REVIEW_FORMAT,
     })
@@ -981,6 +1053,7 @@ async function reviewCustomerFacingMessage({
       interaction,
       intent,
       reasoning,
+      recipientName,
     })
 
     const strategyCritic =
@@ -1039,6 +1112,7 @@ export async function composeSellerMessage({
   reasoning = null,
   messageStrategy = null,
   roles = [],
+  recipientName = null,
   provider,
 }: {
   workingSummary: string | null
@@ -1048,10 +1122,13 @@ export async function composeSellerMessage({
   reasoning?: SellerMessageCanonicalReasoning | null
   messageStrategy?: CommercialMessageStrategy | null
   roles?: readonly SellerMessageCommercialRole[]
+  recipientName?: string | null
   provider: StatefulCopilotProvider
 }): Promise<SellerMessageGenerationResult> {
   const summary = clean(workingSummary)
   const intent = clean(sellerIntent)
+  const canonicalRecipientName =
+    clean(recipientName) || null
   const interaction =
     normalizeCurrentInteraction(currentInteraction)
 
@@ -1081,6 +1158,8 @@ export async function composeSellerMessage({
     reasoning,
     messageStrategy,
     roles,
+    recipientName:
+      canonicalRecipientName,
     provider,
   })
 
@@ -1096,6 +1175,8 @@ export async function composeSellerMessage({
       reasoning,
       messageStrategy,
       roles,
+      recipientName:
+        canonicalRecipientName,
       provider,
       correctionReason:
         first.failure ||
@@ -1125,6 +1206,8 @@ export async function composeSellerMessage({
     reasoning,
     messageStrategy,
     roles,
+    recipientName:
+      canonicalRecipientName,
     provider,
   })
 
