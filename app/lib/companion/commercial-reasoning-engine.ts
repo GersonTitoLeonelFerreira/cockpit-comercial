@@ -463,6 +463,8 @@ function selectKnowledge(
             .product_id,
         why_relevant:
           summarizeRankingReason(item),
+        grounded_content:
+          item.entry.description,
       }),
     )
 }
@@ -545,15 +547,81 @@ function buildComparison(
   }
 }
 
-function inferObjectiveNow(
-  reading: CommercialReading,
-): string {
-  if (
-    reading.method.recovery_guidance
+function objectiveForTechnique(
+  technique:
+    CommercialReasoningTechnique | undefined,
+): string | null {
+  switch (
+    technique?.intelligence_id
   ) {
-    return reading.method
-      .recovery_guidance
-      .objective
+    case 'technique.contextual_reengagement':
+      return 'Retomar a intenção que o cliente já demonstrou com uma mensagem de continuidade; não repetir a pergunta que ficou sem resposta e buscar um microcompromisso simples para reabrir a conversa.'
+
+    case 'technique.guided_choice':
+      return 'Apresentar somente opções reais já disponíveis e pedir uma escolha simples entre elas.'
+
+    case 'technique.objection_diagnosis':
+      return 'Investigar a causa real da objeção antes de oferecer argumento, condição ou alternativa.'
+
+    case 'technique.third_party_handoff':
+      return 'Conduzir o próximo passo com o interlocutor sem atribuir a ele fatos ou decisões do prospect relacionado.'
+
+    case 'technique.discovery_before_prescription':
+      return 'Fazer a pergunta de descoberta que realmente muda a recomendação antes de apresentar solução ou condição.'
+
+    case 'technique.commitment_wait':
+      return 'Aguardar a resposta do cliente; não repetir a ação já executada sem fato novo.'
+
+    default:
+      return null
+  }
+}
+
+function inferObjectiveNow({
+  reading,
+  sequenceMethodAssessment,
+  selectedTechniques,
+}: {
+  reading: CommercialReading
+  sequenceMethodAssessment:
+    ReturnType<
+      typeof buildSellerSequenceMethodAssessment
+    >
+  selectedTechniques:
+    CommercialReasoningTechnique[]
+}): string {
+  const techniqueObjective =
+    objectiveForTechnique(
+      selectedTechniques[0],
+    )
+
+  if (techniqueObjective) {
+    return techniqueObjective
+  }
+
+  if (
+    sequenceMethodAssessment
+      .sequence.waiting_for_customer &&
+    !sequenceMethodAssessment
+      .sequence.customer_fact_after_action
+  ) {
+    return 'Aguardar a resposta do cliente e preservar o compromisso já solicitado, sem repetir a mesma ação.'
+  }
+
+  if (
+    sequenceMethodAssessment
+      .method.recovery_move
+  ) {
+    return sequenceMethodAssessment
+      .method.recovery_move
+  }
+
+  if (
+    sequenceMethodAssessment
+      .method.recovery_objective
+  ) {
+    return sequenceMethodAssessment
+      .method.recovery_objective
   }
 
   return reading.best_approach.reason
@@ -763,7 +831,11 @@ export function buildCommercialReasoning({
     objective_now:
       status === 'silent'
         ? 'Preservar o contexto sem forçar avanço comercial.'
-        : inferObjectiveNow(reading),
+        : inferObjectiveNow({
+            reading,
+            sequenceMethodAssessment,
+            selectedTechniques,
+          }),
 
     do_not_do:
       status === 'silent'
