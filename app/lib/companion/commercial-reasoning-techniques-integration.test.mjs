@@ -198,6 +198,8 @@ function state() {
 function input({
   turns,
   facts = [],
+  referenceTime =
+    '2026-09-27T17:30:00-03:00',
 } = {}) {
   return {
     input_version:
@@ -211,7 +213,7 @@ function input({
     current_crm_status:
       'respondeu',
     reference_time:
-      '2026-09-27T17:30:00-03:00',
+      referenceTime,
     analysis_precondition: {
       status: 'ready',
       limitations: [],
@@ -538,6 +540,69 @@ test(
             /não repetir a pergunta/i
               .test(item),
         ),
+    )
+  },
+)
+
+test(
+  'espera antiga deixa de ser commitment_wait e vira retomada contextual',
+  () => {
+    const result =
+      buildCommercialReasoning({
+        reading:
+          baseReading({
+            decision: 'wait',
+            currentState:
+              'Vendedor pediu o próximo compromisso e a conversa esfriou sem resposta.',
+            lastCustomer:
+              'Cliente quer agendar.',
+          }),
+        cycle_state:
+          state(),
+        diagnostic_input:
+          input({
+            referenceTime:
+              '2026-09-30T17:30:00-03:00',
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero agendar.',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Qual dia e horário fica melhor para você?',
+              },
+            ],
+          }),
+      })
+
+    assert.equal(
+      result.selected_techniques[0]
+        ?.intelligence_id,
+      'technique.contextual_reengagement',
+    )
+
+    assert.equal(
+      result.selected_techniques.some(
+        item =>
+          item.intelligence_id ===
+            'technique.commitment_wait',
+      ),
+      false,
+    )
+
+    assert.equal(
+      result.decision,
+      'follow_up',
+    )
+
+    assert.match(
+      result.objective_now,
+      /retomar.*intenção|continuidade/i,
     )
   },
 )
