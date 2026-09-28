@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
 
 import {
   buildSellerFacingReasoningProjection,
@@ -92,6 +93,30 @@ test(
     assert.equal(
       projection.next_best_action,
       'Preservar o estado atual.',
+    )
+  },
+)
+
+test(
+  'AGORA usa a ação projetada pelo especialista no card principal',
+  () => {
+    const loader =
+      readFileSync(
+        new URL(
+          './agora-decision-state-loader.ts',
+          import.meta.url,
+        ),
+        'utf8',
+      )
+
+    assert.match(
+      loader,
+      /const expertAction =[\s\S]*reasoning\.next_best_action/,
+    )
+
+    assert.match(
+      loader,
+      /action:[\s\S]*expertAction \|\|[\s\S]*viewModel\.primary\.action/,
     )
   },
 )
