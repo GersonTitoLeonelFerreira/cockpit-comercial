@@ -841,6 +841,13 @@ function prioritizeSelectedTechniques({
 
   if (
     techniqueContext.sequence
+      .stale_waiting_for_customer
+  ) {
+    push(
+      'technique.contextual_reengagement',
+    )
+  } else if (
+    techniqueContext.sequence
       .waiting_for_customer &&
     !techniqueContext.sequence
       .customer_fact_after_action
@@ -893,6 +900,9 @@ function prioritizeSelectedTechniques({
   if (
     signals.includes(
       'sequence_break',
+    ) ||
+    signals.includes(
+      'stale_waiting_for_customer',
     ) ||
     situations.includes(
       'duplicate_followup',
