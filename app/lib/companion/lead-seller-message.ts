@@ -722,6 +722,12 @@ async function runAttempt({
         'Quando o contexto trouxer fatos concretos e a intenção não for apenas agradecer, despedir ou encerrar, a mensagem deve usar naturalmente pelo menos um elemento concreto pertinente. Não devolva um texto que serviria para dezenas de clientes.',
         'commercial_reasoning, quando presente, já decidiu a situação atual, o objetivo agora, a técnica aplicável e o conhecimento de empresa relevante. Você NÃO pode redecidir nenhum desses pontos — apenas redigir a mensagem dentro deles.',
         'message_strategy é o plano determinístico de redação derivado do mesmo reasoning e do coaching. Quando presente, execute objective, relationship_bridge, context_reference, technique_id, desired_microcommitment e tone sem criar uma estratégia paralela.',
+        'A mensagem deve perseguir UM único microcompromisso principal. Evite empilhar perguntas; por padrão use no máximo uma pergunta clara.',
+        'A técnica selecionada precisa aparecer na CONDUÇÃO da mensagem, não no vocabulário. Nunca cite nome de técnica ao cliente.',
+        'Em retomada contextual, reconheça continuidade e reabra o objetivo já demonstrado; não reformule a mesma pergunta operacional que ficou sem resposta.',
+        'Em diagnóstico de objeção, faça uma pergunta curta para entender a causa antes de argumentar, conceder ou prescrever.',
+        'Quando houver conhecimento oficial relevante em facts_allowed/company_knowledge_used, conecte-o ao contexto do cliente em vez de listar benefícios genéricos.',
+        'Prefira mensagem curta e natural. Remova introduções, explicações e frases de disponibilidade que não aumentem a chance do microcompromisso desejado.',
         'message_strategy.prohibited_moves é limite duro: nunca faça nada listado ali.',
         'message_strategy.facts_allowed contém somente conhecimento de empresa já autorizado pelo reasoning. message_strategy.facts_required_but_missing descreve fatos que ainda NÃO estão disponíveis e nunca podem ser inventados.',
         'Nunca faça nada que apareça em commercial_reasoning.do_not_do.',
@@ -855,7 +861,22 @@ async function runAttempt({
                   'message_too_long',
                 )
               ? 'A mensagem excedeu o tamanho permitido pela estratégia.'
-              : 'A mensagem não passou pelo critic da estratégia comercial.'
+              : strategyCritic.violations
+                  .includes(
+                    'excessive_questions',
+                  )
+                ? 'A mensagem empilhou perguntas demais; reduza para um único microcompromisso claro.'
+                : strategyCritic.violations
+                    .includes(
+                      'pressure_risk',
+                    )
+                  ? 'A mensagem introduziu pressão ou urgência artificial.'
+                  : strategyCritic.violations
+                      .includes(
+                        'technique_mismatch',
+                      )
+                    ? 'A mensagem não executou a técnica comercial escolhida para este momento.'
+                    : 'A mensagem não passou pelo critic da estratégia comercial.'
 
     const failure =
       validationFailure ||
@@ -907,6 +928,7 @@ async function reviewCustomerFacingMessage({
         'Detecte canonical_contradiction: a mensagem contraria commercial_reasoning.current_situation, ignora commercial_reasoning.objective_now, faz algo listado em commercial_reasoning.do_not_do, contraria message_strategy.objective/context_reference, viola message_strategy.prohibited_moves ou usa algo de message_strategy.facts_required_but_missing como se fosse fato disponível; quando customer_roles indicar terceiro, também é contradição tratar o intermediário desta conversa como se ele fosse o prospect/comprador.',
         'Uma entrada de áudio ainda sem transcrição não autoriza inferir nenhum conteúdo.',
         'Se houver inversão de papel, intenção não executada, mensagem não customer-facing, conflito com o contexto ou contradição canônica, reescreva usando somente os fatos disponíveis e as decisões já tomadas por commercial_reasoning.',
+        'A revisão deve preservar um único microcompromisso, no máximo uma pergunta principal, a técnica definida em message_strategy e o limite de pressão do contexto.',
         'Se a mensagem já estiver correta, devolva exatamente a mesma mensagem e issue_code="none".',
         'Nunca acrescente preço, percentual, data, horário, promessa ou fato não presente nas fontes.',
         ...(thirdParty
