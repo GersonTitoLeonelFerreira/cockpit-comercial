@@ -22,6 +22,7 @@ function baseReading({
   currentState = 'Conversa comercial ativa.',
   lastCustomer = 'Cliente demonstrou interesse.',
   objections = [],
+  improvements = [],
 } = {}) {
   return {
     contract_version:
@@ -102,7 +103,8 @@ function baseReading({
         null,
     },
     seller_strengths: [],
-    improvement_points: [],
+    improvement_points:
+      improvements,
     risks: {
       customer_objections:
         objections.map(
@@ -700,6 +702,82 @@ test(
             item ===
               'technique_condition_unmet:technique.objection_diagnosis:do_not_repeat_objection_probe',
         ),
+    )
+  },
+)
+
+test(
+  'coaching positivo antigo não vaza para Evite agora como se fosse restrição atual',
+  () => {
+    const result =
+      buildCommercialReasoning({
+        reading:
+          baseReading({
+            currentState:
+              'Cliente queria agendar, mas a conversa perdeu continuidade.',
+            lastCustomer:
+              'Cliente quer agendar uma demonstração.',
+            improvements: [
+              {
+                kind:
+                  'unanswered_question',
+                summary:
+                  'Ainda falta disponibilidade.',
+                why_it_matters:
+                  'Sem disponibilidade o agendamento não conclui.',
+                impact:
+                  'O próximo passo segue aberto.',
+                how_to_improve:
+                  'Perguntar novamente qual dia e horário o cliente prefere.',
+                evidence_message_ids: [
+                  'm2',
+                ],
+                memory_ids: [],
+              },
+            ],
+          }),
+        cycle_state:
+          state(),
+        diagnostic_input:
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero agendar uma demonstração.',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Qual dia e horário fica melhor para você?',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Vou te mandar nossos pacotes e preços.',
+              },
+            ],
+          }),
+      })
+
+    assert.equal(
+      result.do_not_do.some(
+        item =>
+          /perguntar novamente qual dia e horário/i
+            .test(item),
+      ),
+      false,
+    )
+
+    assert.ok(
+      result.do_not_do.some(
+        item =>
+          /não abandonar o objetivo comercial ativo/i
+            .test(item),
+      ),
     )
   },
 )
