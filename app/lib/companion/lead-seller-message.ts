@@ -1313,6 +1313,38 @@ export async function composeSellerMessage({
       corrected.failure || first.failure
   }
 
+  if (
+    !candidate &&
+    messageStrategy
+      ?.required_action_type
+  ) {
+    const repaired =
+      await runAttempt({
+        summary,
+        interaction,
+        intent,
+        method,
+        reasoning,
+        messageStrategy,
+        roles,
+        recipientName:
+          canonicalRecipientName,
+        provider,
+        correctionReason:
+          strictStrategyCorrection(
+            messageStrategy,
+          ) ||
+          generationFailure ||
+          'A saída anterior não executou a estratégia canônica.',
+      })
+
+    candidate =
+      repaired.message
+    generationFailure =
+      repaired.failure ||
+      generationFailure
+  }
+
   if (!candidate) {
     return {
       status: 'error',
