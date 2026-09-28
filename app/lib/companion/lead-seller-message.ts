@@ -576,6 +576,54 @@ type MessageAttempt = {
   failure: string | null
 }
 
+function sellerIntentMode(
+  intent: string,
+): 'follow_strategy' | 'explicit_override' {
+  const normalized =
+    comparable(intent)
+
+  if (
+    normalized ===
+      'quero responder ao ponto principal desta conversa' ||
+    normalized ===
+      'responder ao ponto principal desta conversa'
+  ) {
+    return 'follow_strategy'
+  }
+
+  return 'explicit_override'
+}
+
+function strictStrategyCorrection(
+  strategy:
+    CommercialMessageStrategy | null,
+): string | null {
+  if (
+    !strategy?.required_action_type
+  ) {
+    return null
+  }
+
+  const pieces = [
+    `A saída anterior falhou. Gere uma nova mensagem cuja ação comercial seja obrigatoriamente "${strategy.required_action_type}".`,
+    strategy.desired_microcommitment
+      ? `O microcompromisso obrigatório é: ${strategy.desired_microcommitment}`
+      : null,
+    strategy.blocked_action_types
+      ?.length
+      ? `Não use estas ações já executadas/bloqueadas: ${strategy.blocked_action_types.join(', ')}.`
+      : null,
+    'Não reformule uma ação bloqueada com outras palavras.',
+  ]
+
+  return pieces
+    .filter(
+      (item): item is string =>
+        Boolean(item),
+    )
+    .join(' ')
+}
+
 function normalizeNameToken(
   value: string,
 ): string {
