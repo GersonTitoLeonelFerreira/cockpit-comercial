@@ -613,6 +613,11 @@ test(
           }),
       })
 
+    assert.equal(
+      strategy.required_action_type,
+      'reengagement',
+    )
+
     const repeated =
       evaluateCommercialMessageDraft({
         message:
