@@ -770,3 +770,158 @@ test(
     )
   },
 )
+
+test(
+  'live recovery remove elogio semântico da oferta e recomenda o primeiro bloqueio obrigatório do método',
+  () => {
+    const currentReading =
+      reading({
+        strengths: [
+          {
+            kind: 'clear_explanation',
+            summary:
+              'O vendedor apresentou uma oferta promocional detalhada com planos, preços e links para matrícula.',
+            why_it_matters:
+              'A apresentação facilitou o acesso às opções comerciais.',
+            evidence_message_ids: [
+              'm4',
+            ],
+            memory_ids: [],
+          },
+        ],
+        adherence:
+          'partially_on_method',
+      })
+
+    currentReading.method.stages = [
+      {
+        step_order: 1,
+        stage_key: 'discovery',
+        name: 'Descoberta',
+        status: 'partial',
+        explanation:
+          'A intenção está clara, mas a etapa ainda não foi concluída.',
+        evidence_message_ids: ['m3'],
+        memory_ids: [],
+      },
+      {
+        step_order: 2,
+        stage_key: 'tour',
+        name: 'Tour',
+        status: 'not_started',
+        explanation:
+          'Ainda não realizado.',
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+      {
+        step_order: 3,
+        stage_key: 'presentation',
+        name: 'Apresentação',
+        status: 'active',
+        explanation:
+          'Oferta apresentada antes da conclusão da etapa anterior.',
+        evidence_message_ids: ['m5'],
+        memory_ids: [],
+      },
+    ]
+    currentReading.method.current_stage = {
+      step_order: 3,
+      stage_key: 'presentation',
+      name: 'Apresentação',
+    }
+    currentReading.method.adherence.deviation_stage_order = 2
+    currentReading.method.recovery_guidance = null
+
+    const diagnosticInput =
+      input([
+        {
+          direction: 'incoming',
+          text:
+            'Podemos fazer uma aula experimental hoje?',
+        },
+        {
+          direction: 'outgoing',
+          text:
+            'Você já fez a aula experimental?',
+        },
+        {
+          direction: 'incoming',
+          text: 'Não fiz ainda.',
+        },
+        {
+          direction: 'outgoing',
+          text:
+            'Qual dia e horário fica melhor para você?',
+        },
+        {
+          direction: 'outgoing',
+          text:
+            'Vou te mandar nossos planos. O plano custa R$ 209,90.',
+        },
+      ])
+
+    diagnosticInput.commercial_context.sales_method.steps = [
+      {
+        step_order: 1,
+        name: 'Descoberta',
+        objective:
+          'Entender e concluir o próximo compromisso relevante.',
+        completion_criteria: [
+          'Próximo compromisso concluído ou claramente encaminhado.',
+        ],
+        recommended_questions: [],
+        is_required: true,
+      },
+      {
+        step_order: 2,
+        name: 'Tour',
+        objective:
+          'Apresentar a experiência quando aplicável.',
+        completion_criteria: [
+          'Tour realizado ou dispensado pelo contexto.',
+        ],
+        recommended_questions: [],
+        is_required: true,
+      },
+      {
+        step_order: 3,
+        name: 'Apresentação',
+        objective:
+          'Apresentar solução aderente.',
+        completion_criteria: [
+          'Solução apresentada.',
+        ],
+        recommended_questions: [],
+        is_required: true,
+      },
+    ]
+
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading: currentReading,
+        reasoning:
+          reasoning({
+            objective:
+              'Retomar o compromisso original do cliente.',
+          }),
+        diagnostic_input:
+          diagnosticInput,
+      })
+
+    assert.doesNotMatch(
+      diagnosis.seller_strength?.summary ?? '',
+      /oferta promocional|planos, preços|links para matrícula/i,
+    )
+
+    assert.equal(
+      diagnosis.method_state.recommended_stage_name,
+      'Descoberta',
+    )
+
+    assert.match(
+      diagnosis.method_state.recommended_stage_reason ?? '',
+      /etapa obrigatória Descoberta|Descoberta ainda não foi concluída/i,
+    )
+  },
+)

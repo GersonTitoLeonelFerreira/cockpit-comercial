@@ -233,6 +233,11 @@ const GROUNDED_CONCEPTS: GroundedConcept[] = [
     output: /\b(cancelar|cancelamento|cancelado)\w*/,
     evidence: /\b(cancelar|cancelamento|cancelado)\w*/,
   },
+  {
+    label: 'relação familiar ou terceiro específico',
+    output: /\b(marido|esposo|esposa|namorado|namorada|companheiro|companheira|irmao|irma|mae|pai|filho|filha|socio|socia)\b/,
+    evidence: /\b(marido|esposo|esposa|namorado|namorada|companheiro|companheira|irmao|irma|mae|pai|filho|filha|socio|socia)\b/,
+  },
 ]
 
 function clean(value: unknown): string | null {
@@ -571,6 +576,54 @@ type MessageAttempt = {
   failure: string | null
 }
 
+function sellerIntentMode(
+  intent: string,
+): 'follow_strategy' | 'explicit_override' {
+  const normalized =
+    comparable(intent)
+
+  if (
+    normalized ===
+      'quero responder ao ponto principal desta conversa' ||
+    normalized ===
+      'responder ao ponto principal desta conversa'
+  ) {
+    return 'follow_strategy'
+  }
+
+  return 'explicit_override'
+}
+
+function strictStrategyCorrection(
+  strategy:
+    CommercialMessageStrategy | null,
+): string | null {
+  if (
+    !strategy?.required_action_type
+  ) {
+    return null
+  }
+
+  const pieces = [
+    `A saída anterior falhou. Gere uma nova mensagem cuja ação comercial seja obrigatoriamente "${strategy.required_action_type}".`,
+    strategy.desired_microcommitment
+      ? `O microcompromisso obrigatório é: ${strategy.desired_microcommitment}`
+      : null,
+    strategy.blocked_action_types
+      ?.length
+      ? `Não use estas ações já executadas/bloqueadas: ${strategy.blocked_action_types.join(', ')}.`
+      : null,
+    'Não reformule uma ação bloqueada com outras palavras.',
+  ]
+
+  return pieces
+    .filter(
+      (item): item is string =>
+        Boolean(item),
+    )
+    .join(' ')
+}
+
 function normalizeNameToken(
   value: string,
 ): string {
@@ -592,10 +645,25 @@ function addressedGreetingName(
 ): string | null {
   const match =
     message.match(
-      /^(?:oi|olá|ola|bom dia|boa tarde|boa noite)\s*,?\s+([A-ZÀ-Ý][\p{L}'-]{1,40})(?:[!,]|$)/iu,
+      /^(?:oi|olá|ola|bom dia|boa tarde|boa noite)\s*,?\s+([\p{L}][\p{L}'-]*(?:\s+[\p{L}][\p{L}'-]*){0,3})(?:[!,]|$)/iu,
     )
 
-  return match?.[1] ?? null
+  return match?.[1]?.trim() ?? null
+}
+
+function formalToneAllowsFullName(
+  strategy:
+    CommercialMessageStrategy | null,
+): boolean {
+  const tone =
+    comparable(
+      strategy?.tone ?? '',
+    )
+
+  return /\b(formal|institucional|cerimonioso)\b/
+    .test(
+      tone,
+    )
 }
 
 function validateMessage({
@@ -604,6 +672,7 @@ function validateMessage({
   interaction,
   intent,
   reasoning,
+  messageStrategy,
   recipientName,
 }: {
   message: string
@@ -611,6 +680,8 @@ function validateMessage({
   interaction: readonly SellerMessageCurrentInteraction[]
   intent: string
   reasoning: SellerMessageCanonicalReasoning | null
+  messageStrategy:
+    CommercialMessageStrategy | null
   recipientName: string | null
 }): string | null {
   if (message.length > MAX_MESSAGE_LENGTH) {
@@ -633,15 +704,38 @@ function validateMessage({
         .split(/\s+/)[0] ??
       ''
 
-    if (
+    const addressedToken =
       normalizeNameToken(
         addressedName,
-      ) !==
+      )
+    const expectedFirstToken =
       normalizeNameToken(
         expectedFirstName,
       )
+    const expectedFullToken =
+      normalizeNameToken(
+        recipientName,
+      )
+
+    if (
+      addressedToken !==
+        expectedFirstToken &&
+      addressedToken !==
+        expectedFullToken
     ) {
       return `A mensagem chamou o cliente de "${addressedName}", mas o destinatário canônico é "${recipientName}".`
+    }
+
+    if (
+      addressedToken ===
+        expectedFullToken &&
+      addressedToken !==
+        expectedFirstToken &&
+      !formalToneAllowsFullName(
+        messageStrategy,
+      )
+    ) {
+      return `A saudação usou o nome completo "${addressedName}" sem necessidade de formalidade. Use apenas "${expectedFirstName}" para manter naturalidade no WhatsApp.`
     }
   }
 
@@ -757,6 +851,10 @@ async function runAttempt({
       ]
     : []
   const thirdParty = hasThirdPartyOpportunity(roles)
+  const intentMode =
+    sellerIntentMode(
+      intent,
+    )
 
   try {
     const response = await provider({
@@ -768,7 +866,8 @@ async function runAttempt({
         'seller_intent é uma instrução privada do vendedor sobre o que ELE quer comunicar. Nunca responda ao seller_intent como se o vendedor fosse o destinatário.',
         'Transforme a intenção do vendedor em uma fala pronta que o próprio vendedor poderia enviar diretamente ao cliente.',
         'Exemplo: seller_intent="Quero fazer uma pergunta para avançar com clareza." exige uma pergunta ao CLIENTE; é proibido responder "Pode mandar sua pergunta".',
-        'A intenção do vendedor é a ação principal a executar. Ela é soberana sobre a orientação da Yolen, que funciona como recomendação e contexto, não como ordem.',
+        'A intenção do vendedor é a ação principal a executar somente quando seller_intent_mode="explicit_override". Quando seller_intent_mode="follow_strategy", ela apenas autoriza executar o próximo passo canônico decidido por commercial_reasoning/message_strategy.',
+        'Se seller_intent_mode="follow_strategy", não volte ao ponto literal da conversa se isso repetir uma ação bloqueada ou contrariar a técnica selecionada.',
         'Use o resumo e a interação canônica atual como únicas fontes de fatos sobre o relacionamento e o cliente.',
         'Mensagens de current_interaction com direction="outgoing" já foram enviadas pelo vendedor. Não repita como nova mensagem uma pergunta, confirmação, explicação ou cobrança que acabou de ser enviada, salvo se houver nova resposta incoming que justifique a repetição.',
         'Uma entrada marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" é um áudio real cujo conteúdo é desconhecido: nunca invente ou presuma o que foi dito nele.',
@@ -780,8 +879,10 @@ async function runAttempt({
         'Não prometa que algo será feito se isso não estiver sustentado no contexto ou explicitamente solicitado pelo vendedor como sua própria ação.',
         'Quando o contexto trouxer fatos concretos e a intenção não for apenas agradecer, despedir ou encerrar, a mensagem deve usar naturalmente pelo menos um elemento concreto pertinente. Não devolva um texto que serviria para dezenas de clientes.',
         'commercial_reasoning, quando presente, já decidiu a situação atual, o objetivo agora, a técnica aplicável e o conhecimento de empresa relevante. Você NÃO pode redecidir nenhum desses pontos — apenas redigir a mensagem dentro deles.',
-        'message_strategy é o plano determinístico de redação derivado do mesmo reasoning e do coaching. Quando presente, execute objective, relationship_bridge, context_reference, technique_id, desired_microcommitment e tone sem criar uma estratégia paralela.',
+        'message_strategy é o plano determinístico de redação derivado do mesmo reasoning e do coaching. Quando presente, execute objective, relationship_bridge, context_reference, technique_id, desired_microcommitment, required_action_type e tone sem criar uma estratégia paralela.',
+        'Se message_strategy.required_action_type estiver preenchido, a mensagem PRECISA executar essa ação comercial e não outra.',
         'A mensagem deve perseguir UM único microcompromisso principal. Evite empilhar perguntas; por padrão use no máximo uma pergunta clara.',
+        'Não desperdice a única pergunta com uma saudação fática como "tudo bem?" quando o objetivo comercial exige uma resposta clara. A pergunta principal deve executar o microcompromisso comercial.',
         'A técnica selecionada precisa aparecer na CONDUÇÃO da mensagem, não no vocabulário. Nunca cite nome de técnica ao cliente.',
         'Em retomada contextual, reconheça continuidade e reabra o objetivo já demonstrado; não reformule a mesma pergunta operacional que ficou sem resposta.',
         'Em diagnóstico de objeção, faça uma pergunta curta para entender a causa antes de argumentar, conceder ou prescrever.',
@@ -800,13 +901,15 @@ async function runAttempt({
         'Evite linguagem de robô, jargão de CRM, abstrações comerciais, listas longas e texto excessivamente formal.',
         'A saída precisa ser customer-facing: deve falar com o cliente, nunca com o vendedor nem com a Yolen.',
         recipientName
-          ? `O nome canônico do destinatário atual é "${recipientName}". Se usar nome na saudação, use somente esse nome; nunca use nome extraído de mensagem outgoing do vendedor.`
+          ? `O nome canônico do destinatário atual é "${recipientName}". Em WhatsApp, use preferencialmente só o primeiro nome "${recipientName.trim().split(/\s+/)[0] ?? recipientName}" na saudação. Só use o nome completo se message_strategy.tone exigir tratamento formal. Nunca use nome extraído de mensagem outgoing do vendedor.`
           : 'Não existe nome canônico seguro do destinatário neste contexto. Não invente nem copie para a saudação um nome visto em mensagem outgoing do vendedor.',
         'Entregue somente a mensagem, sem comentário adicional.',
         ...correction,
       ].join('\n'),
       user_prompt: JSON.stringify({
         seller_intent: intent,
+        seller_intent_mode:
+          intentMode,
         working_summary: summary,
         current_interaction: interaction,
         context_specificity_anchors:
@@ -882,6 +985,7 @@ async function runAttempt({
       interaction,
       intent,
       reasoning,
+      messageStrategy,
       recipientName,
     })
 
@@ -941,7 +1045,17 @@ async function runAttempt({
                         'technique_mismatch',
                       )
                     ? 'A mensagem não executou a técnica comercial escolhida para este momento.'
-                    : 'A mensagem não passou pelo critic da estratégia comercial.'
+                    : strategyCritic.violations
+                        .includes(
+                          'generic_filler',
+                        )
+                      ? 'A mensagem usou fechamento genérico que não ajuda o cliente a tomar o próximo microcompromisso.'
+                      : strategyCritic.violations
+                          .includes(
+                            'weak_microcommitment',
+                          )
+                        ? 'A mensagem de retomada não formulou um microcompromisso comercial claro em forma de pergunta.'
+                        : 'A mensagem não passou pelo critic da estratégia comercial.'
 
     const failure =
       validationFailure ||
@@ -981,6 +1095,10 @@ async function reviewCustomerFacingMessage({
   provider: StatefulCopilotProvider
 }): Promise<MessageAttempt> {
   const thirdParty = hasThirdPartyOpportunity(roles)
+  const intentMode =
+    sellerIntentMode(
+      intent,
+    )
 
   try {
     const response = await provider({
@@ -990,16 +1108,20 @@ async function reviewCustomerFacingMessage({
         'Você é o gate final de papel comunicacional e comercial da Yolen.',
         'Revise uma mensagem que será enviada pelo vendedor diretamente ao cliente.',
         'seller_intent é uma instrução privada do vendedor. A mensagem final precisa EXECUTAR essa intenção como fala do vendedor PARA o cliente.',
+        'Se seller_intent_mode="follow_strategy", seller_intent apenas autoriza seguir commercial_reasoning/message_strategy; não use essa frase genérica para reconstruir uma ação antiga já bloqueada.',
+        'Se message_strategy.required_action_type estiver preenchido, preserve essa ação comercial na revisão.',
         'Detecte role_inversion: mensagem que responde ao vendedor, pede ao vendedor que faça algo ou trata o vendedor como destinatário.',
         'Detecte context_conflict: repetir uma pergunta, confirmação, explicação ou cobrança que já aparece como última ação outgoing sem nova resposta incoming que justifique a repetição.',
         'Detecte canonical_contradiction: a mensagem contraria commercial_reasoning.current_situation, ignora commercial_reasoning.objective_now, faz algo listado em commercial_reasoning.do_not_do, contraria message_strategy.objective/context_reference, viola message_strategy.prohibited_moves ou usa algo de message_strategy.facts_required_but_missing como se fosse fato disponível; quando customer_roles indicar terceiro, também é contradição tratar o intermediário desta conversa como se ele fosse o prospect/comprador.',
         'Uma entrada de áudio ainda sem transcrição não autoriza inferir nenhum conteúdo.',
         'Se houver inversão de papel, intenção não executada, mensagem não customer-facing, conflito com o contexto ou contradição canônica, reescreva usando somente os fatos disponíveis e as decisões já tomadas por commercial_reasoning.',
         'A revisão deve preservar um único microcompromisso, no máximo uma pergunta principal, a técnica definida em message_strategy e o limite de pressão do contexto.',
+        'Em retomada, a pergunta principal deve perguntar diretamente pelo microcompromisso comercial; "tudo bem?" não conta como avanço.',
+        'Remova frases vazias como "fico à disposição", "posso ajudar com o que for necessário" ou "para avançarmos" quando elas não acrescentarem uma ação concreta.',
         'Se a mensagem já estiver correta, devolva exatamente a mesma mensagem e issue_code="none".',
         'Nunca acrescente preço, percentual, data, horário, promessa ou fato não presente nas fontes.',
         recipientName
-          ? `O nome canônico do destinatário é "${recipientName}". Qualquer saudação nominal diferente disso é role_inversion/context_conflict e deve ser corrigida.`
+          ? `O nome canônico do destinatário é "${recipientName}". Em WhatsApp, prefira o primeiro nome "${recipientName.trim().split(/\s+/)[0] ?? recipientName}" salvo quando message_strategy.tone exigir formalidade; qualquer outro nome é role_inversion/context_conflict.`
           : 'Sem nome canônico do destinatário, remova qualquer saudação nominal que possa ter sido copiada do vendedor.',
         ...(thirdParty
           ? [
@@ -1010,6 +1132,8 @@ async function reviewCustomerFacingMessage({
       ].join('\n'),
       user_prompt: JSON.stringify({
         seller_intent: intent,
+        seller_intent_mode:
+          intentMode,
         candidate_message: candidateMessage,
         working_summary: summary,
         current_interaction: interaction,
@@ -1053,6 +1177,7 @@ async function reviewCustomerFacingMessage({
       interaction,
       intent,
       reasoning,
+      messageStrategy,
       recipientName,
     })
 
@@ -1186,6 +1311,38 @@ export async function composeSellerMessage({
     candidate = corrected.message
     generationFailure =
       corrected.failure || first.failure
+  }
+
+  if (
+    !candidate &&
+    messageStrategy
+      ?.required_action_type
+  ) {
+    const repaired =
+      await runAttempt({
+        summary,
+        interaction,
+        intent,
+        method,
+        reasoning,
+        messageStrategy,
+        roles,
+        recipientName:
+          canonicalRecipientName,
+        provider,
+        correctionReason:
+          strictStrategyCorrection(
+            messageStrategy,
+          ) ||
+          generationFailure ||
+          'A saída anterior não executou a estratégia canônica.',
+      })
+
+    candidate =
+      repaired.message
+    generationFailure =
+      repaired.failure ||
+      generationFailure
   }
 
   if (!candidate) {
