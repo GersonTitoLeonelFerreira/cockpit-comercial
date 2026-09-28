@@ -15,6 +15,11 @@ import type {
 export const SELLER_SEQUENCE_METHOD_ASSESSMENT_VERSION =
   'seller-sequence-method-assessment-v1' as const
 
+// Fallback business-agnostic. Company-specific cadence should override this
+// once a structured follow-up cadence is part of Commercial Context.
+const DEFAULT_STALE_WAIT_MS =
+  48 * 60 * 60 * 1000
+
 export type SellerSequenceMethodAssessment = {
   contract_version:
     typeof SELLER_SEQUENCE_METHOD_ASSESSMENT_VERSION
@@ -27,6 +32,8 @@ export type SellerSequenceMethodAssessment = {
     break_detected: boolean
     duplicate_action_detected: boolean
     waiting_for_customer: boolean
+    stale_waiting_for_customer: boolean
+    waiting_duration_ms: number | null
     customer_fact_after_action: boolean
     last_seller_message_id: string | null
   }
@@ -120,9 +127,10 @@ export function buildSellerSequenceMethodAssessment({
     )
 
   const duplicateAction =
-    hasSignal(
-      trace,
-      'duplicate_followup',
+    Boolean(
+      lastEvent?.signals.includes(
+        'duplicate_followup',
+      ),
     )
 
   const prematureOffer =
@@ -162,6 +170,40 @@ export function buildSellerSequenceMethodAssessment({
         lastEvent.observed_outcome,
       ),
     )
+
+  const referenceTimestamp =
+    Date.parse(
+      diagnostic_input.reference_time,
+    )
+
+  const lastEventTimestamp =
+    lastEvent
+      ? Date.parse(
+          lastEvent.occurred_at,
+        )
+      : Number.NaN
+
+  const waitingDurationMs =
+    waitingForCustomer &&
+    Number.isFinite(
+      referenceTimestamp,
+    ) &&
+    Number.isFinite(
+      lastEventTimestamp,
+    )
+      ? Math.max(
+          0,
+          referenceTimestamp -
+            lastEventTimestamp,
+        )
+      : null
+
+  const staleWaitingForCustomer =
+    waitingForCustomer &&
+    typeof waitingDurationMs ===
+      'number' &&
+    waitingDurationMs >=
+      DEFAULT_STALE_WAIT_MS
 
   if (
     hasOpenSchedulingQuestion ||
@@ -230,6 +272,20 @@ export function buildSellerSequenceMethodAssessment({
     restrictions.push(
       'Não repetir a pergunta ou o pedido de compromisso enquanto a próxima resposta ainda depende do cliente.',
     )
+
+    if (staleWaitingForCustomer) {
+      situations.push(
+        'stale_waiting_for_customer',
+      )
+
+      signals.push(
+        'stale_waiting_for_customer',
+      )
+
+      restrictions.push(
+        'Não transformar uma espera antiga em cobrança da mesma pergunta; se houver retomada, mude o microcompromisso.',
+      )
+    }
   }
 
   if (prematureOffer) {
@@ -404,6 +460,10 @@ export function buildSellerSequenceMethodAssessment({
         duplicateAction,
       waiting_for_customer:
         waitingForCustomer,
+      stale_waiting_for_customer:
+        staleWaitingForCustomer,
+      waiting_duration_ms:
+        waitingDurationMs,
       customer_fact_after_action:
         customerFactAfterAction,
       last_seller_message_id:
