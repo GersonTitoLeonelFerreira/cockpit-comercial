@@ -815,7 +815,7 @@ async function runAttempt({
         'Exemplo: seller_intent="Quero fazer uma pergunta para avançar com clareza." exige uma pergunta ao CLIENTE; é proibido responder "Pode mandar sua pergunta".',
         ...(intentMode === 'explicit_override'
           ? [
-              'A intenção explícita e específica do vendedor é a ação principal a executar. Ela pode contrariar a recomendação da Yolen, desde que não viole fatos, segurança ou grounding.',
+              'A intenção do vendedor é a ação principal a executar quando seller_intent_mode=explicit_override. Nesse modo, ela pode contrariar a recomendação da Yolen, desde que não viole fatos, segurança ou grounding.',
             ]
           : [
               'O seller_intent atual é apenas o preset genérico da interface. Ele NÃO é uma decisão comercial do vendedor e não pode substituir commercial_reasoning ou message_strategy. Neste modo, escreva a melhor próxima mensagem recomendada pelo especialista da Yolen.',
