@@ -291,7 +291,13 @@ test(
         neutral: false,
         neutral_headline: null,
         neutral_description: null,
-        opportunity: null,
+        opportunity: {
+          status: 'advancing',
+          headline:
+            'Avançando Apresentação',
+          stage_name:
+            'Apresentação',
+        },
         current_moment: {
           is_active_session: true,
         },
@@ -329,7 +335,7 @@ test(
             adherence: {
               status: 'off_method',
               summary:
-                'A sequência perdeu aderência.',
+                'O vendedor seguiu parcialmente o método ao apresentar planos e ofertas.',
               deviation_stage_order: 1,
               what_happened:
                 'A apresentação começou antes de concluir descoberta.',
@@ -414,6 +420,21 @@ test(
     assert.match(
       html,
       /Etapa observada[\s\S]*Apresentação[\s\S]*Parcialmente|Etapa observada[\s\S]*Apresentação/,
+    )
+
+    assert.doesNotMatch(
+      html,
+      /Avançando Apresentação/,
+    )
+
+    assert.doesNotMatch(
+      html,
+      /seguiu parcialmente o método ao apresentar planos e ofertas/i,
+    )
+
+    assert.match(
+      html,
+      /A execução chegou a Apresentação antes de concluir o que o método ainda exige em Descoberta/,
     )
   },
 )
