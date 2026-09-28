@@ -321,6 +321,15 @@ test(
       result.decision,
       'handle_objection',
     )
+    assert.equal(
+      result.selected_techniques[0]
+        ?.intelligence_id,
+      'technique.objection_diagnosis',
+    )
+    assert.match(
+      result.decision_reason,
+      /objeção|causa|problema errado/i,
+    )
     assert.ok(
       result.selected_techniques.some(
         technique =>
