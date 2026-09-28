@@ -592,7 +592,7 @@ function addressedGreetingName(
 ): string | null {
   const match =
     message.match(
-      /^(?:oi|olá|ola)\s*,?\s+([A-ZÀ-Ý][\p{L}'-]{1,40})(?:[!,]|$)/u,
+      /^(?:oi|olá|ola|bom dia|boa tarde|boa noite)\s*,?\s+([A-ZÀ-Ý][\p{L}'-]{1,40})(?:[!,]|$)/iu,
     )
 
   return match?.[1] ?? null
