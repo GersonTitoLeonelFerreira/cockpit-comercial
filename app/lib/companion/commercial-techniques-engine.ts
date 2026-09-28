@@ -468,6 +468,177 @@ function buildDecision({
 
   if (
     id ===
+      'technique.objection_isolation'
+  ) {
+    if (
+      !context.customer
+        .has_open_objection
+    ) {
+      return {
+        intelligence_id:
+          id,
+        status: 'conditional',
+        score:
+          ranked.score,
+        reasons,
+        unmet_requirements: [
+          'open_objection_required',
+        ],
+      }
+    }
+
+    if (
+      context.sequence
+        .last_action_type !==
+          'objection_probe'
+    ) {
+      return {
+        intelligence_id:
+          id,
+        status: 'conditional',
+        score:
+          ranked.score,
+        reasons: [
+          ...reasons,
+          'Primeiro é preciso entender a causa da objeção antes de isolar se ela é a principal trava.',
+        ],
+        unmet_requirements: [
+          'objection_diagnosis_first',
+        ],
+      }
+    }
+  }
+
+  if (
+    id ===
+      'technique.explicit_close_execution'
+  ) {
+    if (
+      context.customer
+        .active_intent
+        ?.kind !== 'close'
+    ) {
+      return {
+        intelligence_id:
+          id,
+        status: 'conditional',
+        score:
+          ranked.score,
+        reasons,
+        unmet_requirements: [
+          'explicit_close_intent_required',
+        ],
+      }
+    }
+  }
+
+  if (
+    id ===
+      'technique.decision_criteria_clarification' &&
+    !contains(
+      context.signals,
+      'missing_decision_criterion',
+    )
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'decision_criterion_gap_required',
+      ],
+    }
+  }
+
+  if (
+    id ===
+      'technique.impact_exploration' &&
+    !contains(
+      context.signals,
+      'missing_impact',
+    )
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'impact_gap_required',
+      ],
+    }
+  }
+
+  if (
+    id ===
+      'technique.evidence_based_reassurance' &&
+    !contains(
+      context.signals,
+      'uncertainty_open',
+    )
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'uncertainty_required',
+      ],
+    }
+  }
+
+  if (
+    id ===
+      'technique.comparison_by_criteria' &&
+    !contains(
+      context.signals,
+      'decision_criteria_known',
+    )
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'decision_criteria_required',
+      ],
+    }
+  }
+
+  if (
+    id ===
+      'technique.commitment_ladder' &&
+    !contains(
+      context.signals,
+      'customer_intent_hot',
+    )
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'active_customer_intent_required',
+      ],
+    }
+  }
+
+  if (
+    id ===
       'technique.discovery_before_prescription'
   ) {
     if (
