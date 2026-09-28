@@ -260,6 +260,78 @@ function buildSituationSignals({
   }
 
   if (
+    reading.customer.problems.length > 0 &&
+    reading.customer.impacts.length === 0
+  ) {
+    situations.push(
+      'impact_gap',
+    )
+    signals.push(
+      'problem_without_impact',
+      'missing_impact',
+    )
+  }
+
+  if (
+    reading.customer.primary_product_interest &&
+    reading.customer.decision_criteria.length === 0
+  ) {
+    situations.push(
+      'decision_criteria_gap',
+    )
+    signals.push(
+      'missing_decision_criterion',
+    )
+  }
+
+  if (
+    reading.customer.decision_criteria.length > 0
+  ) {
+    signals.push(
+      'decision_criteria_known',
+    )
+  }
+
+  if (
+    reading.customer.needs.length > 0 ||
+    reading.customer.objectives.length > 0
+  ) {
+    signals.push(
+      'need_known',
+    )
+  }
+
+  if (
+    reading.customer.primary_product_interest
+  ) {
+    signals.push(
+      'product_interest',
+    )
+  }
+
+  if (
+    reading.customer.competitors.length > 0
+  ) {
+    situations.push(
+      'comparison_context',
+    )
+    signals.push(
+      'customer_comparing_options',
+    )
+  }
+
+  if (
+    reading.customer.uncertainties.length > 0
+  ) {
+    situations.push(
+      'uncertainty_handling',
+    )
+    signals.push(
+      'uncertainty_open',
+    )
+  }
+
+  if (
     reading.method.configured &&
     reading.method.adherence.status !==
       'on_method'
@@ -377,6 +449,19 @@ function buildSituationSignals({
     )
   }
 
+  if (
+    reading.best_approach.decision === 'close' ||
+    reading.best_approach.decision ===
+      'ask_for_decision' ||
+    reading.best_approach.decision ===
+      'negotiate'
+  ) {
+    situations.push(
+      'close_execution',
+      'next_step_choice',
+    )
+  }
+
   return {
     situations:
       unique(situations),
@@ -398,6 +483,63 @@ function summarizeRankingReason(
   }
 
   return 'Compatível com o contexto comercial atual.'
+}
+
+function humanTechniqueReason(
+  id: string,
+): string {
+  switch (id) {
+    case 'technique.contextual_reengagement':
+      return 'O cliente já demonstrou intenção e a conversa perdeu continuidade; a melhor retomada preserva esse objetivo sem repetir a pergunta anterior.'
+
+    case 'technique.guided_choice':
+      return 'Há poucas alternativas reais disponíveis e uma escolha simples reduz esforço sem inventar opções.'
+
+    case 'technique.objection_diagnosis':
+      return 'Existe uma objeção, mas responder antes de entender a causa aumenta o risco de atacar o problema errado.'
+
+    case 'technique.objection_isolation':
+      return 'A objeção já está identificada; agora é importante confirmar se ela é realmente a principal trava antes de negociar ou conceder.'
+
+    case 'technique.discovery_before_prescription':
+      return 'Ainda falta uma informação que pode mudar a recomendação, por isso apresentar solução agora seria prematuro.'
+
+    case 'technique.decision_criteria_clarification':
+      return 'O cliente demonstra interesse, mas ainda não está claro quais critérios vão determinar a escolha.'
+
+    case 'technique.impact_exploration':
+      return 'O problema está visível, mas seu impacto ainda não foi conectado à decisão; entender essa consequência aumenta relevância sem criar pressão artificial.'
+
+    case 'technique.value_linkage':
+      return 'Já existe contexto suficiente para ligar uma capacidade real da solução ao que o cliente disse que valoriza.'
+
+    case 'technique.evidence_based_reassurance':
+      return 'A incerteza pode ser tratada com evidência oficial pertinente, sem prometer além do que a empresa realmente oferece.'
+
+    case 'technique.stakeholder_mapping':
+      return 'A decisão envolve mais de uma pessoa e o próximo passo precisa respeitar quem influencia, decide ou usa a solução.'
+
+    case 'technique.third_party_handoff':
+      return 'Quem conversa agora não é necessariamente quem compra ou usa; manter os papéis corretos evita conduzir a pessoa errada.'
+
+    case 'technique.commitment_ladder':
+      return 'O cliente já demonstrou intenção; pedir apenas o próximo compromisso proporcional ao estágio mantém ritmo sem forçar fechamento prematuro.'
+
+    case 'technique.explicit_close_execution':
+      return 'O cliente já sinalizou intenção explícita de avançar; reiniciar descoberta agora criaria atrito desnecessário.'
+
+    case 'technique.comparison_by_criteria':
+      return 'A comparação só ajuda quando usa os critérios que o próprio cliente considera importantes e fatos oficiais sobre as alternativas.'
+
+    case 'technique.commitment_wait':
+      return 'A próxima resposta está com o cliente; repetir a mesma ação sem fato novo adicionaria pressão, não informação.'
+
+    case 'principle.company_rules_before_claim':
+      return 'A orientação depende de condição, política ou capacidade específica; a resposta precisa permanecer dentro do conhecimento oficial da empresa.'
+
+    default:
+      return 'A técnica é compatível com o momento comercial atual e com os sinais observados na conversa.'
+  }
 }
 
 function selectTechniques(
@@ -422,7 +564,9 @@ function selectTechniques(
         scope:
           item.entry.scope,
         why_applicable:
-          summarizeRankingReason(item),
+          humanTechniqueReason(
+            item.entry.id,
+          ),
         risks: [
           ...item.entry.risks,
         ],
@@ -488,9 +632,9 @@ function buildDoNotDo(
       )
     }
 
-    restrictions.push(
-      ...item.entry.when_not_to_use,
-    )
+    // when_not_to_use descreve condições de aplicabilidade da biblioteca,
+    // não um fato atual da conversa. Só restrições comprovadas pelo
+    // Technique Engine/Sequence Assessment podem virar "Evite agora".
   }
 
   for (
@@ -556,6 +700,33 @@ function objectiveForTechnique(
   ) {
     case 'technique.contextual_reengagement':
       return 'Retomar a intenção que o cliente já demonstrou com uma mensagem de continuidade; não repetir a pergunta que ficou sem resposta e buscar um microcompromisso simples para reabrir a conversa.'
+
+    case 'technique.decision_criteria_clarification':
+      return 'Descobrir quais critérios realmente determinam a escolha antes de comparar ou recomendar alternativas.'
+
+    case 'technique.impact_exploration':
+      return 'Entender o impacto concreto do problema antes de conectar a solução ao valor.'
+
+    case 'technique.value_linkage':
+      return 'Conectar uma capacidade oficial da solução a uma necessidade, objetivo ou critério já comprovado do cliente.'
+
+    case 'technique.objection_isolation':
+      return 'Confirmar se a objeção atual é realmente a principal trava antes de negociar, conceder ou responder em profundidade.'
+
+    case 'technique.evidence_based_reassurance':
+      return 'Responder à incerteza com a evidência oficial mais pertinente, sem inventar promessa ou garantia.'
+
+    case 'technique.stakeholder_mapping':
+      return 'Mapear quem influencia, decide ou usa a solução e alinhar o próximo passo com o processo real de decisão.'
+
+    case 'technique.commitment_ladder':
+      return 'Converter a intenção atual no menor próximo compromisso útil que realmente move a negociação.'
+
+    case 'technique.explicit_close_execution':
+      return 'Executar o próximo passo operacional do fechamento sem reiniciar descoberta que já foi superada.'
+
+    case 'technique.comparison_by_criteria':
+      return 'Comparar alternativas pelos critérios declarados pelo cliente e pelos fatos oficiais disponíveis.'
 
     case 'technique.guided_choice':
       return 'Apresentar somente opções reais já disponíveis e pedir uma escolha simples entre elas.'
@@ -634,6 +805,45 @@ function buildCurrentSituation(
     .conversation_summary
     .current_state
     .summary
+}
+
+function buildDecisionReason({
+  reading,
+  sequenceMethodAssessment,
+  selectedTechniques,
+}: {
+  reading: CommercialReading
+  sequenceMethodAssessment:
+    ReturnType<
+      typeof buildSellerSequenceMethodAssessment
+    >
+  selectedTechniques:
+    CommercialReasoningTechnique[]
+}): string {
+  const technique =
+    selectedTechniques[0]
+
+  if (technique) {
+    return technique.why_applicable
+  }
+
+  if (
+    sequenceMethodAssessment
+      .sequence.break_detected
+  ) {
+    return 'A conversa saiu do objetivo que o cliente já havia demonstrado; o próximo movimento precisa recuperar continuidade antes de introduzir outra etapa.'
+  }
+
+  if (
+    sequenceMethodAssessment
+      .sequence.waiting_for_customer &&
+    !sequenceMethodAssessment
+      .sequence.customer_fact_after_action
+  ) {
+    return 'O vendedor já executou a ação necessária e ainda não surgiu fato novo do cliente; repetir a mesma solicitação agora adicionaria pressão sem melhorar a decisão.'
+  }
+
+  return reading.best_approach.reason
 }
 
 export function buildCommercialReasoning({
@@ -813,7 +1023,11 @@ export function buildCommercialReasoning({
   const decisionReason =
     status === 'silent'
       ? 'A sessão atual não autoriza intervenção comercial.'
-      : reading.best_approach.reason
+      : buildDecisionReason({
+          reading,
+          sequenceMethodAssessment,
+          selectedTechniques,
+        })
 
   return {
     contract_version:
