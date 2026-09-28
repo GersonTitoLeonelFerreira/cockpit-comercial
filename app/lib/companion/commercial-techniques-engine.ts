@@ -1034,20 +1034,6 @@ export function selectApplicableCommercialTechniques({
     )
   }
 
-  if (
-    decisions.some(
-      decision =>
-        decision.unmet_requirements
-          .includes(
-            'no_new_customer_fact_after_action',
-          ),
-    )
-  ) {
-    restrictions.push(
-      'Não permanecer em espera quando o cliente trouxe fato novo que exige reavaliação.',
-    )
-  }
-
   return {
     selected_ranked:
       selectedRanked,
