@@ -206,6 +206,47 @@ export const GENERAL_COMMERCIAL_INTELLIGENCE_LIBRARY:
   }),
 
   generalEntry({
+    id: 'technique.contextual_reengagement',
+    kind: 'technique',
+    title: 'Retomada contextual',
+    objective:
+      'Reabrir uma oportunidade que esfriou sem repetir a ação já executada nem reiniciar a venda.',
+    description:
+      'Retoma a intenção comprovada do cliente, reconhece a continuidade da conversa e busca um microcompromisso diferente da pergunta que já ficou sem resposta.',
+    situations: [
+      'method_alignment',
+      'duplicate_followup',
+      'next_step_choice',
+    ],
+    signals: [
+      'sequence_break',
+      'seller_already_asked_open_question',
+      'customer_intent_hot',
+      'seller_action_already_performed',
+    ],
+    when_to_use: [
+      'O cliente já demonstrou uma intenção comercial clara e a conversa perdeu continuidade antes de concluir o próximo passo.',
+      'O vendedor já fez a pergunta necessária e uma nova retomada precisa reduzir fricção em vez de repetir a mesma cobrança.',
+    ],
+    when_not_to_use: [
+      'O cliente trouxe um fato novo que exige resposta direta.',
+      'Ainda não existe intenção comercial sustentada por evidência.',
+    ],
+    risks: [
+      'Transformar a retomada em pressão disfarçada.',
+      'Reformular a mesma pergunta anterior sem mudar o microcompromisso.',
+    ],
+    examples: [
+      {
+        situation:
+          'O cliente pediu uma demonstração, o vendedor perguntou disponibilidade, houve silêncio e depois a conversa desviou para outra oferta.',
+        application:
+          'Retomar a intenção de demonstração e confirmar se ainda faz sentido avançar, sem perguntar novamente o mesmo dia/horário e sem inventar disponibilidade.',
+      },
+    ],
+  }),
+
+  generalEntry({
     id: 'technique.commitment_wait',
     kind: 'technique',
     title: 'Espera disciplinada',
@@ -517,6 +558,20 @@ export function buildCompanyCommercialIntelligence(
         description: [
           context.sales_method.description,
           ...context.sales_method.principles,
+          ...context.sales_method.steps.map(
+            step => [
+              `Etapa ${step.step_order}: ${step.name}.`,
+              `Objetivo: ${step.objective}.`,
+              step.completion_criteria.length > 0
+                ? `Critérios de conclusão: ${step.completion_criteria.join('; ')}.`
+                : null,
+              step.recommended_questions.length > 0
+                ? `Perguntas recomendadas: ${step.recommended_questions.join('; ')}.`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' '),
+          ),
         ]
           .filter(Boolean)
           .join(' | '),
@@ -721,11 +776,34 @@ export function buildCompanyCommercialIntelligence(
           objective:
             'Usar somente atributos, condições e limites publicados para este produto.',
           description: [
-            ...product.needs_addressed,
-            ...product.benefits,
-            ...product.verified_differentiators,
-            ...product.contract_conditions,
-            ...product.payment_conditions,
+            `Produto: ${name}.`,
+            product.category
+              ? `Categoria: ${product.category}.`
+              : null,
+            product.indicated_audiences.length > 0
+              ? `Indicado para: ${product.indicated_audiences.join('; ')}.`
+              : null,
+            product.needs_addressed.length > 0
+              ? `Necessidades atendidas: ${product.needs_addressed.join('; ')}.`
+              : null,
+            product.benefits.length > 0
+              ? `Benefícios publicados: ${product.benefits.join('; ')}.`
+              : null,
+            product.verified_differentiators.length > 0
+              ? `Diferenciais verificados: ${product.verified_differentiators.join('; ')}.`
+              : null,
+            product.contract_conditions.length > 0
+              ? `Condições contratuais: ${product.contract_conditions.join('; ')}.`
+              : null,
+            product.payment_conditions.length > 0
+              ? `Condições de pagamento: ${product.payment_conditions.join('; ')}.`
+              : null,
+            product.allowed_claims.length > 0
+              ? `Afirmações permitidas: ${product.allowed_claims.join('; ')}.`
+              : null,
+            product.limitations.length > 0
+              ? `Limitações: ${product.limitations.join('; ')}.`
+              : null,
           ]
             .filter(Boolean)
             .join(' | '),
