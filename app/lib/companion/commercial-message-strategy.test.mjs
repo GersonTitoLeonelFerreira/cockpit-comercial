@@ -706,3 +706,117 @@ test(
     )
   },
 )
+
+test(
+  'critic avançado limita perguntas, pressão e incompatibilidade com a técnica',
+  () => {
+    const strategy =
+      buildCommercialMessageStrategy({
+        reasoning:
+          reasoning({
+            selected_techniques: [
+              {
+                intelligence_id:
+                  'technique.contextual_reengagement',
+                title:
+                  'Retomada contextual',
+                kind: 'technique',
+                scope: 'general',
+                why_applicable:
+                  'A conversa perdeu continuidade.',
+                risks: [],
+              },
+            ],
+          }),
+        coaching:
+          coaching({
+            chosen_technique: {
+              id:
+                'technique.contextual_reengagement',
+              title:
+                'Retomada contextual',
+              why_now:
+                'A conversa perdeu continuidade.',
+              risks: [],
+            },
+          }),
+        diagnostic_input:
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero retomar a demonstração.',
+              },
+            ],
+          }),
+      })
+
+    assert.equal(
+      strategy.max_length,
+      420,
+    )
+
+    const manyQuestions =
+      evaluateCommercialMessageDraft({
+        message:
+          'Ainda faz sentido retomarmos sua demonstração? Você prefere hoje ou amanhã?',
+        strategy,
+      })
+
+    assert.ok(
+      manyQuestions.violations
+        .includes(
+          'excessive_questions',
+        ),
+    )
+
+    const pressure =
+      evaluateCommercialMessageDraft({
+        message:
+          'Última chance, só hoje você precisa aproveitar esta oferta.',
+        strategy: {
+          ...strategy,
+          technique_id: null,
+          context_reference: null,
+        },
+      })
+
+    assert.ok(
+      pressure.violations
+        .includes(
+          'pressure_risk',
+        ),
+    )
+
+    const mismatch =
+      evaluateCommercialMessageDraft({
+        message:
+          'Posso te explicar novamente como funciona?',
+        strategy,
+      })
+
+    assert.ok(
+      mismatch.violations
+        .includes(
+          'technique_mismatch',
+        ),
+    )
+
+    const aligned =
+      evaluateCommercialMessageDraft({
+        message:
+          'Ainda tem interesse em retomarmos sua demonstração?',
+        strategy,
+      })
+
+    assert.equal(
+      aligned.violations
+        .includes(
+          'technique_mismatch',
+        ),
+      false,
+    )
+  },
+)
