@@ -361,7 +361,7 @@
 
     return (
       '<div class="yolen-client-relationship-row yolen-client-identity-row">' +
-      '<span class="yolen-client-relationship-label">Etapa atual</span>' +
+      '<span class="yolen-client-relationship-label">Etapa no pipeline</span>' +
       `<span class="yolen-client-relationship-value">${escapeHtml(
         LEAD_STATUS_LABELS[status] || status,
       )}</span>` +
