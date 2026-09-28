@@ -695,3 +695,60 @@ test(
     )
   },
 )
+
+test(
+  'nome completo sem tom formal é regenerado para saudação natural de WhatsApp',
+  async () => {
+    const calls = []
+
+    const result =
+      await composeSellerMessage({
+        workingSummary:
+          'Lorena demonstrou interesse em uma aula experimental e a conversa ficou em aberto.',
+        currentInteraction: [
+          {
+            direction: 'incoming',
+            occurred_at:
+              '2026-09-10T14:29:00.000Z',
+            text:
+              'Não fiz ainda.',
+          },
+        ],
+        sellerIntent:
+          'Quero retomar a conversa sobre a aula experimental.',
+        recipientName:
+          'Lorena Galvão',
+        method,
+        provider:
+          createProvider(
+            [
+              {
+                message:
+                  'Olá, Lorena Galvão, tudo bem? Gostaria de saber se você ainda tem interesse em continuar com a aula experimental.',
+              },
+              {
+                message:
+                  'Oi, Lorena! Ainda faz sentido retomarmos sua aula experimental?',
+              },
+              reviewedSame(
+                'Oi, Lorena! Ainda faz sentido retomarmos sua aula experimental?',
+              ),
+            ],
+            calls,
+          ),
+      })
+
+    assert.equal(
+      result.status,
+      'ready',
+    )
+    assert.equal(
+      result.message,
+      'Oi, Lorena! Ainda faz sentido retomarmos sua aula experimental?',
+    )
+    assert.equal(
+      calls.length,
+      3,
+    )
+  },
+)
