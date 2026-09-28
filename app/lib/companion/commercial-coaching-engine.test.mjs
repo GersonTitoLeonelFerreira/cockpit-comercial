@@ -504,3 +504,140 @@ test(
     )
   },
 )
+
+test(
+  'live recovery não elogia a ação que causou a quebra e aponta a etapa de método a recuperar',
+  () => {
+    const currentReading =
+      reading({
+        strengths: [
+          {
+            kind: 'good_presentation',
+            summary:
+              'O vendedor apresentou uma oferta detalhada com preços e condições.',
+            why_it_matters:
+              'A oferta trouxe informações comerciais.',
+            evidence_message_ids: [
+              'm3',
+            ],
+            memory_ids: [],
+          },
+        ],
+        adherence:
+          'off_method',
+      })
+
+    currentReading.method.stages = [
+      {
+        step_order: 1,
+        stage_key:
+          'discovery',
+        name: 'Descoberta',
+        status: 'partial',
+        explanation:
+          'Ainda falta concluir o próximo compromisso ligado ao objetivo do cliente.',
+        evidence_message_ids: [
+          'm2',
+        ],
+        memory_ids: [],
+      },
+      {
+        step_order: 2,
+        stage_key:
+          'presentation',
+        name: 'Apresentação',
+        status: 'active',
+        explanation:
+          'A oferta foi apresentada antes de concluir a etapa anterior.',
+        evidence_message_ids: [
+          'm3',
+        ],
+        memory_ids: [],
+      },
+    ]
+    currentReading.method.current_stage = {
+      step_order: 2,
+      stage_key:
+        'presentation',
+      name: 'Apresentação',
+    }
+    currentReading.method.adherence.deviation_stage_order = 1
+    currentReading.method.adherence.why_it_matters =
+      'A etapa anterior ainda precisa ser concluída.'
+    currentReading.method.recovery_guidance = {
+      objective:
+        'Concluir o compromisso ligado ao objetivo original do cliente.',
+      missing_information: [],
+      recommended_move:
+        'Retomar o objetivo original antes de apresentar outra oferta.',
+      optional_question: null,
+      evidence_message_ids: [
+        'm2',
+        'm3',
+      ],
+      memory_ids: [],
+    }
+
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          currentReading,
+        reasoning:
+          reasoning({
+            objective:
+              'Retomar o objetivo original do cliente.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Quero agendar uma demonstração.',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Qual dia e horário fica melhor para você?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Vou te mandar nossos pacotes e preços.',
+            },
+          ]),
+      })
+
+    assert.doesNotMatch(
+      diagnosis.seller_strength
+        ?.summary ?? '',
+      /oferta detalhada|preços e condições/i,
+    )
+
+    assert.match(
+      diagnosis.seller_strength
+        ?.summary ?? '',
+      /compromisso de agenda/i,
+    )
+
+    assert.equal(
+      diagnosis.method_state
+        .current_stage_name,
+      'Apresentação',
+    )
+
+    assert.equal(
+      diagnosis.method_state
+        .recommended_stage_name,
+      'Descoberta',
+    )
+
+    assert.match(
+      diagnosis.method_state
+        .recommended_stage_reason ?? '',
+      /concluir o compromisso/i,
+    )
+  },
+)
