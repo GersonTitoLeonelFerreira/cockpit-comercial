@@ -765,3 +765,22 @@ test(
     )
   },
 )
+
+test(
+  'CLIENTE rotula etapa do CRM como pipeline e evita confundir com método comercial',
+  () => {
+    const html =
+      view.renderRelationshipCard(
+        buildContext(),
+      )
+
+    assert.match(
+      html,
+      /Etapa no pipeline/,
+    )
+    assert.doesNotMatch(
+      html,
+      />Etapa atual</,
+    )
+  },
+)

@@ -624,3 +624,74 @@ test('papel de terceiro é transmitido ao gerador e ao gate de revisão', async 
     ),
   )
 })
+
+test(
+  'nome canônico do destinatário impede usar o nome do vendedor na saudação',
+  async () => {
+    const calls = []
+
+    const result =
+      await composeSellerMessage({
+        workingSummary:
+          'Lorena demonstrou interesse em uma aula experimental. Mayara é a vendedora que conduz o atendimento.',
+        currentInteraction: [
+          {
+            direction:
+              'outgoing',
+            occurred_at:
+              '2026-09-10T16:14:00.000Z',
+            text:
+              'Olá, sou a Mayara e vou dar continuidade ao seu atendimento.',
+          },
+        ],
+        sellerIntent:
+          'Quero retomar a conversa sobre a aula experimental.',
+        recipientName:
+          'Lorena Galvão',
+        method,
+        provider:
+          createProvider(
+            [
+              {
+                message:
+                  'Oi, Mayara! Ainda faz sentido retomarmos sua aula experimental?',
+              },
+              {
+                message:
+                  'Oi, Lorena! Ainda faz sentido retomarmos sua aula experimental?',
+              },
+              reviewedSame(
+                'Oi, Lorena! Ainda faz sentido retomarmos sua aula experimental?',
+              ),
+            ],
+            calls,
+          ),
+      })
+
+    assert.equal(
+      result.status,
+      'ready',
+    )
+    assert.match(
+      result.message,
+      /^Oi, Lorena!/,
+    )
+    assert.doesNotMatch(
+      result.message,
+      /Oi, Mayara!/,
+    )
+    assert.equal(
+      calls.length,
+      3,
+    )
+
+    const firstPrompt =
+      JSON.parse(
+        calls[0].user_prompt,
+      )
+    assert.equal(
+      firstPrompt.recipient_name,
+      'Lorena Galvão',
+    )
+  },
+)

@@ -840,17 +840,6 @@ function prioritizeSelectedTechniques({
   }
 
   if (
-    techniqueContext.sequence
-      .waiting_for_customer &&
-    !techniqueContext.sequence
-      .customer_fact_after_action
-  ) {
-    push(
-      'technique.commitment_wait',
-    )
-  }
-
-  if (
     techniqueContext.customer
       .has_open_objection
   ) {
@@ -900,6 +889,17 @@ function prioritizeSelectedTechniques({
   ) {
     push(
       'technique.contextual_reengagement',
+    )
+  }
+
+  if (
+    techniqueContext.sequence
+      .waiting_for_customer &&
+    !techniqueContext.sequence
+      .customer_fact_after_action
+  ) {
+    push(
+      'technique.commitment_wait',
     )
   }
 

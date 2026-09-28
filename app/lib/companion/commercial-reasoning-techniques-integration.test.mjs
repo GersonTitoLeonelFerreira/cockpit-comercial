@@ -368,6 +368,18 @@ test(
         ),
     )
 
+    assert.equal(
+      result.selected_techniques[0]
+        ?.intelligence_id,
+      'technique.contextual_reengagement',
+    )
+
+    assert.notEqual(
+      result.selected_techniques[0]
+        ?.intelligence_id,
+      'technique.commitment_wait',
+    )
+
     assert.match(
       result.objective_now,
       /retomar.*intenção|continuidade/i,

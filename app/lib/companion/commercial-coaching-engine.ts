@@ -533,6 +533,7 @@ function evidenceOverlaps(
 
 function recommendedMethodStage(
   reading: CommercialReading,
+  sequenceBreakDetected: boolean,
 ): {
   name: string | null
   reason: string | null
@@ -567,6 +568,44 @@ function recommendedMethodStage(
           reading.method.adherence
             .why_it_matters ??
           'Retomar a etapa em que a sequência perdeu aderência antes de avançar novamente.',
+      }
+    }
+  }
+
+  if (
+    sequenceBreakDetected &&
+    reading.method.current_stage
+  ) {
+    const earlierIncompleteStage =
+      [...reading.method.stages]
+        .filter(
+          stage =>
+            stage.step_order <
+              reading.method
+                .current_stage!
+                .step_order &&
+            (
+              stage.status ===
+                'partial' ||
+              stage.status ===
+                'not_started'
+            ),
+        )
+        .sort(
+          (left, right) =>
+            right.step_order -
+            left.step_order,
+        )[0]
+
+    if (earlierIncompleteStage) {
+      return {
+        name:
+          earlierIncompleteStage.name,
+        reason:
+          reading.method
+            .recovery_guidance
+            ?.objective ??
+          `A execução avançou para ${reading.method.current_stage.name} antes de concluir ${earlierIncompleteStage.name}.`,
       }
     }
   }
@@ -687,13 +726,26 @@ export function buildCommercialCoachingDiagnosis({
 
   const readingStrengthConflicts =
     Boolean(
-      deterministicMistake &&
       readingStrength &&
-      evidenceOverlaps(
-        readingStrength
-          .evidence_message_ids,
-        deterministicMistake
-          .evidence_message_ids,
+      (
+        (
+          deterministicMistake &&
+          evidenceOverlaps(
+            readingStrength
+              .evidence_message_ids,
+            deterministicMistake
+              .evidence_message_ids,
+          )
+        ) ||
+        (
+          breakEvent &&
+          evidenceOverlaps(
+            readingStrength
+              .evidence_message_ids,
+            breakEvent
+              .evidence_message_ids,
+          )
+        )
       ),
     )
 
@@ -706,6 +758,8 @@ export function buildCommercialCoachingDiagnosis({
   const methodRecommendation =
     recommendedMethodStage(
       reading,
+      sequenceMethod.sequence
+        .break_detected,
     )
 
   const selectedTechnique =

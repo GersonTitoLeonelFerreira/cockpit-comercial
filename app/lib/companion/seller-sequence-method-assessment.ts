@@ -148,7 +148,10 @@ export function buildSellerSequenceMethodAssessment({
       lastEvent &&
       lastEvent.target_commitment &&
       lastEvent.observed_outcome ===
-        'no_outcome_observed',
+        'no_outcome_observed' &&
+      !lastEvent.sequence
+        .breaks_active_customer_goal &&
+      !sequenceBreak,
     )
 
   const customerFactAfterAction =
