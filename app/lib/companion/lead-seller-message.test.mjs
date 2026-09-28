@@ -752,3 +752,60 @@ test(
     )
   },
 )
+
+test(
+  'não inventa marido ou relação familiar ausente do contexto canônico',
+  async () => {
+    const calls = []
+
+    const result =
+      await composeSellerMessage({
+        workingSummary:
+          'Lorena demonstrou interesse em uma aula experimental e a conversa ficou em aberto.',
+        currentInteraction: [
+          {
+            direction: 'incoming',
+            occurred_at:
+              '2026-09-10T14:29:00.000Z',
+            text:
+              'Não fiz ainda.',
+          },
+        ],
+        sellerIntent:
+          'Quero retomar a conversa sobre a aula experimental.',
+        recipientName:
+          'Lorena Galvão',
+        method,
+        provider:
+          createProvider(
+            [
+              {
+                message:
+                  'Oi, Lorena! Você e seu marido ainda querem fazer a aula experimental?',
+              },
+              {
+                message:
+                  'Oi, Lorena! Ainda faz sentido retomarmos sua aula experimental?',
+              },
+              reviewedSame(
+                'Oi, Lorena! Ainda faz sentido retomarmos sua aula experimental?',
+              ),
+            ],
+            calls,
+          ),
+      })
+
+    assert.equal(
+      result.status,
+      'ready',
+    )
+    assert.doesNotMatch(
+      result.message,
+      /marido/i,
+    )
+    assert.equal(
+      calls.length,
+      3,
+    )
+  },
+)
