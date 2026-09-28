@@ -17,7 +17,7 @@ export const SELLER_SEQUENCE_METHOD_ASSESSMENT_VERSION =
 
 // Fallback business-agnostic. Company-specific cadence should override this
 // once a structured follow-up cadence is part of Commercial Context.
-const DEFAULT_STALE_WAIT_MS =
+export const SELLER_SEQUENCE_DEFAULT_STALE_WAIT_MS =
   48 * 60 * 60 * 1000
 
 export type SellerSequenceMethodAssessment = {
@@ -203,7 +203,7 @@ export function buildSellerSequenceMethodAssessment({
     typeof waitingDurationMs ===
       'number' &&
     waitingDurationMs >=
-      DEFAULT_STALE_WAIT_MS
+      SELLER_SEQUENCE_DEFAULT_STALE_WAIT_MS
 
   if (
     hasOpenSchedulingQuestion ||
