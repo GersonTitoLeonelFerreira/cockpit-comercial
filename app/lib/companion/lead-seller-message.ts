@@ -851,6 +851,10 @@ async function runAttempt({
       ]
     : []
   const thirdParty = hasThirdPartyOpportunity(roles)
+  const intentMode =
+    sellerIntentMode(
+      intent,
+    )
 
   try {
     const response = await provider({
@@ -862,7 +866,8 @@ async function runAttempt({
         'seller_intent é uma instrução privada do vendedor sobre o que ELE quer comunicar. Nunca responda ao seller_intent como se o vendedor fosse o destinatário.',
         'Transforme a intenção do vendedor em uma fala pronta que o próprio vendedor poderia enviar diretamente ao cliente.',
         'Exemplo: seller_intent="Quero fazer uma pergunta para avançar com clareza." exige uma pergunta ao CLIENTE; é proibido responder "Pode mandar sua pergunta".',
-        'A intenção do vendedor é a ação principal a executar. Ela é soberana sobre a orientação da Yolen, que funciona como recomendação e contexto, não como ordem.',
+        'A intenção do vendedor é a ação principal a executar somente quando seller_intent_mode="explicit_override". Quando seller_intent_mode="follow_strategy", ela apenas autoriza executar o próximo passo canônico decidido por commercial_reasoning/message_strategy.',
+        'Se seller_intent_mode="follow_strategy", não volte ao ponto literal da conversa se isso repetir uma ação bloqueada ou contrariar a técnica selecionada.',
         'Use o resumo e a interação canônica atual como únicas fontes de fatos sobre o relacionamento e o cliente.',
         'Mensagens de current_interaction com direction="outgoing" já foram enviadas pelo vendedor. Não repita como nova mensagem uma pergunta, confirmação, explicação ou cobrança que acabou de ser enviada, salvo se houver nova resposta incoming que justifique a repetição.',
         'Uma entrada marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" é um áudio real cujo conteúdo é desconhecido: nunca invente ou presuma o que foi dito nele.',
@@ -874,7 +879,8 @@ async function runAttempt({
         'Não prometa que algo será feito se isso não estiver sustentado no contexto ou explicitamente solicitado pelo vendedor como sua própria ação.',
         'Quando o contexto trouxer fatos concretos e a intenção não for apenas agradecer, despedir ou encerrar, a mensagem deve usar naturalmente pelo menos um elemento concreto pertinente. Não devolva um texto que serviria para dezenas de clientes.',
         'commercial_reasoning, quando presente, já decidiu a situação atual, o objetivo agora, a técnica aplicável e o conhecimento de empresa relevante. Você NÃO pode redecidir nenhum desses pontos — apenas redigir a mensagem dentro deles.',
-        'message_strategy é o plano determinístico de redação derivado do mesmo reasoning e do coaching. Quando presente, execute objective, relationship_bridge, context_reference, technique_id, desired_microcommitment e tone sem criar uma estratégia paralela.',
+        'message_strategy é o plano determinístico de redação derivado do mesmo reasoning e do coaching. Quando presente, execute objective, relationship_bridge, context_reference, technique_id, desired_microcommitment, required_action_type e tone sem criar uma estratégia paralela.',
+        'Se message_strategy.required_action_type estiver preenchido, a mensagem PRECISA executar essa ação comercial e não outra.',
         'A mensagem deve perseguir UM único microcompromisso principal. Evite empilhar perguntas; por padrão use no máximo uma pergunta clara.',
         'Não desperdice a única pergunta com uma saudação fática como "tudo bem?" quando o objetivo comercial exige uma resposta clara. A pergunta principal deve executar o microcompromisso comercial.',
         'A técnica selecionada precisa aparecer na CONDUÇÃO da mensagem, não no vocabulário. Nunca cite nome de técnica ao cliente.',
@@ -902,6 +908,8 @@ async function runAttempt({
       ].join('\n'),
       user_prompt: JSON.stringify({
         seller_intent: intent,
+        seller_intent_mode:
+          intentMode,
         working_summary: summary,
         current_interaction: interaction,
         context_specificity_anchors:
