@@ -460,6 +460,9 @@ function buildSituationSignals({
       'close_execution',
       'next_step_choice',
     )
+    signals.push(
+      'explicit_close_intent',
+    )
   }
 
   return {
