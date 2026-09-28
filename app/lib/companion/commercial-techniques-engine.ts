@@ -51,6 +51,7 @@ export type CommercialTechniqueContext = {
 
   sequence: {
     waiting_for_customer: boolean
+    stale_waiting_for_customer: boolean
     customer_fact_after_action: boolean
     last_action_type: string | null
   }
@@ -356,6 +357,26 @@ function buildDecision({
   ) {
     if (
       context.sequence
+        .stale_waiting_for_customer
+    ) {
+      return {
+        intelligence_id:
+          id,
+        status: 'blocked',
+        score:
+          ranked.score,
+        reasons: [
+          ...reasons,
+          'A espera já ultrapassou a janela operacional padrão; continuar aguardando passivamente deixa de ser o melhor próximo movimento.',
+        ],
+        unmet_requirements: [
+          'fresh_wait_required',
+        ],
+      }
+    }
+
+    if (
+      context.sequence
         .customer_fact_after_action
     ) {
       return {
@@ -448,7 +469,9 @@ function buildDecision({
       contains(
         context.situations,
         'duplicate_followup',
-      )
+      ) ||
+      context.sequence
+        .stale_waiting_for_customer
 
     if (!hasRecoverySignal) {
       return {
@@ -880,6 +903,9 @@ export function buildCommercialTechniqueContext({
         sequence_method.sequence
           .waiting_for_customer ||
         readingWaitsForCustomer,
+      stale_waiting_for_customer:
+        sequence_method.sequence
+          .stale_waiting_for_customer,
       customer_fact_after_action:
         sequence_method.sequence
           .customer_fact_after_action,
