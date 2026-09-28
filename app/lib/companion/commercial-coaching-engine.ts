@@ -531,8 +531,118 @@ function evidenceOverlaps(
   )
 }
 
+function normalizedCoachingText(
+  value: string,
+): string {
+  return value
+    .normalize('NFD')
+    .replace(
+      /[\u0300-\u036f]/g,
+      '',
+    )
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]+/g,
+      ' ',
+    )
+    .replace(
+      /\s+/g,
+      ' ',
+    )
+    .trim()
+}
+
+function strengthSemanticallyConflicts({
+  strength,
+  deterministicMistake,
+  breakEvent,
+}: {
+  strength:
+    CommercialReadingSellerStrength | undefined
+  deterministicMistake:
+    CommercialCoachingEvidence | null
+  breakEvent:
+    SellerExecutionEvent | null
+}): boolean {
+  if (!strength) {
+    return false
+  }
+
+  if (
+    deterministicMistake &&
+    evidenceOverlaps(
+      strength.evidence_message_ids,
+      deterministicMistake
+        .evidence_message_ids,
+    )
+  ) {
+    return true
+  }
+
+  if (
+    breakEvent &&
+    evidenceOverlaps(
+      strength.evidence_message_ids,
+      breakEvent
+        .evidence_message_ids,
+    )
+  ) {
+    return true
+  }
+
+  const praiseText =
+    normalizedCoachingText(
+      `${strength.summary} ${strength.why_it_matters}`,
+    )
+
+  const praisesPresentation =
+    /\b(oferta|ofertas|plano|planos|preco|precos|promocao|promocional|produto|produtos|link|links|apresentacao|apresentou|proposta|propostas)\b/
+      .test(
+        praiseText,
+      )
+
+  const breakWasPresentation =
+    Boolean(
+      breakEvent &&
+      [
+        'stage_jump_unrelated_offer',
+        'product_presentation',
+        'price_presentation',
+      ].includes(
+        breakEvent.action_type,
+      ),
+    )
+
+  const deterministicMistakeText =
+    deterministicMistake
+      ? normalizedCoachingText(
+          `${deterministicMistake.summary} ${deterministicMistake.why_it_matters}`,
+        )
+      : ''
+
+  const mistakeWasPrematurePresentation =
+    /\b(produto|solucao|preco|oferta|apresentacao)\b/
+      .test(
+        deterministicMistakeText,
+      ) &&
+    /\b(antes|prematur|saiu do objetivo|quebra|sequencia)\b/
+      .test(
+        deterministicMistakeText,
+      )
+
+  return (
+    praisesPresentation &&
+    (
+      breakWasPresentation ||
+      mistakeWasPrematurePresentation
+    )
+  )
+}
+
 function recommendedMethodStage(
   reading: CommercialReading,
+  diagnosticInput:
+    CompanionDiagnosticInput,
   sequenceBreakDetected: boolean,
 ): {
   name: string | null
@@ -576,7 +686,26 @@ function recommendedMethodStage(
     sequenceBreakDetected &&
     reading.method.current_stage
   ) {
-    const earlierIncompleteStage =
+    const methodSteps =
+      diagnosticInput
+        .commercial_context
+        .sales_method
+        .steps
+
+    const requiredOrders =
+      new Set(
+        methodSteps
+          .filter(
+            step =>
+              step.is_required,
+          )
+          .map(
+            step =>
+              step.step_order,
+          ),
+      )
+
+    const earlierIncomplete =
       [...reading.method.stages]
         .filter(
           stage =>
@@ -591,13 +720,67 @@ function recommendedMethodStage(
                 'not_started'
             ),
         )
+
+    const requiredBlocker =
+      earlierIncomplete
+        .filter(
+          stage =>
+            requiredOrders.has(
+              stage.step_order,
+            ),
+        )
+        .sort(
+          (left, right) => {
+            const leftPriority =
+              left.status ===
+                'partial'
+                ? 0
+                : 1
+            const rightPriority =
+              right.status ===
+                'partial'
+                ? 0
+                : 1
+
+            return (
+              leftPriority -
+                rightPriority ||
+              left.step_order -
+                right.step_order
+            )
+          },
+        )[0]
+
+    const evidenceBackedBlocker =
+      earlierIncomplete
+        .filter(
+          stage =>
+            stage.status ===
+              'partial',
+        )
         .sort(
           (left, right) =>
-            right.step_order -
-            left.step_order,
+            left.step_order -
+            right.step_order,
+        )[0]
+
+    const earlierIncompleteStage =
+      requiredBlocker ??
+      evidenceBackedBlocker ??
+      earlierIncomplete
+        .sort(
+          (left, right) =>
+            left.step_order -
+            right.step_order,
         )[0]
 
     if (earlierIncompleteStage) {
+      const isRequired =
+        requiredOrders.has(
+          earlierIncompleteStage
+            .step_order,
+        )
+
       return {
         name:
           earlierIncompleteStage.name,
@@ -605,7 +788,11 @@ function recommendedMethodStage(
           reading.method
             .recovery_guidance
             ?.objective ??
-          `A execução avançou para ${reading.method.current_stage.name} antes de concluir ${earlierIncompleteStage.name}.`,
+          (
+            isRequired
+              ? `A etapa obrigatória ${earlierIncompleteStage.name} ainda não foi concluída; avançar em ${reading.method.current_stage.name} sem resolver esse bloqueio enfraquece o método.`
+              : `A execução avançou para ${reading.method.current_stage.name} enquanto ${earlierIncompleteStage.name} ainda estava parcialmente resolvida.`
+          ),
       }
     }
   }
@@ -714,9 +901,12 @@ export function buildCommercialCoachingDiagnosis({
       ) ??
     null
 
+  const rawReadingStrength =
+    reading.seller_strengths[0]
+
   const readingStrength =
     strengthFromReading(
-      reading.seller_strengths[0],
+      rawReadingStrength,
     )
 
   const traceStrength =
@@ -725,29 +915,12 @@ export function buildCommercialCoachingDiagnosis({
     )
 
   const readingStrengthConflicts =
-    Boolean(
-      readingStrength &&
-      (
-        (
-          deterministicMistake &&
-          evidenceOverlaps(
-            readingStrength
-              .evidence_message_ids,
-            deterministicMistake
-              .evidence_message_ids,
-          )
-        ) ||
-        (
-          breakEvent &&
-          evidenceOverlaps(
-            readingStrength
-              .evidence_message_ids,
-            breakEvent
-              .evidence_message_ids,
-          )
-        )
-      ),
-    )
+    strengthSemanticallyConflicts({
+      strength:
+        rawReadingStrength,
+      deterministicMistake,
+      breakEvent,
+    })
 
   const strength =
     readingStrengthConflicts
@@ -758,6 +931,7 @@ export function buildCommercialCoachingDiagnosis({
   const methodRecommendation =
     recommendedMethodStage(
       reading,
+      diagnostic_input,
       sequenceMethod.sequence
         .break_detected,
     )
