@@ -390,6 +390,26 @@ test(
               .test(item),
         ),
     )
+
+    assert.match(
+      result.decision_reason,
+      /demonstrou intenção|perdeu continuidade|retomada/i,
+    )
+
+    assert.doesNotMatch(
+      result.decision_reason,
+      /sequence_break|seller_already|customer_intent_hot|next_step_choice/,
+    )
+
+    assert.equal(
+      result.do_not_do
+        .some(
+          item =>
+            /cliente trouxe um fato novo/i
+              .test(item),
+        ),
+      false,
+    )
   },
 )
 
