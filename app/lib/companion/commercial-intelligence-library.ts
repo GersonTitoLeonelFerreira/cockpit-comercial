@@ -555,6 +555,7 @@ export const GENERAL_COMMERCIAL_INTELLIGENCE_LIBRARY:
     ],
     signals: [
       'customer_intent_hot',
+      'explicit_close_intent',
       'late_discovery_after_close_intent',
     ],
     when_to_use: [
