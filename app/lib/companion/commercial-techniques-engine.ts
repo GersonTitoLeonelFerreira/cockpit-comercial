@@ -576,6 +576,33 @@ function buildDecision({
 
   if (
     id ===
+      'technique.value_linkage' &&
+    !(
+      contains(
+        context.signals,
+        'need_known',
+      ) ||
+      contains(
+        context.signals,
+        'decision_criteria_known',
+      )
+    )
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'known_need_or_decision_criterion_required',
+      ],
+    }
+  }
+
+  if (
+    id ===
       'technique.evidence_based_reassurance' &&
     !contains(
       context.signals,
@@ -746,6 +773,8 @@ export function buildCommercialTechniqueContext({
   diagnostic_input,
   trace,
   sequence_method,
+  reading_signals = [],
+  reading_situations = [],
 }: {
   reading: CommercialReading
   diagnostic_input:
@@ -753,6 +782,8 @@ export function buildCommercialTechniqueContext({
   trace: SellerExecutionTrace
   sequence_method:
     SellerSequenceMethodAssessment
+  reading_signals?: string[]
+  reading_situations?: string[]
 }): CommercialTechniqueContext {
   const scheduleOptions =
     groundedSchedulingOptions(
@@ -867,12 +898,16 @@ export function buildCommercialTechniqueContext({
           .customer_objections.length >
           0,
     },
-    signals: [
-      ...sequence_method.signals,
-    ],
-    situations: [
-      ...sequence_method.situations,
-    ],
+    signals:
+      unique([
+        ...reading_signals,
+        ...sequence_method.signals,
+      ]),
+    situations:
+      unique([
+        ...reading_situations,
+        ...sequence_method.situations,
+      ]),
   }
 }
 
