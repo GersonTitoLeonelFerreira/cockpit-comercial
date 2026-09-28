@@ -14,8 +14,9 @@ import type {
   SellerExecutionTrace,
 } from './seller-execution-trace'
 
-import type {
-  SellerSequenceMethodAssessment,
+import {
+  SELLER_SEQUENCE_DEFAULT_STALE_WAIT_MS,
+  type SellerSequenceMethodAssessment,
 } from './seller-sequence-method-assessment'
 
 export const COMMERCIAL_TECHNIQUES_ENGINE_VERSION =
@@ -879,6 +880,40 @@ export function buildCommercialTechniqueContext({
     !sequence_method.sequence
       .customer_fact_after_action
 
+  const referenceTimestamp =
+    Date.parse(
+      diagnostic_input.reference_time,
+    )
+
+  const lastEventTimestamp =
+    lastEvent
+      ? Date.parse(
+          lastEvent.occurred_at,
+        )
+      : Number.NaN
+
+  const readingWaitAgeMs =
+    readingWaitsForCustomer &&
+    Number.isFinite(
+      referenceTimestamp,
+    ) &&
+    Number.isFinite(
+      lastEventTimestamp,
+    )
+      ? Math.max(
+          0,
+          referenceTimestamp -
+            lastEventTimestamp,
+        )
+      : null
+
+  const readingWaitIsStale =
+    readingWaitsForCustomer &&
+    typeof readingWaitAgeMs ===
+      'number' &&
+    readingWaitAgeMs >=
+      SELLER_SEQUENCE_DEFAULT_STALE_WAIT_MS
+
   return {
     contract_version:
       COMMERCIAL_TECHNIQUES_ENGINE_VERSION,
@@ -905,7 +940,8 @@ export function buildCommercialTechniqueContext({
         readingWaitsForCustomer,
       stale_waiting_for_customer:
         sequence_method.sequence
-          .stale_waiting_for_customer,
+          .stale_waiting_for_customer ||
+        readingWaitIsStale,
       customer_fact_after_action:
         sequence_method.sequence
           .customer_fact_after_action,
