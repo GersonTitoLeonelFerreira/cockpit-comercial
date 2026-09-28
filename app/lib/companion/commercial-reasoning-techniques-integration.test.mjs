@@ -846,3 +846,104 @@ test(
     )
   },
 )
+
+test(
+  'live Lorena: wait legado após oferta desconectada e três dias sem resposta vira retomada contextual',
+  () => {
+    const result =
+      buildCommercialReasoning({
+        reading:
+          baseReading({
+            decision: 'wait',
+            currentState:
+              'A conversa saiu do objetivo de aula experimental e ficou aguardando retorno.',
+            lastCustomer:
+              'Cliente demonstrou interesse em aula experimental.',
+          }),
+        cycle_state:
+          state(),
+        diagnostic_input:
+          input({
+            referenceTime:
+              '2026-09-27T21:00:00-03:00',
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Podemos fazer a aula experimental hoje?',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Você já fez a aula experimental?',
+              },
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Não fiz ainda.',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Que ótimo',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Qual dia e horário fica melhor para você?',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Vou te mandar nossos planos e preços para conhecer.',
+              },
+            ],
+          }),
+      })
+
+    assert.equal(
+      result.selected_techniques[0]
+        ?.intelligence_id,
+      'technique.contextual_reengagement',
+    )
+
+    assert.equal(
+      result.selected_techniques.some(
+        item =>
+          item.intelligence_id ===
+            'technique.commitment_wait',
+      ),
+      false,
+    )
+
+    assert.equal(
+      result.decision,
+      'follow_up',
+    )
+
+    assert.match(
+      result.objective_now,
+      /retomar.*intenção|continuidade/i,
+    )
+
+    assert.doesNotMatch(
+      result.objective_now,
+      /aguardar a resposta/i,
+    )
+
+    assert.equal(
+      result.do_not_do.some(
+        item =>
+          /cliente trouxe um fato novo/i
+            .test(item),
+      ),
+      false,
+    )
+  },
+)
