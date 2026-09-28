@@ -542,6 +542,8 @@ function recommendedMethodStage(
       .deviation_stage_order
 
   if (
+    typeof deviationOrder ===
+      'number' &&
     Number.isSafeInteger(
       deviationOrder,
     )
