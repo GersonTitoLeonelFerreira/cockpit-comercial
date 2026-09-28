@@ -587,6 +587,30 @@ export async function POST(request: Request) {
               : null,
         })
 
+      const {
+        data: recipientLead,
+        error: recipientLeadError,
+      } = await admin
+        .from('leads')
+        .select('name')
+        .eq(
+          'company_id',
+          identity.company_id,
+        )
+        .eq(
+          'id',
+          identity.lead_id,
+        )
+        .maybeSingle()
+
+      const recipientName =
+        !recipientLeadError &&
+        typeof recipientLead?.name ===
+          'string' &&
+        recipientLead.name.trim()
+          ? recipientLead.name.trim()
+          : null
+
       const generation = await composeSellerMessage({
         workingSummary: workingSummary || null,
         currentInteraction,
@@ -596,6 +620,7 @@ export async function POST(request: Request) {
         messageStrategy:
           messageStrategy,
         roles: reasoningProjection.customer_roles,
+        recipientName,
         provider,
       })
 
