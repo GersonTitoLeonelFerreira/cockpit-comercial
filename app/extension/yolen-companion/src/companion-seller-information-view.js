@@ -702,7 +702,29 @@
 
     const methodName = displayText(method.name)
     const adherenceLabel = getMethodAdherenceLabel(adherenceStatus)
-    const adherenceSummary = displayText(method.adherence?.summary)
+    const observedStageName =
+      displayText(
+        guidance?.current_stage_name ||
+        method.current_stage?.name,
+      )
+    const recommendedStageName =
+      displayText(
+        guidance?.recommended_stage_name,
+      )
+    const hasRecoveryDirection =
+      Boolean(
+        guidance?.deviation_detected === true &&
+        observedStageName &&
+        recommendedStageName &&
+        observedStageName !==
+          recommendedStageName,
+      )
+    const adherenceSummary =
+      hasRecoveryDirection
+        ? `A execução chegou a ${observedStageName} antes de concluir o que o método ainda exige em ${recommendedStageName}.`
+        : displayText(
+            method.adherence?.summary,
+          )
 
     const methodSummary = [
       methodName || 'Método comercial',
@@ -1186,7 +1208,12 @@
       hasCoachingDiagnosis
         ? ''
         : renderStrengths(analysisViewModel.strengths),
-      renderOpportunityHeader(analysisViewModel.opportunity, analysisViewModel.current_moment),
+      hasCoachingDiagnosis
+        ? ''
+        : renderOpportunityHeader(
+            analysisViewModel.opportunity,
+            analysisViewModel.current_moment,
+          ),
       renderMethod(
         analysisViewModel.seller_conduct?.method,
         analysisViewModel.coaching_diagnosis?.method_state,
