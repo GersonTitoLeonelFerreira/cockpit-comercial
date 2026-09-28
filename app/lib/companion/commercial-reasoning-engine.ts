@@ -619,8 +619,6 @@ function selectKnowledge(
 function buildDoNotDo(
   ranked:
     RankedCommercialIntelligenceEntry[],
-  reading:
-    CommercialReading,
 ): string[] {
   const restrictions: string[] = []
 
@@ -636,17 +634,10 @@ function buildDoNotDo(
     }
 
     // when_not_to_use descreve condições de aplicabilidade da biblioteca,
-    // não um fato atual da conversa. Só restrições comprovadas pelo
-    // Technique Engine/Sequence Assessment podem virar "Evite agora".
-  }
-
-  for (
-    const improvement of
-    reading.improvement_points
-  ) {
-    restrictions.push(
-      improvement.how_to_improve,
-    )
+    // não um fato atual da conversa. Da mesma forma, how_to_improve é
+    // coaching positivo, não uma proibição. "Evite agora" recebe apenas
+    // restrições comprovadas pelo Technique Engine/Sequence Assessment
+    // e anti-padrões realmente compatíveis com o contexto atual.
   }
 
   return unique(restrictions)
@@ -1157,7 +1148,6 @@ export function buildCommercialReasoning({
               .restrictions,
             ...buildDoNotDo(
               ranked,
-              reading,
             ),
           ]).slice(
             0,
