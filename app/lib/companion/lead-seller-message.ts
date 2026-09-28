@@ -538,6 +538,8 @@ function describeCanonicalReasoning(
       (item) => ({
         title: item.title,
         why_relevant: item.why_relevant,
+        grounded_content:
+          item.grounded_content,
       }),
     ),
   }
@@ -558,7 +560,8 @@ function canonicalGroundingContext(
         `${technique.title} ${technique.why_applicable}`,
     ),
     ...reasoning.company_knowledge_used.map(
-      (item) => `${item.title} ${item.why_relevant}`,
+      (item) =>
+        `${item.title} ${item.grounded_content ?? item.why_relevant}`,
     ),
   ].join('\n')
 }
