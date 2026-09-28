@@ -830,7 +830,7 @@ test(
       stage_key: 'presentation',
       name: 'Apresentação',
     }
-    currentReading.method.adherence.deviation_stage_order = null
+    currentReading.method.adherence.deviation_stage_order = 2
     currentReading.method.recovery_guidance = null
 
     const diagnosticInput =
