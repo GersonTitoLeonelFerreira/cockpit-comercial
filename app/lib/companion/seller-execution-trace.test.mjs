@@ -470,12 +470,21 @@ test(
         direction: 'outgoing',
         author_kind: 'human_agent',
         text_content:
-          'Qual dia e horário fica melhor para você?',
+          'Que ótimo',
       },
       {
         ...diagnosticInput.conversation.messages[1],
         id: 'm5',
         sequence: 5,
+        direction: 'outgoing',
+        author_kind: 'human_agent',
+        text_content:
+          'Qual dia e horário fica melhor para você?',
+      },
+      {
+        ...diagnosticInput.conversation.messages[1],
+        id: 'm6',
+        sequence: 6,
         direction: 'outgoing',
         author_kind: 'human_agent',
         text_content:
@@ -501,6 +510,29 @@ test(
         .active_customer_intent
         .confidence,
       'high',
+    )
+
+    const acknowledgement =
+      trace.events.find(
+        event =>
+          event.message_id === 'm4',
+      )
+
+    assert.equal(
+      acknowledgement?.action_type,
+      'confirmation',
+    )
+
+    assert.equal(
+      acknowledgement?.sequence
+        .breaks_active_customer_goal,
+      false,
+    )
+
+    assert.equal(
+      trace.events.at(-1)
+        .message_id,
+      'm6',
     )
 
     assert.equal(
