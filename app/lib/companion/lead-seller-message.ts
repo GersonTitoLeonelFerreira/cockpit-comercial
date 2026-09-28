@@ -1369,12 +1369,76 @@ export async function composeSellerMessage({
   })
 
   if (!reviewed.message) {
+    const postReviewRepair =
+      await runAttempt({
+        summary,
+        interaction,
+        intent,
+        method,
+        reasoning,
+        messageStrategy,
+        roles,
+        recipientName:
+          canonicalRecipientName,
+        provider,
+        correctionReason: [
+          reviewed.failure ||
+            'A revisão final invalidou a mensagem.',
+          strictStrategyCorrection(
+            messageStrategy,
+          ),
+          'A mensagem já chegou a esta etapa após passar pela geração e pelo critic inicial. Corrija somente o conflito apontado pela revisão e preserve a ação canônica.',
+        ]
+          .filter(
+            (item): item is string =>
+              Boolean(item),
+          )
+          .join(' '),
+      })
+
+    if (!postReviewRepair.message) {
+      return {
+        status: 'error',
+        message: null,
+        error:
+          postReviewRepair.failure ||
+          reviewed.failure ||
+          'A mensagem não passou pelo gate customer-facing.',
+      }
+    }
+
+    const secondReview =
+      await reviewCustomerFacingMessage({
+        candidateMessage:
+          postReviewRepair.message,
+        summary,
+        interaction,
+        intent,
+        reasoning,
+        messageStrategy,
+        roles,
+        recipientName:
+          canonicalRecipientName,
+        provider,
+      })
+
+    if (!secondReview.message) {
+      return {
+        status: 'error',
+        message: null,
+        error:
+          secondReview.failure ||
+          postReviewRepair.failure ||
+          reviewed.failure ||
+          'A mensagem não passou pelo gate customer-facing após o reparo final.',
+      }
+    }
+
     return {
-      status: 'error',
-      message: null,
-      error:
-        reviewed.failure ||
-        'A mensagem não passou pelo gate customer-facing.',
+      status: 'ready',
+      message:
+        secondReview.message,
+      error: null,
     }
   }
 
