@@ -443,6 +443,28 @@ function containsSchedulingLanguage(
   )
 }
 
+function containsReengagementLanguage(
+  value: string,
+): boolean {
+  return includesAny(
+    value,
+    [
+      'ainda faz sentido',
+      'ainda quer',
+      'quer seguir',
+      'podemos retomar',
+      'retomar',
+      'retomamos',
+      'retomarmos',
+      'continuar',
+      'continuamos',
+      'seguimos',
+      'ficou em aberto',
+      'deixamos em aberto',
+    ].map(normalizeText),
+  )
+}
+
 function containsChoiceStructure(
   value: string,
 ): boolean {
@@ -485,6 +507,14 @@ function classifySellerAction(
 
   const question =
     hasQuestion(text)
+
+  if (
+    containsReengagementLanguage(
+      normalized,
+    )
+  ) {
+    return 'reengagement'
+  }
 
   if (
     question &&
@@ -665,6 +695,14 @@ function classifySellerAction(
   return 'factual_response'
 }
 
+export function classifySellerActionText(
+  text: string,
+): SellerExecutionActionType {
+  return classifySellerAction(
+    text,
+  )
+}
+
 function objectiveForAction(
   action:
     SellerExecutionActionType,
@@ -717,6 +755,7 @@ function targetCommitmentForAction(
     case 'objection_probe':
     case 'discovery_question':
     case 'clarification_question':
+    case 'reengagement':
       return 'customer_answer'
     case 'commitment_request':
       return 'next_step'
@@ -877,6 +916,12 @@ function actionFollowsIntent({
     intent.kind === 'unknown'
   ) {
     return null
+  }
+
+  if (
+    action === 'reengagement'
+  ) {
+    return true
   }
 
   const allowed:
@@ -1163,10 +1208,19 @@ export function buildSellerExecutionTrace({
       message.author_kind ===
         'customer'
     ) {
-      activeCustomerIntent =
+      const inferredCustomerIntent =
         inferCustomerIntent(
           message,
         )
+
+      if (
+        inferredCustomerIntent.kind !==
+          'unknown' ||
+        !activeCustomerIntent
+      ) {
+        activeCustomerIntent =
+          inferredCustomerIntent
+      }
 
       latestCustomerText =
         messageText(message)
