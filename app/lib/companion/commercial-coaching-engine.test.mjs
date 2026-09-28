@@ -641,3 +641,93 @@ test(
     )
   },
 )
+
+test(
+  'parcialmente no método recupera etapa anterior parcial em vez de chamar a etapa avançada de recomendação atual',
+  () => {
+    const currentReading =
+      reading({
+        adherence:
+          'partially_on_method',
+      })
+
+    currentReading.method.stages = [
+      {
+        step_order: 1,
+        stage_key:
+          'discovery',
+        name: 'Descoberta',
+        status: 'partial',
+        explanation:
+          'Ainda faltou concluir uma informação necessária.',
+        evidence_message_ids: [
+          'm1',
+        ],
+        memory_ids: [],
+      },
+      {
+        step_order: 2,
+        stage_key:
+          'presentation',
+        name: 'Apresentação',
+        status: 'active',
+        explanation:
+          'A apresentação já começou.',
+        evidence_message_ids: [
+          'm2',
+        ],
+        memory_ids: [],
+      },
+    ]
+
+    currentReading.method.current_stage = {
+      step_order: 2,
+      stage_key:
+        'presentation',
+      name: 'Apresentação',
+    }
+
+    currentReading.method.adherence.deviation_stage_order = null
+
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          currentReading,
+        reasoning:
+          reasoning(),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Quero entender antes de escolher.',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Vou te apresentar as opções.',
+            },
+          ]),
+      })
+
+    assert.equal(
+      diagnosis.method_state
+        .current_stage_name,
+      'Apresentação',
+    )
+
+    assert.equal(
+      diagnosis.method_state
+        .recommended_stage_name,
+      'Descoberta',
+    )
+
+    assert.match(
+      diagnosis.method_state
+        .recommended_stage_reason ?? '',
+      /Descoberta.*parcial|parcial.*Descoberta/i,
+    )
+  },
+)
