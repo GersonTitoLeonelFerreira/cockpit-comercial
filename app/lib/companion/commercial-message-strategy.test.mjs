@@ -820,3 +820,87 @@ test(
     )
   },
 )
+
+test(
+  'retomada rejeita filler e pergunta fática sem microcompromisso comercial',
+  () => {
+    const strategy =
+      buildCommercialMessageStrategy({
+        reasoning:
+          reasoning({
+            selected_techniques: [
+              {
+                intelligence_id:
+                  'technique.contextual_reengagement',
+                title: 'Retomada contextual',
+                kind: 'technique',
+                scope: 'general',
+                why_applicable:
+                  'A conversa perdeu continuidade.',
+                risks: [],
+              },
+            ],
+          }),
+        coaching:
+          coaching({
+            chosen_technique: {
+              id:
+                'technique.contextual_reengagement',
+              title:
+                'Retomada contextual',
+              why_now:
+                'A conversa perdeu continuidade.',
+              risks: [],
+            },
+          }),
+        diagnostic_input:
+          input({
+            turns: [
+              {
+                direction: 'incoming',
+                text:
+                  'Quero fazer uma aula experimental.',
+              },
+            ],
+          }),
+      })
+
+    const weak =
+      evaluateCommercialMessageDraft({
+        message:
+          'Olá, Lorena, tudo bem? Gostaria de saber se vocês ainda têm interesse em continuar com a aula experimental. Posso ajudar com o que for necessário para avançarmos.',
+        strategy,
+      })
+
+    assert.ok(
+      weak.violations.includes(
+        'generic_filler',
+      ),
+    )
+    assert.ok(
+      weak.violations.includes(
+        'weak_microcommitment',
+      ),
+    )
+
+    const strong =
+      evaluateCommercialMessageDraft({
+        message:
+          'Oi, Lorena! Vi que sua aula experimental ficou em aberto. Ainda faz sentido retomarmos?',
+        strategy,
+      })
+
+    assert.equal(
+      strong.violations.includes(
+        'generic_filler',
+      ),
+      false,
+    )
+    assert.equal(
+      strong.violations.includes(
+        'weak_microcommitment',
+      ),
+      false,
+    )
+  },
+)
