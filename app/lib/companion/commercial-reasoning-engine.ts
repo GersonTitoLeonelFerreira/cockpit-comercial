@@ -792,6 +792,228 @@ function inferObjectiveNow({
   return reading.best_approach.reason
 }
 
+function prioritizeSelectedTechniques({
+  techniques,
+  situations,
+  signals,
+  techniqueContext,
+}: {
+  techniques:
+    CommercialReasoningTechnique[]
+  situations: string[]
+  signals: string[]
+  techniqueContext:
+    ReturnType<
+      typeof buildCommercialTechniqueContext
+    >
+}): CommercialReasoningTechnique[] {
+  const byId =
+    new Map(
+      techniques.map(
+        technique => [
+          technique.intelligence_id,
+          technique,
+        ],
+      ),
+    )
+
+  const priority: string[] = []
+
+  const push =
+    (id: string) => {
+      if (
+        byId.has(id) &&
+        !priority.includes(id)
+      ) {
+        priority.push(id)
+      }
+    }
+
+  if (
+    signals.includes(
+      'explicit_close_intent',
+    )
+  ) {
+    push(
+      'technique.explicit_close_execution',
+    )
+  }
+
+  if (
+    techniqueContext.sequence
+      .waiting_for_customer &&
+    !techniqueContext.sequence
+      .customer_fact_after_action
+  ) {
+    push(
+      'technique.commitment_wait',
+    )
+  }
+
+  if (
+    techniqueContext.customer
+      .has_open_objection
+  ) {
+    if (
+      techniqueContext.sequence
+        .last_action_type ===
+          'objection_probe' &&
+      techniqueContext.sequence
+        .customer_fact_after_action
+    ) {
+      push(
+        'technique.objection_isolation',
+      )
+    }
+
+    push(
+      'technique.objection_diagnosis',
+    )
+    push(
+      'technique.objection_isolation',
+    )
+  }
+
+  if (
+    situations.includes(
+      'third_party_referral',
+    ) ||
+    situations.includes(
+      'intermediary_contact',
+    )
+  ) {
+    push(
+      'technique.third_party_handoff',
+    )
+    push(
+      'technique.stakeholder_mapping',
+    )
+  }
+
+  if (
+    signals.includes(
+      'sequence_break',
+    ) ||
+    situations.includes(
+      'duplicate_followup',
+    )
+  ) {
+    push(
+      'technique.contextual_reengagement',
+    )
+  }
+
+  if (
+    situations.includes(
+      'scheduling_choice',
+    ) &&
+    techniqueContext
+      .grounded_options
+      .has_multiple_valid_options
+  ) {
+    push(
+      'technique.guided_choice',
+    )
+  }
+
+  if (
+    situations.includes(
+      'comparison_context',
+    ) &&
+    signals.includes(
+      'decision_criteria_known',
+    )
+  ) {
+    push(
+      'technique.comparison_by_criteria',
+    )
+  }
+
+  if (
+    signals.includes(
+      'missing_impact',
+    )
+  ) {
+    push(
+      'technique.impact_exploration',
+    )
+  }
+
+  if (
+    signals.includes(
+      'missing_decision_criterion',
+    )
+  ) {
+    push(
+      'technique.decision_criteria_clarification',
+    )
+  }
+
+  if (
+    situations.includes(
+      'discovery_gap',
+    )
+  ) {
+    push(
+      'technique.discovery_before_prescription',
+    )
+  }
+
+  if (
+    signals.includes(
+      'uncertainty_open',
+    )
+  ) {
+    push(
+      'technique.evidence_based_reassurance',
+    )
+  }
+
+  if (
+    signals.includes(
+      'need_known',
+    ) ||
+    signals.includes(
+      'decision_criteria_known',
+    )
+  ) {
+    push(
+      'technique.value_linkage',
+    )
+  }
+
+  if (
+    signals.includes(
+      'customer_intent_hot',
+    )
+  ) {
+    push(
+      'technique.commitment_ladder',
+    )
+  }
+
+  for (
+    const technique of techniques
+  ) {
+    push(
+      technique.intelligence_id,
+    )
+  }
+
+  return priority
+    .map(
+      id =>
+        byId.get(id),
+    )
+    .filter(
+      (
+        technique,
+      ): technique is
+        CommercialReasoningTechnique =>
+        Boolean(technique),
+    )
+}
+
 function decisionForTechnique(
   technique:
     CommercialReasoningTechnique | undefined,
@@ -980,6 +1202,10 @@ export function buildCommercialReasoning({
         sellerExecutionTrace,
       sequence_method:
         sequenceMethodAssessment,
+      reading_signals:
+        situation.signals,
+      reading_situations:
+        situation.situations,
     })
 
   const combinedSituation = {
@@ -1055,10 +1281,18 @@ export function buildCommercialReasoning({
     })
 
   const selectedTechniques =
-    selectTechniques(
-      techniqueSelection
-        .selected_ranked,
-    )
+    prioritizeSelectedTechniques({
+      techniques:
+        selectTechniques(
+          techniqueSelection
+            .selected_ranked,
+        ),
+      situations:
+        combinedSituation.situations,
+      signals:
+        combinedSituation.signals,
+      techniqueContext,
+    })
 
   const companyKnowledge =
     selectKnowledge(ranked)
