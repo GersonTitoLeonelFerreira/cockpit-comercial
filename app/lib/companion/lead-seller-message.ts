@@ -1095,6 +1095,10 @@ async function reviewCustomerFacingMessage({
   provider: StatefulCopilotProvider
 }): Promise<MessageAttempt> {
   const thirdParty = hasThirdPartyOpportunity(roles)
+  const intentMode =
+    sellerIntentMode(
+      intent,
+    )
 
   try {
     const response = await provider({
@@ -1104,6 +1108,8 @@ async function reviewCustomerFacingMessage({
         'Você é o gate final de papel comunicacional e comercial da Yolen.',
         'Revise uma mensagem que será enviada pelo vendedor diretamente ao cliente.',
         'seller_intent é uma instrução privada do vendedor. A mensagem final precisa EXECUTAR essa intenção como fala do vendedor PARA o cliente.',
+        'Se seller_intent_mode="follow_strategy", seller_intent apenas autoriza seguir commercial_reasoning/message_strategy; não use essa frase genérica para reconstruir uma ação antiga já bloqueada.',
+        'Se message_strategy.required_action_type estiver preenchido, preserve essa ação comercial na revisão.',
         'Detecte role_inversion: mensagem que responde ao vendedor, pede ao vendedor que faça algo ou trata o vendedor como destinatário.',
         'Detecte context_conflict: repetir uma pergunta, confirmação, explicação ou cobrança que já aparece como última ação outgoing sem nova resposta incoming que justifique a repetição.',
         'Detecte canonical_contradiction: a mensagem contraria commercial_reasoning.current_situation, ignora commercial_reasoning.objective_now, faz algo listado em commercial_reasoning.do_not_do, contraria message_strategy.objective/context_reference, viola message_strategy.prohibited_moves ou usa algo de message_strategy.facts_required_but_missing como se fosse fato disponível; quando customer_roles indicar terceiro, também é contradição tratar o intermediário desta conversa como se ele fosse o prospect/comprador.',
@@ -1126,6 +1132,8 @@ async function reviewCustomerFacingMessage({
       ].join('\n'),
       user_prompt: JSON.stringify({
         seller_intent: intent,
+        seller_intent_mode:
+          intentMode,
         candidate_message: candidateMessage,
         working_summary: summary,
         current_interaction: interaction,
