@@ -549,8 +549,18 @@
     return Boolean(stage.name && stage.name === currentStage.name)
   }
 
-  function renderMethodStages(method) {
+  function renderMethodStages(method, guidance) {
     const currentStage = method?.current_stage
+    const recommendedStageName =
+      displayText(guidance?.recommended_stage_name)
+    const currentStageName =
+      displayText(currentStage?.name)
+    const stageMismatch =
+      Boolean(
+        recommendedStageName &&
+        currentStageName &&
+        recommendedStageName !== currentStageName,
+      )
 
     const stages = displayItems(method?.stages)
       .map((stage) => ({
@@ -579,7 +589,7 @@
             >
               <div class="yolen-method-stage-header">
                 <div>
-                  ${current ? '<div class="yolen-method-stage-current-label">Etapa atual</div>' : ''}
+                  ${current ? `<div class="yolen-method-stage-current-label">${stageMismatch ? 'Etapa observada' : 'Etapa atual'}</div>` : ''}
                   <div class="yolen-method-stage-name">${escapeHtml(stage.name)}</div>
                 </div>
                 <span class="yolen-rich-status ${getStatusClass(stage.status)}">
@@ -632,7 +642,40 @@
     `
   }
 
-  function renderMethod(method) {
+  function renderMethodGuidance(method, guidance) {
+    const observed =
+      displayText(
+        guidance?.current_stage_name ||
+        method?.current_stage?.name,
+      )
+    const recommended =
+      displayText(
+        guidance?.recommended_stage_name,
+      )
+    const reason =
+      displayText(
+        guidance?.recommended_stage_reason,
+      )
+
+    if (
+      !recommended ||
+      !observed ||
+      recommended === observed
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-method-recovery" data-yolen-method-guidance>
+        <div class="yolen-method-recovery-heading">Direção do método agora</div>
+        ${renderLabeledCopy('Etapa observada', observed)}
+        ${renderLabeledCopy('Etapa recomendada agora', recommended)}
+        ${renderLabeledCopy('Por que voltar', reason)}
+      </div>
+    `
+  }
+
+  function renderMethod(method, guidance = null) {
     if (!method || typeof method !== 'object') {
       return ''
     }
@@ -688,7 +731,8 @@
             </div>
           ` : ''}
 
-          ${renderMethodStages(method)}
+          ${renderMethodGuidance(method, guidance)}
+          ${renderMethodStages(method, guidance)}
           ${renderRecovery(method)}
           <div class="yolen-operational-note" data-yolen-method-crm-independence>
             Método comercial e etapa do CRM são avaliações independentes.
@@ -1143,7 +1187,10 @@
         ? ''
         : renderStrengths(analysisViewModel.strengths),
       renderOpportunityHeader(analysisViewModel.opportunity, analysisViewModel.current_moment),
-      renderMethod(analysisViewModel.seller_conduct?.method),
+      renderMethod(
+        analysisViewModel.seller_conduct?.method,
+        analysisViewModel.coaching_diagnosis?.method_state,
+      ),
       renderObjections(analysisViewModel.objections_open),
       renderRisks(analysisViewModel.risks),
       renderCommitments(analysisViewModel.commitments),

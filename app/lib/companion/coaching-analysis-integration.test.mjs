@@ -280,3 +280,140 @@ test(
     )
   },
 )
+
+test(
+  'método distingue etapa observada da etapa recomendada para recuperação',
+  () => {
+    const html =
+      sellerViewModule.renderAnalysisViewModel({
+        available: true,
+        unavailable_reason: null,
+        neutral: false,
+        neutral_headline: null,
+        neutral_description: null,
+        opportunity: null,
+        current_moment: {
+          is_active_session: true,
+        },
+        risks: [],
+        objections_open: [],
+        commitments: [],
+        seller_conduct: {
+          stage_divergence: true,
+          method: {
+            configured: true,
+            name: 'Método consultivo',
+            stages: [
+              {
+                step_order: 1,
+                stage_key: 'discovery',
+                name: 'Descoberta',
+                status: 'partial',
+                explanation:
+                  'Ainda falta concluir a etapa.',
+              },
+              {
+                step_order: 2,
+                stage_key: 'presentation',
+                name: 'Apresentação',
+                status: 'active',
+                explanation:
+                  'A apresentação ocorreu cedo demais.',
+              },
+            ],
+            current_stage: {
+              step_order: 2,
+              stage_key: 'presentation',
+              name: 'Apresentação',
+            },
+            adherence: {
+              status: 'off_method',
+              summary:
+                'A sequência perdeu aderência.',
+              deviation_stage_order: 1,
+              what_happened:
+                'A apresentação começou antes de concluir descoberta.',
+              missing_information: [],
+              why_it_matters:
+                'A recomendação pode ficar prematura.',
+            },
+            recovery_guidance: {
+              objective:
+                'Concluir o compromisso da etapa anterior.',
+              missing_information: [],
+              recommended_move:
+                'Retomar a descoberta antes de apresentar novamente.',
+              optional_question: null,
+              evidence_message_ids: [],
+              memory_ids: [],
+            },
+          },
+        },
+        strengths: [],
+        improvements: [],
+        continuity: {
+          cycle_conversation_count: 1,
+          cross_conversation_signals: [],
+        },
+        history: [],
+        provenance: {},
+        coaching_diagnosis: {
+          status: 'ready',
+          current_commercial_goal:
+            'Retomar a etapa anterior.',
+          seller_strength: null,
+          seller_mistake: null,
+          next_action:
+            'Retomar a etapa anterior.',
+          client_intent_now: null,
+          seller_last_valid_move: null,
+          chosen_technique: null,
+          sequence_break: {
+            happened: true,
+            what_changed:
+              'A conversa avançou cedo demais.',
+            why_it_hurts:
+              'A etapa anterior ficou incompleta.',
+          },
+          method_state: {
+            configured: true,
+            current_stage_name:
+              'Apresentação',
+            recommended_stage_name:
+              'Descoberta',
+            recommended_stage_reason:
+              'Concluir o compromisso da etapa anterior.',
+            adherence: 'off_method',
+            deviation_detected: true,
+            recovery_objective:
+              'Concluir o compromisso da etapa anterior.',
+            recovery_move:
+              'Retomar a descoberta.',
+          },
+          client_context_confidence: 'high',
+          seller_execution_confidence: 'high',
+          do_not_do: [],
+        },
+      })
+
+    assert.match(
+      html,
+      /Direção do método agora/,
+    )
+
+    assert.match(
+      html,
+      /Etapa observada[\s\S]*Apresentação/,
+    )
+
+    assert.match(
+      html,
+      /Etapa recomendada agora[\s\S]*Descoberta/,
+    )
+
+    assert.match(
+      html,
+      /Etapa observada[\s\S]*Apresentação[\s\S]*Parcialmente|Etapa observada[\s\S]*Apresentação/,
+    )
+  },
+)

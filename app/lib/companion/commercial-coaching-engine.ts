@@ -102,6 +102,8 @@ export type CommercialCoachingDiagnosis = {
   method_state: {
     configured: boolean
     current_stage_name: string | null
+    recommended_stage_name: string | null
+    recommended_stage_reason: string | null
     adherence:
       CommercialReading[
         'method'
@@ -516,6 +518,73 @@ function lastValidMove(
   )
 }
 
+function evidenceOverlaps(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  const rightIds =
+    new Set(right)
+
+  return left.some(
+    id =>
+      rightIds.has(id),
+  )
+}
+
+function recommendedMethodStage(
+  reading: CommercialReading,
+): {
+  name: string | null
+  reason: string | null
+} {
+  const deviationOrder =
+    reading.method.adherence
+      .deviation_stage_order
+
+  if (
+    typeof deviationOrder ===
+      'number' &&
+    Number.isSafeInteger(
+      deviationOrder,
+    )
+  ) {
+    const deviationStage =
+      reading.method.stages
+        .find(
+          stage =>
+            stage.step_order ===
+            deviationOrder,
+        )
+
+    if (deviationStage) {
+      return {
+        name:
+          deviationStage.name,
+        reason:
+          reading.method
+            .recovery_guidance
+            ?.objective ??
+          reading.method.adherence
+            .why_it_matters ??
+          'Retomar a etapa em que a sequência perdeu aderência antes de avançar novamente.',
+      }
+    }
+  }
+
+  return {
+    name:
+      reading.method
+        .current_stage
+        ?.name ??
+      null,
+    reason:
+      reading.method
+        .recovery_guidance
+        ?.objective ??
+      null,
+  }
+}
+
 function firstReadingImprovement({
   reading,
   waitingForCustomer,
@@ -592,14 +661,6 @@ export function buildCommercialCoachingDiagnosis({
       }),
     )
 
-  const strength =
-    strengthFromReading(
-      reading.seller_strengths[0],
-    ) ??
-    strengthFromTrace(
-      lastMove,
-    )
-
   const mistake =
     deterministicMistake ??
     readingMistake
@@ -613,6 +674,39 @@ export function buildCommercialCoachingDiagnosis({
             .breaks_active_customer_goal,
       ) ??
     null
+
+  const readingStrength =
+    strengthFromReading(
+      reading.seller_strengths[0],
+    )
+
+  const traceStrength =
+    strengthFromTrace(
+      lastMove,
+    )
+
+  const readingStrengthConflicts =
+    Boolean(
+      deterministicMistake &&
+      readingStrength &&
+      evidenceOverlaps(
+        readingStrength
+          .evidence_message_ids,
+        deterministicMistake
+          .evidence_message_ids,
+      ),
+    )
+
+  const strength =
+    readingStrengthConflicts
+      ? traceStrength
+      : readingStrength ??
+        traceStrength
+
+  const methodRecommendation =
+    recommendedMethodStage(
+      reading,
+    )
 
   const selectedTechnique =
     reasoning
@@ -717,6 +811,10 @@ export function buildCommercialCoachingDiagnosis({
           .method.current_stage
           ?.name ??
         null,
+      recommended_stage_name:
+        methodRecommendation.name,
+      recommended_stage_reason:
+        methodRecommendation.reason,
       adherence:
         sequenceMethod
           .method.adherence_status,

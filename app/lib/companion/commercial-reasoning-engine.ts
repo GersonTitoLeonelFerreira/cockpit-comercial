@@ -260,6 +260,78 @@ function buildSituationSignals({
   }
 
   if (
+    reading.customer.problems.length > 0 &&
+    reading.customer.impacts.length === 0
+  ) {
+    situations.push(
+      'impact_gap',
+    )
+    signals.push(
+      'problem_without_impact',
+      'missing_impact',
+    )
+  }
+
+  if (
+    reading.customer.primary_product_interest &&
+    reading.customer.decision_criteria.length === 0
+  ) {
+    situations.push(
+      'decision_criteria_gap',
+    )
+    signals.push(
+      'missing_decision_criterion',
+    )
+  }
+
+  if (
+    reading.customer.decision_criteria.length > 0
+  ) {
+    signals.push(
+      'decision_criteria_known',
+    )
+  }
+
+  if (
+    reading.customer.needs.length > 0 ||
+    reading.customer.objectives.length > 0
+  ) {
+    signals.push(
+      'need_known',
+    )
+  }
+
+  if (
+    reading.customer.primary_product_interest
+  ) {
+    signals.push(
+      'product_interest',
+    )
+  }
+
+  if (
+    reading.customer.competitors.length > 0
+  ) {
+    situations.push(
+      'comparison_context',
+    )
+    signals.push(
+      'customer_comparing_options',
+    )
+  }
+
+  if (
+    reading.customer.uncertainties.length > 0
+  ) {
+    situations.push(
+      'uncertainty_handling',
+    )
+    signals.push(
+      'uncertainty_open',
+    )
+  }
+
+  if (
     reading.method.configured &&
     reading.method.adherence.status !==
       'on_method'
@@ -377,6 +449,22 @@ function buildSituationSignals({
     )
   }
 
+  if (
+    reading.best_approach.decision === 'close' ||
+    reading.best_approach.decision ===
+      'ask_for_decision' ||
+    reading.best_approach.decision ===
+      'negotiate'
+  ) {
+    situations.push(
+      'close_execution',
+      'next_step_choice',
+    )
+    signals.push(
+      'explicit_close_intent',
+    )
+  }
+
   return {
     situations:
       unique(situations),
@@ -398,6 +486,63 @@ function summarizeRankingReason(
   }
 
   return 'Compatível com o contexto comercial atual.'
+}
+
+function humanTechniqueReason(
+  id: string,
+): string {
+  switch (id) {
+    case 'technique.contextual_reengagement':
+      return 'O cliente já demonstrou intenção e a conversa perdeu continuidade; a melhor retomada preserva esse objetivo sem repetir a pergunta anterior.'
+
+    case 'technique.guided_choice':
+      return 'Há poucas alternativas reais disponíveis e uma escolha simples reduz esforço sem inventar opções.'
+
+    case 'technique.objection_diagnosis':
+      return 'Existe uma objeção, mas responder antes de entender a causa aumenta o risco de atacar o problema errado.'
+
+    case 'technique.objection_isolation':
+      return 'A objeção já está identificada; agora é importante confirmar se ela é realmente a principal trava antes de negociar ou conceder.'
+
+    case 'technique.discovery_before_prescription':
+      return 'Ainda falta uma informação que pode mudar a recomendação, por isso apresentar solução agora seria prematuro.'
+
+    case 'technique.decision_criteria_clarification':
+      return 'O cliente demonstra interesse, mas ainda não está claro quais critérios vão determinar a escolha.'
+
+    case 'technique.impact_exploration':
+      return 'O problema está visível, mas seu impacto ainda não foi conectado à decisão; entender essa consequência aumenta relevância sem criar pressão artificial.'
+
+    case 'technique.value_linkage':
+      return 'Já existe contexto suficiente para ligar uma capacidade real da solução ao que o cliente disse que valoriza.'
+
+    case 'technique.evidence_based_reassurance':
+      return 'A incerteza pode ser tratada com evidência oficial pertinente, sem prometer além do que a empresa realmente oferece.'
+
+    case 'technique.stakeholder_mapping':
+      return 'A decisão envolve mais de uma pessoa e o próximo passo precisa respeitar quem influencia, decide ou usa a solução.'
+
+    case 'technique.third_party_handoff':
+      return 'Quem conversa agora não é necessariamente quem compra ou usa; manter os papéis corretos evita conduzir a pessoa errada.'
+
+    case 'technique.commitment_ladder':
+      return 'O cliente já demonstrou intenção; pedir apenas o próximo compromisso proporcional ao estágio mantém ritmo sem forçar fechamento prematuro.'
+
+    case 'technique.explicit_close_execution':
+      return 'O cliente já sinalizou intenção explícita de avançar; reiniciar descoberta agora criaria atrito desnecessário.'
+
+    case 'technique.comparison_by_criteria':
+      return 'A comparação só ajuda quando usa os critérios que o próprio cliente considera importantes e fatos oficiais sobre as alternativas.'
+
+    case 'technique.commitment_wait':
+      return 'A próxima resposta está com o cliente; repetir a mesma ação sem fato novo adicionaria pressão, não informação.'
+
+    case 'principle.company_rules_before_claim':
+      return 'A orientação depende de condição, política ou capacidade específica; a resposta precisa permanecer dentro do conhecimento oficial da empresa.'
+
+    default:
+      return 'A técnica é compatível com o momento comercial atual e com os sinais observados na conversa.'
+  }
 }
 
 function selectTechniques(
@@ -422,7 +567,9 @@ function selectTechniques(
         scope:
           item.entry.scope,
         why_applicable:
-          summarizeRankingReason(item),
+          humanTechniqueReason(
+            item.entry.id,
+          ),
         risks: [
           ...item.entry.risks,
         ],
@@ -472,8 +619,6 @@ function selectKnowledge(
 function buildDoNotDo(
   ranked:
     RankedCommercialIntelligenceEntry[],
-  reading:
-    CommercialReading,
 ): string[] {
   const restrictions: string[] = []
 
@@ -488,18 +633,11 @@ function buildDoNotDo(
       )
     }
 
-    restrictions.push(
-      ...item.entry.when_not_to_use,
-    )
-  }
-
-  for (
-    const improvement of
-    reading.improvement_points
-  ) {
-    restrictions.push(
-      improvement.how_to_improve,
-    )
+    // when_not_to_use descreve condições de aplicabilidade da biblioteca,
+    // não um fato atual da conversa. Da mesma forma, how_to_improve é
+    // coaching positivo, não uma proibição. "Evite agora" recebe apenas
+    // restrições comprovadas pelo Technique Engine/Sequence Assessment
+    // e anti-padrões realmente compatíveis com o contexto atual.
   }
 
   return unique(restrictions)
@@ -556,6 +694,33 @@ function objectiveForTechnique(
   ) {
     case 'technique.contextual_reengagement':
       return 'Retomar a intenção que o cliente já demonstrou com uma mensagem de continuidade; não repetir a pergunta que ficou sem resposta e buscar um microcompromisso simples para reabrir a conversa.'
+
+    case 'technique.decision_criteria_clarification':
+      return 'Descobrir quais critérios realmente determinam a escolha antes de comparar ou recomendar alternativas.'
+
+    case 'technique.impact_exploration':
+      return 'Entender o impacto concreto do problema antes de conectar a solução ao valor.'
+
+    case 'technique.value_linkage':
+      return 'Conectar uma capacidade oficial da solução a uma necessidade, objetivo ou critério já comprovado do cliente.'
+
+    case 'technique.objection_isolation':
+      return 'Confirmar se a objeção atual é realmente a principal trava antes de negociar, conceder ou responder em profundidade.'
+
+    case 'technique.evidence_based_reassurance':
+      return 'Responder à incerteza com a evidência oficial mais pertinente, sem inventar promessa ou garantia.'
+
+    case 'technique.stakeholder_mapping':
+      return 'Mapear quem influencia, decide ou usa a solução e alinhar o próximo passo com o processo real de decisão.'
+
+    case 'technique.commitment_ladder':
+      return 'Converter a intenção atual no menor próximo compromisso útil que realmente move a negociação.'
+
+    case 'technique.explicit_close_execution':
+      return 'Executar o próximo passo operacional do fechamento sem reiniciar descoberta que já foi superada.'
+
+    case 'technique.comparison_by_criteria':
+      return 'Comparar alternativas pelos critérios declarados pelo cliente e pelos fatos oficiais disponíveis.'
 
     case 'technique.guided_choice':
       return 'Apresentar somente opções reais já disponíveis e pedir uma escolha simples entre elas.'
@@ -627,13 +792,358 @@ function inferObjectiveNow({
   return reading.best_approach.reason
 }
 
-function buildCurrentSituation(
-  reading: CommercialReading,
-): string {
+function prioritizeSelectedTechniques({
+  techniques,
+  situations,
+  signals,
+  techniqueContext,
+}: {
+  techniques:
+    CommercialReasoningTechnique[]
+  situations: string[]
+  signals: string[]
+  techniqueContext:
+    ReturnType<
+      typeof buildCommercialTechniqueContext
+    >
+}): CommercialReasoningTechnique[] {
+  const byId =
+    new Map(
+      techniques.map(
+        technique => [
+          technique.intelligence_id,
+          technique,
+        ],
+      ),
+    )
+
+  const priority: string[] = []
+
+  const push =
+    (id: string) => {
+      if (
+        byId.has(id) &&
+        !priority.includes(id)
+      ) {
+        priority.push(id)
+      }
+    }
+
+  if (
+    signals.includes(
+      'explicit_close_intent',
+    )
+  ) {
+    push(
+      'technique.explicit_close_execution',
+    )
+  }
+
+  if (
+    techniqueContext.sequence
+      .waiting_for_customer &&
+    !techniqueContext.sequence
+      .customer_fact_after_action
+  ) {
+    push(
+      'technique.commitment_wait',
+    )
+  }
+
+  if (
+    techniqueContext.customer
+      .has_open_objection
+  ) {
+    if (
+      techniqueContext.sequence
+        .last_action_type ===
+          'objection_probe' &&
+      techniqueContext.sequence
+        .customer_fact_after_action
+    ) {
+      push(
+        'technique.objection_isolation',
+      )
+    }
+
+    push(
+      'technique.objection_diagnosis',
+    )
+    push(
+      'technique.objection_isolation',
+    )
+  }
+
+  if (
+    situations.includes(
+      'third_party_referral',
+    ) ||
+    situations.includes(
+      'intermediary_contact',
+    )
+  ) {
+    push(
+      'technique.third_party_handoff',
+    )
+    push(
+      'technique.stakeholder_mapping',
+    )
+  }
+
+  if (
+    signals.includes(
+      'sequence_break',
+    ) ||
+    situations.includes(
+      'duplicate_followup',
+    )
+  ) {
+    push(
+      'technique.contextual_reengagement',
+    )
+  }
+
+  if (
+    situations.includes(
+      'scheduling_choice',
+    ) &&
+    techniqueContext
+      .grounded_options
+      .has_multiple_valid_options
+  ) {
+    push(
+      'technique.guided_choice',
+    )
+  }
+
+  if (
+    situations.includes(
+      'comparison_context',
+    ) &&
+    signals.includes(
+      'decision_criteria_known',
+    )
+  ) {
+    push(
+      'technique.comparison_by_criteria',
+    )
+  }
+
+  if (
+    signals.includes(
+      'missing_impact',
+    )
+  ) {
+    push(
+      'technique.impact_exploration',
+    )
+  }
+
+  if (
+    signals.includes(
+      'missing_decision_criterion',
+    )
+  ) {
+    push(
+      'technique.decision_criteria_clarification',
+    )
+  }
+
+  if (
+    situations.includes(
+      'discovery_gap',
+    )
+  ) {
+    push(
+      'technique.discovery_before_prescription',
+    )
+  }
+
+  if (
+    signals.includes(
+      'uncertainty_open',
+    )
+  ) {
+    push(
+      'technique.evidence_based_reassurance',
+    )
+  }
+
+  if (
+    signals.includes(
+      'need_known',
+    ) ||
+    signals.includes(
+      'decision_criteria_known',
+    )
+  ) {
+    push(
+      'technique.value_linkage',
+    )
+  }
+
+  if (
+    signals.includes(
+      'customer_intent_hot',
+    )
+  ) {
+    push(
+      'technique.commitment_ladder',
+    )
+  }
+
+  for (
+    const technique of techniques
+  ) {
+    push(
+      technique.intelligence_id,
+    )
+  }
+
+  return priority
+    .map(
+      id =>
+        byId.get(id),
+    )
+    .filter(
+      (
+        technique,
+      ): technique is
+        CommercialReasoningTechnique =>
+        Boolean(technique),
+    )
+}
+
+function decisionForTechnique(
+  technique:
+    CommercialReasoningTechnique | undefined,
+): CommercialReading[
+  'best_approach'
+]['decision'] | null {
+  switch (
+    technique?.intelligence_id
+  ) {
+    case 'technique.contextual_reengagement':
+      return 'follow_up'
+
+    case 'technique.guided_choice':
+    case 'technique.commitment_ladder':
+      return 'set_commitment'
+
+    case 'technique.objection_diagnosis':
+    case 'technique.objection_isolation':
+      return 'handle_objection'
+
+    case 'technique.discovery_before_prescription':
+    case 'technique.decision_criteria_clarification':
+    case 'technique.impact_exploration':
+    case 'technique.stakeholder_mapping':
+      return 'deepen_discovery'
+
+    case 'technique.value_linkage':
+    case 'technique.evidence_based_reassurance':
+      return 'demonstrate_value'
+
+    case 'technique.comparison_by_criteria':
+      return 'compare'
+
+    case 'technique.explicit_close_execution':
+      return 'close'
+
+    case 'technique.commitment_wait':
+      return 'wait'
+
+    case 'technique.third_party_handoff':
+      return 'set_commitment'
+
+    default:
+      return null
+  }
+}
+
+function buildCurrentSituation({
+  reading,
+  sequenceMethodAssessment,
+  selectedTechniques,
+}: {
+  reading: CommercialReading
+  sequenceMethodAssessment:
+    ReturnType<
+      typeof buildSellerSequenceMethodAssessment
+    >
+  selectedTechniques:
+    CommercialReasoningTechnique[]
+}): string {
+  const techniqueId =
+    selectedTechniques[0]
+      ?.intelligence_id
+
+  if (
+    techniqueId ===
+      'technique.contextual_reengagement'
+  ) {
+    return 'O cliente já demonstrou um objetivo comercial, o vendedor tentou avançá-lo e a conversa perdeu continuidade antes de concluir esse compromisso.'
+  }
+
+  if (
+    sequenceMethodAssessment
+      .sequence.break_detected
+  ) {
+    return 'A conversa saiu do objetivo ativo do cliente antes de concluir o próximo passo que já estava em andamento.'
+  }
+
+  if (
+    sequenceMethodAssessment
+      .sequence.waiting_for_customer &&
+    !sequenceMethodAssessment
+      .sequence.customer_fact_after_action
+  ) {
+    return 'O vendedor já executou o próximo movimento e a resposta necessária ainda depende do cliente.'
+  }
+
   return reading
     .conversation_summary
     .current_state
     .summary
+}
+
+function buildDecisionReason({
+  reading,
+  sequenceMethodAssessment,
+  selectedTechniques,
+}: {
+  reading: CommercialReading
+  sequenceMethodAssessment:
+    ReturnType<
+      typeof buildSellerSequenceMethodAssessment
+    >
+  selectedTechniques:
+    CommercialReasoningTechnique[]
+}): string {
+  const technique =
+    selectedTechniques[0]
+
+  if (technique) {
+    return technique.why_applicable
+  }
+
+  if (
+    sequenceMethodAssessment
+      .sequence.break_detected
+  ) {
+    return 'A conversa saiu do objetivo que o cliente já havia demonstrado; o próximo movimento precisa recuperar continuidade antes de introduzir outra etapa.'
+  }
+
+  if (
+    sequenceMethodAssessment
+      .sequence.waiting_for_customer &&
+    !sequenceMethodAssessment
+      .sequence.customer_fact_after_action
+  ) {
+    return 'O vendedor já executou a ação necessária e ainda não surgiu fato novo do cliente; repetir a mesma solicitação agora adicionaria pressão sem melhorar a decisão.'
+  }
+
+  return reading.best_approach.reason
 }
 
 export function buildCommercialReasoning({
@@ -692,6 +1202,10 @@ export function buildCommercialReasoning({
         sellerExecutionTrace,
       sequence_method:
         sequenceMethodAssessment,
+      reading_signals:
+        situation.signals,
+      reading_situations:
+        situation.situations,
     })
 
   const combinedSituation = {
@@ -767,10 +1281,18 @@ export function buildCommercialReasoning({
     })
 
   const selectedTechniques =
-    selectTechniques(
-      techniqueSelection
-        .selected_ranked,
-    )
+    prioritizeSelectedTechniques({
+      techniques:
+        selectTechniques(
+          techniqueSelection
+            .selected_ranked,
+        ),
+      situations:
+        combinedSituation.situations,
+      signals:
+        combinedSituation.signals,
+      techniqueContext,
+    })
 
   const companyKnowledge =
     selectKnowledge(ranked)
@@ -808,12 +1330,19 @@ export function buildCommercialReasoning({
   const decision =
     status === 'silent'
       ? 'no_intervention'
-      : reading.best_approach.decision
+      : decisionForTechnique(
+          selectedTechniques[0],
+        ) ??
+        reading.best_approach.decision
 
   const decisionReason =
     status === 'silent'
       ? 'A sessão atual não autoriza intervenção comercial.'
-      : reading.best_approach.reason
+      : buildDecisionReason({
+          reading,
+          sequenceMethodAssessment,
+          selectedTechniques,
+        })
 
   return {
     contract_version:
@@ -826,7 +1355,11 @@ export function buildCommercialReasoning({
       decisionReason,
 
     current_situation:
-      buildCurrentSituation(reading),
+      buildCurrentSituation({
+        reading,
+        sequenceMethodAssessment,
+        selectedTechniques,
+      }),
 
     objective_now:
       status === 'silent'
@@ -849,7 +1382,6 @@ export function buildCommercialReasoning({
               .restrictions,
             ...buildDoNotDo(
               ranked,
-              reading,
             ),
           ]).slice(
             0,

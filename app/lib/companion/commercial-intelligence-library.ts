@@ -284,6 +284,337 @@ export const GENERAL_COMMERCIAL_INTELLIGENCE_LIBRARY:
   }),
 
   generalEntry({
+    id: 'technique.decision_criteria_clarification',
+    kind: 'technique',
+    title: 'Clarificação de critérios de decisão',
+    objective:
+      'Descobrir quais critérios realmente determinam a escolha antes de comparar ou recomendar alternativas.',
+    description:
+      'Tira a conversa do nível de preferência genérica e identifica o que precisa ser verdadeiro para a decisão fazer sentido para o cliente.',
+    situations: [
+      'decision_criteria_gap',
+      'discovery_gap',
+      'comparison_context',
+      'product_fit',
+    ],
+    signals: [
+      'missing_decision_criterion',
+      'customer_comparing_options',
+    ],
+    when_to_use: [
+      'O cliente demonstra interesse, mas ainda não está claro como ele vai decidir.',
+      'Existe comparação entre alternativas sem critério explícito.',
+    ],
+    when_not_to_use: [
+      'Os critérios já estão claros e o cliente está apenas executando o próximo passo.',
+    ],
+    risks: [
+      'Transformar a conversa em checklist de perguntas sem usar as respostas para avançar.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente está comparando duas soluções e pergunta qual é melhor.',
+        application:
+          'Descobrir os dois ou três critérios que mais pesam na decisão e só então comparar pelas dimensões relevantes.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.impact_exploration',
+    kind: 'technique',
+    title: 'Exploração de impacto',
+    objective:
+      'Conectar o problema relatado ao impacto real que torna a mudança relevante.',
+    description:
+      'Aprofunda consequência, frequência ou custo do problema sem dramatizar e sem fabricar dor.',
+    situations: [
+      'impact_gap',
+      'discovery_gap',
+      'complex_need',
+    ],
+    signals: [
+      'problem_without_impact',
+      'missing_impact',
+    ],
+    when_to_use: [
+      'O problema está comprovado, mas ainda não está claro por que ele importa agora.',
+    ],
+    when_not_to_use: [
+      'O impacto já está explícito e suficiente para orientar a decisão.',
+    ],
+    risks: [
+      'Exagerar consequência ou induzir medo para aumentar pressão.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente relata retrabalho, mas não explicou como isso afeta operação ou resultado.',
+        application:
+          'Entender o efeito concreto do retrabalho antes de conectar a solução ao valor.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.value_linkage',
+    kind: 'technique',
+    title: 'Conexão valor-contexto',
+    objective:
+      'Explicar valor ligando benefício real do produto a uma necessidade, objetivo ou critério comprovado do cliente.',
+    description:
+      'Substitui lista genérica de benefícios por uma ponte explícita entre contexto do cliente e capacidade oficial da solução.',
+    situations: [
+      'value_explanation',
+      'product_fit',
+      'recommendation',
+    ],
+    signals: [
+      'need_known',
+      'product_interest',
+      'claim_requires_company_knowledge',
+    ],
+    when_to_use: [
+      'Já existe necessidade ou critério conhecido e há conhecimento oficial de produto relevante.',
+    ],
+    when_not_to_use: [
+      'Ainda falta contexto que muda materialmente a recomendação.',
+    ],
+    risks: [
+      'Voltar a despejar benefícios genéricos sem conexão com o que o cliente disse.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente valorizou rapidez de implantação e existe uma capacidade oficial relacionada.',
+        application:
+          'Explicar essa capacidade especificamente em relação ao critério de rapidez, sem listar recursos irrelevantes.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.objection_isolation',
+    kind: 'technique',
+    title: 'Isolamento de objeção',
+    objective:
+      'Confirmar se a objeção atual é realmente a principal trava antes de investir em uma resposta longa ou concessão.',
+    description:
+      'Depois de entender a causa, verifica se resolver esse ponto efetivamente libera o avanço ou se existem outras travas relevantes.',
+    situations: [
+      'objection_handling',
+      'price_objection',
+      'payment_objection',
+    ],
+    signals: [
+      'objection_open',
+      'customer_resistance',
+    ],
+    when_to_use: [
+      'A causa da objeção está razoavelmente clara, mas ainda não se sabe se ela é a única trava.',
+    ],
+    when_not_to_use: [
+      'A objeção ainda não foi diagnosticada.',
+    ],
+    risks: [
+      'Soar como tentativa de encurralar o cliente ou obter compromisso artificial.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente diz que preço é a trava principal.',
+        application:
+          'Confirmar se, resolvido esse ponto dentro das condições reais, existe outro impedimento relevante para avançar.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.evidence_based_reassurance',
+    kind: 'technique',
+    title: 'Reforço por evidência',
+    objective:
+      'Reduzir incerteza usando apenas prova, política, capacidade ou evidência oficial pertinente ao receio do cliente.',
+    description:
+      'Responde insegurança com fatos verificáveis da empresa ou do produto, sem promessas vagas nem garantia de resultado.',
+    situations: [
+      'uncertainty_handling',
+      'trust_objection',
+      'value_explanation',
+      'product_fit',
+    ],
+    signals: [
+      'uncertainty_open',
+      'claim_requires_company_knowledge',
+    ],
+    when_to_use: [
+      'Existe incerteza ou necessidade de confiança que pode ser respondida com conhecimento oficial relevante.',
+    ],
+    when_not_to_use: [
+      'Não há evidência oficial suficiente para sustentar a afirmação.',
+    ],
+    risks: [
+      'Transformar prova em promessa ou usar evidência irrelevante para a preocupação real.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente demonstra receio sobre implantação ou suporte.',
+        application:
+          'Usar somente a informação oficial diretamente ligada a implantação ou suporte e explicar como ela responde ao receio.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.stakeholder_mapping',
+    kind: 'technique',
+    title: 'Mapeamento de decisão',
+    objective:
+      'Entender quem participa, influencia, aprova ou usa a solução quando a decisão depende de mais de uma pessoa.',
+    description:
+      'Organiza o processo decisório sem presumir que o interlocutor atual controla sozinho a compra.',
+    situations: [
+      'third_party_referral',
+      'intermediary_contact',
+      'stakeholder_gap',
+      'complex_decision',
+    ],
+    signals: [
+      'intermediary_detected',
+      'third_party_prospect',
+      'missing_decision_process',
+    ],
+    when_to_use: [
+      'Há terceiros explícitos ou sinais de que outra pessoa participa da decisão.',
+    ],
+    when_not_to_use: [
+      'A decisão é individual e isso já está comprovado.',
+    ],
+    risks: [
+      'Forçar acesso a terceiros sem necessidade ou consentimento.',
+    ],
+    examples: [
+      {
+        situation:
+          'Interlocutor precisa validar com sócio, cônjuge, gestor ou área técnica.',
+        application:
+          'Entender o papel de cada pessoa e combinar o próximo passo adequado sem tratar o interlocutor como mero obstáculo.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.commitment_ladder',
+    kind: 'technique',
+    title: 'Escada de compromisso',
+    objective:
+      'Converter intenção em um próximo compromisso pequeno, claro e proporcional ao estágio real da negociação.',
+    description:
+      'Avança uma etapa por vez, buscando a menor decisão útil que move a venda sem pressionar por um fechamento prematuro.',
+    situations: [
+      'next_step_choice',
+      'close_execution',
+      'discovery_complete',
+    ],
+    signals: [
+      'customer_intent_hot',
+      'microcommitment_available',
+    ],
+    when_to_use: [
+      'O cliente já demonstrou intenção e existe um próximo passo concreto menor que o fechamento final.',
+    ],
+    when_not_to_use: [
+      'O cliente já pediu explicitamente para fechar e não há bloqueio pendente.',
+    ],
+    risks: [
+      'Adicionar etapas desnecessárias e esfriar uma decisão que já está pronta.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente quer avançar, mas ainda falta escolher uma opção, reunião, visita ou confirmação operacional.',
+        application:
+          'Pedir somente esse próximo compromisso em vez de reiniciar descoberta ou exigir decisão maior.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.explicit_close_execution',
+    kind: 'technique',
+    title: 'Execução do fechamento explícito',
+    objective:
+      'Responder a uma intenção clara de compra executando o próximo passo necessário sem reiniciar descoberta já concluída.',
+    description:
+      'Quando o cliente já decidiu avançar, reduz perguntas desnecessárias e concentra a conversa no requisito operacional real para concluir.',
+    situations: [
+      'close_execution',
+      'next_step_choice',
+    ],
+    signals: [
+      'customer_intent_hot',
+      'explicit_close_intent',
+      'late_discovery_after_close_intent',
+    ],
+    when_to_use: [
+      'Existe intenção explícita de contratar, comprar, assinar ou concluir.',
+    ],
+    when_not_to_use: [
+      'Ainda existe objeção, condição essencial ou requisito não resolvido que impede o fechamento.',
+    ],
+    risks: [
+      'Confundir curiosidade com intenção real de fechamento.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente pergunta como assinar ou confirma que quer contratar.',
+        application:
+          'Executar o passo operacional necessário e não voltar a uma descoberta genérica.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.comparison_by_criteria',
+    kind: 'technique',
+    title: 'Comparação por critérios',
+    objective:
+      'Comparar alternativas pelos critérios que o cliente declarou importantes, não por uma lista genérica de recursos.',
+    description:
+      'Estrutura trade-offs de forma transparente e ancora a comparação em critérios reais e conhecimento oficial.',
+    situations: [
+      'comparison_context',
+      'value_explanation',
+      'product_choice',
+    ],
+    signals: [
+      'customer_comparing_options',
+      'decision_criteria_known',
+      'claim_requires_company_knowledge',
+    ],
+    when_to_use: [
+      'O cliente está comparando alternativas e existem critérios conhecidos para orientar a comparação.',
+    ],
+    when_not_to_use: [
+      'Os critérios ainda não foram esclarecidos.',
+    ],
+    risks: [
+      'Manipular comparação omitindo limitações ou usando afirmações não publicadas.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente compara duas opções com prioridades diferentes.',
+        application:
+          'Comparar somente pelos critérios declarados e explicitar trade-offs e limitações relevantes.',
+      },
+    ],
+  }),
+
+  generalEntry({
     id: 'anti_pattern.repeat_completed_action',
     kind: 'anti_pattern',
     title: 'Repetir ação já executada',

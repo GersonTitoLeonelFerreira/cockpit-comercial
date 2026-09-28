@@ -394,3 +394,36 @@ test(
     )
   },
 )
+
+test(
+  'catálogo avançado inclui técnicas de decisão, valor, impacto, stakeholders e fechamento',
+  () => {
+    const ids =
+      new Set(
+        GENERAL_COMMERCIAL_INTELLIGENCE_LIBRARY
+          .map(
+            entry =>
+              entry.id,
+          ),
+      )
+
+    for (
+      const id of [
+        'technique.decision_criteria_clarification',
+        'technique.impact_exploration',
+        'technique.value_linkage',
+        'technique.objection_isolation',
+        'technique.evidence_based_reassurance',
+        'technique.stakeholder_mapping',
+        'technique.commitment_ladder',
+        'technique.explicit_close_execution',
+        'technique.comparison_by_criteria',
+      ]
+    ) {
+      assert.ok(
+        ids.has(id),
+        id,
+      )
+    }
+  },
+)
