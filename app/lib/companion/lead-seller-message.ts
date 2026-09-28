@@ -233,6 +233,11 @@ const GROUNDED_CONCEPTS: GroundedConcept[] = [
     output: /\b(cancelar|cancelamento|cancelado)\w*/,
     evidence: /\b(cancelar|cancelamento|cancelado)\w*/,
   },
+  {
+    label: 'relação familiar ou terceiro específico',
+    output: /\b(marido|esposo|esposa|namorado|namorada|companheiro|companheira|irmao|irma|mae|pai|filho|filha|socio|socia)\b/,
+    evidence: /\b(marido|esposo|esposa|namorado|namorada|companheiro|companheira|irmao|irma|mae|pai|filho|filha|socio|socia)\b/,
+  },
 ]
 
 function clean(value: unknown): string | null {
