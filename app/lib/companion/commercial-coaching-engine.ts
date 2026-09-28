@@ -652,6 +652,73 @@ function recommendedMethodStage(
     reading.method.adherence
       .deviation_stage_order
 
+  const methodSteps =
+    diagnosticInput
+      .commercial_context
+      .sales_method
+      .steps
+
+  const requiredOrders =
+    new Set(
+      methodSteps
+        .filter(
+          step =>
+            step.is_required,
+        )
+        .map(
+          step =>
+            step.step_order,
+        ),
+    )
+
+  const currentStageOrder =
+    reading.method
+      .current_stage
+      ?.step_order ??
+    null
+
+  const requiredPartialBlocker =
+    sequenceBreakDetected &&
+    currentStageOrder !== null
+      ? [...reading.method.stages]
+          .filter(
+            stage =>
+              stage.step_order <
+                currentStageOrder &&
+              stage.status ===
+                'partial' &&
+              requiredOrders.has(
+                stage.step_order,
+              ),
+          )
+          .sort(
+            (left, right) =>
+              left.step_order -
+              right.step_order,
+          )[0]
+      : undefined
+
+  if (
+    requiredPartialBlocker &&
+    (
+      typeof deviationOrder !==
+        'number' ||
+      requiredPartialBlocker
+        .step_order <=
+        deviationOrder
+    )
+  ) {
+    return {
+      name:
+        requiredPartialBlocker.name,
+      reason:
+        reading.method
+          .recovery_guidance
+          ?.objective ??
+        `A etapa obrigatória ${requiredPartialBlocker.name} já possui progresso, mas ainda não foi concluída; o método não deve tratá-la como resolvida só porque a execução avançou.`,
+    }
+  }
+
   if (
     typeof deviationOrder ===
       'number' &&
@@ -686,25 +753,6 @@ function recommendedMethodStage(
     sequenceBreakDetected &&
     reading.method.current_stage
   ) {
-    const methodSteps =
-      diagnosticInput
-        .commercial_context
-        .sales_method
-        .steps
-
-    const requiredOrders =
-      new Set(
-        methodSteps
-          .filter(
-            step =>
-              step.is_required,
-          )
-          .map(
-            step =>
-              step.step_order,
-          ),
-      )
-
     const earlierIncomplete =
       [...reading.method.stages]
         .filter(
