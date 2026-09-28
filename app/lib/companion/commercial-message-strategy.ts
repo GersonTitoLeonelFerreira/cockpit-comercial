@@ -57,6 +57,9 @@ export type CommercialMessageCriticViolation =
   | 'message_too_long'
   | 'generic_message'
   | 'repeats_recent_seller_action'
+  | 'excessive_questions'
+  | 'pressure_risk'
+  | 'technique_mismatch'
 
 export type CommercialMessageCriticResult = {
   passed: boolean
@@ -64,7 +67,8 @@ export type CommercialMessageCriticResult = {
     CommercialMessageCriticViolation[]
 }
 
-const MAX_MESSAGE_LENGTH = 1200
+const MAX_MESSAGE_LENGTH = 700
+const REENGAGEMENT_MAX_LENGTH = 420
 
 const STOPWORDS =
   new Set([
@@ -471,7 +475,11 @@ export function buildCommercialMessageStrategy({
         .commercial_context
         .communication_tone,
     max_length:
-      MAX_MESSAGE_LENGTH,
+      coaching.chosen_technique
+        ?.id ===
+          'technique.contextual_reengagement'
+        ? REENGAGEMENT_MAX_LENGTH
+        : MAX_MESSAGE_LENGTH,
     evidence_message_ids:
       unique([
         ...coaching
@@ -604,6 +612,48 @@ export function evaluateCommercialMessageDraft({
   ) {
     violations.push(
       'repeats_recent_seller_action',
+    )
+  }
+
+  const questionCount =
+    (message.match(/\?/g) ?? [])
+      .length
+
+  if (questionCount > 1) {
+    violations.push(
+      'excessive_questions',
+    )
+  }
+
+  if (
+    candidateAction ===
+      'pressure_or_false_urgency'
+  ) {
+    violations.push(
+      'pressure_risk',
+    )
+  }
+
+  const techniqueId =
+    strategy.technique_id
+
+  const techniqueMismatch =
+    (
+      techniqueId ===
+        'technique.contextual_reengagement' &&
+      candidateAction !==
+        'reengagement'
+    ) ||
+    (
+      techniqueId ===
+        'technique.objection_diagnosis' &&
+      candidateAction !==
+        'objection_probe'
+    )
+
+  if (techniqueMismatch) {
+    violations.push(
+      'technique_mismatch',
     )
   }
 
