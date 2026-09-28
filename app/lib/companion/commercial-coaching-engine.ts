@@ -571,11 +571,42 @@ function recommendedMethodStage(
     }
   }
 
+  const currentStage =
+    reading.method
+      .current_stage
+
+  if (currentStage) {
+    const incompleteEarlierStage =
+      [...reading.method.stages]
+        .sort(
+          (a, b) =>
+            a.step_order -
+            b.step_order,
+        )
+        .find(
+          stage =>
+            stage.step_order <
+              currentStage.step_order &&
+            stage.status ===
+              'partial',
+        )
+
+    if (incompleteEarlierStage) {
+      return {
+        name:
+          incompleteEarlierStage.name,
+        reason:
+          reading.method
+            .recovery_guidance
+            ?.objective ??
+          `A execução avançou para ${currentStage.name} enquanto ${incompleteEarlierStage.name} ainda estava parcial; recuperar essa etapa evita consolidar o avanço fora de sequência.`,
+      }
+    }
+  }
+
   return {
     name:
-      reading.method
-        .current_stage
-        ?.name ??
+      currentStage?.name ??
       null,
     reason:
       reading.method
@@ -685,15 +716,42 @@ export function buildCommercialCoachingDiagnosis({
       lastMove,
     )
 
+  const readingStrengthEvidenceEvents =
+    readingStrength
+      ? trace.events.filter(
+          event =>
+            readingStrength
+              .evidence_message_ids
+              .includes(
+                event.message_id,
+              ),
+        )
+      : []
+
   const readingStrengthConflicts =
     Boolean(
-      deterministicMistake &&
       readingStrength &&
-      evidenceOverlaps(
-        readingStrength
-          .evidence_message_ids,
-        deterministicMistake
-          .evidence_message_ids,
+      (
+        (
+          deterministicMistake &&
+          evidenceOverlaps(
+            readingStrength
+              .evidence_message_ids,
+            deterministicMistake
+              .evidence_message_ids,
+          )
+        ) ||
+        readingStrengthEvidenceEvents
+          .some(
+            event =>
+              event.sequence
+                .breaks_active_customer_goal ||
+              event.signals.includes(
+                'premature_product_offer',
+              ) ||
+              event.quality
+                .relevance === 'low',
+          )
       ),
     )
 
