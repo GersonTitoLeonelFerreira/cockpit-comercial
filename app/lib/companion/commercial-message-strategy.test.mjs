@@ -535,3 +535,174 @@ test(
     )
   },
 )
+
+test(
+  'critic bloqueia repetição semântica da ação, mas permite retomada contextual',
+  () => {
+    const strategy =
+      buildCommercialMessageStrategy({
+        reasoning:
+          reasoning({
+            selected_techniques: [
+              {
+                intelligence_id:
+                  'technique.contextual_reengagement',
+                title:
+                  'Retomada contextual',
+                kind: 'technique',
+                scope: 'general',
+                why_applicable:
+                  'A conversa perdeu continuidade.',
+                risks: [],
+              },
+            ],
+            do_not_do: [
+              'Não repetir a mesma ação comercial sem resposta ou fato novo.',
+            ],
+          }),
+        coaching:
+          coaching({
+            chosen_technique: {
+              id:
+                'technique.contextual_reengagement',
+              title:
+                'Retomada contextual',
+              why_now:
+                'A conversa perdeu continuidade.',
+              risks: [],
+            },
+            seller_last_valid_move: {
+              message_id: 'm2',
+              action_type:
+                'scheduling_open_question',
+              action_label:
+                'Pergunta aberta de agendamento',
+              commercial_objective:
+                'schedule',
+              summary:
+                'Qual dia e horário fica melhor para você?',
+              observed_outcome:
+                'customer_silent_before_next_seller_action',
+              evidence_message_ids: [
+                'm2',
+              ],
+            },
+          }),
+        diagnostic_input:
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero fazer uma experimental.',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Qual dia e horário fica melhor para você?',
+              },
+              {
+                direction:
+                  'outgoing',
+                text:
+                  'Vou te mandar nossos planos.',
+              },
+            ],
+          }),
+      })
+
+    const repeated =
+      evaluateCommercialMessageDraft({
+        message:
+          'Quando seria um bom dia e horário para você fazer a experimental?',
+        strategy,
+      })
+
+    assert.equal(
+      repeated.passed,
+      false,
+    )
+
+    assert.ok(
+      repeated.violations
+        .includes(
+          'repeats_recent_seller_action',
+        ),
+    )
+
+    const recovery =
+      evaluateCommercialMessageDraft({
+        message:
+          'Ainda faz sentido retomarmos sua experimental?',
+        strategy,
+      })
+
+    assert.equal(
+      recovery.violations
+        .includes(
+          'repeats_recent_seller_action',
+        ),
+      false,
+    )
+  },
+)
+
+test(
+  'facts_allowed prioriza conteúdo oficial real, não apenas a explicação de ranking',
+  () => {
+    const strategy =
+      buildCommercialMessageStrategy({
+        reasoning:
+          reasoning({
+            company_knowledge_used: [
+              {
+                intelligence_id:
+                  'knowledge.product',
+                title:
+                  'Conhecimento do produto',
+                scope: 'product',
+                source_type:
+                  'product_profile',
+                source_id:
+                  'product-a',
+                product_id:
+                  'product-a',
+                why_relevant:
+                  'Conhecimento específico do produto em discussão.',
+                grounded_content:
+                  'Benefícios publicados: implantação assistida; suporte especializado.',
+              },
+            ],
+          }),
+        coaching:
+          coaching({
+            sequence_break: {
+              happened: false,
+              what_changed: null,
+              why_it_hurts: null,
+              evidence_message_ids: [],
+            },
+          }),
+        diagnostic_input:
+          input({
+            turns: [
+              {
+                direction:
+                  'incoming',
+                text:
+                  'Quero entender melhor essa solução.',
+              },
+            ],
+          }),
+      })
+
+    assert.deepEqual(
+      strategy.facts_allowed,
+      [
+        'Benefícios publicados: implantação assistida; suporte especializado.',
+      ],
+    )
+  },
+)
