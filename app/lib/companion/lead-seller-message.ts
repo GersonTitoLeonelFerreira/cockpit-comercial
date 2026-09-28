@@ -291,7 +291,7 @@ function firstName(
 ): string | null {
   return value
     ? clean(
-        value.split(/s+/)[0],
+        value.split(/\s+/)[0],
       )
     : null
 }
@@ -322,6 +322,22 @@ function startsByAddressingName({
     `^(?:oi|ola|bom dia|boa tarde|boa noite)?\\s*${normalizedName}\\b`,
     'i',
   ).test(firstWords)
+}
+
+const DEFAULT_SELLER_INTENT =
+  'Quero responder ao ponto principal desta conversa.'
+
+function sellerIntentMode(
+  value: string,
+):
+  | 'default_follow_reasoning'
+  | 'explicit_override' {
+  return comparable(value) ===
+    comparable(
+      DEFAULT_SELLER_INTENT,
+    )
+    ? 'default_follow_reasoning'
+    : 'explicit_override'
 }
 
 function normalizeForGrounding(value: string) {
@@ -782,6 +798,8 @@ async function runAttempt({
       ]
     : []
   const thirdParty = hasThirdPartyOpportunity(roles)
+  const intentMode =
+    sellerIntentMode(intent)
 
   try {
     const response = await provider({
@@ -795,7 +813,13 @@ async function runAttempt({
         'seller_intent é uma instrução privada do vendedor sobre o que ELE quer comunicar. Nunca responda ao seller_intent como se o vendedor fosse o destinatário.',
         'Transforme a intenção do vendedor em uma fala pronta que o próprio vendedor poderia enviar diretamente ao cliente.',
         'Exemplo: seller_intent="Quero fazer uma pergunta para avançar com clareza." exige uma pergunta ao CLIENTE; é proibido responder "Pode mandar sua pergunta".',
-        'A intenção do vendedor é a ação principal a executar. Ela é soberana sobre a orientação da Yolen, que funciona como recomendação e contexto, não como ordem.',
+        ...(intentMode === 'explicit_override'
+          ? [
+              'A intenção explícita e específica do vendedor é a ação principal a executar. Ela pode contrariar a recomendação da Yolen, desde que não viole fatos, segurança ou grounding.',
+            ]
+          : [
+              'O seller_intent atual é apenas o preset genérico da interface. Ele NÃO é uma decisão comercial do vendedor e não pode substituir commercial_reasoning ou message_strategy. Neste modo, escreva a melhor próxima mensagem recomendada pelo especialista da Yolen.',
+            ]),
         'Use o resumo e a interação canônica atual como únicas fontes de fatos sobre o relacionamento e o cliente.',
         'Mensagens de current_interaction com direction="outgoing" já foram enviadas pelo vendedor. Não repita como nova mensagem uma pergunta, confirmação, explicação ou cobrança que acabou de ser enviada, salvo se houver nova resposta incoming que justifique a repetição.',
         'Uma entrada marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" é um áudio real cujo conteúdo é desconhecido: nunca invente ou presuma o que foi dito nele.',
@@ -831,6 +855,8 @@ async function runAttempt({
       ].join('\n'),
       user_prompt: JSON.stringify({
         seller_intent: intent,
+        seller_intent_mode:
+          intentMode,
         working_summary: summary,
         current_interaction: interaction,
         context_specificity_anchors:
@@ -1004,6 +1030,8 @@ async function reviewCustomerFacingMessage({
   provider: StatefulCopilotProvider
 }): Promise<MessageAttempt> {
   const thirdParty = hasThirdPartyOpportunity(roles)
+  const intentMode =
+    sellerIntentMode(intent)
 
   try {
     const response = await provider({
@@ -1012,7 +1040,14 @@ async function reviewCustomerFacingMessage({
       system_prompt: [
         'Você é o gate final de papel comunicacional e comercial da Yolen.',
         'Revise uma mensagem que será enviada pelo vendedor diretamente ao cliente.',
-        'seller_intent é uma instrução privada do vendedor. A mensagem final precisa EXECUTAR essa intenção como fala do vendedor PARA o cliente.',
+        'seller_intent é uma instrução privada do vendedor. A mensagem final precisa interpretá-la conforme seller_intent_mode.',
+        ...(intentMode === 'explicit_override'
+          ? [
+              'Em explicit_override, a mensagem deve EXECUTAR a intenção específica do vendedor como fala do vendedor PARA o cliente.',
+            ]
+          : [
+              'Em default_follow_reasoning, o preset genérico não pode substituir commercial_reasoning/message_strategy; valide a mensagem pela recomendação canônica da Yolen.',
+            ]),
         'participants.recipient_name é o destinatário oficial quando presente; participants.seller_name é o emissor. Tratar seller_name como nome do cliente é role_inversion e deve ser corrigido.',
         'Se recipient_name estiver ausente, não infira nome de cliente a partir de mensagens outgoing.',
         'Detecte role_inversion: mensagem que responde ao vendedor, pede ao vendedor que faça algo ou trata o vendedor como destinatário.',
@@ -1032,6 +1067,8 @@ async function reviewCustomerFacingMessage({
       ].join('\n'),
       user_prompt: JSON.stringify({
         seller_intent: intent,
+        seller_intent_mode:
+          intentMode,
         candidate_message: candidateMessage,
         working_summary: summary,
         current_interaction: interaction,
