@@ -60,6 +60,8 @@ export type CommercialMessageCriticViolation =
   | 'excessive_questions'
   | 'pressure_risk'
   | 'technique_mismatch'
+  | 'generic_filler'
+  | 'weak_microcommitment'
 
 export type CommercialMessageCriticResult = {
   passed: boolean
@@ -499,6 +501,58 @@ export function buildCommercialMessageStrategy({
   }
 }
 
+function hasGenericFiller(
+  message: string,
+): boolean {
+  const normalized =
+    comparable(message)
+
+  return [
+    'posso ajudar com o que for necessario',
+    'fico a disposicao',
+    'estou a disposicao',
+    'qualquer coisa estou a disposicao',
+    'conte comigo para o que precisar',
+    'para avancarmos',
+  ].some(
+    phrase =>
+      normalized.includes(
+        phrase,
+      ),
+  )
+}
+
+function hasReengagementMicrocommitment(
+  message: string,
+): boolean {
+  const questionSegments =
+    message.match(
+      /[^?]{1,220}\?/g,
+    ) ?? []
+
+  return questionSegments.some(
+    segment => {
+      const normalized =
+        comparable(segment)
+
+      if (
+        normalized.includes(
+          'tudo bem',
+        ) &&
+        !/\b(ainda|retom|continu|interesse|faz sentido|segue|quer)\b/
+          .test(normalized)
+      ) {
+        return false
+      }
+
+      return /\b(ainda|retom|continu|interesse|faz sentido|segue|quer)\b/
+        .test(
+          normalized,
+        )
+    },
+  )
+}
+
 function repeatsRecentOutgoing({
   message,
   recent_outgoing_messages,
@@ -654,6 +708,28 @@ export function evaluateCommercialMessageDraft({
   if (techniqueMismatch) {
     violations.push(
       'technique_mismatch',
+    )
+  }
+
+  if (
+    hasGenericFiller(
+      message,
+    )
+  ) {
+    violations.push(
+      'generic_filler',
+    )
+  }
+
+  if (
+    techniqueId ===
+      'technique.contextual_reengagement' &&
+    !hasReengagementMicrocommitment(
+      message,
+    )
+  ) {
+    violations.push(
+      'weak_microcommitment',
     )
   }
 
