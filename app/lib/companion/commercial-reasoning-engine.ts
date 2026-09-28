@@ -798,9 +798,93 @@ function inferObjectiveNow({
   return reading.best_approach.reason
 }
 
-function buildCurrentSituation(
-  reading: CommercialReading,
-): string {
+function decisionForTechnique(
+  technique:
+    CommercialReasoningTechnique | undefined,
+): CommercialReading[
+  'best_approach'
+]['decision'] | null {
+  switch (
+    technique?.intelligence_id
+  ) {
+    case 'technique.contextual_reengagement':
+      return 'follow_up'
+
+    case 'technique.guided_choice':
+    case 'technique.commitment_ladder':
+      return 'set_commitment'
+
+    case 'technique.objection_diagnosis':
+    case 'technique.objection_isolation':
+      return 'handle_objection'
+
+    case 'technique.discovery_before_prescription':
+    case 'technique.decision_criteria_clarification':
+    case 'technique.impact_exploration':
+    case 'technique.stakeholder_mapping':
+      return 'deepen_discovery'
+
+    case 'technique.value_linkage':
+    case 'technique.evidence_based_reassurance':
+      return 'demonstrate_value'
+
+    case 'technique.comparison_by_criteria':
+      return 'compare'
+
+    case 'technique.explicit_close_execution':
+      return 'close'
+
+    case 'technique.commitment_wait':
+      return 'wait'
+
+    case 'technique.third_party_handoff':
+      return 'set_commitment'
+
+    default:
+      return null
+  }
+}
+
+function buildCurrentSituation({
+  reading,
+  sequenceMethodAssessment,
+  selectedTechniques,
+}: {
+  reading: CommercialReading
+  sequenceMethodAssessment:
+    ReturnType<
+      typeof buildSellerSequenceMethodAssessment
+    >
+  selectedTechniques:
+    CommercialReasoningTechnique[]
+}): string {
+  const techniqueId =
+    selectedTechniques[0]
+      ?.intelligence_id
+
+  if (
+    techniqueId ===
+      'technique.contextual_reengagement'
+  ) {
+    return 'O cliente já demonstrou um objetivo comercial, o vendedor tentou avançá-lo e a conversa perdeu continuidade antes de concluir esse compromisso.'
+  }
+
+  if (
+    sequenceMethodAssessment
+      .sequence.break_detected
+  ) {
+    return 'A conversa saiu do objetivo ativo do cliente antes de concluir o próximo passo que já estava em andamento.'
+  }
+
+  if (
+    sequenceMethodAssessment
+      .sequence.waiting_for_customer &&
+    !sequenceMethodAssessment
+      .sequence.customer_fact_after_action
+  ) {
+    return 'O vendedor já executou o próximo movimento e a resposta necessária ainda depende do cliente.'
+  }
+
   return reading
     .conversation_summary
     .current_state
@@ -1018,7 +1102,10 @@ export function buildCommercialReasoning({
   const decision =
     status === 'silent'
       ? 'no_intervention'
-      : reading.best_approach.decision
+      : decisionForTechnique(
+          selectedTechniques[0],
+        ) ??
+        reading.best_approach.decision
 
   const decisionReason =
     status === 'silent'
@@ -1040,7 +1127,11 @@ export function buildCommercialReasoning({
       decisionReason,
 
     current_situation:
-      buildCurrentSituation(reading),
+      buildCurrentSituation({
+        reading,
+        sequenceMethodAssessment,
+        selectedTechniques,
+      }),
 
     objective_now:
       status === 'silent'
