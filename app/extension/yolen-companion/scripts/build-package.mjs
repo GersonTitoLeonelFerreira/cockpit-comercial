@@ -222,6 +222,16 @@ const DEV_HOST_PATTERN = /localhost|cockpit-comercial-vocn-git-/i
 // ---------------------------------------------------------------------------
 export const PRODUCTION_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
 export const LOCAL_BASE_URL = 'http://localhost:3000'
+
+// Toda origem conhecida de PRODUÇÃO do projeto Vercel: domínio canônico,
+// alias do time e alias da branch de produção. Nenhuma pode ser backend
+// de homologação (o runtime HML ainda exige que o backend se declare
+// preview antes de receber qualquer token).
+export const PRODUCTION_ORIGINS = [
+  PRODUCTION_BASE_URL,
+  'https://cockpit-comercial-vocn-yolen.vercel.app',
+  'https://cockpit-comercial-vocn-git-main-yolen.vercel.app',
+]
 export const COMPANION_ENVIRONMENT_PATHNAME = 'src/companion-environment.js'
 export const HOMOLOG_BASE_URL_ENV = 'YOLEN_COMPANION_HOMOLOG_BASE_URL'
 
@@ -275,7 +285,7 @@ export function parseHomologBaseUrl(raw) {
     )
   }
 
-  if (url.origin === PRODUCTION_BASE_URL) {
+  if (PRODUCTION_ORIGINS.includes(url.origin)) {
     throw new Error(`${HOMOLOG_BASE_URL_ENV} inválida: homologação não pode apontar para produção.`)
   }
 
@@ -905,7 +915,7 @@ export function assertHomologManifestHosts(manifest, baseUrl) {
   }
 
   const serialized = JSON.stringify(manifest)
-  if (/localhost|\*\./i.test(serialized) || serialized.includes(PRODUCTION_BASE_URL)) {
+  if (/localhost|\*\./i.test(serialized) || PRODUCTION_ORIGINS.some((origin) => serialized.includes(origin))) {
     throw new Error('Manifest homolog não pode conter localhost, wildcard de host nem o host de produção.')
   }
 }

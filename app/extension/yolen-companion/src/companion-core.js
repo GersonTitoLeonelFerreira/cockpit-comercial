@@ -147,10 +147,12 @@ function createCompanionCore(ctx) {
 
   // Canal homolog: o painel só vale como homologação quando o commit do
   // backend configurado no pacote é o MESMO commit do pacote.
-  // status: 'checking' | 'match' | 'mismatch' | 'unavailable'.
+  // status: 'checking' | 'match' | 'mismatch' | 'not_preview' |
+  // 'unavailable'.
   let backendBuildCheck = {
     status: 'checking',
     commitShort: null,
+    environment: null,
   }
   let backendBuildCheckInFlight = null
 
@@ -7534,25 +7536,36 @@ function createCompanionCore(ctx) {
           ? result.payload.commit
           : null
 
+      const backendEnvironment =
+        typeof result?.payload?.environment === 'string'
+          ? result.payload.environment
+          : null
+
+      // Homologação só vale contra um backend que se declara preview.
       const next = !backendCommit
         ? {
             status: 'unavailable',
             commitShort: null,
+            environment: backendEnvironment,
           }
         : {
             status:
-              identity?.commit &&
-              identity.commit === backendCommit &&
-              identity.dirty !== true
-                ? 'match'
-                : 'mismatch',
+              backendEnvironment !== 'preview'
+                ? 'not_preview'
+                : identity?.commit &&
+                    identity.commit === backendCommit &&
+                    identity.dirty !== true
+                  ? 'match'
+                  : 'mismatch',
             commitShort:
               backendCommit.slice(0, 8),
+            environment: backendEnvironment,
           }
 
       const changed =
         next.status !== backendBuildCheck.status ||
-        next.commitShort !== backendBuildCheck.commitShort
+        next.commitShort !== backendBuildCheck.commitShort ||
+        next.environment !== backendBuildCheck.environment
 
       backendBuildCheck = next
 
@@ -7597,7 +7610,20 @@ function createCompanionCore(ctx) {
 
     const invalid =
       backendBuildCheck.status === 'mismatch' ||
+      backendBuildCheck.status === 'not_preview' ||
       backendBuildCheck.status === 'unavailable'
+
+    const headline =
+      backendBuildCheck.status === 'mismatch'
+        ? 'BUILD INCOMPATÍVEL'
+        : backendBuildCheck.status === 'not_preview'
+          ? 'BACKEND NÃO É PREVIEW'
+          : 'BUILD NÃO CONFIRMADO'
+
+    const backendDetail =
+      backendBuildCheck.status === 'not_preview'
+        ? `${backendLabel} (${backendBuildCheck.environment || 'ambiente desconhecido'})`
+        : backendLabel
 
     return [
       '<div class="yolen-build-badge yolen-build-badge-hml" data-yolen-build-identity data-yolen-build-channel="homolog"' +
@@ -7615,15 +7641,9 @@ function createCompanionCore(ctx) {
       invalid
         ? [
             '<div class="yolen-build-mismatch" role="alert" data-yolen-build-mismatch>',
-              '<strong>',
-                escapeHtml(
-                  backendBuildCheck.status === 'mismatch'
-                    ? 'BUILD INCOMPATÍVEL'
-                    : 'BUILD NÃO CONFIRMADO',
-                ),
-              '</strong>',
+              '<strong>', escapeHtml(headline), '</strong>',
               '<span>', escapeHtml(`Extensão: ${extensionCommit}`), '</span>',
-              '<span>', escapeHtml(`Backend: ${backendLabel}`), '</span>',
+              '<span>', escapeHtml(`Backend: ${backendDetail}`), '</span>',
               '<span>', escapeHtml('Esta análise NÃO vale como homologação.'), '</span>',
             '</div>',
           ].join('')

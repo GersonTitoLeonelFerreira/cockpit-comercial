@@ -186,7 +186,9 @@ YOLEN_COMPANION_HOMOLOG_BASE_URL=https://<preview>.vercel.app npm run verify:com
 
 - O build falha se a variável faltar, não for HTTPS ou não for uma origem
   exata (sem caminho, porta, query, credenciais ou wildcard) ou apontar
-  para produção.
+  para qualquer origem conhecida de produção. Em runtime, o background HML
+  só envia token depois que o backend se declara `preview` em
+  `/api/companion/build-identity`.
 - Saída isolada: `dist/yolen-companion/<alvo>/homolog/staging/` e
   `yolen-companion-<alvo>-homolog-v<versão>.zip` (nunca o staging prod).
 - `src/companion-environment.js` é a configuração canônica do canal

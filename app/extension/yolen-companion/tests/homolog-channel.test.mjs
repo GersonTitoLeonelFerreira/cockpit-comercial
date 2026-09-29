@@ -53,6 +53,7 @@ import {
 const PREVIEW = 'https://cockpit-comercial-vocn-git-claude-companion-sales-51296a-yolen.vercel.app'
 const OTHER_PREVIEW = 'https://cockpit-comercial-vocn-git-outra-branch-abc123-yolen.vercel.app'
 const LOCALHOST = 'http://localhost:3000'
+const PREVIEW_IDENTITY = { environment: 'preview', commit: 'a'.repeat(40), commit_short: 'aaaaaaaa' }
 const SESSION_KEY = 'yolen_companion_session'
 const SRC = (file) => readFileSync(join(EXTENSION_ROOT, 'src', file), 'utf8')
 const BUILD_SCRIPT = fileURLToPath(new URL('../scripts/build-package.mjs', import.meta.url))
@@ -228,6 +229,7 @@ test('B) HML: configuração canônica e tráfego autenticado vão só para o pr
   })
 
   const { fetchFn, calls } = createFakeFetchQueue([
+    () => jsonResponse(200, PREVIEW_IDENTITY),
     () => jsonResponse(200, { ok: true }),
     () => jsonResponse(200, { ok: true, data: { identity: {}, summary: null } }),
   ])
@@ -241,8 +243,14 @@ test('B) HML: configuração canônica e tráfego autenticado vão só para o pr
   // Mesmo que o content script peça produção, o canal HML não sai do preview.
   await bg.sendMessage({ source: 'YOLEN_COMPANION', action: 'LOAD_LEAD_SUMMARY', baseUrl: PRODUCTION_BASE_URL, payload: { cycle_id: 'c1' } })
 
-  assert.deepEqual(calls.map((call) => new URL(call.url).origin), [PREVIEW, PREVIEW])
-  assert.equal(calls[0].init.headers.Authorization, 'Bearer fake.token.value')
+  // Primeiro o backend se declara preview (sem token); só então o token sai.
+  assert.deepEqual(calls.map((call) => call.url), [
+    `${PREVIEW}/api/companion/build-identity`,
+    `${PREVIEW}/api/companion/resolve-lead`,
+    `${PREVIEW}/api/companion/lead-summary`,
+  ])
+  assert.equal(calls[0].init.headers, undefined)
+  assert.equal(calls[1].init.headers.Authorization, 'Bearer fake.token.value')
 })
 
 // ---------------------------------------------------------------------------
@@ -283,6 +291,9 @@ test('D) HML com HTTP, URL inválida, caminho, porta, wildcard ou produção fal
     ['https://user:secret@cockpit-comercial-vocn-git-x-yolen.vercel.app', /origem exata/],
     ['https://*.vercel.app', /wildcard/],
     [PRODUCTION_BASE_URL, /produção/],
+    // Aliases de produção do mesmo projeto Vercel.
+    ['https://cockpit-comercial-vocn-yolen.vercel.app', /produção/],
+    ['https://cockpit-comercial-vocn-git-main-yolen.vercel.app/', /produção/],
   ]
 
   for (const [value, expected] of invalid) {
@@ -509,9 +520,10 @@ function loadYolenApi({ environment, respond }) {
 test('H) sessão HML nunca cai para produção: sessão de produção, baseUrl de produção, reconexão e identidade', async () => {
   // Background: sessão em cache com origem de PRODUÇÃO num pacote HML.
   const { fetchFn, calls } = createFakeFetchQueue([
+    () => jsonResponse(200, PREVIEW_IDENTITY),
     () => jsonResponse(200, { ok: true, user: { full_name: 'Vendedor' }, active_company: { id: 'company-1', name: 'Empresa' } }),
     () => jsonResponse(200, { ok: true }),
-    () => jsonResponse(200, { environment: 'preview', commit: 'a'.repeat(40), commit_short: 'aaaaaaaa' }),
+    () => jsonResponse(200, PREVIEW_IDENTITY),
   ])
   const prodSession = session(PRODUCTION_BASE_URL)
   prodSession.payload.active_company = { id: 'company-1', name: 'Empresa sem nome' }
@@ -526,7 +538,9 @@ test('H) sessão HML nunca cai para produção: sessão de produção, baseUrl d
   await bg.sendMessage({ source: 'YOLEN_COMPANION', action: 'ANALYZE_CONVERSATION', baseUrl: PRODUCTION_BASE_URL, payload: {} })
   const identity = await bg.sendMessage({ source: 'YOLEN_COMPANION', action: 'GET_BACKEND_BUILD_IDENTITY' })
 
+  // A confirmação de preview vale para as requisições seguintes.
   assert.deepEqual(calls.map((call) => call.url), [
+    `${PREVIEW}/api/companion/build-identity`,
     `${PREVIEW}/api/companion/me`,
     `${PREVIEW}/api/companion/analyze-conversation`,
     `${PREVIEW}/api/companion/build-identity`,
@@ -534,8 +548,8 @@ test('H) sessão HML nunca cai para produção: sessão de produção, baseUrl d
   assert.equal(calls.some((call) => call.url.startsWith(PRODUCTION_BASE_URL)), false)
   assert.equal(identity.payload.commit_short, 'aaaaaaaa')
   assert.equal(identity.payload.base_url, PREVIEW)
-  assert.equal(calls[2].init.credentials, 'omit')
-  assert.equal(calls[2].init.headers, undefined, 'identidade do backend nunca leva token')
+  assert.equal(calls[3].init.credentials, 'omit')
+  assert.equal(calls[3].init.headers, undefined, 'identidade do backend nunca leva token')
 
   // Sem sessão: nenhuma requisição (nunca "tenta produção").
   const empty = createFakeFetchQueue([])
@@ -593,6 +607,47 @@ test('H) identidade do backend indisponível ou sem commit válido nunca vira "c
   const offline = await bg.sendMessage({ source: 'YOLEN_COMPANION', action: 'GET_BACKEND_BUILD_IDENTITY' })
   assert.equal(offline.ok, false)
   assert.equal(offline.payload.commit, null)
+})
+
+test('H) backend HML que se declara PRODUÇÃO (ou não confirma preview) nunca recebe token', async () => {
+  const cases = [
+    [() => jsonResponse(200, { environment: 'production', commit: 'b'.repeat(40), commit_short: 'bbbbbbbb' }), /PRODUÇÃO/],
+    [() => jsonResponse(200, { environment: null, commit: 'b'.repeat(40), commit_short: 'bbbbbbbb' }), /não confirmado como preview/],
+    [() => jsonResponse(503, null), /não confirmado como preview/],
+  ]
+
+  for (const [identityResponder, expectedError] of cases) {
+    const { fetchFn, calls } = createFakeFetchQueue([identityResponder, identityResponder])
+    const bg = loadBackgroundScript({
+      fetchFn,
+      environmentSource: environmentSource('homolog', PREVIEW),
+      initialStorage: { [SESSION_KEY]: session(PREVIEW) },
+    })
+
+    const refused = await bg.sendMessage({ source: 'YOLEN_COMPANION', action: 'RESOLVE_LEAD', baseUrl: PREVIEW, payload: { phone: '5511999990000' } })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.payload.status, 'HOMOLOG_BACKEND_NOT_PREVIEW')
+    assert.match(refused.payload.error, expectedError)
+
+    // Falha não é memorizada: a próxima requisição confere de novo.
+    await bg.sendMessage({ source: 'YOLEN_COMPANION', action: 'RESOLVE_LEAD', baseUrl: PREVIEW, payload: { phone: '5511999990000' } })
+
+    assert.deepEqual(calls.map((call) => call.url), [
+      `${PREVIEW}/api/companion/build-identity`,
+      `${PREVIEW}/api/companion/build-identity`,
+    ])
+    assert.ok(calls.every((call) => call.init.headers === undefined), 'nenhum token enviado')
+  }
+
+  // PROD nunca faz essa conferência (canal sem backend_match_required).
+  const { fetchFn, calls } = createFakeFetchQueue([() => jsonResponse(200, { ok: true })])
+  const prod = loadBackgroundScript({
+    fetchFn,
+    environmentSource: environmentSource('prod'),
+    initialStorage: { [SESSION_KEY]: session(PRODUCTION_BASE_URL) },
+  })
+  await prod.sendMessage({ source: 'YOLEN_COMPANION', action: 'RESOLVE_LEAD', payload: { phone: '5511999990000' } })
+  assert.deepEqual(calls.map((call) => call.url), [`${PRODUCTION_BASE_URL}/api/companion/resolve-lead`])
 })
 
 // ---------------------------------------------------------------------------

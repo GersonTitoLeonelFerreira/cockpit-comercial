@@ -79,6 +79,14 @@ if (!manyChatSafeIdentityTools) {
 
 let deviceKeyPromise = null
 
+// Canal HOMOLOG: o backend configurado precisa se declarar PREVIEW
+// (/api/companion/build-identity) antes de receber qualquer token — uma
+// origem de produção que escape da validação do build (alias desconhecido)
+// nunca recebe tráfego autenticado de um pacote HML. A confirmação vale
+// alguns minutos; falhas nunca são memorizadas.
+const HOMOLOG_BACKEND_CONFIRMATION_TTL_MS = 5 * 60 * 1000
+let homologBackendConfirmedAt = 0
+
 // Qualquer origem fora do canal cai no backend do canal — nunca em outro.
 function getAllowedBaseUrl(baseUrl) {
   if (ALLOWED_BASE_URLS.includes(baseUrl)) {
@@ -251,6 +259,11 @@ async function refreshCachedSessionIdentity(
     return cachedSession
   }
 
+  // HML com backend não confirmado como preview: o token não sai.
+  if (await getHomologBackendRefusal()) {
+    return cachedSession
+  }
+
   const sessionBaseUrl =
     ALLOWED_BASE_URLS.includes(
       cachedSession.origin,
@@ -396,6 +409,13 @@ async function requestYolenWithToken(message, path, body) {
         error: 'Sessão do Companion não capturada. Clique em Conectar Yolen.',
       },
     }
+  }
+
+  const homologRefusal =
+    await getHomologBackendRefusal()
+
+  if (homologRefusal) {
+    return homologRefusal
   }
 
   const sessionBaseUrl =
@@ -688,6 +708,10 @@ async function fetchBackendBuildIdentity() {
 
     const ok = response.ok && Boolean(commit)
 
+    if (ok && payload?.environment === 'preview') {
+      homologBackendConfirmedAt = Date.now()
+    }
+
     return {
       ok,
       statusCode: response.status,
@@ -715,6 +739,42 @@ async function fetchBackendBuildIdentity() {
         error: 'Backend indisponível para conferir o commit.',
       },
     }
+  }
+}
+
+async function getHomologBackendRefusal() {
+  if (companionEnvironment.backend_match_required !== true) {
+    return null
+  }
+
+  if (
+    homologBackendConfirmedAt &&
+    Date.now() - homologBackendConfirmedAt <
+      HOMOLOG_BACKEND_CONFIRMATION_TTL_MS
+  ) {
+    return null
+  }
+
+  const identity = await fetchBackendBuildIdentity()
+
+  if (
+    identity.ok === true &&
+    identity.payload?.environment === 'preview'
+  ) {
+    return null
+  }
+
+  return {
+    ok: false,
+    statusCode: 409,
+    payload: {
+      ok: false,
+      status: 'HOMOLOG_BACKEND_NOT_PREVIEW',
+      error:
+        identity.payload?.environment === 'production'
+          ? 'O backend deste pacote HML é PRODUÇÃO: nenhum tráfego autenticado é enviado.'
+          : 'Backend deste pacote HML não confirmado como preview: nenhum tráfego autenticado é enviado.',
+    },
   }
 }
 

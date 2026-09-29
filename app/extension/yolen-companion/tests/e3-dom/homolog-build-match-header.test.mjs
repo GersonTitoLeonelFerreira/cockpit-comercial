@@ -45,14 +45,14 @@ function homologSources({ commit = EXTENSION_COMMIT, dirty = false } = {}) {
   }
 }
 
-function backendIdentity(commit) {
+function backendIdentity(commit, environment = 'preview') {
   return {
     GET_BACKEND_BUILD_IDENTITY: async () =>
       commit
         ? {
             ok: true,
             statusCode: 200,
-            payload: { ok: true, base_url: PREVIEW, environment: 'preview', commit, commit_short: commit.slice(0, 8) },
+            payload: { ok: true, base_url: PREVIEW, environment, commit, commit_short: commit.slice(0, 8) },
           }
         : {
             ok: false,
@@ -62,11 +62,11 @@ function backendIdentity(commit) {
   }
 }
 
-function load({ sources, backendCommit }) {
+function load({ sources, backendCommit, backendEnvironment }) {
   return loadContentScript({
     initialHtml: buildWhatsAppPageHtml({ headerTitle: '+55 11 98888-7777' }),
     sourceOverrides: sources,
-    extraHandlers: backendCommit === undefined ? {} : backendIdentity(backendCommit),
+    extraHandlers: backendCommit === undefined ? {} : backendIdentity(backendCommit, backendEnvironment),
     getMeResult: {
       ok: true,
       statusCode: 200,
@@ -136,6 +136,29 @@ test('J) backend sem commit confirmado ou pacote com alterações locais nunca v
   assert.deepEqual(
     [...dirty.document.querySelector('[data-yolen-build-mismatch]').children].map((node) => node.textContent),
     ['BUILD INCOMPATÍVEL', 'Extensão: ce50089a+', 'Backend: ce50089a', 'Esta análise NÃO vale como homologação.'],
+  )
+})
+
+test('J) backend que se declara produção nunca vale como homologação, mesmo no mesmo commit', async () => {
+  const { document } = load({
+    sources: homologSources(),
+    backendCommit: EXTENSION_COMMIT,
+    backendEnvironment: 'production',
+  })
+
+  await waitFor(() => document.querySelector('[data-yolen-build-mismatch]'))
+  assert.deepEqual(
+    [...document.querySelector('[data-yolen-build-mismatch]').children].map((node) => node.textContent),
+    [
+      'BACKEND NÃO É PREVIEW',
+      'Extensão: ce50089a',
+      'Backend: ce50089a (production)',
+      'Esta análise NÃO vale como homologação.',
+    ],
+  )
+  assert.equal(
+    document.querySelector('[data-yolen-backend-identity]').getAttribute('data-yolen-backend-status'),
+    'not_preview',
   )
 })
 
