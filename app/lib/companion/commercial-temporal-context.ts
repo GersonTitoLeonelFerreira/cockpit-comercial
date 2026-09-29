@@ -4,8 +4,10 @@ import type {
 } from './diagnostic-input'
 
 import {
+  affirmedTimeText,
   expressesAffirmativeContinuation,
   isCustomerPhaticMessage,
+  resolveGoverningTimeReference,
 } from './seller-execution-trace'
 
 import type {
@@ -923,16 +925,18 @@ function deferralPlan(
   text: string,
   requestedAt: number,
 ): DeferralPlan {
-  const normalized =
-    normalizeText(text)
-
   const today =
     zonedParts(requestedAt)
 
   const sellerOwesContact =
     SELLER_CONTACT_REQUEST.test(
-      normalized,
+      normalizeText(text),
     )
+
+  // Só horizontes AFIRMADOS contam: "sexta não consigo, me chama segunda"
+  // é segunda.
+  const normalized =
+    affirmedTimeText(text)
 
   let resumeAt: number
   let until: number
@@ -2464,6 +2468,8 @@ export function buildCommercialTemporalContext({
           demonstratedAt:
             intentDemonstratedAt,
           evaluatedAt,
+          // A janela é a do horizonte que governa a intenção ("não consigo
+          // amanhã, pode ser sexta?" → sexta), nunca de um horizonte negado.
           text:
             (() => {
               const message =
@@ -2473,11 +2479,24 @@ export function buildCommercialTemporalContext({
                       intentSignal.message_id,
                 )
 
-              return message
-                ? messageText(
-                    message.message,
-                  )
-                : ''
+              if (!message) {
+                return ''
+              }
+
+              const full =
+                messageText(
+                  message.message,
+                )
+
+              return (
+                resolveGoverningTimeReference(
+                  full,
+                  {
+                    intentKind:
+                      intentSignal.kind,
+                  },
+                ).clause ?? full
+              )
             })(),
         })
       : false

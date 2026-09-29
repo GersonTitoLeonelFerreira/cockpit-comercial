@@ -296,7 +296,18 @@ const EXTERNAL_RESOLUTION_PATTERNS: readonly RegExp[] = [
 // Pedido explícito para NÃO receber mais contato (opt-out). Diferente de um
 // encerramento comum ("já comprei em outro lugar"): depois dele nenhuma nova
 // mensagem é permitida — nem agradecimento nem "porta aberta".
-const CONTACT_OPT_OUT_PATTERNS: readonly RegExp[] = [
+//
+// OPT-OUT ≠ PREFERÊNCIA DE COMUNICAÇÃO. O cliente só rejeita o CONTATO
+// quando recusa o próprio contato ("não me mande mais mensagem", "não quero
+// mais receber contato", "pare de me chamar", "me tira da lista"). Restringir
+// FORMATO ("mensagem de áudio"), CANAL ("não me liga"), QUANTIDADE ou
+// CONTEÚDO ("mais detalhes", "informações") mantém a oportunidade ativa — e
+// um canal alternativo ("prefiro texto", "fala comigo pelo WhatsApp") ou uma
+// continuação comercial ("quero contratar o básico", "já quero fechar") na
+// mesma mensagem prova que o cliente quer continuar a conversa.
+
+// Remoção/recusa do contato em si: o objeto é sempre o contato.
+const CONTACT_REMOVAL_PATTERNS: readonly RegExp[] = [
   // "Pode (me) tirar" só é opt-out com alvo de contato ou sozinho no fim da
   // frase — "pode tirar uma dúvida?" é pedido ativo, nunca opt-out.
   /\bpode (me )?tirar\b(?=\s*((d[aoe]s?|desse|dessa|deste|desta) (sua |essa |dessa )?(lista|grupo|contatos?|cadastro|base|envios?|mailing)\b|(o )?meu (numero|contato|cadastro|nome|telefone)\b|daqui\b|[.!]*\s*$))/,
@@ -304,20 +315,288 @@ const CONTACT_OPT_OUT_PATTERNS: readonly RegExp[] = [
   /\b(tira|tire|tirem|remove|remova|removam|exclui|exclua|excluam)\b\s+(o )?meu (numero|contato|cadastro|telefone)\b/,
   /\bdescadastr\w*/,
   /\b(sair|me tirar|me remover) d[aeo]s? (lista|grupo|contatos|envios)\b/,
-  /\b(nao|para de|pare de|parem de|chega de) (me )?(mande|mandar|mandem|envie|enviar|enviem)\b.{0,20}\b(mais|mensage\w*|msg|nada)\b/,
-  /\b(para|pare|parem|chega) de (me )?(mandar|enviar|chamar|ligar|contatar|procurar|incomodar|perturbar)\b/,
-  /\bnao (me )?(chame|chamem|ligue|liguem|contate|contatem|procure|procurem|incomode|incomodem|perturbe)\b.{0,15}\bmais\b/,
-  /\bnao (quero|desejo) (mais )?(receber (mais )?(mensage\w*|msg|contatos?|ligac\w*|propaganda\w*|promoc\w*|ofertas?|nada)|ser (contatad[oa]|chamad[oa]|procurad[oa])|(nenhum )?contato)\b/,
+  /\bnao (quero|desejo) (mais )?(ser (contatad[oa]|chamad[oa]|procurad[oa])|(nenhum )?contato)\b/,
   /\bnao entr[ea]m? mais em contato\b/,
   /^\s*(stop|sair|parar|cancelar inscricao|descadastrar)\s*[.!]*\s*$/,
 ]
 
+// Substantivos de comunicação: o contato em si, canais/formatos e
+// conteúdos/quantidade de informação.
+const COMMUNICATION_NOUN =
+  '(?:mensage\\w*|msgs?|audios?|voz|ligac\\w*|telefonem\\w*|e-?mails?|sms|detalhes?|informac\\w*|infos?|explicac\\w*|materia(?:l|is)|catalogos?|fotos?|videos?|imagens?|links?|arquivos?|documentos?|pdfs?|textos?|propaganda\\w*|promoc\\w*|ofertas?|novidades?|contatos?)'
+
+const COMMUNICATION_OBJECT_PREFIX =
+  '(?:de\\s+)?(?:(?:receber|ver|ler|ouvir|ter)\\s+)?(?:(?:mais|tant[oa]s?|ess[ae]s?|as|os|a|o)\\s+)*'
+
+// "Não quero/preciso (mais) <comunicação>": recusa sem verbo de envio.
+const NEGATED_COMMUNICATION_NOUN =
+  new RegExp(
+    `\\bnao (?:quero|preciso|precisa|desejo)(?: mais)?\\s+(${COMMUNICATION_OBJECT_PREFIX}${COMMUNICATION_NOUN}\\b.*)$`,
+  )
+
+// Restrição de comunicação: se é opt-out depende do OBJETO restrito.
+const COMMUNICATION_RESTRICTION_PATTERNS: readonly RegExp[] = [
+  NEGATED_COMMUNICATION_NOUN,
+  /\b(nao|para de|pare de|parem de|chega de) (me )?(mande|mandar|mandem|envie|enviar|enviem)\b.{0,20}\b(mais|mensage\w*|msg|nada)\b/,
+  /\b(para|pare|parem|chega) de (me )?(mandar|enviar|chamar|ligar|contatar|procurar|incomodar|perturbar)\b/,
+  /\bnao (me )?(chame|chamem|ligue|liguem|contate|contatem|procure|procurem|incomode|incomodem|perturbe)\b.{0,15}\bmais\b/,
+  /\bnao (quero|desejo) (mais )?receber\b/,
+]
+
+// Verbos de comunicação restringidos. Contato ("chamar", "procurar",
+// "incomodar") é o próprio contato; ligar/telefonar é um CANAL; mandar,
+// enviar e receber dependem do objeto.
+const RESTRICTED_COMMUNICATION_VERB =
+  /\b(cham(?:e|ar|em|a)|contat(?:e|ar|em)|procur(?:e|ar|em)|incomod(?:e|ar|em)|perturb(?:e|ar|em)|lig(?:ue|ar|uem|a)|telefon(?:e|ar|em)|mand(?:e|ar|em|a)|envi(?:e|ar|em|a)|receb(?:er|o))\b/g
+
+type CommunicationObject =
+  | 'contact'
+  | 'channel'
+  | 'content'
+
+// O que está sendo recusado: o contato em si, um canal/formato, ou um
+// conteúdo/quantidade de informação.
+function classifyCommunicationObject(
+  tail: string,
+): CommunicationObject {
+  const object =
+    tail
+      .replace(/^[\s,]+/, '')
+      .replace(
+        /^(?:(?:me|mais|nenhum\w*|ess[ae]s?|est[ae]s?|a|as|o|os|um|uma|de|do|da|dos|das|pra|para|mim)\s+)+/,
+        '',
+      )
+      .trim()
+
+  if (
+    !object ||
+    /^(mais|nada|nenhum\w*)$/.test(object)
+  ) {
+    return 'contact'
+  }
+
+  if (
+    /^(tant[oa]s?|muit[oa]s?|excesso|toda hora|todo (dia|tempo)|o tempo todo|a toda hora)\b/.test(object) ||
+    /^(mensage\w*|msgs?)\s+(tod[oa]s?|toda hora|a toda hora|o tempo todo|tantas|demais|longas?|grandes?)\b/.test(object)
+  ) {
+    return 'content'
+  }
+
+  if (
+    /^(mensage\w*|msgs?|recados?)\s+(de|por|em|com)\s+(audio|voz|video|texto)\b/.test(object) ||
+    /^(audios?|voz|gravac\w*|ligac\w*|telefonem\w*|chamadas?|videochamadas?|e-?mails?|sms|whats\w*|zap|direct|dm)\b/.test(object)
+  ) {
+    return 'channel'
+  }
+
+  if (
+    /^(mensage\w*|msgs?|recados?|nada|contatos?|propaganda\w*|promoc\w*|ofertas?|publicidade|spam|marketing|novidades?|lembretes?)\b/.test(object)
+  ) {
+    return 'contact'
+  }
+
+  return 'content'
+}
+
+// Recusa o CONTATO (e não só um canal, formato ou conteúdo)?
+function restrictionRejectsContact(
+  clause: string,
+): boolean {
+  if (
+    matchesAny(
+      clause,
+      CONTACT_REMOVAL_PATTERNS,
+    )
+  ) {
+    return true
+  }
+
+  const verbs = [
+    ...clause.matchAll(
+      RESTRICTED_COMMUNICATION_VERB,
+    ),
+  ]
+
+  const noun =
+    clause.match(
+      NEGATED_COMMUNICATION_NOUN,
+    )
+
+  if (
+    noun &&
+    communicationScopeObject(
+      noun[1],
+    ) === 'contact'
+  ) {
+    return true
+  }
+
+  return verbs.some(
+    (verb, index) => {
+      const lemma =
+        verb[1]
+
+      if (
+        /^(cham|contat|procur|incomod|perturb)/.test(
+          lemma,
+        )
+      ) {
+        return true
+      }
+
+      if (
+        /^(lig|telefon)/.test(
+          lemma,
+        )
+      ) {
+        return false
+      }
+
+      const tailEnd =
+        verbs[index + 1]?.index ??
+        clause.length
+
+      return (
+        classifyCommunicationObject(
+          clause.slice(
+            (verb.index ?? 0) +
+              verb[0].length,
+            tailEnd,
+          ),
+        ) === 'contact'
+      )
+    },
+  )
+}
+
+function isCommunicationRestriction(
+  clause: string,
+): boolean {
+  return (
+    matchesAny(
+      clause,
+      CONTACT_REMOVAL_PATTERNS,
+    ) ||
+    matchesAny(
+      clause,
+      COMMUNICATION_RESTRICTION_PATTERNS,
+    )
+  )
+}
+
+// Canal/formato alternativo pedido pelo cliente ("prefiro texto", "pode
+// falar comigo pelo WhatsApp", "manda por escrito").
+const ALTERNATIVE_CHANNEL =
+  /\b(prefiro|preferencia|melhor|so (por|pelo|pela|via|no|na)|pode (ser|falar|me chamar|chamar|mandar|me mandar|enviar|me enviar|escrever|me escrever|responder|ligar|me ligar)|(fala|fale|escreve|escreva) comigo|me (chama|chame|manda|mande|envia|envie|escreve|escreva|liga|ligue|responde|responda)|manda|mande|envia|envie)\b|^(por|pelo|pela|via|no|na) (texto|escrito|mensage\w*|whats\w*|zap|e-?mail|chat|aqui)\b/
+
+// Pergunta comercial em outra cláusula: a conversa continua.
+const COMMERCIAL_QUESTION =
+  /\b(quanto (custa|fica|e|sai)|qual (e )?(o )?(valor|preco)|como (faco|funciona|pago|contrato)|tem (vaga|horario|desconto|disponibilidade)|aceita\w* (cartao|pix)|parcel\w*)\b/
+
+// Cláusulas para a análise de restrição de comunicação. Além de pontuação
+// e conectivos, "e" + imperativo afirmativo abre um pedido NOVO: "pare de
+// me ligar e me mande mensagem" recusa um canal e pede outro — já "pare de
+// me ligar e de me mandar mensagem" continua a mesma recusa.
+function communicationClausesOf(
+  normalized: string,
+): string[] {
+  return clausesOf(normalized).flatMap(
+    clause =>
+      clause
+        .split(
+          /\s+e\s+(?=(?:me\s+)?(?:mande|manda|envie|envia|chame|chama|ligue|liga|fale|fala|escreva|escreve|pode|prefiro|quero)\b)/,
+        )
+        .map(
+          part =>
+            part.trim(),
+        )
+        .filter(Boolean),
+  )
+}
+
+export type CommunicationRestriction =
+  | 'contact_opt_out'
+  | 'communication_preference'
+  | 'none'
+
+export function classifyCommunicationRestriction(
+  text: string,
+): CommunicationRestriction {
+  const clauses =
+    communicationClausesOf(
+      normalizeText(text),
+    )
+
+  const restrictions =
+    clauses.filter(
+      isCommunicationRestriction,
+    )
+
+  if (restrictions.length === 0) {
+    return 'none'
+  }
+
+  // Canal alternativo ou continuação comercial em outra cláusula (não
+  // negada): o cliente quer continuar a conversa.
+  const conversationContinues =
+    clauses
+      .filter(
+        clause =>
+          !restrictions.includes(
+            clause,
+          ) &&
+          !/\b(nao|nem)\b/.test(clause),
+      )
+      .some(
+        clause =>
+          ALTERNATIVE_CHANNEL.test(
+            clause,
+          ) ||
+          POSITIVE_CONTINUATION.test(
+            clause,
+          ) ||
+          COMMERCIAL_QUESTION.test(
+            clause,
+          ),
+      )
+
+  return !conversationContinues &&
+    restrictions.some(
+      restrictionRejectsContact,
+    )
+    ? 'contact_opt_out'
+    : 'communication_preference'
+}
+
 export function requestsNoContact(
   text: string,
 ): boolean {
-  return matchesAny(
-    normalizeText(text),
-    CONTACT_OPT_OUT_PATTERNS,
+  return (
+    classifyCommunicationRestriction(
+      text,
+    ) === 'contact_opt_out'
+  )
+}
+
+// Escopo de uma negação ("não quero mais ...") que é comunicação: canal,
+// formato ou conteúdo recusado é preferência, não rejeição da oportunidade.
+const COMMUNICATION_SCOPE =
+  new RegExp(
+    `^\\s*${COMMUNICATION_OBJECT_PREFIX}${COMMUNICATION_NOUN}\\b`,
+  )
+
+function communicationScopeObject(
+  scope: string,
+): CommunicationObject | null {
+  if (!COMMUNICATION_SCOPE.test(scope)) {
+    return null
+  }
+
+  return classifyCommunicationObject(
+    scope.replace(
+      /^\s*(?:de\s+)?(?:(?:receber|ver|ler|ouvir|ter)\s+)?/,
+      '',
+    ),
   )
 }
 
@@ -365,10 +644,9 @@ export function assessCustomerOpportunityStance(
     normalizeText(text)
 
   if (
-    matchesAny(
+    classifyCommunicationRestriction(
       normalized,
-      CONTACT_OPT_OUT_PATTERNS,
-    )
+    ) === 'contact_opt_out'
   ) {
     return {
       stance:
@@ -398,6 +676,17 @@ export function assessCustomerOpportunityStance(
   const nonRejectionClauses: string[] = []
 
   for (const clause of clauses) {
+    // Restrição de canal, formato ou conteúdo (ou uma recusa de contato que
+    // a própria mensagem desmente com canal alternativo/continuação): não
+    // decide a postura em relação à oportunidade.
+    if (
+      isCommunicationRestriction(
+        clause,
+      )
+    ) {
+      continue
+    }
+
     const external =
       matchesAny(
         clause,
@@ -424,6 +713,22 @@ export function assessCustomerOpportunityStance(
     const scope =
       rejection[rejection.length - 1] ??
       ''
+
+    // "Não quero mais informações/detalhes/ligação": recusa um conteúdo ou
+    // canal, não a oportunidade — nem uma opção dela.
+    const communicationObject =
+      communicationScopeObject(
+        scope,
+      )
+
+    if (
+      communicationObject ===
+        'channel' ||
+      communicationObject ===
+        'content'
+    ) {
+      continue
+    }
 
     if (
       PROCESS_OBJECT.test(scope)
@@ -562,37 +867,280 @@ function matchesAny(
   )
 }
 
-export function detectCustomerTimeReference(
-  text: string,
-): SellerExecutionTimeReference {
-  const normalized =
-    normalizeText(text)
+// ---------------------------------------------------------------------------
+// Referência de tempo que GOVERNA a ação do cliente.
+//
+// Um horizonte NEGADO ("não consigo hoje", "hoje não dá", "nem amanhã")
+// nunca governa. Governa o horizonte AFIRMADO ligado à ação pretendida:
+// "não consigo hoje; quero fechar amanhã" é fechar amanhã. Com mais de um
+// horizonte afirmado ("quero fechar amanhã, mas hoje só consigo mandar os
+// documentos"), vence o da cláusula que carrega a intenção da mensagem
+// (fechamento amanhã; o envio de documentos de hoje é secundário) — nunca
+// uma prioridade fixa entre tokens.
+// ---------------------------------------------------------------------------
+const TIME_MENTION =
+  /\b(ainda hoje|hoje a noite|hoje|hj|agora|daqui a pouco|nesta tarde|nesta manha|essa tarde|essa noite|amanha|amanh|(?:proxim[oa] )?(?:segunda|terca|quarta|quinta|sexta|sabado|domingo)(?:(?:-| )feira)?(?: que vem)?|essa semana|esta semana|nesta semana|nessa semana|fim de semana|final de semana)\b/g
 
-  if (
-    /\b(hoje|hj|agora|ainda hoje|daqui a pouco|nesta tarde|nesta manha|essa tarde|essa noite|hoje a noite)\b/.test(
-      normalized,
-    )
-  ) {
-    return 'same_day'
-  }
+// Negação que alcança o horizonte: até três palavras antes ("não consigo
+// hoje", "não dá pra amanhã", "nem sexta") ou logo depois ("hoje não dá",
+// "amanhã eu não consigo").
+const TIME_NEGATION_BEFORE =
+  /\b(nao|nem)\b(?:\s+\S+){0,3}\s*$/
 
-  if (
-    /\b(amanha|amanh)\b/.test(
-      normalized,
-    )
-  ) {
+const TIME_NEGATION_AFTER =
+  /^\s*(?:(?:eu|a gente|nos)\s+)?(?:nao|nem)\b/
+
+// Ação de compromisso na cláusula (desempate sem intenção conhecida).
+const TIME_COMMITMENT_ACTION =
+  /\b(fechar|fecho|fechamos|contratar|contrato|comprar|compro|assinar|assino|pagar|matricular|agendar|marcar|ir|vou|vamos|visitar|comecar|iniciar|conversar|falar|reuniao|decidir|decido|passar|aparecer|pode ser|podemos)\b/
+
+type TimeMention = {
+  reference: Exclude<
+    SellerExecutionTimeReference,
+    null
+  >
+  clause: string
+  negated: boolean
+}
+
+function timeReferenceOfMention(
+  mention: string,
+): Exclude<
+  SellerExecutionTimeReference,
+  null
+> {
+  if (/\bamanh/.test(mention)) {
     return 'next_day'
   }
 
   if (
-    /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo|essa semana|esta semana|nesta semana|nessa semana|fim de semana|final de semana)\b/.test(
-      normalized,
+    /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo|semana)\b/.test(
+      mention,
     )
   ) {
     return 'this_week'
   }
 
-  return null
+  return 'same_day'
+}
+
+function clauseTimeMentions(
+  clause: string,
+): {
+  probe: string
+  mentions: Array<{
+    reference: Exclude<
+      SellerExecutionTimeReference,
+      null
+    >
+    start: number
+    end: number
+    after: string
+    negated: boolean
+  }>
+} {
+  // Expressão de entusiasmo, não negação ("não vejo a hora de fechar
+  // amanhã").
+  const probe =
+    clause.replace(
+      /\bnao vejo a hora\b/g,
+      'ansioso',
+    )
+
+  const matches = [
+    ...probe.matchAll(
+      TIME_MENTION,
+    ),
+  ]
+
+  const clauseMentions =
+    matches.map(
+      (match, index) => {
+        const start =
+          match.index ?? 0
+
+        const previous =
+          matches[index - 1]
+
+        const before =
+          probe.slice(
+            previous
+              ? (previous.index ?? 0) +
+                  previous[0].length
+              : 0,
+            start,
+          )
+
+        const after =
+          probe.slice(
+            start + match[0].length,
+            matches[index + 1]?.index ??
+              probe.length,
+          )
+
+        return {
+          reference:
+            timeReferenceOfMention(
+              match[0],
+            ),
+          start,
+          end:
+            start + match[0].length,
+          after,
+          negated:
+            TIME_NEGATION_BEFORE.test(
+              before,
+            ) ||
+            TIME_NEGATION_AFTER.test(
+              after,
+            ),
+        }
+      },
+    )
+
+  // "Hoje e amanhã não consigo": a negação alcança os horizontes
+  // coordenados.
+  for (
+    let index = clauseMentions.length - 2;
+    index >= 0;
+    index -= 1
+  ) {
+    if (
+      clauseMentions[index + 1].negated &&
+      /^\s*(e|ou|nem)\s*$/.test(
+        clauseMentions[index].after,
+      )
+    ) {
+      clauseMentions[index].negated = true
+    }
+  }
+
+  return {
+    probe,
+    mentions:
+      clauseMentions,
+  }
+}
+
+function timeMentionsOf(
+  text: string,
+): TimeMention[] {
+  return clausesOf(
+    normalizeText(text),
+  ).flatMap(
+    clause =>
+      clauseTimeMentions(
+        clause,
+      ).mentions.map(
+        ({ reference, negated }) => ({
+          reference,
+          clause,
+          negated,
+        }),
+      ),
+  )
+}
+
+// Texto só com os horizontes AFIRMADOS: horizontes negados ("sexta não
+// consigo") são apagados antes de interpretar um prazo combinado.
+export function affirmedTimeText(
+  text: string,
+): string {
+  return clausesOf(
+    normalizeText(text),
+  )
+    .map(
+      clause => {
+        const { probe, mentions } =
+          clauseTimeMentions(clause)
+
+        return mentions
+          .filter(
+            mention =>
+              mention.negated,
+          )
+          .reverse()
+          .reduce(
+            (current, mention) =>
+              `${current.slice(0, mention.start)} ${current.slice(mention.end)}`,
+            probe,
+          )
+      },
+    )
+    .join(', ')
+}
+
+export function resolveGoverningTimeReference(
+  text: string,
+  {
+    intentKind = null,
+  }: {
+    intentKind?:
+      | SellerExecutionCustomerIntentKind
+      | null
+  } = {},
+): {
+  reference: SellerExecutionTimeReference
+  clause: string | null
+} {
+  const affirmed =
+    timeMentionsOf(text).filter(
+      mention =>
+        !mention.negated,
+    )
+
+  if (affirmed.length === 0) {
+    return {
+      reference: null,
+      clause: null,
+    }
+  }
+
+  const governing =
+    affirmed.length === 1
+      ? affirmed[0]
+      : (
+          (
+            intentKind &&
+            intentKind !== 'unknown'
+              ? affirmed.find(
+                  mention =>
+                    inferCustomerIntentFromText(
+                      mention.clause,
+                      'time-clause',
+                    ).kind === intentKind,
+                )
+              : undefined
+          ) ??
+          affirmed.find(
+            mention =>
+              TIME_COMMITMENT_ACTION.test(
+                mention.clause,
+              ),
+          ) ??
+          affirmed[0]
+        )
+
+  return {
+    reference:
+      governing.reference,
+    clause:
+      governing.clause,
+  }
+}
+
+export function detectCustomerTimeReference(
+  text: string,
+  options: {
+    intentKind?:
+      | SellerExecutionCustomerIntentKind
+      | null
+  } = {},
+): SellerExecutionTimeReference {
+  return resolveGoverningTimeReference(
+    text,
+    options,
+  ).reference
 }
 
 function expressesEnthusiasm(
@@ -627,6 +1175,38 @@ function inferCustomerIntent(
     normalizeText(
       messageText(message),
     )
+
+  // Preferência de canal, formato ou conteúdo ("não me mande áudio,
+  // prefiro texto"; "não me mande mais detalhes, quero contratar o
+  // básico"): a intenção vem do RESTO da mensagem, nunca da restrição —
+  // recusar um formato não é objeção nem abandono.
+  if (
+    classifyCommunicationRestriction(
+      text,
+    ) === 'communication_preference'
+  ) {
+    const rest =
+      communicationClausesOf(text)
+        .filter(
+          clause =>
+            !isCommunicationRestriction(
+              clause,
+            ),
+        )
+        .join(', ')
+
+    return rest
+      ? inferCustomerIntentFromText(
+          `${rest}${messageText(message).includes('?') ? '?' : ''}`,
+          message.id,
+        )
+      : {
+          kind: 'unknown',
+          confidence: 'low',
+          evidence_message_id:
+            message.id,
+        }
+  }
 
   const stance =
     assessCustomerOpportunityStance(
@@ -2541,6 +3121,10 @@ export function buildSellerExecutionTrace({
       const timeReference =
         detectCustomerTimeReference(
           latestCustomerText,
+          {
+            intentKind:
+              inferredCustomerIntent.kind,
+          },
         )
 
       const enthusiasm =

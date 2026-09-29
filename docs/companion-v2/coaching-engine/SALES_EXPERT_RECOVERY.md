@@ -156,6 +156,32 @@ O reasoning é avaliado no instante atual do vendedor (`evaluated_at`) e
 carrega `temporal_context`; coaching e message strategy consomem o MESMO
 objeto.
 
+### Opt-out de contato ≠ preferência de comunicação
+
+`classifyCommunicationRestriction` (trace) decide pelo OBJETO recusado, não
+por palavras:
+- o **contato em si** ("não me mande mais mensagem", "não quero mais receber
+  contato", "pare de me chamar", "me tira da lista") é opt-out
+  (`no_contact_requested`, `contact_allowed=false`, nenhuma mensagem);
+- **canal, formato, quantidade ou conteúdo** ("mensagem de áudio", "não me
+  liga", "mais detalhes", "informações", "tantas mensagens") é preferência:
+  a oportunidade continua ativa e a intenção vem do resto da mensagem, nunca
+  da restrição ("não me mande mais detalhes, quero contratar o básico" é
+  fechamento);
+- canal alternativo ("prefiro texto", "fala comigo pelo WhatsApp") ou
+  continuação comercial na mesma mensagem desmente qualquer opt-out.
+
+### Horizonte de tempo que governa a ação
+
+`resolveGoverningTimeReference` (trace) só considera horizontes AFIRMADOS:
+"não consigo hoje", "hoje não dá" e "nem amanhã" nunca governam. Com mais
+de um horizonte afirmado, vence o da cláusula que carrega a intenção da
+mensagem ("quero fechar amanhã, mas hoje só consigo mandar os documentos" é
+fechar amanhã), depois o da ação de compromisso, nunca uma prioridade fixa
+entre tokens. A janela "esta semana"/dia da semana e o prazo combinado
+(`deferralPlan`) usam o mesmo horizonte afirmado ("não consigo amanhã, pode
+ser sexta?" → sexta; "sexta não consigo, me chama segunda" → segunda).
+
 ### Seller Execution Trace
 - **Turnos** (rajadas): bolhas contíguas do vendedor formam uma ação.
 - Saudação pura → `rapport_opening` (saudação + fórmula fática + até três
@@ -253,5 +279,9 @@ inclusive os gerados — com o que as fontes atuais produziriam.
   dias), ritmo observado (2 vs 6 dias com janela de 1 dia), pausa combinada
   vs silêncio não combinado, urgência do cliente e auditoria transversal de
   invariantes sobre todos os resultados.
+- Revisão sobre `14c4803`: `PREFERÊNCIA DE COMUNICAÇÃO ≠ OPT-OUT` (9 preferências
+  × 4 verticais, decisão dentro da venda, 5 opt-outs reais) e `HORIZONTE NEGADO
+  NUNCA GOVERNA` (5 frases do fundador, janela do dia seguinte, sexta e prazo
+  combinado).
 - `commercial-temporal-context.test.mjs`, `commercial-message-critic-repair.test.mjs`,
   `tests/sales-expert-recovery-surfaces.test.mjs`.

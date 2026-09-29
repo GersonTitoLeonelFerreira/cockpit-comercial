@@ -5,7 +5,9 @@ import test from 'node:test'
 import {
   assessCustomerOpportunityStance,
   buildSellerExecutionTrace,
+  classifyCommunicationRestriction,
   classifySellerActionText,
+  resolveGoverningTimeReference,
 } from './seller-execution-trace.ts'
 
 import {
@@ -2979,6 +2981,294 @@ test(
     assert.equal(
       resumeFor('2026-11-30T13:00:00.000Z', 'Me chama em três meses.'),
       '2027-02-28T12:00:00.000Z',
+    )
+  },
+)
+
+// ============================================================================
+// Revisão Codex sobre `14c4803` (PR #356): preferência de comunicação não é
+// opt-out; horizonte de tempo negado nunca governa a ação.
+// ============================================================================
+
+const COMMUNICATION_VERTICALS = [
+  ['Quero saber sobre o curso de inglês.', 'Temos turmas à noite e aos sábados. Qual horário te atende?'],
+  ['Quanto custa o plano de internet de 500 mega?', 'O de 500 mega sai por R$ 119 por mês.'],
+  ['Queria marcar uma avaliação na clínica.', 'Temos horário na quinta às 15h. Pode ser?'],
+  ['Estou procurando um apartamento de dois quartos.', 'Tenho três opções na sua região. Quer que eu te mande?'],
+]
+
+function runCommunicationCase(opening, reply, text) {
+  const start =
+    '2026-09-24T13:00:00.000Z'
+
+  const result =
+    runCase({
+      turns: [
+        ['in', start, opening],
+        ['out', shift(start, 5 * MINUTE), reply],
+        ['in', shift(start, 20 * MINUTE), text],
+      ],
+      evaluated_at:
+        shift(start, 30 * MINUTE),
+    })
+
+  return {
+    ...result,
+    signals:
+      buildSellerExecutionTrace({
+        diagnostic_input:
+          result.input,
+      }).customer_signals,
+  }
+}
+
+test(
+  'PREFERÊNCIA DE COMUNICAÇÃO ≠ OPT-OUT: recusar canal, formato, quantidade ou conteúdo mantém a oportunidade; só recusar o CONTATO bloqueia',
+  () => {
+    // B. Preferência/restrição de canal ou conteúdo → oportunidade ativa.
+    const preferences = [
+      'Não me mande mensagem de áudio, prefiro texto.',
+      'Não me mande mais detalhes, quero contratar o básico.',
+      'Não precisa mandar mais detalhes, quero o básico.',
+      'Não me liga, pode falar comigo pelo WhatsApp.',
+      'Não me ligue mais, pode falar comigo pelo WhatsApp.',
+      'Não quero áudio, prefiro texto.',
+      'Pare de me ligar e me mande mensagem.',
+      'Não quero mais receber mensagens de áudio.',
+      'Não preciso de mais informações, quero o plano anual.',
+    ]
+
+    for (const text of preferences) {
+      assert.notEqual(
+        classifyCommunicationRestriction(text),
+        'contact_opt_out',
+        text,
+      )
+
+      for (const [opening, reply] of COMMUNICATION_VERTICALS) {
+        const label = `${text} | ${opening}`
+        const {
+          temporal,
+          strategy,
+          signals,
+        } = runCommunicationCase(opening, reply, text)
+
+        assert.ok(
+          signals.every(
+            signal =>
+              signal.no_contact_requested === false &&
+              signal.kind !== 'disengaged' &&
+              signal.kind !== 'objection',
+          ),
+          `${label}: ${JSON.stringify(signals.map(signal => [signal.kind, signal.no_contact_requested]))}`,
+        )
+        assert.notEqual(temporal.momentum.state, 'closed', label)
+        assert.equal(temporal.reactivation.contact_allowed, true, label)
+        assert.equal(temporal.reactivation.mode, 'respond_now', label)
+        assert.equal(
+          temporal.reactivation.reason_codes.includes('customer_requested_no_contact'),
+          false,
+          label,
+        )
+        assert.equal(strategy.outbound_allowed, true, label)
+        assert.ok(strategy.objective, label)
+      }
+    }
+
+    // A intenção comercial explícita da mesma mensagem não se perde.
+    for (const [opening, reply] of COMMUNICATION_VERTICALS) {
+      const { temporal } =
+        runCommunicationCase(
+          opening,
+          reply,
+          'Não me mande mais detalhes, quero contratar o básico.',
+        )
+
+      assert.equal(temporal.intent.kind, 'close', opening)
+      assert.equal(temporal.intent.confidence, 'high', opening)
+    }
+
+    // C. Mudança de decisão dentro da venda: a intenção até aumentou.
+    for (const [opening, reply] of COMMUNICATION_VERTICALS) {
+      const {
+        temporal,
+        strategy,
+      } = runCommunicationCase(
+        opening,
+        reply,
+        'Não quero mais informações, já quero fechar.',
+      )
+
+      assert.equal(temporal.intent.kind, 'close', opening)
+      assert.equal(temporal.intent.confidence, 'high', opening)
+      assert.notEqual(temporal.momentum.state, 'closed', opening)
+      assert.equal(temporal.reactivation.contact_allowed, true, opening)
+      assert.equal(strategy.outbound_allowed, true, opening)
+    }
+
+    // A. Opt-out de contato → nenhum contato, em qualquer vertical.
+    for (const text of [
+      'Não me mande mais mensagem.',
+      'Não quero mais receber contato.',
+      'Pare de me chamar.',
+      'Pare de me ligar e de me mandar mensagem.',
+      'Não me mande mais nada.',
+    ]) {
+      assert.equal(classifyCommunicationRestriction(text), 'contact_opt_out', text)
+
+      for (const [opening, reply] of COMMUNICATION_VERTICALS) {
+        const label = `${text} | ${opening}`
+        const {
+          temporal,
+          strategy,
+          signals,
+        } = runCommunicationCase(opening, reply, text)
+
+        assert.equal(signals.at(-1)?.kind, 'disengaged', label)
+        assert.equal(signals.at(-1)?.no_contact_requested, true, label)
+        assert.equal(temporal.momentum.state, 'closed', label)
+        assert.equal(temporal.reactivation.mode, 'respect_closure', label)
+        assert.equal(temporal.reactivation.contact_allowed, false, label)
+        assert.ok(
+          temporal.reactivation.reason_codes.includes('customer_requested_no_contact'),
+          label,
+        )
+        assert.equal(strategy.outbound_allowed, false, label)
+      }
+    }
+
+    // Recusar um canal, mas também a oportunidade, é encerramento comum
+    // (agradecer ainda é permitido) — não opt-out.
+    const channelAndRejection =
+      runCommunicationCase(
+        ...COMMUNICATION_VERTICALS[0],
+        'Não me ligue mais, não tenho interesse.',
+      )
+
+    assert.equal(channelAndRejection.temporal.momentum.state, 'closed')
+    assert.equal(channelAndRejection.temporal.reactivation.contact_allowed, true)
+  },
+)
+
+test(
+  'HORIZONTE NEGADO NUNCA GOVERNA: vence o horizonte afirmado ligado à ação pretendida, sem prioridade fixa de tokens',
+  () => {
+    // Quarta-feira, 23/09/2026, 10h em São Paulo.
+    const said =
+      '2026-09-23T13:00:00.000Z'
+
+    const run = (text, evaluatedAt = shift(said, 10 * MINUTE)) => {
+      const result =
+        runCase({
+          turns: [
+            ['in', shift(said, -20 * MINUTE), 'Quero conhecer os planos.'],
+            ['out', shift(said, -15 * MINUTE), 'Claro! O anual tem acompanhamento mensal incluído.'],
+            ['in', said, text],
+          ],
+          evaluated_at:
+            evaluatedAt,
+        })
+
+      return {
+        ...result,
+        signal:
+          buildSellerExecutionTrace({
+            diagnostic_input:
+              result.input,
+          }).customer_signals.at(-1),
+      }
+    }
+
+    for (const [text, reference, kind] of [
+      ['Não consigo hoje; quero fechar amanhã.', 'next_day', 'close'],
+      ['Hoje não dá. Podemos conversar amanhã?', 'next_day', 'scheduling'],
+      ['Não consigo amanhã, pode ser sexta?', 'this_week', 'scheduling'],
+      ['Hoje quero fechar.', 'same_day', 'close'],
+      ['Quero fechar amanhã, mas hoje só consigo mandar os documentos.', 'next_day', 'close'],
+    ]) {
+      const {
+        signal,
+        temporal,
+      } = run(text)
+
+      assert.equal(signal.kind, kind, text)
+      assert.equal(signal.time_reference, reference, text)
+      assert.equal(temporal.intent.time_reference, reference, text)
+    }
+
+    // O horizonte que governa carrega a ação; o secundário não se perde da
+    // leitura da cláusula ("envio de documentos hoje").
+    const mixed =
+      resolveGoverningTimeReference(
+        'Quero fechar amanhã, mas hoje só consigo mandar os documentos.',
+        { intentKind: 'close' },
+      )
+
+    assert.equal(mixed.reference, 'next_day')
+    assert.match(mixed.clause, /fechar amanha/)
+
+    // Só horizonte negado: nenhum horizonte governa.
+    assert.equal(resolveGoverningTimeReference('Não consigo hoje.').reference, null)
+    assert.equal(resolveGoverningTimeReference('Nem hoje nem amanhã.').reference, null)
+    // Expressão de entusiasmo não é negação.
+    assert.equal(resolveGoverningTimeReference('Não vejo a hora de fechar amanhã!').reference, 'next_day')
+
+    // "Fechar amanhã" dito na quarta vale na quinta; só expira na sexta —
+    // exatamente como o mesmo pedido sem o "hoje" negado. (Com "hoje"
+    // governando, a janela já teria expirado na quinta.)
+    const thursdayIso =
+      '2026-09-24T18:00:00.000Z'
+
+    const affirmedOnly =
+      run('Quero fechar amanhã.', thursdayIso).temporal.intent
+
+    assert.equal(
+      run('Quero fechar hoje.', thursdayIso).temporal.intent.time_window_expired,
+      true,
+    )
+
+    for (const text of [
+      'Não consigo hoje; quero fechar amanhã.',
+      'Quero fechar amanhã, mas hoje só consigo mandar os documentos.',
+    ]) {
+      const thursday =
+        run(text, thursdayIso).temporal.intent
+
+      assert.equal(thursday.time_reference, 'next_day', text)
+      assert.equal(thursday.time_window_expired, false, text)
+      assert.equal(thursday.needs_reconfirmation, affirmedOnly.needs_reconfirmation, text)
+      assert.equal(thursday.freshness, affirmedOnly.freshness, text)
+      assert.equal(
+        run(text, '2026-09-25T13:00:00.000Z').temporal.intent.time_window_expired,
+        true,
+        text,
+      )
+    }
+
+    // "Pode ser sexta?" (amanhã negado): a janela é a da sexta.
+    const fridayWindow = evaluatedAt =>
+      run('Não consigo amanhã, pode ser sexta?', evaluatedAt).temporal.intent
+        .time_window_expired
+
+    assert.equal(fridayWindow('2026-09-25T20:00:00.000Z'), false)
+    assert.equal(fridayWindow('2026-09-26T04:00:00.000Z'), true)
+
+    // Prazo combinado com um dia negado: retoma no dia afirmado.
+    const { temporal: deferral } =
+      runCase({
+        turns: [
+          ['in', shift(said, -20 * MINUTE), 'Quero conhecer os planos.'],
+          ['out', shift(said, -15 * MINUTE), 'Claro! Quer que eu te explique?'],
+          ['in', said, 'Sexta não consigo, me chama segunda.'],
+          ['out', shift(said, 5 * MINUTE), 'Combinado!'],
+        ],
+        evaluated_at:
+          shift(said, 10 * MINUTE),
+      })
+
+    assert.equal(
+      deferral.progression.agreed_pause?.resume_at,
+      '2026-09-28T12:00:00.000Z',
     )
   },
 )
