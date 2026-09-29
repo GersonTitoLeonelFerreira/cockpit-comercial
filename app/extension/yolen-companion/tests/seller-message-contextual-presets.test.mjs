@@ -218,3 +218,31 @@ test('primeira sincronização canônica invalida geração legada já iniciada 
     /message: null/,
   )
 })
+
+
+test('troca de empresa limpa caches seller-facing da MENSAGEM antes do novo render', () => {
+  const start =
+    coreRuntime.indexOf(
+      'if (companyChanged) {',
+    )
+  const end =
+    coreRuntime.indexOf(
+      'state = {',
+      start,
+    )
+  const block =
+    coreRuntime.slice(
+      start,
+      end,
+    )
+
+  assert.notEqual(start, -1)
+  assert.match(
+    block,
+    /messageController\.clear\(\)/,
+  )
+  assert.match(
+    block,
+    /conversationBoundary\.advanceBoundary/,
+  )
+})
