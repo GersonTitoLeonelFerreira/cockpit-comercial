@@ -331,3 +331,38 @@ test('perda de sessão e troca de vendedor limpam e recarregam o contexto privad
     /runAutomaticContactLookup/,
   )
 })
+
+
+test('AnalysisViewModel ready ressincroniza CoachingDiagnosis com MENSAGEM após limpeza de boundary', () => {
+  const start =
+    analysisRuntime.indexOf(
+      'const alreadyReady =',
+    )
+  const end =
+    analysisRuntime.indexOf(
+      'ctx.state = {',
+      start,
+    )
+  const block =
+    analysisRuntime.slice(
+      start,
+      end,
+    )
+
+  assert.notEqual(
+    start,
+    -1,
+  )
+  assert.match(
+    block,
+    /if \(alreadyReady && !force\)/,
+  )
+  assert.match(
+    block,
+    /ctx\.messageController[\s\S]*syncAnalysisViewModel/,
+  )
+  assert.match(
+    block,
+    /ctx\.state\.analysisViewModel\.data/,
+  )
+})
