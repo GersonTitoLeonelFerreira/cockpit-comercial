@@ -323,6 +323,105 @@
     `
   }
 
+  function techniqueSimpleExplanation(technique) {
+    const id = displayText(technique?.id)
+
+    if (
+      id ===
+        'technique.contextual_reengagement'
+    ) {
+      return (
+        'Use um microcompromisso: peça uma decisão pequena que reabra a conversa antes de voltar ao agendamento, à oferta ou a um passo maior.'
+      )
+    }
+
+    if (
+      id ===
+        'technique.guided_choice'
+    ) {
+      return (
+        'Reduza o esforço da decisão oferecendo poucas opções reais, em vez de deixar toda a escolha aberta para o cliente.'
+      )
+    }
+
+    return null
+  }
+
+  function renderAdditionalCoachingFindings(findingsList) {
+    const findings =
+      displayItems(findingsList)
+        .map((item) => ({
+          item,
+          title:
+            displayText(item.title),
+          summary:
+            displayText(item.summary),
+          whyItMatters:
+            displayText(
+              item.why_it_matters,
+            ),
+          howToImprove:
+            displayText(
+              item.how_to_improve,
+            ),
+        }))
+        .filter(
+          ({ title, summary }) =>
+            title && summary,
+        )
+        .slice(0, 3)
+
+    if (findings.length === 0) {
+      return ''
+    }
+
+    return `
+      <section
+        class="yolen-seller-section"
+        data-yolen-analysis-section="additional-coaching-findings"
+      >
+        <div class="yolen-seller-section-heading">
+          <div>
+            <div class="yolen-seller-section-eyebrow">Coaching</div>
+            <h3>Outros aprendizados do atendimento</h3>
+          </div>
+          <span class="yolen-seller-count">${findings.length}</span>
+        </div>
+
+        <div class="yolen-seller-stack">
+          ${findings.map(({
+            item,
+            title,
+            summary,
+            whyItMatters,
+            howToImprove,
+          }) => `
+            <article class="yolen-seller-insight yolen-seller-insight--improvement">
+              <div class="yolen-seller-insight-type">${escapeHtml(title)}</div>
+              <div class="yolen-seller-insight-title">${escapeHtml(summary)}</div>
+              ${renderLabeledCopy('Como melhorar', howToImprove)}
+              ${
+                whyItMatters ||
+                renderEvidence(item)
+                  ? `
+                    <details
+                      class="yolen-seller-secondary-details"
+                      data-yolen-preserve-details="additional-finding-${escapeHtml(item.kind || 'other')}"
+                    >
+                      <summary>Entender o porquê</summary>
+                      ${renderLabeledCopy('Por que isso importa', whyItMatters)}
+                      ${renderEvidence(item)}
+                    </details>
+                  `
+                  : ''
+              }
+            </article>
+          `).join('')}
+        </div>
+      </section>
+    `
+  }
+
   function renderCoachingDiagnosis(diagnosis) {
     if (
       !diagnosis ||
@@ -364,8 +463,6 @@
         </div>
 
         <div class="yolen-seller-stack">
-          ${renderLabeledCopy('Objetivo comercial agora', diagnosis.current_commercial_goal)}
-
           ${strength?.summary ? `
             <article class="yolen-seller-insight yolen-seller-insight--positive">
               <div class="yolen-seller-insight-type">Principal acerto</div>
@@ -389,16 +486,17 @@
             <article class="yolen-seller-insight yolen-seller-insight--positive">
               <div class="yolen-seller-insight-type">Técnica recomendada</div>
               <div class="yolen-seller-insight-title">${escapeHtml(displayText(technique.title))}</div>
+              ${renderLabeledCopy('Em termos simples', techniqueSimpleExplanation(technique))}
+              ${renderLabeledCopy('Como aplicar agora', diagnosis.next_action)}
             </article>
           ` : ''}
-
-          ${renderLabeledCopy('Próximo objetivo', diagnosis.next_action)}
 
           <details
             class="yolen-seller-secondary-details"
             data-yolen-preserve-details="analysis-coaching-diagnosis"
           >
             <summary>Ver raciocínio</summary>
+            ${renderLabeledCopy('Objetivo comercial agora', diagnosis.current_commercial_goal)}
             ${renderLabeledCopy('Intenção atual do cliente', intent?.label)}
             ${renderLabeledCopy('Último movimento válido do vendedor', lastMove?.action_label)}
             ${renderLabeledCopy('Por que esta técnica', technique?.why_now)}
@@ -1202,6 +1300,11 @@
 
     const sections = [
       renderCoachingDiagnosis(analysisViewModel.coaching_diagnosis),
+      hasCoachingDiagnosis
+        ? renderAdditionalCoachingFindings(
+            analysisViewModel.coaching_diagnosis?.additional_findings,
+          )
+        : '',
       hasCoachingDiagnosis
         ? ''
         : renderImprovements(analysisViewModel.improvements),
