@@ -136,8 +136,12 @@ function createCompanionMessageController({
       return
     }
 
+    // Limpeza ESCOPADA invalida somente o estado/copy da MENSAGEM.
+    // O CoachingDiagnosis pertence ao AnalysisViewModel canônico e continua
+    // válido até a ANÁLISE ser realmente atualizada ou a fronteira inteira
+    // da conversa ser descartada. Removê-lo aqui fazia a MENSAGEM cair
+    // silenciosamente para seller_intents legados após registrar conversa.
     stateByConversation.delete(requestKey)
-    analysisViewModelByConversation.delete(requestKey)
 
     if (
       currentContext &&
