@@ -14,6 +14,22 @@ const sellerRuntime = readFileSync(
   'utf8',
 )
 
+const analysisRuntime = readFileSync(
+  new URL(
+    '../src/companion-analysis-controller.js',
+    import.meta.url,
+  ),
+  'utf8',
+)
+
+const coreRuntime = readFileSync(
+  new URL(
+    '../src/companion-core.js',
+    import.meta.url,
+  ),
+  'utf8',
+)
+
 test('atalhos priorizam coaching canônico e preservam seller_intents como fallback', () => {
   const coachingStart =
     sellerRuntime.indexOf(
@@ -80,5 +96,25 @@ test('atalhos priorizam coaching canônico e preservam seller_intents como fallb
   assert.doesNotMatch(
     presetsBlock,
     /stage\.includes\(/,
+  )
+})
+
+
+test('ANÁLISE canônica alimenta MENSAGEM sem criar uma segunda decisão comercial', () => {
+  assert.match(
+    sellerRuntime,
+    /function syncAnalysisViewModel/,
+  )
+  assert.match(
+    sellerRuntime,
+    /syncAnalysisViewModel,/,
+  )
+  assert.match(
+    analysisRuntime,
+    /ctx\.messageController[\s\S]*syncAnalysisViewModel/,
+  )
+  assert.match(
+    coreRuntime,
+    /get messageController\(\)[\s\S]*return messageController/,
   )
 })
