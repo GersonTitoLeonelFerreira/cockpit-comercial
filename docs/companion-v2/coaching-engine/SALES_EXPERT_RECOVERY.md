@@ -128,8 +128,19 @@ fechamento na mesma frase continua vencendo. Todo horizonte aceito vira data
 real no calendário comercial: N dias/semanas/meses, dia da semana (no
 próprio dia = semana seguinte; "sexta da semana que vem" = sexta da próxima
 semana-calendário), depois de amanhã, mais tarde/daqui a pouco (mesmo dia),
-início/fim do mês, semana/mês/ano que vem. Só o genuinamente vago ("outro
-dia", "depois") usa o horizonte curto padrão.
+início/fim do mês, semana/mês/ano que vem; meses de calendário sem
+transbordar ("em um mês" em 31/01 = último dia de fevereiro). Só o
+genuinamente vago ("outro dia", "depois") usa o horizonte curto padrão.
+Horizonte futuro sozinho não é adiamento: "O preço muda no mês que vem?" é
+pergunta de preço e "Tem vaga na próxima semana?" é pedido de agenda; só com
+linguagem de adiar/retomar ("deixa pra semana que vem", "agora não, só mês
+que vem") vira pausa combinada.
+
+**Reconfirmação com horizonte próprio.** Uma reconfirmação fraca renova a
+intenção forte que reconfirma (tipo e confiança), mas o momento e o
+horizonte passam a ser os dela: "quero contratar amanhã" + dois dias depois
+"ainda tenho interesse, quero ir hoje" é intenção de hoje, não um "amanhã"
+vencido.
 
 **Janela "esta semana".** Termina no calendário comercial: "esta semana"
 até o fim do domingo da semana em que foi dita; um dia da semana ("segunda")

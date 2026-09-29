@@ -979,11 +979,35 @@ function deferralPlan(
       duration[2]
 
     if (unit.startsWith('mes')) {
+      // Mês de calendário, sem transbordar: "em um mês" dito em 31/01 é o
+      // último dia de fevereiro, não 3 de março.
+      const monthIndex =
+        today.month - 1 + amount
+
+      const targetYear =
+        today.year +
+        Math.floor(monthIndex / 12)
+
+      const targetMonth =
+        (monthIndex % 12) + 1
+
+      const lastDay =
+        new Date(
+          Date.UTC(
+            targetYear,
+            targetMonth,
+            0,
+          ),
+        ).getUTCDate()
+
       resumeAt =
         zonedInstant(
-          today.year,
-          today.month + amount,
-          today.day,
+          targetYear,
+          targetMonth,
+          Math.min(
+            today.day,
+            lastDay,
+          ),
           9,
         )
 
@@ -2347,8 +2371,12 @@ export function buildCommercialTemporalContext({
       ) ?? null
 
   // Reconfirmação fraca ("ainda tenho interesse, vamos seguir?") não
-  // substitui a intenção mais forte que ela reconfirma: ela a RENOVA.
-  const intentSignal =
+  // substitui a intenção mais forte que ela reconfirma: ela a RENOVA — mantém
+  // tipo e confiança da intenção forte, mas o momento e o horizonte de tempo
+  // passam a ser os da reconfirmação ("quero contratar amanhã" + dois dias
+  // depois "ainda tenho interesse, quero ir hoje" = intenção de hoje).
+  const intentSignal:
+    SellerExecutionCustomerSignal | null =
     (() => {
       if (
         !latestCommercialSignal ||
@@ -2382,32 +2410,42 @@ export function buildCommercialTemporalContext({
         high: 2,
       } as const
 
-      return [...signals]
-        .reverse()
-        .find(
-          signal =>
-            signal !==
-              latestCommercialSignal &&
-            COMMERCIAL_INTENT_KINDS.has(
-              signal.kind,
-            ) &&
-            rank[signal.confidence] >
-              rank[
-                latestCommercialSignal
-                  .confidence
-              ] &&
-            (
-              parse(
-                signal.occurred_at,
-              ) ?? 0
-            ) <=
+      const stronger =
+          [...signals]
+          .reverse()
+          .find(
+            signal =>
+              signal !==
+                latestCommercialSignal &&
+              COMMERCIAL_INTENT_KINDS.has(
+                signal.kind,
+              ) &&
+              rank[signal.confidence] >
+                rank[
+                  latestCommercialSignal
+                    .confidence
+                ] &&
               (
                 parse(
-                  latestCommercialSignal
-                    .occurred_at,
+                  signal.occurred_at,
                 ) ?? 0
-              ),
-        ) ?? latestCommercialSignal
+              ) <=
+                (
+                  parse(
+                    latestCommercialSignal
+                      .occurred_at,
+                  ) ?? 0
+                ),
+          ) ?? null
+
+      return stronger
+        ? {
+            ...latestCommercialSignal,
+            kind: stronger.kind,
+            confidence:
+              stronger.confidence,
+          }
+        : latestCommercialSignal
     })()
 
   const intentDemonstratedAt =

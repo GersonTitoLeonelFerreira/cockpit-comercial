@@ -512,17 +512,45 @@ const SELLER_CONTACT_DEFERRAL =
 
 const DEFERRAL_PATTERNS: readonly RegExp[] = [
   SELLER_CONTACT_DEFERRAL,
-  /\b(ano que vem|proximo ano)\b/,
   /\b(falamos|conversamos|decido|te respondo|retomamos|voltamos a falar|a gente se fala|a gente conversa)\b.{0,30}\b(amanha|daqui a|em \d+ dias|semana que vem|mes que vem|ano que vem|proxim[oa] (semana|mes|ano))\b/,
   /\bvou pensar\b/,
   /\b(te|lhe) (aviso|falo|retorno|chamo)\b/,
   /\b(depois|mais tarde) (te|eu) (aviso|falo|retorno|chamo|vejo)\b/,
-  /\b(mes|semana) que vem\b/,
-  /\bproxim[oa] (mes|semana)\b/,
+]
+
+// Horizonte futuro SOZINHO não é adiamento: "O preço muda no mês que vem?"
+// e "Tem vaga na próxima semana?" são perguntas de compra. O horizonte só
+// vira adiamento com linguagem de adiar/retomar na mesma mensagem ("deixa
+// pra semana que vem", "agora não, só mês que vem", "mais pra frente eu
+// vejo", "depois das férias a gente conversa").
+const DEFERRAL_HORIZON_ONLY: readonly RegExp[] = [
+  /\b(mes|semana|ano) que vem\b/,
+  /\bproxim[oa] (mes|semana|ano)\b/,
   /\bdepois d[ao]s? (ferias|festas|pagamento|viagem)\b/,
   /\bmais (pra|para) frente\b/,
   /\b(fim|final) do mes\b/,
 ]
+
+const POSTPONEMENT_LANGUAGE =
+  /\b(deixa|deixar|deixo|deixamos|fica|ficar|fico|vamos ver|vou ver|a gente ve|a gente conversa|a gente fala|volto|voltamos|retomo|retomamos|eu vejo|vejo isso|vemos isso|decido|decidimos|resolvo|resolvemos|falo|falamos|conversamos|penso|pensar|aviso|avisar|agora nao|no momento nao|por enquanto nao|so (no|na|em|depois|mais|a partir|o|a|la)|somente|apenas|adiar|adia|adiamos|remarcar|nao (consigo|da|posso|vai dar)( agora)?|sem tempo|estou ocupad[oa]|to ocupad[oa]|viajando|de ferias)\b/
+
+function expressesPostponement(
+  text: string,
+): boolean {
+  return (
+    matchesAny(
+      text,
+      DEFERRAL_PATTERNS,
+    ) ||
+    (
+      matchesAny(
+        text,
+        DEFERRAL_HORIZON_ONLY,
+      ) &&
+      POSTPONEMENT_LANGUAGE.test(text)
+    )
+  )
+}
 
 function matchesAny(
   value: string,
@@ -765,10 +793,15 @@ function inferCustomerIntent(
   // mesmo sem as palavras "agendar/marcar".
   if (
     messageText(message).includes('?') &&
-    detectCustomerTimeReference(
-      text,
-    ) !== null &&
-    /\b(consigo|posso|podemos|pode ser|da pra|da para|tem como|daria|seria possivel|vou poder|voces conseguem|conseguem|atendem)\b/.test(
+    (
+      detectCustomerTimeReference(
+        text,
+      ) !== null ||
+      /\b((semana|mes) que vem|proxim[oa] (semana|mes))\b/.test(
+        text,
+      )
+    ) &&
+    /\b(consigo|posso|podemos|pode ser|da pra|da para|tem como|daria|seria possivel|vou poder|voces conseguem|conseguem|atendem|tem (vaga|vagas|horario|horarios|agenda|disponibilidade))\b/.test(
       text,
     )
   ) {
@@ -781,10 +814,7 @@ function inferCustomerIntent(
   }
 
   if (
-    matchesAny(
-      text,
-      DEFERRAL_PATTERNS,
-    )
+    expressesPostponement(text)
   ) {
     return {
       kind: 'deferral',

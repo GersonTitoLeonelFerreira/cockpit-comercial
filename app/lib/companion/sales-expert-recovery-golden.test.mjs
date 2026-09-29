@@ -2869,3 +2869,116 @@ test(
     assert.equal(expiredAt('2026-10-03T04:00:00.000Z'), true)
   },
 )
+
+test(
+  'HORIZONTE SEM ADIAMENTO: perguntas de compra com "mês/semana que vem" não viram pausa combinada',
+  () => {
+    const start =
+      '2026-09-24T13:00:00.000Z'
+
+    const lastSignal = text => {
+      const { input, temporal } =
+        runCase({
+          turns: [
+            ['in', start, 'Quero saber sobre o plano anual.'],
+            ['out', shift(start, 5 * MINUTE), 'Claro! O anual sai por R$ 899.'],
+            ['in', shift(start, 20 * MINUTE), text],
+          ],
+          evaluated_at:
+            shift(start, 30 * MINUTE),
+        })
+
+      return {
+        kind:
+          buildSellerExecutionTrace({
+            diagnostic_input: input,
+          }).customer_signals.at(-1)
+            ?.kind,
+        temporal,
+      }
+    }
+
+    for (const [text, kind] of [
+      ['O preço muda no mês que vem?', 'pricing'],
+      ['Tem vaga na próxima semana?', 'scheduling'],
+    ]) {
+      const result =
+        lastSignal(text)
+
+      assert.equal(result.kind, kind, text)
+      assert.equal(result.temporal.progression.agreed_pause, null, text)
+      assert.equal(result.temporal.reactivation.mode, 'respond_now', text)
+    }
+
+    for (const text of [
+      'Deixa pra semana que vem.',
+      'Agora não, só mês que vem.',
+      'Fica pra próxima semana.',
+      'Mais pra frente eu vejo isso.',
+    ]) {
+      assert.equal(lastSignal(text).kind, 'deferral', text)
+    }
+  },
+)
+
+test(
+  'RECONFIRMAÇÃO COM HORIZONTE PRÓPRIO: "quero contratar amanhã" + dois dias depois "ainda tenho interesse, quero ir hoje" é intenção de hoje',
+  () => {
+    const { temporal } =
+      runCase({
+        turns: [
+          ['in', '2026-09-21T13:00:00.000Z', 'Quero contratar amanhã.'],
+          ['out', '2026-09-21T13:05:00.000Z', 'Perfeito! Te mando a proposta.'],
+          ['in', '2026-09-23T13:00:00.000Z', 'Ainda tenho interesse, quero ir hoje.'],
+        ],
+        evaluated_at:
+          '2026-09-23T13:10:00.000Z',
+      })
+
+    assert.equal(temporal.intent.kind, 'close', 'tipo e confiança da intenção forte')
+    assert.equal(temporal.intent.confidence, 'high')
+    assert.equal(temporal.intent.time_reference, 'same_day', 'horizonte da reconfirmação')
+    assert.equal(
+      Date.parse(temporal.intent.demonstrated_at),
+      Date.parse('2026-09-23T13:00:00.000Z'),
+    )
+    assert.equal(temporal.intent.time_window_expired, false)
+    assert.equal(temporal.intent.needs_reconfirmation, false)
+    assert.equal(temporal.reactivation.requalify_before_continuing, false)
+  },
+)
+
+test(
+  'ADIAMENTO EM MESES não transborda o mês: "em um mês" dito em 31/01 é o último dia de fevereiro',
+  () => {
+    const resumeFor = (requestedAt, text) =>
+      runCase({
+        turns: [
+          ['in', shift(requestedAt, -20 * MINUTE), 'Quero conhecer os planos.'],
+          ['out', shift(requestedAt, -15 * MINUTE), 'Claro! Quer que eu te explique?'],
+          ['in', requestedAt, text],
+          ['out', shift(requestedAt, 5 * MINUTE), 'Combinado!'],
+        ],
+        evaluated_at:
+          shift(requestedAt, 10 * MINUTE),
+      }).temporal.progression
+        .agreed_pause
+        ?.resume_at
+
+    // 31/01/2027 10h em São Paulo → 28/02/2027 9h.
+    assert.equal(
+      resumeFor('2027-01-31T13:00:00.000Z', 'Me chama em um mês.'),
+      '2027-02-28T12:00:00.000Z',
+    )
+    // 31/10/2026 → 30/11/2026.
+    assert.equal(
+      resumeFor('2026-10-31T13:00:00.000Z', 'Me chama em um mês.'),
+      '2026-11-30T12:00:00.000Z',
+    )
+    // 30/11/2026 + 3 meses → 28/02/2027 (virada de ano).
+    assert.equal(
+      resumeFor('2026-11-30T13:00:00.000Z', 'Me chama em três meses.'),
+      '2027-02-28T12:00:00.000Z',
+    )
+  },
+)
