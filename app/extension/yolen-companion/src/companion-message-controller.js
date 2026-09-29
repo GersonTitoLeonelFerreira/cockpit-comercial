@@ -915,14 +915,19 @@ function createCompanionMessageController({
         },
       )
 
-    // Uma mudança real na decisão canônica invalida a copy gerada com a
-    // decisão anterior, mas preserva o texto que o vendedor estava
-    // editando. Re-render sem mudança semântica não apaga resultado.
-    if (
-      previous &&
+    // Qualquer transição para uma decisão canônica nova invalida a copy
+    // gerada com a decisão anterior. Isso inclui a PRIMEIRA sincronização:
+    // o lead summary pode liberar a MENSAGEM antes de a ANÁLISE chegar, e
+    // nesse intervalo pode existir geração legada em voo ou já concluída.
+    // A chegada do primeiro CoachingDiagnosis precisa zerar esse resultado
+    // para impedir copy stale e também tirar o estado de "loading" quando
+    // a resposta antiga for descartada pela assinatura abaixo.
+    const coachingChanged =
+      !previous ||
       previous.signature !==
         signature
-    ) {
+
+    if (coachingChanged) {
       const state =
         stateByConversation.get(
           requestKey,
