@@ -44,6 +44,24 @@ export type CommercialCoachingEvidence = {
     | 'seller_execution_trace'
 }
 
+export type CommercialCoachingFindingKind =
+  | 'response_relevance'
+  | 'question_quality'
+  | 'context_relevance'
+  | 'message_load'
+  | 'follow_up'
+  | 'pressure'
+  | 'discovery_timing'
+
+export type CommercialCoachingFinding = {
+  kind: CommercialCoachingFindingKind
+  title: string
+  summary: string
+  why_it_matters: string
+  how_to_improve: string | null
+  evidence_message_ids: string[]
+}
+
 export type CommercialCoachingLastMove = {
   message_id: string
   action_type: SellerExecutionActionType
@@ -91,6 +109,9 @@ export type CommercialCoachingDiagnosis = {
 
   seller_mistake:
     CommercialCoachingEvidence | null
+
+  additional_findings:
+    CommercialCoachingFinding[]
 
   sequence_break: {
     happened: boolean
@@ -493,6 +514,396 @@ function mistakeFromTrace(
   }
 
   return null
+}
+
+function readingImprovementFindingKind(
+  kind:
+    CommercialReadingImprovementPoint['kind'] | null,
+): CommercialCoachingFindingKind | null {
+  switch (kind) {
+    case 'unanswered_question':
+      return 'response_relevance'
+    case 'premature_price':
+    case 'premature_presentation':
+      return 'context_relevance'
+    case 'interrogation':
+      return 'question_quality'
+    case 'repetition':
+      return 'follow_up'
+    case 'pressure':
+      return 'pressure'
+    default:
+      return null
+  }
+}
+
+function primaryDeterministicMistakeSignal(
+  trace:
+    ReturnType<
+      typeof buildSellerExecutionTrace
+    >,
+):
+  | 'late_discovery_after_close_intent'
+  | 'sequence_break'
+  | 'premature_product_offer'
+  | 'duplicate_followup'
+  | null {
+  const reversed = [
+    ...trace.events,
+  ].reverse()
+
+  for (
+    const signal of [
+      'late_discovery_after_close_intent',
+      'sequence_break',
+      'premature_product_offer',
+      'duplicate_followup',
+    ] as const
+  ) {
+    if (
+      reversed.some(
+        event =>
+          event.signals.includes(
+            signal,
+          ),
+      )
+    ) {
+      return signal
+    }
+  }
+
+  return null
+}
+
+function buildAdditionalCoachingFindings({
+  trace,
+  primaryMistake,
+  primaryReadingImprovement,
+}: {
+  trace:
+    ReturnType<
+      typeof buildSellerExecutionTrace
+    >
+  primaryMistake:
+    CommercialCoachingEvidence | null
+  primaryReadingImprovement:
+    CommercialReadingImprovementPoint | null
+}): CommercialCoachingFinding[] {
+  const findings:
+    CommercialCoachingFinding[] = []
+
+  const seenKinds =
+    new Set<
+      CommercialCoachingFindingKind
+    >()
+
+  const primaryText =
+    primaryMistake
+      ? normalizedCoachingText(
+          `${primaryMistake.summary} ${primaryMistake.why_it_matters}`,
+        )
+      : ''
+
+  const primarySignal =
+    primaryDeterministicMistakeSignal(
+      trace,
+    )
+
+  const primaryReadingFindingKind =
+    readingImprovementFindingKind(
+      primaryReadingImprovement
+        ?.kind ?? null,
+    )
+
+  const primaryReadingEvidence =
+    new Set(
+      primaryReadingImprovement
+        ?.evidence_message_ids ??
+      [],
+    )
+
+  const addFinding = (
+    finding:
+      CommercialCoachingFinding,
+  ) => {
+    if (
+      seenKinds.has(
+        finding.kind,
+      )
+    ) {
+      return
+    }
+
+    const overlapsPrimaryReading =
+      primaryReadingFindingKind ===
+        finding.kind &&
+      finding.evidence_message_ids
+        .some(
+          id =>
+            primaryReadingEvidence
+              .has(id),
+        )
+
+    if (overlapsPrimaryReading) {
+      return
+    }
+
+    const normalized =
+      normalizedCoachingText(
+        `${finding.summary} ${finding.why_it_matters}`,
+      )
+
+    if (
+      primaryText &&
+      (
+        normalized ===
+          primaryText ||
+        (
+          normalized.includes(
+            primaryText,
+          ) &&
+          primaryText.length > 40
+        ) ||
+        (
+          primaryText.includes(
+            normalized,
+          ) &&
+          normalized.length > 40
+        )
+      )
+    ) {
+      return
+    }
+
+    seenKinds.add(
+      finding.kind,
+    )
+    findings.push(
+      finding,
+    )
+  }
+
+  const reversed = [
+    ...trace.events,
+  ].reverse()
+
+  const lowRelevanceResponse =
+    reversed.find(
+      event =>
+        (
+          event.action_type ===
+            'factual_response' ||
+          event.action_type ===
+            'confirmation'
+        ) &&
+        event.quality.relevance ===
+          'low',
+    )
+
+  if (lowRelevanceResponse) {
+    addFinding({
+      kind:
+        'response_relevance',
+      title:
+        'Resposta ao que o cliente pediu',
+      summary:
+        'A resposta do vendedor não endereçou diretamente o pedido comercial que estava ativo naquele momento.',
+      why_it_matters:
+        'Quando o cliente já sinalizou uma intenção concreta, responder sem avançar esse pedido pode desperdiçar momentum e obrigar o cliente a repetir o que precisa.',
+      how_to_improve:
+        'Responder primeiro ao pedido atual do cliente e só depois acrescentar contexto ou condução adicional.',
+      evidence_message_ids: [
+        ...lowRelevanceResponse
+          .evidence_message_ids,
+      ],
+    })
+  }
+
+  const openSchedulingQuestion =
+    reversed.find(
+      event =>
+        event.action_type ===
+          'scheduling_open_question' &&
+        event.quality
+          .question_quality ===
+          'open',
+    )
+
+  if (openSchedulingQuestion) {
+    addFinding({
+      kind:
+        'question_quality',
+      title:
+        'Qualidade da pergunta',
+      summary:
+        'A intenção de avançar para o agendamento foi correta, mas a pergunta deixou a decisão ampla demais para o cliente.',
+      why_it_matters:
+        'Pedir dia e horário de forma totalmente aberta aumenta o esforço de resposta e pode reduzir a continuidade mesmo quando existe interesse.',
+      how_to_improve:
+        'Quando houver opções reais disponíveis, estreite a decisão com poucas alternativas. Se ainda não houver disponibilidade conhecida, peça primeiro um microcompromisso menor.',
+      evidence_message_ids: [
+        ...openSchedulingQuestion
+          .evidence_message_ids,
+      ],
+    })
+  }
+
+  const prematureOffer =
+    reversed.find(
+      event =>
+        event.signals.includes(
+          'premature_product_offer',
+        ),
+    )
+
+  if (
+    prematureOffer &&
+    !/oferta|produto|preco|solucao/
+      .test(
+        primaryText,
+      )
+  ) {
+    addFinding({
+      kind:
+        'context_relevance',
+      title:
+        'Relevância da oferta',
+      summary:
+        'Uma oferta de produto entrou antes de o compromisso anterior da conversa estar resolvido.',
+      why_it_matters:
+        'Adicionar uma nova decisão enquanto o cliente ainda não concluiu a anterior aumenta carga cognitiva e enfraquece a continuidade.',
+      how_to_improve:
+        'Conclua ou recupere o objetivo já aberto antes de introduzir uma nova oferta, salvo quando o próprio cliente trouxer um fato novo.',
+      evidence_message_ids: [
+        ...prematureOffer
+          .evidence_message_ids,
+      ],
+    })
+  }
+
+  const overloaded =
+    reversed.find(
+      event =>
+        event.signals.includes(
+          'seller_message_overloaded',
+        ),
+    )
+
+  if (overloaded) {
+    addFinding({
+      kind:
+        'message_load',
+      title:
+        'Carga da mensagem',
+      summary:
+        'A mensagem concentrou informação demais para um único movimento comercial.',
+      why_it_matters:
+        'Misturar muitos argumentos e decisões reduz clareza sobre o que o cliente precisa fazer em seguida.',
+      how_to_improve:
+        'Escolha um objetivo por mensagem e deixe o próximo passo explícito.',
+      evidence_message_ids: [
+        ...overloaded
+          .evidence_message_ids,
+      ],
+    })
+  }
+
+  const duplicate =
+    reversed.find(
+      event =>
+        event.signals.includes(
+          'duplicate_followup',
+        ),
+    )
+
+  if (
+    duplicate &&
+    primarySignal !==
+      'duplicate_followup'
+  ) {
+    addFinding({
+      kind:
+        'follow_up',
+      title:
+        'Qualidade do follow-up',
+      summary:
+        'A mesma ação comercial foi repetida sem resposta ou fato novo entre as tentativas.',
+      why_it_matters:
+        'Repetição sem mudança de contexto pode parecer insistência e mostra pouca adaptação ao histórico.',
+      how_to_improve:
+        'Mude a abordagem somente quando existir um novo fato, ou preserve o último pedido e dê espaço quando a ação correta já foi executada.',
+      evidence_message_ids: [
+        ...duplicate
+          .evidence_message_ids,
+      ],
+    })
+  }
+
+  const lateDiscovery =
+    reversed.find(
+      event =>
+        event.signals.includes(
+          'late_discovery_after_close_intent',
+        ),
+    )
+
+  if (
+    lateDiscovery &&
+    primarySignal !==
+      'late_discovery_after_close_intent'
+  ) {
+    addFinding({
+      kind:
+        'discovery_timing',
+      title:
+        'Timing da descoberta',
+      summary:
+        'A conversa voltou para descoberta depois de o cliente já demonstrar intenção explícita de avançar.',
+      why_it_matters:
+        'Perguntar além do necessário nesse momento pode criar fricção e desacelerar uma decisão que já estava madura.',
+      how_to_improve:
+        'Execute o próximo passo pedido pelo cliente e só reabra descoberta se surgir uma lacuna que realmente bloqueie a decisão.',
+      evidence_message_ids: [
+        ...lateDiscovery
+          .evidence_message_ids,
+      ],
+    })
+  }
+
+  const pressure =
+    reversed.find(
+      event =>
+        event.quality
+          .pressure_risk ===
+          'high' ||
+        event.quality
+          .pressure_risk ===
+          'medium',
+    )
+
+  if (pressure) {
+    addFinding({
+      kind:
+        'pressure',
+      title:
+        'Pressão comercial',
+      summary:
+        'A abordagem contém sinais de pressão ou urgência que precisam ser sustentados por fatos reais.',
+      why_it_matters:
+        'Pressão sem base pode reduzir confiança e induzir uma decisão em vez de facilitar uma decisão.',
+      how_to_improve:
+        'Use urgência somente quando ela for factual e mantenha a autonomia do cliente.',
+      evidence_message_ids: [
+        ...pressure
+          .evidence_message_ids,
+      ],
+    })
+  }
+
+  return findings.slice(
+    0,
+    3,
+  )
 }
 
 function lastValidMove(
@@ -922,17 +1333,20 @@ export function buildCommercialCoachingDiagnosis({
   const deterministicMistake =
     mistakeFromTrace(trace)
 
+  const primaryReadingImprovement =
+    firstReadingImprovement({
+      reading,
+      waitingForCustomer:
+        sequenceMethod.sequence
+          .waiting_for_customer,
+      customerFactAfterAction:
+        sequenceMethod.sequence
+          .customer_fact_after_action,
+    })
+
   const readingMistake =
     improvementFromReading(
-      firstReadingImprovement({
-        reading,
-        waitingForCustomer:
-          sequenceMethod.sequence
-            .waiting_for_customer,
-        customerFactAfterAction:
-          sequenceMethod.sequence
-            .customer_fact_after_action,
-      }),
+      primaryReadingImprovement,
     )
 
   const mistake =
@@ -1055,6 +1469,17 @@ export function buildCommercialCoachingDiagnosis({
       strength,
     seller_mistake:
       mistake,
+    additional_findings:
+      buildAdditionalCoachingFindings({
+        trace,
+        primaryMistake:
+          mistake,
+        primaryReadingImprovement:
+          deterministicMistake
+            ? null
+            : primaryReadingImprovement ??
+              null,
+      }),
     sequence_break: {
       happened:
         Boolean(

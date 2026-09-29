@@ -925,3 +925,267 @@ test(
     )
   },
 )
+
+
+test(
+  'especialista separa múltiplos aprendizados sem repetir apenas a quebra de sequência',
+  () => {
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          reading(),
+        reasoning:
+          reasoning({
+            objective:
+              'Retomar a intenção de experimentar antes de voltar ao agendamento.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Podemos fazer uma aula experimental hoje?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Olá',
+            },
+            {
+              direction:
+                'incoming',
+              text:
+                'Não fiz ainda',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Qual dia e horário fica melhor para você?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Temos um plano promocional com valor especial para matrícula.',
+            },
+          ]),
+      })
+
+    assert.equal(
+      diagnosis.sequence_break.happened,
+      true,
+    )
+
+    const kinds =
+      diagnosis.additional_findings
+        .map(
+          finding =>
+            finding.kind,
+        )
+
+    assert.ok(
+      kinds.includes(
+        'response_relevance',
+      ),
+    )
+    assert.ok(
+      kinds.includes(
+        'question_quality',
+      ),
+    )
+    assert.ok(
+      kinds.includes(
+        'context_relevance',
+      ),
+    )
+
+    assert.equal(
+      new Set(kinds).size,
+      kinds.length,
+    )
+
+    assert.ok(
+      diagnosis.additional_findings
+        .every(
+          finding =>
+            finding.evidence_message_ids
+              .length > 0,
+        ),
+    )
+  },
+)
+
+
+test(
+  'follow-up duplicado não reaparece em additional_findings quando já é o principal ajuste',
+  () => {
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          reading(),
+        reasoning:
+          reasoning({
+            objective:
+              'Preservar a última ação e aguardar resposta.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Quero agendar uma demonstração.',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Qual dia e horário fica melhor para você?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Qual dia e horário fica melhor para você?',
+            },
+          ]),
+      })
+
+    assert.match(
+      diagnosis.seller_mistake
+        ?.summary ?? '',
+      /repetida sem resposta|mesma ação comercial/i,
+    )
+
+    assert.equal(
+      diagnosis.additional_findings
+        .some(
+          finding =>
+            finding.kind ===
+              'follow_up',
+        ),
+      false,
+    )
+  },
+)
+
+test(
+  'discovery tardia não reaparece em additional_findings quando já é o principal ajuste',
+  () => {
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          reading(),
+        reasoning:
+          reasoning({
+            objective:
+              'Avançar a contratação sem reabrir descoberta desnecessária.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Quero contratar a licença anual. Como faço para assinar?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Antes disso, qual é o principal desafio que vocês querem resolver hoje?',
+            },
+          ]),
+      })
+
+    assert.match(
+      diagnosis.seller_mistake
+        ?.summary ?? '',
+      /continuou descobrindo depois|intenção explícita de avançar/i,
+    )
+
+    assert.equal(
+      diagnosis.additional_findings
+        .some(
+          finding =>
+            finding.kind ===
+              'discovery_timing',
+        ),
+      false,
+    )
+  },
+)
+
+
+test(
+  'pressão já apontada pelo Commercial Reading não reaparece em additional_findings na mesma evidência',
+  () => {
+    const pressureReading =
+      reading({
+        improvements: [
+          {
+            kind:
+              'pressure',
+            summary:
+              'O vendedor pressionou a decisão antes de existir base suficiente.',
+            why_it_matters:
+              'Pressão pode reduzir confiança e autonomia do cliente.',
+            impact:
+              'O cliente pode recuar.',
+            how_to_improve:
+              'Retire a urgência não comprovada e preserve a autonomia.',
+            evidence_message_ids:
+              ['m2'],
+            memory_ids: [],
+          },
+        ],
+      })
+
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          pressureReading,
+        reasoning:
+          reasoning({
+            objective:
+              'Preservar autonomia e responder sem pressão.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Tenho interesse, mas ainda estou avaliando.',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Corre, é urgente e você não perde essa oportunidade.',
+            },
+          ]),
+      })
+
+    assert.match(
+      diagnosis.seller_mistake
+        ?.summary ?? '',
+      /pressionou a decisão/i,
+    )
+
+    assert.equal(
+      diagnosis.additional_findings
+        .some(
+          finding =>
+            finding.kind ===
+              'pressure' &&
+            finding.evidence_message_ids
+              .includes('m2'),
+        ),
+      false,
+    )
+  },
+)

@@ -258,6 +258,9 @@ function createCompanionCore(ctx) {
     get loadCustomerViewModelForCurrentCycle() {
       return loadCustomerViewModelForCurrentCycle
     },
+    get messageController() {
+      return messageController
+    },
     get messageLedgerMutationRevision() {
       return messageLedgerMutationRevision
     },
@@ -8767,8 +8770,11 @@ function createCompanionCore(ctx) {
 
       if (!result?.ok || !result.payload?.ok) {
         // Sessão perdida: nenhuma resolução anterior pode ser reaproveitada
-        // (antes: clearSession() envolvido por lead-resolution-runtime-cache).
+        // e nenhum estado seller-facing da MENSAGEM pode sobreviver ao
+        // logout/relogin. O cache privado inclui CoachingDiagnosis e copy
+        // por conversa, então precisa ser limpo na mesma fronteira.
         coreApiComposition.clearLeadResolutionCache()
+        messageController.clear()
         lastSessionUserId = null
 
         accountMenuOpen = false
@@ -8798,11 +8804,17 @@ function createCompanionCore(ctx) {
       const nextUserId =
         result.payload.user?.id || null
 
-      if (
+      const sessionUserChanged =
         lastSessionUserId !== null &&
         nextUserId !== lastSessionUserId
-      ) {
+
+      if (sessionUserChanged) {
         coreApiComposition.clearLeadResolutionCache()
+        // Mesmo dentro da mesma empresa, vendedor diferente é outra
+        // fronteira de ownership para intenção, copy e CoachingDiagnosis.
+        // O reload do lead mais abaixo também usa este mesmo sinal para
+        // reconstruir syncContext()/ANÁLISE sob o novo usuário.
+        messageController.clear()
       }
 
       lastSessionUserId = nextUserId
@@ -8832,6 +8844,13 @@ function createCompanionCore(ctx) {
         clearAnalysisWatchdogTimer()
         clearAutomaticAnalysisTimer()
         analysisController.activeAnalysisAttempt = null
+
+        // MENSAGEM mantém estado e CoachingDiagnosis em caches próprios por
+        // ciclo/conversa. A mesma conversa pode permanecer selecionada após
+        // trocar a empresa ativa, então cycleId/conversationKey não provam
+        // ownership. A fronteira de empresa invalida integralmente esses
+        // caches antes de qualquer render na nova empresa.
+        messageController.clear()
 
         conversationBoundary.advanceBoundary({
           conversationKey:
@@ -8921,22 +8940,30 @@ function createCompanionCore(ctx) {
           )
         }
       } else if (
-        (companyChanged || !wasConnected) &&
+        (
+          companyChanged ||
+          sessionUserChanged ||
+          !wasConnected
+        ) &&
         !state.isSelfConversation &&
         hasCurrentContactEvidence()
       ) {
-        // A resolução da empresa anterior foi invalidada acima e qualquer
-        // resolve em voo pertence à boundary antiga: resolve de novo sob
-        // a boundary da empresa nova.
+        // A resolução anterior foi invalidada acima por troca de empresa,
+        // troca de usuário ou recuperação de sessão. Recarrega o lead para
+        // reconstruir summary/MENSAGEM/ANÁLISE sob a ownership atual.
         resolveCurrentLead()
       } else if (
-        (companyChanged || !wasConnected) &&
+        (
+          companyChanged ||
+          sessionUserChanged ||
+          !wasConnected
+        ) &&
         !state.isSelfConversation &&
         state.conversationKey
       ) {
-        // Sessão recuperada (ou nova empresa) numa conversa cuja evidência
-        // ainda não foi adquirida: a aquisição só roda conectada, então é
-        // aqui que ela começa.
+        // Sessão recuperada, nova empresa ou novo usuário numa conversa
+        // cuja evidência ainda não foi adquirida: a aquisição só roda
+        // conectada, então é aqui que ela começa.
         runAutomaticContactLookup(
           state.conversationKey,
         )

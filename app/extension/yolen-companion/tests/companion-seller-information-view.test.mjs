@@ -715,3 +715,323 @@ test('UX-02 AGORA separa decisão e ação e recolhe sinais secundários', () =>
   assert.match(html, /<summary>Ver outros sinais \(1\)<\/summary>/)
   assert.match(html, /Há uma objeção secundária/)
 })
+
+
+test('ANÁLISE ensina a técnica e mostra aprendizados distintos sem repetir o mesmo bloco', () => {
+  const viewModel =
+    analysisViewModelFromReading(
+      buildReading(),
+    )
+
+  viewModel.coaching_diagnosis = {
+    status: 'ready',
+    client_context_confidence: 'high',
+    seller_execution_confidence: 'high',
+    current_commercial_goal:
+      'Retomar a intenção de aula experimental.',
+    client_intent_now: {
+      kind: 'scheduling',
+      label:
+        'Agendamento ou compromisso de agenda',
+      confidence: 'high',
+      evidence_message_id:
+        'message-1',
+    },
+    seller_last_valid_move: {
+      action_label:
+        'Pergunta aberta de agendamento',
+    },
+    seller_strength: {
+      summary:
+        'Você tentou transformar o interesse em um próximo passo concreto.',
+      why_it_matters:
+        'A intenção de avançar estava correta.',
+      evidence_message_ids:
+        ['message-2'],
+      memory_ids: [],
+    },
+    seller_mistake: {
+      summary:
+        'A conversa saiu do objetivo anterior antes de concluir o compromisso.',
+      why_it_matters:
+        'A sequência perdeu continuidade.',
+      impact:
+        'O cliente recebeu uma nova decisão antes de concluir a anterior.',
+      how_to_improve:
+        'Recupere o último objetivo válido antes de avançar.',
+      evidence_message_ids:
+        ['message-3'],
+      memory_ids: [],
+    },
+    additional_findings: [
+      {
+        kind:
+          'question_quality',
+        title:
+          'Qualidade da pergunta',
+        summary:
+          'A pergunta de agendamento ficou ampla demais.',
+        why_it_matters:
+          'Aumenta o esforço de resposta.',
+        how_to_improve:
+          'Reduza a decisão quando houver opções reais.',
+        evidence_message_ids:
+          ['message-2'],
+      },
+      {
+        kind:
+          'response_relevance',
+        title:
+          'Resposta ao que o cliente pediu',
+        summary:
+          'A primeira resposta não endereçou diretamente o pedido.',
+        why_it_matters:
+          'Oportunidades com intenção concreta perdem força quando o pedido precisa ser repetido.',
+        how_to_improve:
+          'Responda primeiro ao pedido atual.',
+        evidence_message_ids:
+          ['message-1'],
+      },
+    ],
+    sequence_break: {
+      happened: true,
+      what_changed:
+        'A condução mudou para apresentação antes de concluir o objetivo anterior.',
+      why_it_hurts:
+        'Aumenta fricção.',
+      evidence_message_ids:
+        ['message-3'],
+    },
+    method_state: {
+      configured: true,
+      current_stage_name:
+        'Apresentação',
+      recommended_stage_name:
+        'Descoberta',
+      recommended_stage_reason:
+        'Há etapa anterior incompleta.',
+      adherence:
+        'partially_on_method',
+      deviation_detected: true,
+      recovery_objective:
+        'Retomar o compromisso anterior.',
+      recovery_move:
+        'Confirmar o interesse atual.',
+    },
+    chosen_technique: {
+      id:
+        'technique.contextual_reengagement',
+      title:
+        'Retomada contextual',
+      why_now:
+        'A conversa perdeu continuidade.',
+      risks: [],
+    },
+    next_action:
+      'Confirmar se o interesse continua antes de voltar ao agendamento.',
+    do_not_do: [
+      'Não repetir a pergunta anterior.',
+    ],
+    evidence_message_ids:
+      ['message-1', 'message-2', 'message-3'],
+    memory_ids: [],
+  }
+
+  const html =
+    view.renderAnalysisViewModel(
+      viewModel,
+    )
+
+  assert.match(
+    html,
+    /Retomada contextual/,
+  )
+  assert.match(
+    html,
+    /Em termos simples/,
+  )
+  assert.match(
+    html,
+    /microcompromisso/i,
+  )
+  assert.match(
+    html,
+    /Como aplicar agora/,
+  )
+  assert.match(
+    html,
+    /Outros aprendizados do atendimento/,
+  )
+  assert.match(
+    html,
+    /Qualidade da pergunta/,
+  )
+  assert.match(
+    html,
+    /Resposta ao que o cliente pediu/,
+  )
+  assert.doesNotMatch(
+    html,
+    /<h3>Pontos de melhoria<\/h3>/,
+  )
+})
+
+
+test('toda técnica selecionável recebe explicação simples para o vendedor', () => {
+  const techniqueIds = [
+    'technique.contextual_reengagement',
+    'technique.guided_choice',
+    'technique.objection_diagnosis',
+    'technique.third_party_handoff',
+    'technique.discovery_before_prescription',
+    'technique.commitment_wait',
+    'technique.decision_criteria_clarification',
+    'technique.impact_exploration',
+    'technique.value_linkage',
+    'technique.objection_isolation',
+    'technique.evidence_based_reassurance',
+    'technique.stakeholder_mapping',
+    'technique.commitment_ladder',
+    'technique.explicit_close_execution',
+    'technique.comparison_by_criteria',
+    'principle.company_rules_before_claim',
+  ]
+
+  for (const techniqueId of techniqueIds) {
+    const viewModel =
+      analysisViewModelFromReading(
+        buildReading(),
+      )
+
+    viewModel.coaching_diagnosis = {
+      status: 'ready',
+      client_context_confidence: 'high',
+      seller_execution_confidence: 'high',
+      current_commercial_goal:
+        'Executar o próximo passo.',
+      client_intent_now: null,
+      seller_last_valid_move: null,
+      seller_strength: null,
+      seller_mistake: null,
+      additional_findings: [],
+      sequence_break: {
+        happened: false,
+        what_changed: null,
+        why_it_hurts: null,
+        evidence_message_ids: [],
+      },
+      method_state: {
+        configured: true,
+        current_stage_name: 'Contato',
+        recommended_stage_name: 'Contato',
+        recommended_stage_reason: null,
+        adherence: 'on_method',
+        deviation_detected: false,
+        recovery_objective: null,
+        recovery_move: null,
+      },
+      chosen_technique: {
+        id: techniqueId,
+        title: 'Técnica de teste',
+        why_now:
+          'Aplicável ao contexto atual.',
+        risks: [],
+      },
+      next_action:
+        'Executar o próximo passo.',
+      do_not_do: [],
+      evidence_message_ids: [],
+      memory_ids: [],
+    }
+
+    const html =
+      view.renderAnalysisViewModel(
+        viewModel,
+      )
+
+    assert.match(
+      html,
+      /Em termos simples/,
+      techniqueId,
+    )
+    assert.doesNotMatch(
+      html,
+      /<div class="yolen-seller-detail-copy"><\/div>/,
+      techniqueId,
+    )
+  }
+})
+
+
+test('ANÁLISE mantém próximo passo visível quando não existe técnica aplicável', () => {
+  const viewModel =
+    analysisViewModelFromReading(
+      buildReading(),
+    )
+
+  viewModel.coaching_diagnosis = {
+    status: 'ready',
+    client_context_confidence: 'high',
+    seller_execution_confidence: 'high',
+    current_commercial_goal:
+      'Responder ao pedido atual do cliente.',
+    client_intent_now: null,
+    seller_last_valid_move: null,
+    seller_strength: null,
+    seller_mistake: null,
+    additional_findings: [],
+    sequence_break: {
+      happened: false,
+      what_changed: null,
+      why_it_hurts: null,
+      evidence_message_ids: [],
+    },
+    method_state: {
+      configured: true,
+      current_stage_name: 'Contato',
+      recommended_stage_name: 'Contato',
+      recommended_stage_reason: null,
+      adherence: 'on_method',
+      deviation_detected: false,
+      recovery_objective: null,
+      recovery_move: null,
+    },
+    chosen_technique: null,
+    next_action:
+      'Responder diretamente ao pedido do cliente.',
+    do_not_do: [],
+    evidence_message_ids: [],
+    memory_ids: [],
+  }
+
+  const html =
+    view.renderAnalysisViewModel(
+      viewModel,
+    )
+
+  const nextStepIndex =
+    html.indexOf(
+      'Próximo passo',
+    )
+  const reasoningIndex =
+    html.indexOf(
+      '<summary>Ver raciocínio</summary>',
+    )
+
+  assert.notEqual(
+    nextStepIndex,
+    -1,
+  )
+  assert.notEqual(
+    reasoningIndex,
+    -1,
+  )
+  assert.ok(
+    nextStepIndex <
+      reasoningIndex,
+  )
+  assert.match(
+    html,
+    /Responder diretamente ao pedido do cliente\./,
+  )
+})

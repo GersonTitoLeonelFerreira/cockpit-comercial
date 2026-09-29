@@ -438,6 +438,21 @@ function createCompanionAnalysisController(ctx) {
         ?.status === 'ready'
 
     if (alreadyReady && !force) {
+      // O AnalysisViewModel canônico pode continuar válido enquanto a
+      // MENSAGEM teve seus caches privados limpos por uma fronteira de
+      // sessão/usuário. Antes de retornar pelo fast-path, ressincronize o
+      // mesmo CoachingDiagnosis pronto com o messageController para não
+      // cair em presets legados até o próximo refresh forçado.
+      ctx.messageController
+        ?.syncAnalysisViewModel?.(
+          {
+            cycle_id: cycleId,
+            conversation_key:
+              conversationKey,
+          },
+          ctx.state.analysisViewModel.data,
+        )
+
       return
     }
 
@@ -505,6 +520,19 @@ function createCompanionAnalysisController(ctx) {
           data: result.payload.data,
         },
       }
+
+      // A aba MENSAGEM não recalcula estratégia. Ela recebe o mesmo
+      // CoachingDiagnosis canônico que a ANÁLISE acabou de carregar e
+      // apenas o traduz em intenções clicáveis para o vendedor.
+      ctx.messageController
+        ?.syncAnalysisViewModel?.(
+          {
+            cycle_id: cycleId,
+            conversation_key:
+              conversationKey,
+          },
+          result.payload.data,
+        )
 
       renderPanel()
     } catch {
