@@ -923,18 +923,15 @@ function createCompanionMessageController({
         },
       )
 
-    // Só uma decisão canônica REAL invalida copy anterior. O primeiro
-    // sync com coaching_diagnosis=null é equivalente à ausência de cache:
-    // não há decisão nova e a geração em voo deve continuar válida.
-    // Quando o primeiro CoachingDiagnosis real chegar — ou quando mudar —
-    // aí sim a copy antiga precisa ser descartada.
+    // O primeiro sync ausente→null é apenas baseline e não invalida
+    // geração. Depois que existe cache, porém, qualquer mudança de
+    // assinatura é uma mudança real de decisão — inclusive diagnóstico
+    // existente→null, que remove coaching antes disponível.
     const coachingChanged =
-      signature !== null &&
-      (
-        !previous ||
-        previous.signature !==
+      previous
+        ? previous.signature !==
           signature
-      )
+        : signature !== null
 
     if (coachingChanged) {
       const state =
