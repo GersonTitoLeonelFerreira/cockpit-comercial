@@ -14,21 +14,71 @@ const sellerRuntime = readFileSync(
   'utf8',
 )
 
-test('atalhos priorizam seller_intents contextuais e limitam a três opções', () => {
-  const start = sellerRuntime.indexOf(
-    'function getPresets(guidance)',
-  )
-  const end = sellerRuntime.indexOf(
-    'function shortPresetLabel',
-    start,
-  )
-  const block = sellerRuntime.slice(start, end)
+test('atalhos priorizam coaching canônico e preservam seller_intents como fallback', () => {
+  const coachingStart =
+    sellerRuntime.indexOf(
+      'function getCoachingPresets',
+    )
+  const presetsStart =
+    sellerRuntime.indexOf(
+      'function getPresets(',
+    )
+  const end =
+    sellerRuntime.indexOf(
+      'function shortPresetLabel',
+      presetsStart,
+    )
+  const coachingBlock =
+    sellerRuntime.slice(
+      coachingStart,
+      presetsStart,
+    )
+  const presetsBlock =
+    sellerRuntime.slice(
+      presetsStart,
+      end,
+    )
 
-  assert.notEqual(start, -1)
-  assert.match(block, /guidance\?\.seller_intents/)
-  assert.match(block, /\.slice\(0, 3\)/)
-  assert.match(block, /if \(contextual\.length > 0\)/)
-  assert.doesNotMatch(block, /stage\.includes\(/)
-  assert.doesNotMatch(block, /avançar para uma proposta/i)
-  assert.doesNotMatch(block, /principal dúvida ou objeção/i)
+  assert.notEqual(coachingStart, -1)
+  assert.notEqual(presetsStart, -1)
+  assert.match(
+    coachingBlock,
+    /coaching_diagnosis/,
+  )
+  assert.match(
+    coachingBlock,
+    /technique\.contextual_reengagement/,
+  )
+  assert.match(
+    coachingBlock,
+    /microcompromisso/i,
+  )
+  assert.match(
+    coachingBlock,
+    /technique\.guided_choice/,
+  )
+  assert.match(
+    presetsBlock,
+    /getCoachingPresets/,
+  )
+  assert.match(
+    presetsBlock,
+    /guidance\?\.seller_intents/,
+  )
+  assert.match(
+    presetsBlock,
+    /\.slice\(0, 3\)/,
+  )
+  assert.match(
+    presetsBlock,
+    /if \(coaching\.length > 0\)/,
+  )
+  assert.match(
+    presetsBlock,
+    /if \(contextual\.length > 0\)/,
+  )
+  assert.doesNotMatch(
+    presetsBlock,
+    /stage\.includes\(/,
+  )
 })
