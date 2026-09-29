@@ -506,6 +506,19 @@ function createCompanionAnalysisController(ctx) {
         },
       }
 
+      // A aba MENSAGEM não recalcula estratégia. Ela recebe o mesmo
+      // CoachingDiagnosis canônico que a ANÁLISE acabou de carregar e
+      // apenas o traduz em intenções clicáveis para o vendedor.
+      ctx.messageController
+        ?.syncAnalysisViewModel?.(
+          {
+            cycle_id: cycleId,
+            conversation_key:
+              conversationKey,
+          },
+          result.payload.data,
+        )
+
       renderPanel()
     } catch {
       if (!isStillCurrentContext()) {
