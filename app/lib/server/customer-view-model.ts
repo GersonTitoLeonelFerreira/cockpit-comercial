@@ -109,6 +109,13 @@ export type CustomerViewModelGap = {
   summary: string
   topic: string | null
 
+  // 'current_interest' = o estado atual do interesse, exigido pelo
+  // reasoning canônico (requalificação); 'discovery' = lacuna da leitura.
+  kind?: 'current_interest' | 'discovery'
+  // true = lacuna da etapa antiga: continua verdadeira, mas só volta a ser
+  // operacional se o interesse for reconfirmado.
+  conditional_on_reconfirmation?: boolean
+
   evidence_message_ids: string[]
   memory_ids: string[]
 }
@@ -223,8 +230,55 @@ function buildKnowledgeGaps(
     }))
 }
 
+// Prioridade das lacunas segundo o reasoning canônico — o presenter só
+// PRIORIZA/QUALIFICA, nunca reinterpreta a conversa. Quando o reasoning
+// exige requalificação, o estado atual do interesse é a lacuna principal e
+// as lacunas da etapa antiga ("dia e horário", "data da visita", "escopo
+// da proposta") ficam condicionais — continuam registradas, com evidência.
+export type CustomerViewModelReasoningPriority = {
+  requalify_before_continuing: boolean
+  current_interest_evidence_message_ids?: string[]
+}
+
+export const CURRENT_INTEREST_GAP_SUMMARY =
+  'O interesse atual ainda não foi reconfirmado depois do intervalo.'
+
+function prioritizeKnowledgeGaps(
+  gaps: CustomerViewModelGap[],
+  priority: CustomerViewModelReasoningPriority | null,
+): CustomerViewModelGap[] {
+  const discovery =
+    gaps.map((gap) => ({
+      ...gap,
+      kind: 'discovery' as const,
+    }))
+
+  if (!priority?.requalify_before_continuing) {
+    return discovery
+  }
+
+  return [
+    {
+      summary: CURRENT_INTEREST_GAP_SUMMARY,
+      topic: 'current_interest',
+      kind: 'current_interest',
+      conditional_on_reconfirmation: false,
+      evidence_message_ids:
+        priority.current_interest_evidence_message_ids ?? [],
+      memory_ids: [],
+    },
+    ...discovery
+      .slice(0, MAX_KNOWLEDGE_GAPS - 1)
+      .map((gap) => ({
+        ...gap,
+        conditional_on_reconfirmation: true,
+      })),
+  ]
+}
+
 export function buildCustomerViewModel(
   currentReading: CanonicalCommercialReadingSource | null,
+  reasoningPriority: CustomerViewModelReasoningPriority | null = null,
 ): CustomerViewModel {
   const emptyOpportunityContext: CustomerViewModelOpportunityContext = {
     objectives: [],
@@ -246,7 +300,10 @@ export function buildCustomerViewModel(
 
       preferences: [],
       communication_patterns: [],
-      knowledge_gaps: [],
+      knowledge_gaps: prioritizeKnowledgeGaps(
+        [],
+        reasoningPriority,
+      ),
       opportunity_context: emptyOpportunityContext,
 
       provenance: {
@@ -282,7 +339,10 @@ export function buildCustomerViewModel(
         MAX_COMMUNICATION_PATTERNS,
       ),
 
-    knowledge_gaps: buildKnowledgeGaps(customer),
+    knowledge_gaps: prioritizeKnowledgeGaps(
+      buildKnowledgeGaps(customer),
+      reasoningPriority,
+    ),
 
     opportunity_context: {
       objectives:

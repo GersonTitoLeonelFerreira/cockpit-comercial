@@ -256,7 +256,11 @@
     return (
       '<div class="yolen-client-relationship-row yolen-client-relationship-waiting" ' +
       `data-yolen-waiting-state="${escapeHtml(waiting?.state || 'unknown')}">` +
-      `<span class="yolen-client-relationship-label">Situação</span>` +
+      // "Pendência de resposta" (fato: quem deve a próxima mensagem), não
+      // "Situação" — o estado comercial da oportunidade é do Commercial
+      // Reasoning ("Oportunidade sem continuidade", "Reativação
+      // necessária") e não pode competir com este rótulo.
+      `<span class="yolen-client-relationship-label">Pendência de resposta</span>` +
       `<span class="yolen-client-relationship-value">${escapeHtml(label)}${
         duration ? ` · ${escapeHtml(duration)}` : ''
       }</span>` +

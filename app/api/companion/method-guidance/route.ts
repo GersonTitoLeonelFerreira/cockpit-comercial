@@ -16,6 +16,7 @@ import {
 
 import {
   composeSellerMessage,
+  type SellerMessageGenerationResult,
 } from '../../../lib/companion/lead-seller-message'
 
 import {
@@ -89,6 +90,38 @@ const CURRENT_INTERACTION_GAP_MS =
   4 * 60 * 60 * 1000
 const CURRENT_INTERACTION_LIMIT = 40
 const MAX_SELLER_INTENT_LENGTH = 1000
+
+// O diagnóstico interno da geração (falhas do critic, etapa) fica no
+// servidor: a resposta seller-facing leva só status, mensagem e a frase de
+// erro simples.
+function sellerFacingGeneration(
+  generation: SellerMessageGenerationResult,
+) {
+  if (generation.status === 'no_message') {
+    return generation
+  }
+
+  if (generation.diagnostics) {
+    console.info(
+      '[METHOD_GUIDANCE_API] seller message generation',
+      {
+        status: generation.status,
+        source:
+          generation.diagnostics.source ?? null,
+        stage:
+          generation.diagnostics.stage ?? null,
+        failure_count:
+          generation.diagnostics.failures.length,
+      },
+    )
+  }
+
+  return {
+    status: generation.status,
+    message: generation.message,
+    error: generation.error,
+  }
+}
 
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
@@ -670,7 +703,9 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           ok: true,
-          data: generation,
+          data: sellerFacingGeneration(
+            generation,
+          ),
         },
         {
           status: 200,

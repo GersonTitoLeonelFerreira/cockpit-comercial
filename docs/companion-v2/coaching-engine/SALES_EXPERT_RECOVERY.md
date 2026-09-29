@@ -266,6 +266,52 @@ gerado (manifest transformado para o alvo/ambiente, feature flag efetiva,
 ícones redimensionados, identidade) e compara todos os arquivos do staging —
 inclusive os gerados — com o que as fontes atuais produziriam.
 
+### Execução e apresentação (R7)
+O cérebro não mudou; mudou o que o vendedor recebe dele.
+
+- **MENSAGEM sem dead-end.** Antes, quando o redator repetia a mesma
+  violação substantiva (repetir a pergunta sem resposta, presumir o
+  interesse atual, empurrar oferta), `composeSellerMessage` terminava em
+  `status: error` com o texto técnico do critic. Agora, depois das três
+  tentativas do modelo, `composeStrategyGroundedMessage` monta a retomada a
+  partir da própria estratégia canônica: primeiro nome, o assunto real do
+  pedido do cliente (`context_reference`, sem o horizonte antigo e na voz do
+  vendedor) e uma única pergunta de estado atual conforme a técnica
+  escolhida. A copy passa pelo MESMO `validateMessage` + critic e pelo MESMO
+  gate customer-facing; se não passar, não há copy. Orçamento fixo: no
+  máximo 7 chamadas. O critic ficou mais rígido, não mais frouxo: "vi que
+  você ainda quer…" + pedido operacional passou a ser `assumes_current_intent`.
+- **Erro seller-facing.** `error` é sempre uma frase simples
+  (`SELLER_FACING_UNSAFE_MESSAGE` / `SELLER_FACING_UNAVAILABLE_MESSAGE`); o
+  motivo técnico fica em `diagnostics` (stage, source, failures), que a rota
+  `method-guidance` loga e remove da resposta. `no_message` (opt-out)
+  continua distinto de erro.
+- **CLIENTE.** Quando o reasoning exige requalificação, a lacuna principal é
+  "o interesse atual ainda não foi reconfirmado"; lacunas da etapa antiga
+  (dia e horário, data da visita, escopo) continuam registradas, com
+  evidência, como "Se o interesse continuar". O presenter só aplica a
+  prioridade do reasoning — nunca decide sozinho. "Situação" virou
+  "Pendência de resposta" (quem deve a próxima mensagem), para não competir
+  com o estado comercial.
+- **AGORA: 1 decisão → 1 ação → 1 por quê.** O "por quê" é a única frase que
+  acrescenta informação à situação e à ação (o fato temporal que a situação
+  trazia, ou a oração nova do `why_now`); a situação perde a frase que virou
+  "por quê". Momento, fatos restantes, raciocínio, técnica e cuidados ficam
+  em "Ver técnica e cuidados".
+- **ANÁLISE por ganho informacional.** Deduplicação por função semântica
+  (radicais de conteúdo, não igualdade de string): o diagnóstico perde as
+  frases que o principal ajuste e os aprendizados abertos já explicam; o
+  momento fica subordinado ao diagnóstico; a explicação da técnica desce
+  para "Como aplicar" quando só repete a ação. O diagnóstico completo, o
+  rótulo do momento e os fatos excedentes continuam em "Ver raciocínio".
+- **Rótulos.** Um acerto sobre a mesma mensagem que um aprendizado aberto
+  critica é "Acerto parcial", com a ressalva nomeada. "Outro acerto" e
+  "Qualidade da proposta" não existem no código atual.
+- **Tempo de resposta.** Já separava primeira resposta de primeira resposta
+  que tratou o pedido (`first_response_addressed`); o golden trava "a
+  primeira resposta veio 3 horas depois e não tratou o pedido; o pedido só
+  foi efetivamente tratado 9 dias depois" e proíbe "demorou".
+
 ## 3. Evidência
 
 - `sales-expert-recovery-golden.test.mjs` + `docs/companion-v2/corpus/sales-expert-recovery-golden.json`:
@@ -283,5 +329,10 @@ inclusive os gerados — com o que as fontes atuais produziriam.
   × 4 verticais, decisão dentro da venda, 5 opt-outs reais) e `HORIZONTE NEGADO
   NUNCA GOVERNA` (5 frases do fundador, janela do dia seguinte, sexta e prazo
   combinado).
+- R7: `message-semantic-recovery.test.mjs` (redator adversarial, orçamento de
+  chamadas, erro seller-facing, `no_message`) e
+  `seller-facing-end-to-end-golden.test.mjs` (Lorena ponta a ponta até o HTML
+  de AGORA/ANÁLISE/CLIENTE + SaaS 5 dias, imobiliária 8 dias, clínica 3 dias,
+  B2B 10 dias com preço antes do escopo).
 - `commercial-temporal-context.test.mjs`, `commercial-message-critic-repair.test.mjs`,
   `tests/sales-expert-recovery-surfaces.test.mjs`.

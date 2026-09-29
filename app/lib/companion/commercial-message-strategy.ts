@@ -1256,6 +1256,68 @@ export function repairCommercialMessageDraft(
   }
 }
 
+// Requalificação: a intenção antiga NÃO pode ser tratada como atual — nem
+// pedindo o passo operacional numa parte da pergunta ("vi que você ainda
+// quer fazer a aula, qual horário fica melhor?"), nem afirmando o interesse
+// como fato ("sei que você quer..."). Perguntar pelo estado atual ("ainda
+// faz sentido?") continua sendo a retomada correta.
+const PRESUMED_CURRENT_INTENT =
+  /\b(?:vi que|sei que|ja que|como|entendi que|percebi que|notei que|imagino que)\s+(?:voce|vc)\s+(?:ainda\s+)?(?:quer|deseja|precisa|tem interesse|esta (?:querendo|interessad\w*|procurando|pensando))\b/
+
+function presumesCurrentIntent(
+  message: string,
+): boolean {
+  if (
+    PRESUMED_CURRENT_INTENT.test(
+      comparable(message),
+    )
+  ) {
+    return true
+  }
+
+  // Afirmação (fora de pergunta) de que o cliente AINDA quer.
+  return sentencesOf(message)
+    .filter(
+      sentence =>
+        !sentence.includes('?'),
+    )
+    .some(sentence =>
+      /\b(?:voce|vc)\s+(?:ainda\s+)?(?:quer|deseja|esta (?:querendo|interessad\w*))\b/.test(
+        comparable(sentence),
+      ),
+    )
+}
+
+// O PEDIDO de uma pergunta é a sua última parte ("vi que você ainda quer a
+// aula, qual horário fica melhor?" pede o horário); a abertura ("sobre a
+// aula que você tinha pedido:") só contextualiza.
+function asksOperationalStep(
+  message: string,
+): boolean {
+  return sentencesOf(message)
+    .filter(
+      sentence =>
+        sentence.includes('?'),
+    )
+    .map(
+      sentence =>
+        sentence
+          .replace(/\?+\s*$/, '')
+          .split(/[,;:]/)
+          .map(part => part.trim())
+          .filter(Boolean)
+          .pop() ?? '',
+    )
+    .filter(Boolean)
+    .some(ask =>
+      OPERATIONAL_ACTIONS.includes(
+        classifySellerActionText(
+          `${ask}?`,
+        ),
+      ),
+    )
+}
+
 function repeatsRecentOutgoing({
   message,
   recent_outgoing_messages,
@@ -1423,8 +1485,12 @@ export function evaluateCommercialMessageDraft({
   if (
     temporalFrame
       ?.requalify_before_continuing &&
-    OPERATIONAL_ACTIONS.includes(
-      candidateAction,
+    (
+      OPERATIONAL_ACTIONS.includes(
+        candidateAction,
+      ) ||
+      asksOperationalStep(message) ||
+      presumesCurrentIntent(message)
     )
   ) {
     violations.push(
@@ -1492,4 +1558,297 @@ export function evaluateCommercialMessageDraft({
       ) as
         CommercialMessageCriticViolation[],
   }
+}
+
+// ---------------------------------------------------------------------------
+// Recuperação semântica da MENSAGEM.
+//
+// Quando o redator insiste em violar a estratégia (repetir a ação que ficou
+// sem resposta, tratar a intenção antiga como atual, oferecer em vez de
+// reativar), a MessageStrategy canônica já tem o bastante para montar uma
+// copy segura: a fala real do cliente (context_reference), a ação
+// obrigatória (required_action_type) e o microcompromisso da técnica. O
+// composer é determinístico, só usa o que o próprio cliente disse, e a copy
+// passa pelo MESMO critic, pela mesma validação e pelo mesmo gate
+// customer-facing — nada é relaxado. Só existe para ações cuja copy segura
+// não depende de fatos que faltam (retomada/reativação); para as demais
+// (escolha guiada sem opções reais, fechamento, objeção) não há fallback.
+// ---------------------------------------------------------------------------
+
+const TOPIC_BOUNDARY_START = '(?<![\\p{L}\\p{N}])'
+const TOPIC_BOUNDARY_END = '(?![\\p{L}\\p{N}])'
+
+function topicPattern(
+  body: string,
+  flags = 'giu',
+): RegExp {
+  return new RegExp(
+    `${TOPIC_BOUNDARY_START}(?:${body})${TOPIC_BOUNDARY_END}`,
+    flags,
+  )
+}
+
+// Referências de tempo do pedido original: o horizonte antigo ("hoje",
+// "sexta às 10h") não vale mais e nunca é repetido na retomada.
+const TOPIC_TIME_EXPRESSIONS =
+  topicPattern(
+    [
+      'ainda hoje',
+      'hoje(?: mesmo)?',
+      'depois de amanh[aã]',
+      'amanh[aã]',
+      'agora',
+      '(?:essa|esta|nessa|nesta) semana',
+      'semana que vem',
+      'pr[oó]xima semana',
+      'm[eê]s que vem',
+      'pr[oó]ximo m[eê]s',
+      '(?:n[ao]|nest[ae]|ness[ae])\\s+(?:pr[oó]xim[ao]\\s+)?(?:segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)(?:-feira|\\s+feira)?',
+      '(?:segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)(?:-feira|\\s+feira)?',
+      '(?:[àa]s?|por volta d[ae]s?)\\s+\\d{1,2}(?:[:h]\\d{0,2})?\\s*(?:h|horas?)?',
+      '\\d{1,2}h\\d{0,2}',
+      '(?:de|pela)\\s+manh[aã]',
+      '(?:[àa]|pela)\\s+(?:tarde|noite)',
+      'cedo',
+      'mais tarde',
+      'por favor',
+      'pra mim',
+      'para mim',
+    ].join('|'),
+  )
+
+// Abertura do pedido que não faz parte do assunto ("podemos", "queria",
+// "vocês podem me mandar"). Pedido para o vendedor ENVIAR algo vira o que o
+// cliente queria RECEBER.
+const TOPIC_REQUEST_LEADS: ReadonlyArray<[RegExp, string]> = [
+  [/^(?:voc[eê]s?|vcs)\s+(?:podem|pode|poderiam|poderia|conseguem|consegue|conseguiriam)\s+(?:me\s+)?(?:mandar|enviar|passar)\s+/iu, 'receber '],
+  [/^(?:me\s+)?(?:manda|mande|envia|envie|passa|passe)\s+/iu, 'receber '],
+  [/^(?:eu\s+)?(?:gostaria\s+de|queria|quero|preciso\s+de|preciso|vou\s+querer)\s+/iu, ''],
+  [/^(?:n[oó]s\s+)?(?:podemos|poder[ií]amos|posso|poderia|podia|consigo|conseguiria|conseguimos|d[aá]\s+(?:pra|para)|tem\s+como|seria\s+poss[ií]vel|ser[aá]\s+que\s+(?:d[aá]|consigo|posso)(?:\s+(?:pra|para))?)\s+/iu, ''],
+  [/^(?:voc[eê]s?|vcs)\s+(?:t[eê]m|tem|fazem|faz|trabalham\s+com|atendem)\s+/iu, ''],
+  [/^(?:tem|t[eê]m|existe)\s+/iu, ''],
+]
+
+const TOPIC_COURTESY_TOKENS =
+  new Set([
+    'ok', 'okay', 'obrigado', 'obrigada', 'obg', 'valeu', 'blz', 'beleza',
+    'certo', 'certinho', 'sim', 'nao', 'combinado', 'perfeito', 'entendi',
+    'show', 'top', 'legal', 'otimo', 'otima', 'bom', 'boa', 'tranquilo',
+    'claro', 'isso', 'esta', 'tudo', 'bem', 'por', 'favor',
+  ])
+
+// Assunto do pedido original, reescrito para ser citado ao cliente sem
+// repetir o horizonte antigo nem a formulação da pergunta ("Podemos fazer a
+// aula experimental hoje?" → "fazer a aula experimental"). Nunca inventa:
+// sem assunto reconhecível (ou sem âncora do pedido), devolve null.
+export function customerRequestTopic(
+  text: string,
+  anchors: readonly string[] = [],
+): string | null {
+  const sentences =
+    text
+      .split(/(?<=[.!?])\s+|\n+/)
+      .map(sentence => sentence.trim())
+      .filter(Boolean)
+
+  // A frase do pedido é a que carrega as âncoras do assunto; saudação e
+  // "tudo bem?" nunca são o assunto.
+  const cleaned =
+    sentences
+      .map(sentence =>
+        sentence
+          .replace(/^(?:(?:oi+|ol[aá]|opa|e a[ií]|bom dia|boa tarde|boa noite)(?:\s+[\p{Lu}][\p{L}'-]*)?[\s,!.]*)+/iu, '')
+          .replace(/(?<![\p{L}])(?:tudo bem|tudo bom|como vai)\s*\??/giu, '')
+          .replace(/[?!.;:]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      )
+      .filter(Boolean)
+      .map(sentence => ({
+        sentence,
+        score:
+          anchors.filter(anchor =>
+            comparable(sentence)
+              .split(' ')
+              .includes(anchor),
+          ).length,
+      }))
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          right.sentence.length - left.sentence.length,
+      )
+
+  let topic =
+    cleaned[0]?.sentence ?? ''
+
+  // Pergunta de preço: o assunto é o item consultado ("quanto custa o
+  // plano X?" → "o plano X"), nunca um valor.
+  const priceQuestion =
+    topic.match(
+      /^(?:quanto\s+(?:custa|fica|sai|[eé])|qual\s+(?:[eé]\s+)?(?:o\s+)?(?:valor|pre[cç]o)(?:\s+d[aoe]s?)?)\s+(.+)$/iu,
+    )
+
+  if (priceQuestion) {
+    const rest =
+      priceQuestion[1].trim()
+
+    topic =
+      /^(?:o|a|os|as|um|uma)\s/iu.test(rest)
+        ? rest
+        : `o ${rest}`
+  } else {
+    for (let pass = 0; pass < 3; pass += 1) {
+      const before = topic
+
+      for (const [pattern, replacement] of TOPIC_REQUEST_LEADS) {
+        topic = topic.replace(pattern, replacement)
+      }
+
+      if (topic === before) {
+        break
+      }
+    }
+  }
+
+  topic =
+    topic
+      .replace(TOPIC_TIME_EXPRESSIONS, ' ')
+      .replace(topicPattern('minhas'), 'suas')
+      .replace(topicPattern('minha'), 'sua')
+      .replace(topicPattern('meus'), 'seus')
+      .replace(topicPattern('meu'), 'seu')
+      .replace(topicPattern('nossas'), 'suas')
+      .replace(topicPattern('nossa'), 'sua')
+      .replace(topicPattern('nossos'), 'seus')
+      .replace(topicPattern('nosso'), 'seu')
+      .replace(/\s+/g, ' ')
+      .replace(/[\s,;:-]+$/g, '')
+      .replace(/\s+(?:e|ou|de|do|da|para|pra|com|em|no|na)$/iu, '')
+      .trim()
+
+  if (
+    !topic ||
+    /^(?:quando|como|onde|que horas|qual|quais|por que|porque|pq|o que|sera)\b/iu.test(topic) ||
+    topicPattern('eu|comigo|mim|me|nós|conosco', 'iu').test(topic)
+  ) {
+    return null
+  }
+
+  const words =
+    topic.split(/\s+/).length
+
+  if (words < 2 || words > 14) {
+    return null
+  }
+
+  // Cortesia/confirmação ("ok, obrigado", "tá certo") não é assunto.
+  if (
+    comparable(topic)
+      .split(' ')
+      .every(token =>
+        token.length <= 2 ||
+        TOPIC_COURTESY_TOKENS.has(token),
+      )
+  ) {
+    return null
+  }
+
+  if (
+    anchors.length > 0 &&
+    !anchors.some(anchor =>
+      comparable(topic)
+        .split(' ')
+        .includes(anchor),
+    )
+  ) {
+    return null
+  }
+
+  return topic.charAt(0).toLowerCase() + topic.slice(1)
+}
+
+// Pergunta de retomada por técnica: UMA pergunta de baixo esforço, que
+// descobre o estado atual sem presumir interesse nem pedir data/horário.
+const REACTIVATION_QUESTIONS: Record<string, string> = {
+  'technique.state_change_reactivation':
+    'De lá pra cá, você chegou a resolver isso de outra forma ou ainda faz sentido retomarmos por aqui?',
+  'technique.permission_based_reengagement':
+    'Ainda faz sentido retomarmos esse assunto agora, ou prefere deixar para outro momento?',
+  'technique.pattern_interrupt_reengagement':
+    'Pergunta rápida: isso ainda é prioridade para você ou ficou para depois?',
+  'technique.contextual_reengagement':
+    'Isso ainda faz sentido para você, ou algo mudou desde então?',
+}
+
+export type StrategyGroundedMessage = {
+  message: string
+  technique_id: string | null
+  topic: string
+}
+
+// Copy segura a partir da estratégia canônica. null quando não há ação
+// canônica segura (não é retomada), quando o cliente não pode receber
+// mensagem, ou quando o pedido do cliente não sustenta uma referência
+// concreta — nesses casos não existe copy honesta sem inventar.
+export function composeStrategyGroundedMessage({
+  strategy,
+  recipient_name = null,
+}: {
+  strategy:
+    CommercialMessageStrategy | null
+  recipient_name?: string | null
+}): StrategyGroundedMessage | null {
+  if (
+    !strategy ||
+    strategy.outbound_allowed === false ||
+    !strategy.objective ||
+    strategy.required_action_type !==
+      'reengagement' ||
+    !strategy.context_reference?.text
+  ) {
+    return null
+  }
+
+  const topic =
+    customerRequestTopic(
+      strategy.context_reference.text,
+      strategy.context_reference.anchors,
+    )
+
+  if (!topic) {
+    return null
+  }
+
+  const question =
+    REACTIVATION_QUESTIONS[
+      strategy.technique_id ?? ''
+    ] ??
+    REACTIVATION_QUESTIONS[
+      'technique.state_change_reactivation'
+    ]
+
+  const firstName =
+    recipient_name
+      ?.trim()
+      .split(/\s+/)[0] ??
+    null
+
+  const message = [
+    firstName
+      ? `Oi, ${firstName}!`
+      : 'Oi!',
+    `Quando a gente conversou, você tinha comentado sobre ${topic}.`,
+    question,
+  ].join(' ')
+
+  return message.length <=
+    strategy.max_length
+    ? {
+        message,
+        technique_id:
+          strategy.technique_id,
+        topic,
+      }
+    : null
 }

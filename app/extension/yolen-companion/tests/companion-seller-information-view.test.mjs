@@ -1035,3 +1035,47 @@ test('ANÁLISE mantém próximo passo visível quando não existe técnica aplic
     /Responder diretamente ao pedido do cliente\./,
   )
 })
+
+test('CLIENTE: com requalificação, o interesse atual é a lacuna principal e a lacuna da etapa antiga fica condicional', () => {
+  const html = view.renderCustomerViewModel({
+    ...view.buildCustomerViewModelFromReading(buildReading()),
+    knowledge_gaps: [
+      {
+        summary: 'O interesse atual ainda não foi reconfirmado depois do intervalo.',
+        topic: 'current_interest',
+        kind: 'current_interest',
+        conditional_on_reconfirmation: false,
+        evidence_message_ids: ['m-request'],
+        memory_ids: [],
+      },
+      {
+        summary: 'Ainda não foi informado o dia e horário disponíveis para realizar a aula experimental.',
+        topic: 'timing',
+        kind: 'discovery',
+        conditional_on_reconfirmation: true,
+        evidence_message_ids: ['m-schedule'],
+        memory_ids: [],
+      },
+    ],
+  })
+
+  const principal = html.match(/data-yolen-customer-gap="principal">([\s\S]*?)<\/div>\s*<div class="yolen-seller-detail-copy" data-yolen-customer-gap-after/)
+  assert.ok(principal, html)
+  assert.match(principal[1], /Estado atual do interesse/)
+  assert.match(principal[1], /O interesse atual ainda não foi reconfirmado/)
+  assert.doesNotMatch(principal[1], /dia e horário/)
+
+  assert.match(html, /Depois, se o interesse continuar/)
+  assert.match(html, /data-yolen-customer-gap-conditional/)
+  assert.match(html, /Se o interesse continuar: Ainda não foi informado o dia e horário/)
+  // A ordem de leitura reflete a hierarquia.
+  assert.ok(html.indexOf('O interesse atual ainda não foi reconfirmado') < html.indexOf('dia e horário'))
+})
+
+test('CLIENTE: sem requalificação, a lacuna de descoberta continua sendo a principal (sem rótulo condicional)', () => {
+  const html = view.renderCustomerViewModel(view.buildCustomerViewModelFromReading(buildReading()))
+
+  assert.doesNotMatch(html, /Depois, se o interesse continuar/)
+  assert.doesNotMatch(html, /data-yolen-customer-gap-conditional/)
+  assert.doesNotMatch(html, /Estado atual do interesse/)
+})

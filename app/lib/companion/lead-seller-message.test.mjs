@@ -15,6 +15,8 @@ register(
 
 const {
   composeSellerMessage,
+  SELLER_FACING_UNAVAILABLE_MESSAGE,
+  SELLER_FACING_UNSAFE_MESSAGE,
 } = await import('./lead-seller-message.ts')
 
 const method = {
@@ -328,8 +330,14 @@ test('horário realmente diferente continua bloqueado pelo gate', async () => {
   })
 
   assert.equal(result.status, 'error')
-  assert.match(
+  // O vendedor vê só a frase seller-facing; o motivo técnico fica no
+  // diagnóstico interno.
+  assert.equal(
     result.error,
+    SELLER_FACING_UNSAFE_MESSAGE,
+  )
+  assert.match(
+    result.diagnostics.failures.join(' '),
     /horário sem base/i,
   )
 })
@@ -387,8 +395,14 @@ test('rejeita valor numérico inventado fora do resumo, interação e intenção
 
   assert.equal(result.status, 'error')
   assert.equal(result.message, null)
-  assert.match(
+  // O vendedor vê só a frase seller-facing; o motivo técnico fica no
+  // diagnóstico interno.
+  assert.equal(
     result.error,
+    SELLER_FACING_UNSAFE_MESSAGE,
+  )
+  assert.match(
+    result.diagnostics.failures.join(' '),
     /sem base no contexto/i,
   )
 })
@@ -514,8 +528,14 @@ test('gate final continua bloqueando fato protegido inventado durante a revisão
 
   assert.equal(result.status, 'error')
   assert.equal(result.message, null)
-  assert.match(
+  // O vendedor vê só a frase seller-facing; o motivo técnico fica no
+  // diagnóstico interno.
+  assert.equal(
     result.error,
+    SELLER_FACING_UNSAFE_MESSAGE,
+  )
+  assert.match(
+    result.diagnostics.failures.join(' '),
     /valor, percentual, data ou horário sem base/i,
   )
 })
@@ -1107,8 +1127,12 @@ test(
       result.message,
       null,
     )
-    assert.match(
+    assert.equal(
       result.error,
+      SELLER_FACING_UNAVAILABLE_MESSAGE,
+    )
+    assert.match(
+      result.diagnostics.failures.join(' '),
       /gate customer-facing/i,
     )
     assert.equal(
@@ -1236,13 +1260,19 @@ test(
       result.message,
       null,
     )
-    assert.match(
+    // A falha final foi o gate indisponível; a rejeição determinística
+    // original continua registrada no diagnóstico interno.
+    assert.equal(
       result.error,
+      SELLER_FACING_UNAVAILABLE_MESSAGE,
+    )
+    assert.match(
+      result.diagnostics.failures.join(' '),
       /critic da estratégia comercial/i,
     )
     assert.doesNotMatch(
       result.error,
-      /falha no gate customer-facing/i,
+      /critic|gate|repeats|technique/i,
     )
     assert.equal(
       calls.length,

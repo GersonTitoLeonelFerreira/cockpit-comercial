@@ -391,10 +391,171 @@ test(
       html,
       /data-yolen-agora-momentum="dormant"/,
     )
+    // Primeiro nível: situação, ação e UM "por quê" que acrescenta
+    // informação; o rótulo do momento e os fatos ficam nos detalhes.
     assert.match(
       html,
-      /Oportunidade sem continuidade · Última mensagem do cliente há 19 dias/,
+      /Por que essa ação<\/div>\s*<div class="yolen-seller-detail-copy">O interesse atual é desconhecido\.<\/div>/,
     )
+    assert.match(
+      html,
+      /<summary>Ver técnica<\/summary>[\s\S]*Oportunidade sem continuidade[\s\S]*Última mensagem do cliente há 19 dias/,
+    )
+  },
+)
+
+function withoutDetails(html) {
+  return html.replace(/<details[\s\S]*?<\/details>/g, ' ')
+}
+
+function detailsOf(html) {
+  return (html.match(/<details[\s\S]*?<\/details>/g) || []).join(' ')
+}
+
+function count(haystack, needle) {
+  return haystack.split(needle).length - 1
+}
+
+test(
+  'AGORA sem redundância: 1 situação, 1 ação, 1 "por quê"; o fato que virou "por quê" sai da situação e o resto fica em detalhes',
+  () => {
+    const headline =
+      'O cliente demonstrou interesse em agendar há 28 dias. A última resposta do cliente foi há 19 dias, com 2 tentativas do vendedor sem resposta desde então. O interesse atual não está confirmado.'
+    const action =
+      'Reativar a conversa perguntando como está esse interesse hoje.'
+
+    const html =
+      view.renderAgoraViewModelSnapshot({
+        silent: false,
+        silent_reason: null,
+        primary: {
+          status: 'follow_up',
+          priority: 'high',
+          headline,
+          action,
+          provenance: {},
+        },
+        secondary: [],
+        reference_time: null,
+        reasoning: {
+          status: 'ready',
+          decision: 'follow_up',
+          what_is_happening: headline,
+          // O motor embute a situação inteira no why_now.
+          why_now: `${headline} Antes de retomar o passo antigo é preciso descobrir o que mudou.`,
+          next_best_action: action,
+          technique: {
+            id: 'technique.state_change_reactivation',
+            title: 'Reativação por mudança de estado',
+            why_applicable: 'x',
+            risks: [],
+          },
+          do_not_do: ['Não voltar direto para dia e horário.'],
+          company_knowledge: [],
+          customer_roles: [],
+          message: { ready_to_send: null, editable: true },
+          momentum: {
+            state: 'dormant',
+            label: 'Oportunidade sem continuidade',
+            requalify_before_continuing: true,
+            facts: [
+              'Primeiro contato há 28 dias.',
+              'Última mensagem do cliente há 19 dias.',
+              'Última mensagem do vendedor há 4 dias — 2 tentativas seguidas sem resposta do cliente.',
+            ],
+          },
+          limitations: [],
+        },
+      })
+
+    const open = withoutDetails(html)
+
+    assert.equal(count(html, 'data-yolen-now-attention-variant="primary"'), 1)
+    assert.equal(count(open, action), 1, 'a próxima ação aparece aberta uma vez')
+    assert.equal(count(open, 'Por que essa ação'), 1)
+    assert.match(
+      open,
+      /Por que essa ação<\/div>\s*<div class="yolen-seller-detail-copy">A última resposta do cliente foi há 19 dias, com 2 tentativas do vendedor sem resposta desde então\.<\/div>/,
+    )
+    assert.equal(count(open, 'A última resposta do cliente foi há 19 dias'), 1, 'o fato não fica também na situação')
+    assert.match(open, /O cliente demonstrou interesse em agendar há 28 dias\. O interesse atual não está confirmado\./)
+    assert.equal(open.includes('Antes de retomar o passo antigo'), false, 'raciocínio restante não disputa o primeiro nível')
+    assert.equal(open.includes('Reativação por mudança de estado'), false, 'técnica só em detalhes')
+    assert.equal(open.includes('Oportunidade sem continuidade'), false, 'rótulo do momento só em detalhes')
+
+    const details = detailsOf(html)
+
+    assert.match(details, /<summary>Ver técnica e cuidados<\/summary>/)
+    assert.match(details, /Oportunidade sem continuidade/)
+    assert.match(details, /Primeiro contato há 28 dias/)
+    assert.match(details, /Antes de retomar o passo antigo é preciso descobrir o que mudou/)
+    assert.match(details, /Reativação por mudança de estado/)
+    assert.match(details, /Não voltar direto para dia e horário/)
+  },
+)
+
+test(
+  'ANÁLISE sem redundância: diagnóstico condensado, momento subordinado, técnica expandível e evidência preservada',
+  () => {
+    const nextAction =
+      'Relembre de forma concreta o que o cliente estava avaliando e pergunte como está isso hoje, antes de retomar o passo antigo.'
+    const diagnosis = coaching({
+      next_action: nextAction,
+      current_commercial_goal: nextAction,
+      additional_findings: [
+        {
+          kind: 'question_quality',
+          title: 'Qualidade da pergunta',
+          summary:
+            'A intenção de avançar para o agendamento foi correta, mas a pergunta deixou a decisão ampla demais para o cliente.',
+          why_it_matters: 'Pergunta totalmente aberta aumenta o esforço de resposta.',
+          impact: null,
+          how_to_improve: 'Estreitar a decisão com poucas alternativas reais.',
+          evidence_message_ids: ['m8'],
+          memory_ids: [],
+        },
+      ],
+    })
+
+    const html =
+      view.renderAnalysisViewModel({
+        ...neutralViewModel({
+          neutral: false,
+          neutral_headline: null,
+          neutral_description: null,
+        }),
+        coaching_diagnosis: diagnosis,
+      })
+
+    const open = withoutDetails(html)
+    const details = detailsOf(html)
+
+    // Diagnóstico: a sentença que o principal ajuste já explica sai do
+    // primeiro nível; o texto completo continua em "Ver raciocínio".
+    assert.match(open, /Diagnóstico da condução<\/div>\s*<div class="yolen-seller-insight-title">Hoje: oportunidade sem continuidade/)
+    assert.equal(count(open, 'A condução saiu do objetivo comercial que o cliente havia demonstrado'), 1)
+    assert.match(details, /Diagnóstico completo[\s\S]*A condução saiu do objetivo comercial que o cliente havia demonstrado\. Hoje:/)
+
+    // Momento subordinado: o rótulo que o diagnóstico já disse vai para os
+    // detalhes; os fatos (informação nova) continuam abertos.
+    assert.equal(open.includes('Oportunidade sem continuidade — interesse atual precisa ser reconfirmado.'), false)
+    assert.match(open, /Momento da oportunidade[\s\S]*Última mensagem do cliente há 19 dias/)
+    assert.match(details, /Momento da oportunidade<\/div>\s*<div class="yolen-seller-detail-copy">Oportunidade sem continuidade/)
+
+    // Técnica: a explicação que só repete a ação fica atrás de "Como aplicar".
+    assert.match(open, /Técnica recomendada[\s\S]*Reativação por mudança de estado[\s\S]*Como aplicar agora/)
+    assert.equal(count(open, nextAction), 1, 'a ação aparece aberta uma vez')
+    assert.equal(open.includes('Em termos simples'), false)
+    assert.match(details, /<summary>Como aplicar<\/summary>[\s\S]*Em termos simples/)
+    assert.equal(details.includes('Objetivo comercial agora'), false, 'objetivo idêntico à ação não se repete nem nos detalhes')
+
+    // Rótulo semântico: o acerto que um aprendizado ressalva é parcial.
+    assert.doesNotMatch(html, /Principal acerto/)
+    assert.match(html, /data-yolen-coaching-strength="partial"/)
+    assert.match(open, /Acerto parcial[\s\S]*Ressalva[\s\S]*Qualidade da pergunta/)
+
+    // Evidência continua auditável.
+    assert.match(html, /Evidência: 3 mensagens da conversa/)
   },
 )
 

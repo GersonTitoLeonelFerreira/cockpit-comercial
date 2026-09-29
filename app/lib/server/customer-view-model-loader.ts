@@ -127,11 +127,6 @@ export async function loadCustomerViewModel({
         canonicalContext,
     })
 
-  const viewModel =
-    buildCustomerViewModel(
-      canonicalContext.current_reading,
-    )
-
   const reasoning =
     buildSellerFacingReasoningProjection({
       reasoning:
@@ -144,6 +139,28 @@ export async function loadCustomerViewModel({
           ? canonicalContext.state_read.state
           : null,
     })
+
+  // O reasoning canônico decide a prioridade das lacunas (requalificação
+  // antes de voltar ao passo antigo); CLIENTE só a aplica.
+  const intentEvidence =
+    commercialReasoning
+      ?.temporal_context
+      ?.intent
+      ?.evidence_message_id ?? null
+
+  const viewModel =
+    buildCustomerViewModel(
+      canonicalContext.current_reading,
+      {
+        requalify_before_continuing:
+          reasoning.momentum
+            ?.requalify_before_continuing === true,
+        current_interest_evidence_message_ids:
+          intentEvidence
+            ? [intentEvidence]
+            : [],
+      },
+    )
 
   return {
     ...viewModel,

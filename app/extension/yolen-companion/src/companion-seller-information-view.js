@@ -188,6 +188,118 @@
       : []
   }
 
+  // Deduplicação seller-facing por FUNÇÃO SEMÂNTICA, não por igualdade de
+  // string: dois textos dizem a mesma coisa quando o conteúdo informativo
+  // de um (radicais de palavras de conteúdo e números) já está no outro.
+  // Só decide o que fica no primeiro nível; o que se repete desce para
+  // detalhes, nunca é apagado.
+  const OVERLAP_STOPWORDS = new Set([
+    'a', 'o', 'as', 'os', 'um', 'uma', 'uns', 'umas', 'de', 'do', 'da',
+    'dos', 'das', 'em', 'no', 'na', 'nos', 'nas', 'por', 'pelo', 'pela',
+    'para', 'pra', 'com', 'sem', 'que', 'e', 'ou', 'se', 'ao', 'aos',
+    'mas', 'mais', 'ja', 'ainda', 'isso', 'esse', 'essa', 'este', 'esta',
+    'ele', 'ela', 'foi', 'ser', 'estar', 'estava', 'ter', 'tem',
+    'ha', 'antes', 'depois', 'desde', 'entao', 'nao', 'como', 'muito',
+    'sobre', 'cliente', 'vendedor', 'hoje', 'agora',
+  ])
+
+  const OVERLAP_STEM_LENGTH = 5
+  const REPEATED_CONTENT_RATIO = 0.6
+
+  function contentStems(value) {
+    const clean = displayText(value)
+
+    if (!clean) {
+      return new Set()
+    }
+
+    return new Set(
+      clean
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter(
+          (token) =>
+            /^\d+$/.test(token) ||
+            (token.length > 2 && !OVERLAP_STOPWORDS.has(token)),
+        )
+        .map((token) => token.slice(0, OVERLAP_STEM_LENGTH)),
+    )
+  }
+
+  // Fração do conteúdo de `candidate` que já aparece em `references`.
+  function contentCoverage(candidate, references) {
+    const stems = contentStems(candidate)
+
+    if (stems.size === 0) {
+      return 1
+    }
+
+    const known = new Set()
+
+    for (const reference of references || []) {
+      for (const stem of contentStems(reference)) {
+        known.add(stem)
+      }
+    }
+
+    let shared = 0
+
+    for (const stem of stems) {
+      if (known.has(stem)) {
+        shared += 1
+      }
+    }
+
+    return shared / stems.size
+  }
+
+  function repeatsContent(candidate, references) {
+    return contentCoverage(candidate, references) >= REPEATED_CONTENT_RATIO
+  }
+
+  function splitSentences(value) {
+    const clean = displayText(value)
+
+    if (!clean) {
+      return []
+    }
+
+    return clean
+      .split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ0-9])/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean)
+  }
+
+  function asSentence(clause) {
+    const clean = clause.trim().replace(/[,;:\s]+$/, '')
+
+    if (!clean) {
+      return null
+    }
+
+    const capitalized = clean.charAt(0).toUpperCase() + clean.slice(1)
+
+    return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`
+  }
+
+  // Sentenças de `value` que acrescentam informação além de `references`.
+  // Com `clauses`, cada oração separada por ";" é avaliada sozinha — assim
+  // "conclusão já dita; motivo novo" preserva só o motivo novo.
+  function novelSentences(value, references, { clauses = false } = {}) {
+    const units = clauses
+      ? splitSentences(value)
+          .flatMap((sentence) => sentence.split(/;\s+/))
+          .map(asSentence)
+          .filter(Boolean)
+      : splitSentences(value)
+
+    return units.filter(
+      (sentence) => !repeatsContent(sentence, references),
+    )
+  }
+
   function isNeutralCommercialSession(reading) {
     if (!reading || typeof reading !== 'object') {
       return false
@@ -368,30 +480,62 @@
       'O cliente encerrou ou resolveu por outro caminho: agradeça, respeite a decisão e deixe a porta aberta, sem nova oferta.',
   })
 
-  function renderCoachingTemporal(temporal) {
+  const COACHING_TEMPORAL_VISIBLE_FACTS = 3
+
+  // Momento da oportunidade subordinado ao que já está aberto na tela: o
+  // rótulo só aparece se o diagnóstico ainda não disse a mesma coisa, e um
+  // fato já explicado em outro bloco aberto não se repete aqui. Fatos
+  // além do limite descem para "Ver raciocínio".
+  function coachingTemporalParts(temporal, shownElsewhere) {
     if (!temporal || typeof temporal !== 'object') {
-      return ''
+      return null
     }
 
     const label = displayText(temporal.momentum_label)
+    const labelLine = label
+      ? `${label}${temporal.requalify_before_continuing ? ' — interesse atual precisa ser reconfirmado.' : ''}`
+      : null
     const facts = Array.isArray(temporal.facts)
       ? temporal.facts.map(displayText).filter(Boolean)
       : []
 
-    if (!label && facts.length === 0) {
+    if (!labelLine && facts.length === 0) {
+      return null
+    }
+
+    const novelFacts = facts.filter(
+      (fact) => !repeatsContent(fact, shownElsewhere),
+    )
+
+    return {
+      state: temporal.momentum_state || 'unknown',
+      labelLine:
+        labelLine && !repeatsContent(labelLine, shownElsewhere)
+          ? labelLine
+          : null,
+      visibleFacts: novelFacts.slice(0, COACHING_TEMPORAL_VISIBLE_FACTS),
+      overflowFacts: novelFacts.slice(COACHING_TEMPORAL_VISIBLE_FACTS),
+    }
+  }
+
+  function renderCoachingTemporal(parts) {
+    if (
+      !parts ||
+      (!parts.labelLine && parts.visibleFacts.length === 0)
+    ) {
       return ''
     }
 
     return `
       <div
         class="yolen-seller-detail"
-        data-yolen-coaching-temporal="${escapeHtml(temporal.momentum_state || 'unknown')}"
+        data-yolen-coaching-temporal="${escapeHtml(parts.state)}"
       >
         <div class="yolen-seller-detail-label">Momento da oportunidade</div>
-        ${label ? `<div class="yolen-seller-detail-copy">${escapeHtml(label)}${temporal.requalify_before_continuing ? ' — interesse atual precisa ser reconfirmado.' : ''}</div>` : ''}
-        ${facts.length > 0 ? `
+        ${parts.labelLine ? `<div class="yolen-seller-detail-copy">${escapeHtml(parts.labelLine)}</div>` : ''}
+        ${parts.visibleFacts.length > 0 ? `
           <ul class="yolen-seller-text-list">
-            ${facts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join('')}
+            ${parts.visibleFacts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join('')}
           </ul>
         ` : ''}
       </div>
@@ -408,29 +552,36 @@
     )
   }
 
+  // Os mesmos aprendizados que a seção "Outros aprendizados" mostra — o
+  // diagnóstico usa esta lista para não repetir no primeiro nível o que um
+  // card aberto logo abaixo já explica.
+  function visibleCoachingFindings(findingsList) {
+    return displayItems(findingsList)
+      .map((item) => ({
+        item,
+        title:
+          displayText(item.title),
+        summary:
+          displayText(item.summary),
+        whyItMatters:
+          displayText(
+            item.why_it_matters,
+          ),
+        howToImprove:
+          displayText(
+            item.how_to_improve,
+          ),
+      }))
+      .filter(
+        ({ title, summary }) =>
+          title && summary,
+      )
+      .slice(0, 3)
+  }
+
   function renderAdditionalCoachingFindings(findingsList) {
     const findings =
-      displayItems(findingsList)
-        .map((item) => ({
-          item,
-          title:
-            displayText(item.title),
-          summary:
-            displayText(item.summary),
-          whyItMatters:
-            displayText(
-              item.why_it_matters,
-            ),
-          howToImprove:
-            displayText(
-              item.how_to_improve,
-            ),
-        }))
-        .filter(
-          ({ title, summary }) =>
-            title && summary,
-        )
-        .slice(0, 3)
+      visibleCoachingFindings(findingsList)
 
     if (findings.length === 0) {
       return ''
@@ -483,6 +634,12 @@
     `
   }
 
+  // Primeiro nível sem redundância (ganho informacional): cada conclusão
+  // aparece aberta uma vez, no bloco que melhor a explica. O diagnóstico
+  // perde as sentenças que o principal ajuste ou um aprendizado aberto
+  // logo abaixo já explicam; o momento fica subordinado ao diagnóstico; a
+  // explicação da técnica desce para detalhes quando só repete a ação.
+  // Nada é apagado: o texto completo continua em "Ver raciocínio".
   function renderCoachingDiagnosis(diagnosis) {
     if (
       !diagnosis ||
@@ -514,6 +671,63 @@
       return ''
     }
 
+    const findings = visibleCoachingFindings(diagnosis.additional_findings)
+    const mistakeSummary = displayText(mistake?.summary)
+    const mistakeFix = displayText(mistake?.how_to_improve)
+
+    const fullDiagnosis = displayText(synthesis?.diagnosis)
+    const explainedBelow = [
+      mistakeSummary,
+      ...findings.map(({ summary }) => summary),
+    ].filter(Boolean)
+    const diagnosisSentences = novelSentences(fullDiagnosis, explainedBelow)
+    const diagnosisText =
+      diagnosisSentences.length > 0
+        ? diagnosisSentences.join(' ')
+        : fullDiagnosis
+    const diagnosisCondensed =
+      Boolean(fullDiagnosis) && diagnosisText !== fullDiagnosis
+
+    const temporal = coachingTemporalParts(
+      diagnosis.temporal,
+      [diagnosisText, ...explainedBelow].filter(Boolean),
+    )
+
+    // Elogio e crítica sobre a MESMA mensagem do vendedor não convivem como
+    // "acerto" pleno: o card vira acerto parcial e aponta a ressalva.
+    const strengthIds = new Set(
+      Array.isArray(strength?.evidence_message_ids)
+        ? strength.evidence_message_ids
+        : [],
+    )
+    const strengthCaveat = findings.find(({ item }) =>
+      Array.isArray(item.evidence_message_ids) &&
+      item.evidence_message_ids.some((id) => strengthIds.has(id)),
+    )
+
+    const nextAction = displayText(diagnosis.next_action)
+    const firstLevel = [
+      diagnosisText,
+      temporal?.labelLine,
+      mistakeSummary,
+      mistakeFix,
+    ].filter(Boolean)
+    const actionVisible =
+      Boolean(nextAction) && !repeatsContent(nextAction, firstLevel)
+    const simpleExplanation = techniqueSimpleExplanation(technique)
+    const explanationVisible =
+      Boolean(simpleExplanation) &&
+      !repeatsContent(
+        simpleExplanation,
+        [...firstLevel, nextAction].filter(Boolean),
+      )
+    const hiddenTechniqueCopy = [
+      explanationVisible ? '' : renderLabeledCopy('Em termos simples', simpleExplanation),
+      actionVisible ? '' : renderLabeledCopy('Como aplicar agora', nextAction),
+    ].join('')
+
+    const goal = displayText(diagnosis.current_commercial_goal)
+
     return `
       <section
         class="yolen-seller-section"
@@ -527,21 +741,25 @@
         </div>
 
         <div class="yolen-seller-stack">
-          ${displayText(synthesis?.diagnosis) ? `
+          ${diagnosisText ? `
             <article
               class="yolen-seller-insight"
               data-yolen-coaching-synthesis
             >
               <div class="yolen-seller-insight-type">Diagnóstico da condução</div>
-              <div class="yolen-seller-insight-title">${escapeHtml(displayText(synthesis.diagnosis))}</div>
-              ${renderCoachingTemporal(diagnosis.temporal)}
+              <div class="yolen-seller-insight-title">${escapeHtml(diagnosisText)}</div>
+              ${renderCoachingTemporal(temporal)}
             </article>
-          ` : renderCoachingTemporal(diagnosis.temporal)}
+          ` : renderCoachingTemporal(temporal)}
 
           ${strength?.summary ? `
-            <article class="yolen-seller-insight yolen-seller-insight--positive">
-              <div class="yolen-seller-insight-type">Principal acerto</div>
+            <article
+              class="yolen-seller-insight yolen-seller-insight--positive"
+              data-yolen-coaching-strength="${strengthCaveat ? 'partial' : 'full'}"
+            >
+              <div class="yolen-seller-insight-type">${strengthCaveat ? 'Acerto parcial' : 'Principal acerto'}</div>
               <div class="yolen-seller-insight-title">${escapeHtml(displayText(strength.summary))}</div>
+              ${strengthCaveat ? renderLabeledCopy('Ressalva', strengthCaveat.title) : ''}
               ${renderLabeledCopy('Por que isso importa', strength.why_it_matters)}
               ${renderEvidence(strength)}
             </article>
@@ -558,11 +776,23 @@
           ` : ''}
 
           ${technique?.title ? `
-            <article class="yolen-seller-insight yolen-seller-insight--positive">
+            <article
+              class="yolen-seller-insight yolen-seller-insight--positive"
+              data-yolen-coaching-technique
+            >
               <div class="yolen-seller-insight-type">Técnica recomendada</div>
               <div class="yolen-seller-insight-title">${escapeHtml(displayText(technique.title))}</div>
-              ${renderLabeledCopy('Em termos simples', techniqueSimpleExplanation(technique))}
-              ${renderLabeledCopy('Como aplicar agora', diagnosis.next_action)}
+              ${explanationVisible ? renderLabeledCopy('Em termos simples', simpleExplanation) : ''}
+              ${actionVisible ? renderLabeledCopy('Como aplicar agora', nextAction) : ''}
+              ${hiddenTechniqueCopy.trim() ? `
+                <details
+                  class="yolen-seller-secondary-details"
+                  data-yolen-preserve-details="analysis-technique-how"
+                >
+                  <summary>Como aplicar</summary>
+                  ${hiddenTechniqueCopy}
+                </details>
+              ` : ''}
             </article>
           ` : renderLabeledCopy('Próximo passo', diagnosis.next_action)}
 
@@ -571,14 +801,23 @@
             data-yolen-preserve-details="analysis-coaching-diagnosis"
           >
             <summary>Ver raciocínio</summary>
-            ${renderLabeledCopy('Objetivo comercial agora', diagnosis.current_commercial_goal)}
+            ${diagnosisCondensed ? renderLabeledCopy('Diagnóstico completo', fullDiagnosis) : ''}
+            ${temporal && !temporal.labelLine && diagnosis.temporal?.momentum_label
+              ? renderLabeledCopy('Momento da oportunidade', diagnosis.temporal.momentum_label)
+              : ''}
+            ${temporal ? renderTextList('Outros fatos do momento', temporal.overflowFacts) : ''}
+            ${goal && !(nextAction && repeatsContent(goal, [nextAction]))
+              ? renderLabeledCopy('Objetivo comercial agora', goal)
+              : ''}
             ${renderLabeledCopy(
               intent && intent.is_current === false
                 ? 'Intenção demonstrada (histórico)'
                 : 'Intenção atual do cliente',
               intent?.label,
             )}
-            ${renderLabeledCopy('Próximo aprendizado', synthesis?.next_learning)}
+            ${nextAction && repeatsContent(synthesis?.next_learning, [nextAction])
+              ? ''
+              : renderLabeledCopy('Próximo aprendizado', synthesis?.next_learning)}
             ${renderLabeledCopy('Último movimento válido do vendedor', lastMove?.action_label)}
             ${renderLabeledCopy('Por que esta técnica', technique?.why_now)}
             ${diagnosis.sequence_break?.happened
@@ -1617,15 +1856,25 @@
       return ''
     }
 
-    const topicLabel = MISSING_DISCOVERY_LABELS[gap?.topic] || null
+    const currentInterest = gap?.kind === 'current_interest'
+    // Lacuna da etapa antiga enquanto o reasoning exige requalificação:
+    // continua verdadeira, mas só volta a ser operacional se o interesse
+    // for reconfirmado.
+    const conditional = gap?.conditional_on_reconfirmation === true
+
+    const topicLabel = currentInterest
+      ? 'Estado atual do interesse'
+      : MISSING_DISCOVERY_LABELS[gap?.topic] || null
 
     return `
       <article
-        class="yolen-client-rich-item yolen-client-rich-item--attention"
+        class="yolen-client-rich-item ${conditional ? 'yolen-client-rich-item--conditional' : 'yolen-client-rich-item--attention'}"
         data-yolen-customer-gap-topic="${escapeHtml(gap.topic || 'unspecified')}"
+        data-yolen-customer-gap-kind="${escapeHtml(gap?.kind || 'discovery')}"
+        ${conditional ? 'data-yolen-customer-gap-conditional' : ''}
       >
         ${topicLabel ? `<div class="yolen-client-rich-item-meta">${escapeHtml(topicLabel)}</div>` : ''}
-        <div class="yolen-client-rich-item-title">${escapeHtml(summary)}</div>
+        <div class="yolen-client-rich-item-title">${conditional ? 'Se o interesse continuar: ' : ''}${escapeHtml(summary)}</div>
       </article>
     `
   }
@@ -1668,6 +1917,9 @@
     }
 
     const [principal, ...secondary] = items
+    const secondaryConditional =
+      secondary.length > 0 &&
+      secondary.every((item) => item?.conditional_on_reconfirmation === true)
 
     return `
       <section class="yolen-seller-section" data-yolen-customer-section="knowledge-gaps">
@@ -1681,6 +1933,7 @@
           ${renderKnowledgeGap(principal)}
         </div>
         ${secondary.length > 0 ? `
+          ${secondaryConditional ? '<div class="yolen-seller-detail-copy" data-yolen-customer-gap-after>Depois, se o interesse continuar</div>' : ''}
           <div class="yolen-client-rich-list" data-yolen-customer-gap="secondary">
             ${secondary.map(renderKnowledgeGap).join('')}
           </div>
@@ -2016,6 +2269,9 @@
     renderAgoraViewModelSnapshot,
     renderAnalysisViewModel,
     renderCustomerViewModel,
+    repeatsContent,
+    novelSentences,
+    splitSentences,
   })
 
   root.YolenCompanionSellerInformationView = api

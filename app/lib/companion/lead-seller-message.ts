@@ -15,6 +15,7 @@ import type {
 } from '../server/seller-facing-reasoning-projection'
 
 import {
+  composeStrategyGroundedMessage,
   evaluateCommercialMessageDraft,
   repairCommercialMessageDraft,
   type CommercialMessageCriticViolation,
@@ -50,16 +51,32 @@ export type SellerMessageCurrentInteraction = {
   text: string
 }
 
+// Diagnóstico INTERNO da geração (log, telemetria, testes, auditoria). O
+// vendedor nunca vê isto: `error` é sempre uma frase seller-facing simples.
+export type SellerMessageGenerationDiagnostics = {
+  // provider = redação do modelo aprovada; strategy_grounded = copy
+  // montada da estratégia canônica depois de o modelo não convergir.
+  source?: 'provider' | 'strategy_grounded'
+  stage?:
+    | 'input'
+    | 'generation'
+    | 'customer_facing_review'
+    | 'post_review_repair'
+  failures: string[]
+}
+
 export type SellerMessageGenerationResult =
   | {
       status: 'ready'
       message: string
       error: null
+      diagnostics?: SellerMessageGenerationDiagnostics
     }
   | {
       status: 'error'
       message: null
       error: string
+      diagnostics?: SellerMessageGenerationDiagnostics
     }
   | {
       // Silêncio canônico: a estratégia proíbe mensagem (opt-out do
@@ -69,6 +86,13 @@ export type SellerMessageGenerationResult =
       error: null
       reason: string
     }
+
+// Frases seller-facing: nunca o diagnóstico técnico do critic.
+export const SELLER_FACING_UNSAFE_MESSAGE =
+  'Não foi possível gerar uma mensagem segura com o contexto disponível.'
+
+export const SELLER_FACING_UNAVAILABLE_MESSAGE =
+  'Não foi possível gerar a mensagem agora. Tente novamente em instantes.'
 
 const PROMPT_VERSION =
   'lead-seller-message-v2-context-quality'
@@ -759,10 +783,15 @@ function validateMessage({
   const factualContext = [summary, interactionText]
     .filter(Boolean)
     .join('\n')
+  // A referência de contexto da estratégia é uma fala REAL do cliente
+  // (evidence_message_id): fatos dela são base legítima, mesmo quando essa
+  // fala está fora da interação recente.
   const allowedContext = [
     factualContext,
     intent,
     canonicalGroundingContext(reasoning),
+    messageStrategy?.context_reference
+      ?.text ?? null,
   ].filter(Boolean).join('\n')
 
   if (
@@ -1460,6 +1489,10 @@ export async function composeSellerMessage({
       message: null,
       error:
         'Não há resumo suficiente para gerar a mensagem.',
+      diagnostics: {
+        stage: 'input',
+        failures: ['missing_working_summary'],
+      },
     }
   }
 
@@ -1469,27 +1502,28 @@ export async function composeSellerMessage({
       message: null,
       error:
         'Diga primeiro o que você quer fazer agora.',
+      diagnostics: {
+        stage: 'input',
+        failures: ['missing_seller_intent'],
+      },
     }
   }
 
-  const first = await runAttempt({
-    summary,
-    interaction,
-    intent,
-    method,
-    reasoning,
-    messageStrategy,
-    roles,
-    recipientName:
-      canonicalRecipientName,
-    provider,
-  })
+  // Diagnóstico interno acumulado (nunca seller-facing).
+  const failures: string[] = []
 
-  let candidate = first.message
-  let generationFailure = first.failure
+  const note = (
+    failure: string | null | undefined,
+  ) => {
+    if (failure) {
+      failures.push(failure)
+    }
+  }
 
-  if (!candidate) {
-    const corrected = await runAttempt({
+  const attempt = (
+    correctionReason?: string | null,
+  ) =>
+    runAttempt({
       summary,
       interaction,
       intent,
@@ -1500,14 +1534,116 @@ export async function composeSellerMessage({
       recipientName:
         canonicalRecipientName,
       provider,
-      correctionReason:
-        first.failure ||
-        'A primeira saída não passou pela validação.',
+      correctionReason,
     })
 
+  const review = (
+    candidateMessage: string,
+  ) =>
+    reviewCustomerFacingMessage({
+      candidateMessage,
+      summary,
+      interaction,
+      intent,
+      reasoning,
+      messageStrategy,
+      roles,
+      recipientName:
+        canonicalRecipientName,
+      provider,
+    })
+
+  const fail = (
+    stage: SellerMessageGenerationDiagnostics['stage'],
+    sellerFacing: string = SELLER_FACING_UNSAFE_MESSAGE,
+  ): SellerMessageGenerationResult => ({
+    status: 'error',
+    message: null,
+    error: sellerFacing,
+    diagnostics: {
+      stage,
+      failures: [...failures],
+    },
+  })
+
+  const ready = (
+    message: string,
+    source: SellerMessageGenerationDiagnostics['source'],
+  ): SellerMessageGenerationResult => ({
+    status: 'ready',
+    message,
+    error: null,
+    diagnostics: {
+      source,
+      failures: [...failures],
+    },
+  })
+
+  // Recuperação semântica: quando o redator não converge, a própria
+  // estratégia canônica monta a copy (retomada ancorada na fala real do
+  // cliente). Ela passa pela MESMA validação + critic; se não passar, não
+  // existe copy segura.
+  let groundedUsed = false
+
+  const strategyGrounded = (): string | null => {
+    if (groundedUsed) {
+      return null
+    }
+
+    groundedUsed = true
+
+    const grounded =
+      composeStrategyGroundedMessage({
+        strategy:
+          messageStrategy,
+        recipient_name:
+          canonicalRecipientName,
+      })
+
+    if (!grounded) {
+      note('strategy_grounded_unavailable')
+      return null
+    }
+
+    const checked =
+      checkCandidateMessage({
+        message:
+          grounded.message,
+        summary,
+        interaction,
+        intent,
+        reasoning,
+        messageStrategy,
+        recipientName:
+          canonicalRecipientName,
+      })
+
+    if (checked.failure) {
+      note(`strategy_grounded_rejected: ${checked.failure}`)
+      return null
+    }
+
+    return checked.message
+  }
+
+  // 1) Redação pelo modelo: até 3 tentativas (livre, corrigida, estrita).
+  const first = await attempt()
+
+  let candidate = first.message
+  let source: SellerMessageGenerationDiagnostics['source'] =
+    'provider'
+
+  note(first.failure)
+
+  if (!candidate) {
+    const corrected =
+      await attempt(
+        first.failure ||
+          'A primeira saída não passou pela validação.',
+      )
+
     candidate = corrected.message
-    generationFailure =
-      corrected.failure || first.failure
+    note(corrected.failure)
   }
 
   if (
@@ -1515,171 +1651,135 @@ export async function composeSellerMessage({
     messageStrategy
       ?.required_action_type
   ) {
+    const lastFailure =
+      failures[failures.length - 1] ?? null
+
     const repaired =
-      await runAttempt({
-        summary,
-        interaction,
-        intent,
-        method,
-        reasoning,
-        messageStrategy,
-        roles,
-        recipientName:
-          canonicalRecipientName,
-        provider,
+      await attempt(
         // O reparo estrito precisa carregar o motivo CONCRETO da falha
         // anterior; sem ele o redator repetia o mesmo defeito (ex.: o
         // "fico à disposição" que derrubou a tentativa anterior).
-        correctionReason:
-          [
-            generationFailure,
-            strictStrategyCorrection(
-              messageStrategy,
-            ),
-          ]
-            .filter(
-              (item): item is string =>
-                Boolean(item),
-            )
-            .join(' ') ||
-          'A saída anterior não executou a estratégia canônica.',
-      })
-
-    candidate =
-      repaired.message
-    generationFailure =
-      repaired.failure ||
-      generationFailure
-  }
-
-  if (!candidate) {
-    return {
-      status: 'error',
-      message: null,
-      error:
-        generationFailure ||
-        'Não foi possível gerar uma mensagem específica e segura agora.',
-    }
-  }
-
-  const reviewed = await reviewCustomerFacingMessage({
-    candidateMessage: candidate,
-    summary,
-    interaction,
-    intent,
-    reasoning,
-    messageStrategy,
-    roles,
-    recipientName:
-      canonicalRecipientName,
-    provider,
-  })
-
-  if (!reviewed.message) {
-    // O reparo pós-review existe para corrigir uma REESCRITA inválida do
-    // reviewer, não para mascarar indisponibilidade do próprio gate.
-    // Timeout, JSON malformado ou saída estruturada ausente encerram aqui:
-    // regenerar uma mensagem já validada só adicionaria latência/custo sem
-    // evidência de que a copy precisa ser alterada.
-    if (
-      reviewed.failure_kind !==
-        'validation'
-    ) {
-      return {
-        status: 'error',
-        message: null,
-        error:
-          reviewed.failure ||
-          'Falha no gate customer-facing da mensagem. A mensagem não foi liberada.',
-      }
-    }
-
-    const postReviewRepair =
-      await runAttempt({
-        summary,
-        interaction,
-        intent,
-        method,
-        reasoning,
-        messageStrategy,
-        roles,
-        recipientName:
-          canonicalRecipientName,
-        provider,
-        correctionReason: [
-          reviewed.failure ||
-            'A revisão final invalidou a mensagem.',
+        [
+          lastFailure,
           strictStrategyCorrection(
             messageStrategy,
           ),
-          'A mensagem já chegou a esta etapa após passar pela geração e pelo critic inicial. Corrija somente o conflito apontado pela revisão e preserve a ação canônica.',
         ]
           .filter(
             (item): item is string =>
               Boolean(item),
           )
-          .join(' '),
-      })
+          .join(' ') ||
+          'A saída anterior não executou a estratégia canônica.',
+      )
 
-    if (!postReviewRepair.message) {
-      return {
-        status: 'error',
-        message: null,
-        error:
-          reviewed.failure ||
-          postReviewRepair.failure ||
-          'A mensagem não passou pelo gate customer-facing.',
-      }
-    }
+    candidate = repaired.message
+    note(repaired.failure)
+  }
 
+  // 2) O modelo não convergiu: copy da estratégia canônica.
+  if (!candidate) {
+    candidate = strategyGrounded()
+    source = 'strategy_grounded'
+  }
+
+  if (!candidate) {
+    return fail('generation')
+  }
+
+  // 3) Gate customer-facing (nunca pulado).
+  const reviewed =
+    await review(candidate)
+
+  if (reviewed.message) {
+    return ready(reviewed.message, source)
+  }
+
+  note(reviewed.failure)
+
+  // O reparo pós-review existe para corrigir uma REESCRITA inválida do
+  // reviewer, não para mascarar indisponibilidade do próprio gate.
+  // Timeout, JSON malformado ou saída estruturada ausente encerram aqui:
+  // regenerar uma mensagem já validada só adicionaria latência/custo sem
+  // evidência de que a copy precisa ser alterada.
+  if (
+    reviewed.failure_kind !==
+      'validation'
+  ) {
+    return fail(
+      'customer_facing_review',
+      SELLER_FACING_UNAVAILABLE_MESSAGE,
+    )
+  }
+
+  // A copy da estratégia foi recusada pelo próprio gate: não há outra copy
+  // segura a oferecer.
+  if (source === 'strategy_grounded') {
+    return fail('customer_facing_review')
+  }
+
+  const postReviewRepair =
+    await attempt(
+      [
+        reviewed.failure ||
+          'A revisão final invalidou a mensagem.',
+        strictStrategyCorrection(
+          messageStrategy,
+        ),
+        'A mensagem já chegou a esta etapa após passar pela geração e pelo critic inicial. Corrija somente o conflito apontado pela revisão e preserve a ação canônica.',
+      ]
+        .filter(
+          (item): item is string =>
+            Boolean(item),
+        )
+        .join(' '),
+    )
+
+  note(postReviewRepair.failure)
+
+  if (postReviewRepair.message) {
     const secondReview =
-      await reviewCustomerFacingMessage({
-        candidateMessage:
-          postReviewRepair.message,
-        summary,
-        interaction,
-        intent,
-        reasoning,
-        messageStrategy,
-        roles,
-        recipientName:
-          canonicalRecipientName,
-        provider,
-      })
+      await review(
+        postReviewRepair.message,
+      )
 
-    if (!secondReview.message) {
-      return {
-        status: 'error',
-        message: null,
-        error:
-          secondReview.failure_kind ===
-            'transient'
-            ? (
-                reviewed.failure ||
-                secondReview.failure ||
-                postReviewRepair.failure ||
-                'A mensagem não passou pelo gate customer-facing após o reparo final.'
-              )
-            : (
-                secondReview.failure ||
-                reviewed.failure ||
-                postReviewRepair.failure ||
-                'A mensagem não passou pelo gate customer-facing após o reparo final.'
-              ),
-      }
-    }
-
-    return {
-      status: 'ready',
-      message:
+    if (secondReview.message) {
+      return ready(
         secondReview.message,
-      error: null,
+        'provider',
+      )
+    }
+
+    note(secondReview.failure)
+
+    if (
+      secondReview.failure_kind !==
+        'validation'
+    ) {
+      return fail(
+        'post_review_repair',
+        SELLER_FACING_UNAVAILABLE_MESSAGE,
+      )
     }
   }
 
-  return {
-    status: 'ready',
-    message: reviewed.message,
-    error: null,
+  // Última recuperação: a copy da estratégia, também pelo gate.
+  const grounded =
+    strategyGrounded()
+
+  if (grounded) {
+    const groundedReview =
+      await review(grounded)
+
+    if (groundedReview.message) {
+      return ready(
+        groundedReview.message,
+        'strategy_grounded',
+      )
+    }
+
+    note(groundedReview.failure)
   }
+
+  return fail('post_review_repair')
 }
