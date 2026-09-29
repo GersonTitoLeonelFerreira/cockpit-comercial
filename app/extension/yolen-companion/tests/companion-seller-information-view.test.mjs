@@ -875,3 +875,89 @@ test('ANÁLISE ensina a técnica e mostra aprendizados distintos sem repetir o m
     /<h3>Pontos de melhoria<\/h3>/,
   )
 })
+
+
+test('toda técnica selecionável recebe explicação simples para o vendedor', () => {
+  const techniqueIds = [
+    'technique.contextual_reengagement',
+    'technique.guided_choice',
+    'technique.objection_diagnosis',
+    'technique.third_party_handoff',
+    'technique.discovery_before_prescription',
+    'technique.commitment_wait',
+    'technique.decision_criteria_clarification',
+    'technique.impact_exploration',
+    'technique.value_linkage',
+    'technique.objection_isolation',
+    'technique.evidence_based_reassurance',
+    'technique.stakeholder_mapping',
+    'technique.commitment_ladder',
+    'technique.explicit_close_execution',
+    'technique.comparison_by_criteria',
+    'principle.company_rules_before_claim',
+  ]
+
+  for (const techniqueId of techniqueIds) {
+    const viewModel =
+      analysisViewModelFromReading(
+        buildReading(),
+      )
+
+    viewModel.coaching_diagnosis = {
+      status: 'ready',
+      client_context_confidence: 'high',
+      seller_execution_confidence: 'high',
+      current_commercial_goal:
+        'Executar o próximo passo.',
+      client_intent_now: null,
+      seller_last_valid_move: null,
+      seller_strength: null,
+      seller_mistake: null,
+      additional_findings: [],
+      sequence_break: {
+        happened: false,
+        what_changed: null,
+        why_it_hurts: null,
+        evidence_message_ids: [],
+      },
+      method_state: {
+        configured: true,
+        current_stage_name: 'Contato',
+        recommended_stage_name: 'Contato',
+        recommended_stage_reason: null,
+        adherence: 'on_method',
+        deviation_detected: false,
+        recovery_objective: null,
+        recovery_move: null,
+      },
+      chosen_technique: {
+        id: techniqueId,
+        title: 'Técnica de teste',
+        why_now:
+          'Aplicável ao contexto atual.',
+        risks: [],
+      },
+      next_action:
+        'Executar o próximo passo.',
+      do_not_do: [],
+      evidence_message_ids: [],
+      memory_ids: [],
+    }
+
+    const html =
+      view.renderAnalysisViewModel(
+        viewModel,
+      )
+
+    assert.match(
+      html,
+      /Em termos simples/,
+      techniqueId,
+    )
+    assert.doesNotMatch(
+      html,
+      /<div class="yolen-seller-detail-copy"><\/div>/,
+      techniqueId,
+    )
+  }
+})
