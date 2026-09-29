@@ -3,6 +3,11 @@ import type {
   DiagnosticInputMessage,
 } from './diagnostic-input'
 
+import {
+  expressesAffirmativeContinuation,
+  isCustomerPhaticMessage,
+} from './seller-execution-trace'
+
 import type {
   SellerExecutionActionType,
   SellerExecutionConfidence,
@@ -65,12 +70,6 @@ export const COMMERCIAL_TEMPORAL_POLICY = {
   // Multiplicador sobre o ritmo mediano observado do cliente.
   observed_cadence_multiplier: 3,
 
-  // Piso do horizonte de dormência e multiplicador sobre a janela esperada.
-  dormancy_floor_ms:
-    7 * 24 * 60 * 60 * 1000,
-
-  dormancy_window_multiplier: 4,
-
   // Avaliação de latência do vendedor (sem SLA configurado não se fala em
   // "violação": apenas em rapidez relativa ao tipo de pedido).
   high_intent_timely_response_ms:
@@ -81,6 +80,72 @@ export const COMMERCIAL_TEMPORAL_POLICY = {
 
   delayed_response_ms:
     24 * 60 * 60 * 1000,
+
+  // ------------------------------------------------------------------
+  // Momentum progressivo. O tempo NÃO é convertido em poucos baldes: a
+  // razão silêncio/janela esperada é contínua e vira uma severidade
+  // contínua (0..1). Os estágios são só a síntese seller-facing dessa
+  // curva; a intensidade continua disponível para Reasoning, Coaching e
+  // Message Strategy.
+  // ------------------------------------------------------------------
+
+  // Dentro da janela esperada a severidade cresce devagar até este teto.
+  within_rhythm_severity_ceiling: 0.08,
+
+  // Quantas "janelas esperadas" além do ritmo levam ~63% do caminho até a
+  // perda total de continuidade.
+  continuity_decay_ratio: 3,
+
+  // Cada tentativa adicional sem resposta aproxima a severidade de 1.
+  unanswered_outbound_factor: 0.85,
+
+  // Risco alto de SLA configurado pela empresa agrava a severidade.
+  sla_risk_factor: 0.8,
+
+  // Limites dos estágios seller-facing sobre a severidade contínua.
+  stage_thresholds: {
+    early_loss: 0.3,
+    prolonged_silence: 0.55,
+    strong_gap: 0.8,
+  },
+
+  // Janela em que o vendedor deve responder quando o cliente espera.
+  seller_high_intent_response_window_ms:
+    60 * 60 * 1000,
+
+  seller_standard_response_window_ms:
+    4 * 60 * 60 * 1000,
+
+  owed_response_decay_ratio: 6,
+
+  // Pedido do próprio cliente com urgência ("hoje", "amanhã") encurta o
+  // ritmo esperado enquanto a janela dele está aberta.
+  time_sensitive_customer_window_ms:
+    12 * 60 * 60 * 1000,
+
+  // Vitalidade da intenção histórica: decai com o tempo desde a última
+  // manifestação RELACIONADA do cliente (não com qualquer atividade).
+  intent_decay_windows: 3,
+
+  intent_confidence_base: {
+    high: 1,
+    medium: 0.75,
+    low: 0.5,
+  },
+
+  intent_expired_window_factor: 0.6,
+
+  intent_current_vitality: 0.7,
+
+  intent_aging_vitality: 0.35,
+
+  intent_reconfirmation_vitality: 0.5,
+
+  intent_expired_reconfirmation_vitality: 0.7,
+
+  // Durante uma pausa combinada com o cliente a intenção envelhece a um
+  // quarto da velocidade normal.
+  agreed_pause_decay_weight: 0.25,
 } as const
 
 const DAY_MS =
@@ -104,6 +169,87 @@ export type CommercialIntentFreshness =
   | 'stale'
   | 'closed'
   | 'none'
+
+// Síntese seller-facing da curva contínua de severidade.
+export type CommercialMomentumStage =
+  | 'within_rhythm'
+  | 'early_loss'
+  | 'prolonged_silence'
+  | 'strong_gap'
+  | 'long_dormancy'
+  | 'closed'
+  | 'no_history'
+
+// Quem deve o próximo movimento. "agreed_pause" = o cliente pediu um
+// prazo e ele ainda vale; ninguém deve movimento imediato.
+export type CommercialTemporalResponsible =
+  | 'seller'
+  | 'customer'
+  | 'agreed_pause'
+  | 'none'
+  | 'unknown'
+
+// O que manteve a intenção histórica viva pela última vez. Atividade
+// fática ("Bom dia", "ok", emoji) nunca aparece aqui.
+export type CommercialIntentRefreshReason =
+  | 'new_statement'
+  | 'reconfirmation'
+  | 'answer_to_seller_move'
+  | 'same_subject'
+  | 'deferral_agreement'
+  | 'enthusiastic_reaction'
+
+export type CommercialAgreedPause = {
+  requested_message_id: string
+  requested_at: string
+  resume_at: string
+  agreed_until: string
+  seller_owes_contact: boolean
+  horizon_label: string
+  status:
+    | 'in_progress'
+    | 'due'
+    | 'overdue'
+}
+
+export type CommercialTemporalProgression = {
+  responsible:
+    CommercialTemporalResponsible
+  // Silêncio do lado que deve o movimento (ou desde o pedido de pausa).
+  silence_ms: number | null
+  expected_window_ms: number | null
+  expected_window_basis:
+    | 'observed'
+    | 'default'
+    | 'time_sensitive_intent'
+    | 'agreed_pause'
+    | null
+  // silêncio / janela esperada (depois de uma pausa combinada:
+  // 1 + atraso sobre o combinado / ritmo esperado).
+  elapsed_ratio: number | null
+  // Perda de continuidade contínua 0..1, monótona no tempo.
+  severity: number
+  stage: CommercialMomentumStage
+  // Força restante da intenção histórica 0..1.
+  intent_vitality: number | null
+  intent_related_age_ms: number | null
+  bidirectional_inactivity_ms: number | null
+  unanswered_outbound: number
+  owed_response: {
+    owner: 'seller'
+    expected_ms: number
+    elapsed_ms: number
+    overdue_ratio: number
+    severity: number
+    basis:
+      | 'high_intent'
+      | 'time_sensitive_intent'
+      | 'standard'
+  } | null
+  agreed_pause:
+    CommercialAgreedPause | null
+  factors: string[]
+}
 
 export type CommercialTemporalWaitingOn =
   | 'seller'
@@ -233,7 +379,15 @@ export type CommercialTemporalContext = {
     time_window_expired: boolean
     expressed_enthusiasm: boolean
     needs_reconfirmation: boolean
+    // Força restante (0..1) e o que a manteve viva pela última vez.
+    vitality: number
+    related_age_ms: number
+    refreshed_by:
+      CommercialIntentRefreshReason
   } | null
+
+  progression:
+    CommercialTemporalProgression
 
   momentum: {
     state: CommercialMomentumState
@@ -520,30 +674,737 @@ function timeWindowExpired({
   }
 }
 
-// Horizonte declarado pelo cliente num adiamento. Só texto explícito.
-function deferralHorizonMs(
-  text: string,
+// Calendário no fuso comercial (sem depender do fuso do servidor).
+function zonedParts(
+  instant: number,
+): {
+  year: number
+  month: number
+  day: number
+  weekday: number
+  hour: number
+  minute: number
+  second: number
+} {
+  const parts =
+    new Intl.DateTimeFormat(
+      'en-US',
+      {
+        timeZone:
+          BUSINESS_TIME_ZONE,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        weekday: 'short',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+        hourCycle: 'h23',
+      },
+    ).formatToParts(
+      new Date(instant),
+    )
+
+  const value = (
+    type: string,
+  ): string =>
+    parts.find(
+      part =>
+        part.type === type,
+    )?.value ?? '0'
+
+  return {
+    year: Number(value('year')),
+    month: Number(value('month')),
+    day: Number(value('day')),
+    weekday:
+      ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        .indexOf(
+          value('weekday'),
+        ),
+    hour: Number(value('hour')),
+    minute: Number(value('minute')),
+    second: Number(value('second')),
+  }
+}
+
+function zonedOffsetMs(
+  instant: number,
 ): number {
+  const parts =
+    zonedParts(instant)
+
+  const asUtc =
+    Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second,
+    )
+
+  return (
+    asUtc -
+    Math.floor(instant / 1000) * 1000
+  )
+}
+
+// Instante de uma hora local no fuso comercial. Dias fora do mês
+// transbordam como em Date.UTC ("dia 0" = último dia do mês anterior).
+function zonedInstant(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+): number {
+  const guess =
+    Date.UTC(
+      year,
+      month - 1,
+      day,
+      hour,
+    )
+
+  return (
+    guess -
+    zonedOffsetMs(guess)
+  )
+}
+
+// Pedido explícito para o VENDEDOR retomar o contato ("me chama semana que
+// vem"). Diferente de "te aviso semana que vem", em que o próximo movimento
+// combinado é do cliente.
+const SELLER_CONTACT_REQUEST =
+  /\b(me (chama|chame|procura|procure|liga|ligue|contata|contate|aciona|cobra|cobre|lembra|lembre)|me (manda|mande) (uma )?(mensagem|msg)|fala comigo|pode me chamar|entra em contato|entre em contato|retoma comigo|retome comigo)\b/
+
+const NUMBER_WORDS: Record<string, number> = {
+  dois: 2,
+  duas: 2,
+  tres: 3,
+  quatro: 4,
+  cinco: 5,
+  seis: 6,
+  sete: 7,
+  dez: 10,
+  quinze: 15,
+}
+
+type DeferralPlan = {
+  resume_at: number
+  agreed_until: number
+  seller_owes_contact: boolean
+  horizon_label: string
+}
+
+// Prazo combinado num adiamento. Só texto explícito do cliente; o
+// calendário é o do fuso comercial ("semana que vem" dita numa terça
+// começa na segunda seguinte, não "daqui a 7 dias").
+function deferralPlan(
+  text: string,
+  requestedAt: number,
+): DeferralPlan {
   const normalized =
     normalizeText(text)
 
+  const today =
+    zonedParts(requestedAt)
+
+  const sellerOwesContact =
+    SELLER_CONTACT_REQUEST.test(
+      normalized,
+    )
+
+  let resumeAt: number
+  let until: number
+  let label: string
+
+  const inDays =
+    normalized.match(
+      /\b(?:daqui a|daqui|em) (\d{1,2}|dois|duas|tres|quatro|cinco|seis|sete|dez|quinze) dias\b/,
+    )
+
   if (
-    /\b(mes que vem|proximo mes|fim do mes|final do mes|depois das ferias|depois das festas)\b/.test(
+    /\b(semana que vem|proxima semana)\b/.test(
       normalized,
     )
   ) {
-    return 30 * DAY_MS
-  }
+    const daysToMonday =
+      ((8 - today.weekday) % 7) || 7
 
-  if (
-    /\b(semana que vem|proxima semana|mais (pra|para) frente)\b/.test(
+    resumeAt =
+      zonedInstant(
+        today.year,
+        today.month,
+        today.day + daysToMonday,
+        9,
+      )
+
+    until =
+      zonedInstant(
+        today.year,
+        today.month,
+        today.day + daysToMonday + 5,
+        0,
+      )
+
+    label = 'na semana seguinte'
+  } else if (
+    /\b(mes que vem|proximo mes)\b/.test(
       normalized,
     )
   ) {
-    return 10 * DAY_MS
+    resumeAt =
+      zonedInstant(
+        today.year,
+        today.month + 1,
+        1,
+        9,
+      )
+
+    until =
+      resumeAt + 10 * DAY_MS
+
+    label = 'no mês seguinte'
+  } else if (
+    /\b(fim do mes|final do mes)\b/.test(
+      normalized,
+    )
+  ) {
+    resumeAt =
+      zonedInstant(
+        today.year,
+        today.month + 1,
+        0,
+        9,
+      )
+
+    until =
+      zonedInstant(
+        today.year,
+        today.month + 1,
+        3,
+        0,
+      )
+
+    label = 'no fim do mês'
+  } else if (
+    /\b(depois das ferias|depois das festas|ano que vem|proximo ano)\b/.test(
+      normalized,
+    )
+  ) {
+    resumeAt =
+      requestedAt + 30 * DAY_MS
+
+    until = resumeAt
+
+    label = 'depois do período que ele indicou'
+  } else if (
+    /\bmais (pra|para) frente\b/.test(
+      normalized,
+    )
+  ) {
+    resumeAt =
+      requestedAt + 14 * DAY_MS
+
+    until = resumeAt
+
+    label = 'mais para frente'
+  } else if (inDays) {
+    const days =
+      NUMBER_WORDS[inDays[1]] ??
+      Number(inDays[1])
+
+    resumeAt =
+      requestedAt + days * DAY_MS
+
+    until =
+      resumeAt + DAY_MS
+
+    label = `em ${days} dias`
+  } else if (
+    /\bamanha\b/.test(
+      normalized,
+    )
+  ) {
+    resumeAt =
+      zonedInstant(
+        today.year,
+        today.month,
+        today.day + 1,
+        9,
+      )
+
+    until =
+      zonedInstant(
+        today.year,
+        today.month,
+        today.day + 2,
+        0,
+      )
+
+    label = 'no dia seguinte'
+  } else {
+    resumeAt =
+      requestedAt + 3 * DAY_MS
+
+    until = resumeAt
+
+    label = 'em alguns dias'
   }
 
-  return 3 * DAY_MS
+  return {
+    resume_at: resumeAt,
+    // Quando o cliente pediu para ser chamado, o combinado vence um dia
+    // depois do momento de retomada: dali em diante o atraso é do vendedor.
+    agreed_until:
+      sellerOwesContact
+        ? resumeAt + DAY_MS
+        : Math.max(
+            until,
+            resumeAt,
+          ),
+    seller_owes_contact:
+      sellerOwesContact,
+    horizon_label: label,
+  }
+}
+
+// Severidade contínua da perda de continuidade. Monótona na razão
+// silêncio/janela esperada e no número de tentativas sem resposta; nunca
+// salta de "normal" para "reativação" num limiar único.
+function continuitySeverity(
+  ratio: number,
+  unansweredOutbound: number,
+): number {
+  const ceiling =
+    COMMERCIAL_TEMPORAL_POLICY
+      .within_rhythm_severity_ceiling
+
+  const base =
+    ratio <= 1
+      ? ceiling *
+        Math.max(0, ratio)
+      : ceiling +
+        (1 - ceiling) *
+          (
+            1 -
+            Math.exp(
+              -(ratio - 1) /
+                COMMERCIAL_TEMPORAL_POLICY
+                  .continuity_decay_ratio,
+            )
+          )
+
+  const streak =
+    Math.max(
+      0,
+      unansweredOutbound - 1,
+    )
+
+  return (
+    1 -
+    (1 - base) *
+      Math.pow(
+        COMMERCIAL_TEMPORAL_POLICY
+          .unanswered_outbound_factor,
+        streak,
+      )
+  )
+}
+
+// Razão silêncio/janela em que a curva entra em "sem continuidade"
+// (sem tentativas extras) — só para documentar o horizonte no contrato.
+function longDormancyRatio(): number {
+  const ceiling =
+    COMMERCIAL_TEMPORAL_POLICY
+      .within_rhythm_severity_ceiling
+
+  const target =
+    COMMERCIAL_TEMPORAL_POLICY
+      .stage_thresholds
+      .strong_gap
+
+  return (
+    1 -
+    COMMERCIAL_TEMPORAL_POLICY
+      .continuity_decay_ratio *
+      Math.log(
+        1 -
+          (target - ceiling) /
+            (1 - ceiling),
+      )
+  )
+}
+
+function stageForSeverity(
+  severity: number,
+): CommercialMomentumStage {
+  const thresholds =
+    COMMERCIAL_TEMPORAL_POLICY
+      .stage_thresholds
+
+  if (
+    severity <=
+    COMMERCIAL_TEMPORAL_POLICY
+      .within_rhythm_severity_ceiling +
+      1e-9
+  ) {
+    return 'within_rhythm'
+  }
+
+  if (
+    severity <
+    thresholds.early_loss
+  ) {
+    return 'early_loss'
+  }
+
+  if (
+    severity <
+    thresholds.prolonged_silence
+  ) {
+    return 'prolonged_silence'
+  }
+
+  if (
+    severity <
+    thresholds.strong_gap
+  ) {
+    return 'strong_gap'
+  }
+
+  return 'long_dormancy'
+}
+
+function round(
+  value: number,
+  digits: number,
+): number {
+  const factor =
+    10 ** digits
+
+  return (
+    Math.round(
+      value * factor,
+    ) / factor
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Frescor por engajamento RELACIONADO.
+//
+// RECÊNCIA DA CONVERSA != RECÊNCIA DA INTENÇÃO. Uma intenção histórica só é
+// renovada por: nova declaração equivalente (o próprio sinal), reconfirmação
+// afirmativa, resposta com conteúdo à ação do vendedor que deu sequência à
+// intenção, fala do cliente sobre o mesmo assunto, adiamento combinado sobre
+// ela ou reação entusiasmada à ação do vendedor. Saudação, agradecimento,
+// "ok" e emoji nunca renovam.
+// ---------------------------------------------------------------------------
+const GENERIC_SUBJECT_WORDS =
+  new Set([
+    'obrigado', 'obrigada', 'tudo', 'sobre', 'quero', 'queria', 'gostaria', 'voces',
+    'pode', 'posso', 'podemos', 'fazer', 'favor', 'entao', 'agora', 'depois', 'ainda',
+    'mesmo', 'tambem', 'estou', 'estava', 'aqui', 'dessa', 'desse', 'nessa', 'nesse',
+    'muito', 'menos', 'porque', 'quando', 'quais', 'tenho', 'temos', 'seria', 'vamos',
+    'semana', 'manha', 'tarde', 'noite', 'hoje', 'ontem', 'amanha', 'bom', 'certo',
+    'claro', 'perfeito', 'combinado', 'beleza', 'otimo', 'otima', 'abraco', 'mensagem',
+    'desculpa', 'desculpe', 'consegue', 'consigo', 'saber', 'falar', 'tchau',
+  ])
+
+function subjectStems(
+  text: string,
+): Set<string> {
+  return new Set(
+    normalizeText(text)
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(
+        token =>
+          token.length >= 5 &&
+          !GENERIC_SUBJECT_WORDS.has(
+            token,
+          ),
+      )
+      .map(
+        token =>
+          token.slice(0, 5),
+      ),
+  )
+}
+
+const OPEN_QUESTION_START =
+  /^(qual|quais|quando|onde|como|quanto|quanta|quantos|quantas|que horas|que dia|em que|de que|por que|porque|o que)\b/
+
+const ANSWER_CONTENT =
+  /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo|hoje|amanha|manha|tarde|noite|\d{1,2}\s*(h|hs|hrs?|horas?)\b|\d{1,2}:\d{2}|primeir[oa]|segund[oa]|terceir[oa]|opcao|prefiro|pode ser|esse|essa|melhor pra mim|melhor para mim)/
+
+const SHORT_ANSWER =
+  /^(sim|pode|claro|isso|combinado|fechado|com certeza|quero|tenho|bora|vamos|nao|ainda nao|agora nao)\b/
+
+function lastQuestionClause(
+  texts: string[],
+): { open: boolean } | null {
+  const joined =
+    texts.join(' ')
+
+  const questionEnd =
+    joined.lastIndexOf('?')
+
+  if (questionEnd < 0) {
+    return null
+  }
+
+  const before =
+    joined.slice(
+      0,
+      questionEnd,
+    )
+
+  const clause =
+    normalizeText(
+      before
+        .split(/[.!?\n,;]/)
+        .pop() ?? '',
+    )
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  return {
+    open:
+      OPEN_QUESTION_START.test(
+        clause,
+      ),
+  }
+}
+
+function answersSellerQuestion(
+  sellerTexts: string[],
+  customerText: string,
+): boolean {
+  const question =
+    lastQuestionClause(
+      sellerTexts,
+    )
+
+  if (!question) {
+    return false
+  }
+
+  const normalized =
+    normalizeText(customerText)
+      .replace(/[^a-z0-9:\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  if (
+    ANSWER_CONTENT.test(
+      normalized,
+    )
+  ) {
+    return true
+  }
+
+  return (
+    !question.open &&
+    SHORT_ANSWER.test(
+      normalized,
+    )
+  )
+}
+
+function latestRelatedEngagement({
+  messages,
+  trace,
+  signals,
+  intentSignal,
+  demonstratedAt,
+}: {
+  messages: AuthoredMessage[]
+  trace: SellerExecutionTrace
+  signals:
+    SellerExecutionCustomerSignal[]
+  intentSignal:
+    SellerExecutionCustomerSignal
+  demonstratedAt: number
+}): {
+  at: number
+  reason:
+    CommercialIntentRefreshReason
+} | null {
+  const signalById =
+    new Map(
+      signals.map(
+        signal => [
+          signal.message_id,
+          signal,
+        ],
+      ),
+    )
+
+  const eventById =
+    new Map(
+      trace.events.map(
+        event => [
+          event.message_id,
+          event,
+        ],
+      ),
+    )
+
+  const intentMessage =
+    messages.find(
+      item =>
+        item.message.id ===
+          intentSignal.message_id,
+    )
+
+  const contextStems =
+    subjectStems(
+      intentMessage
+        ? messageText(
+            intentMessage.message,
+          )
+        : '',
+    )
+
+  let latest: {
+    at: number
+    reason:
+      CommercialIntentRefreshReason
+  } | null = null
+
+  let sellerBurst: string[] = []
+  let sellerFollowsIntent = false
+  let awaitingFirstReply = false
+
+  for (const item of messages) {
+    if (
+      item.at < demonstratedAt ||
+      item.message.id ===
+        intentSignal.message_id
+    ) {
+      continue
+    }
+
+    const text =
+      messageText(item.message)
+
+    if (
+      item.author === 'seller'
+    ) {
+      if (!awaitingFirstReply) {
+        sellerBurst = []
+        sellerFollowsIntent = false
+      }
+
+      awaitingFirstReply = true
+      sellerBurst.push(text)
+
+      const event =
+        eventById.get(
+          item.message.id,
+        )
+
+      if (
+        event &&
+        (
+          event.sequence
+            .follows_previous_context ===
+            true ||
+          event.action_type ===
+            'reengagement'
+        )
+      ) {
+        sellerFollowsIntent = true
+      }
+
+      for (
+        const stem of subjectStems(
+          text,
+        )
+      ) {
+        contextStems.add(stem)
+      }
+
+      continue
+    }
+
+    const firstReply =
+      awaitingFirstReply
+
+    awaitingFirstReply = false
+
+    const signal =
+      signalById.get(
+        item.message.id,
+      )
+
+    if (
+      signal?.kind ===
+        'disengaged'
+    ) {
+      break
+    }
+
+    let reason:
+      CommercialIntentRefreshReason | null =
+        null
+
+    if (
+      signal?.kind ===
+        'deferral'
+    ) {
+      reason =
+        'deferral_agreement'
+    } else if (
+      expressesAffirmativeContinuation(
+        text,
+      )
+    ) {
+      reason = 'reconfirmation'
+    } else if (
+      isCustomerPhaticMessage(text)
+    ) {
+      reason = null
+    } else if (
+      firstReply &&
+      sellerFollowsIntent &&
+      answersSellerQuestion(
+        sellerBurst,
+        text,
+      )
+    ) {
+      reason =
+        'answer_to_seller_move'
+    } else if (
+      firstReply &&
+      sellerFollowsIntent &&
+      signal?.expressed_enthusiasm
+    ) {
+      reason =
+        'enthusiastic_reaction'
+    } else if (
+      Array.from(
+        subjectStems(text),
+      ).some(
+        stem =>
+          contextStems.has(stem),
+      )
+    ) {
+      reason = 'same_subject'
+    }
+
+    if (reason) {
+      latest = {
+        at: item.at,
+        reason,
+      }
+    }
+  }
+
+  return latest
 }
 
 export function formatCommercialDuration(
@@ -611,9 +1472,35 @@ function latencyAssessment({
   return 'very_delayed'
 }
 
-function momentumLabel(
-  state: CommercialMomentumState,
-): string {
+function momentumLabel({
+  state,
+  stage,
+  responsible,
+  agreedPause,
+}: {
+  state: CommercialMomentumState
+  stage: CommercialMomentumStage
+  responsible:
+    CommercialTemporalResponsible
+  agreedPause:
+    CommercialAgreedPause | null
+}): string {
+  if (
+    agreedPause &&
+    responsible === 'agreed_pause'
+  ) {
+    return 'Pausa combinada com o cliente'
+  }
+
+  if (
+    agreedPause &&
+    agreedPause.seller_owes_contact &&
+    responsible === 'seller' &&
+    state !== 'dormant'
+  ) {
+    return 'Momento combinado para o vendedor retomar'
+  }
+
   switch (state) {
     case 'active':
       return 'Conversa ativa'
@@ -622,7 +1509,13 @@ function momentumLabel(
     case 'awaiting_customer':
       return 'Aguardando o cliente, dentro do ritmo normal'
     case 'cooling':
-      return 'Conversa esfriando'
+      return stage === 'early_loss'
+        ? 'Conversa começando a esfriar'
+        : stage === 'prolonged_silence'
+          ? 'Conversa esfriando — silêncio prolongado'
+          : stage === 'strong_gap'
+            ? 'Conversa fria — lacuna forte de continuidade'
+            : 'Conversa esfriando'
     case 'dormant':
       return 'Oportunidade sem continuidade'
     case 'closed':
@@ -974,7 +1867,7 @@ export function buildCommercialTemporalContext({
     )
 
   // -------------------------------------------------------------------
-  // Ritmo observado e horizontes
+  // Ritmo observado
   // -------------------------------------------------------------------
   const customerLatencies =
     customerReplyLatencies(
@@ -997,7 +1890,7 @@ export function buildCommercialTemporalContext({
   const customerMedian =
     median(customerLatencies)
 
-  let expectedWindow:
+  let customerRhythmWindow:
     number =
       COMMERCIAL_TEMPORAL_POLICY
         .default_expected_reply_window_ms
@@ -1012,7 +1905,7 @@ export function buildCommercialTemporalContext({
     customerLatencies.length >= 2 &&
     customerMedian !== null
   ) {
-    expectedWindow =
+    customerRhythmWindow =
       clamp(
         customerMedian *
           COMMERCIAL_TEMPORAL_POLICY
@@ -1024,15 +1917,6 @@ export function buildCommercialTemporalContext({
       )
     cadenceBasis = 'observed'
   }
-
-  let dormancyHorizon =
-    Math.max(
-      COMMERCIAL_TEMPORAL_POLICY
-        .dormancy_floor_ms,
-      expectedWindow *
-        COMMERCIAL_TEMPORAL_POLICY
-          .dormancy_window_multiplier,
-    )
 
   const signals =
     trace.customer_signals
@@ -1049,67 +1933,6 @@ export function buildCommercialTemporalContext({
   const closed =
     latestKindSignal?.kind ===
       'disengaged'
-
-  const deferral =
-    latestKindSignal?.kind ===
-      'deferral'
-      ? latestKindSignal
-      : null
-
-  let deferralEndsAt:
-    number | null =
-      null
-
-  if (deferral) {
-    const deferralMessage =
-      customerMessages.find(
-        item =>
-          item.message.id ===
-            deferral.message_id,
-      )
-
-    const deferralAt =
-      parse(
-        deferral.occurred_at,
-      )
-
-    if (
-      deferralMessage &&
-      deferralAt !== null
-    ) {
-      deferralEndsAt =
-        deferralAt +
-        deferralHorizonMs(
-          messageText(
-            deferralMessage.message,
-          ),
-        )
-
-      dormancyHorizon =
-        Math.max(
-          dormancyHorizon,
-          deferralEndsAt -
-            deferralAt +
-            expectedWindow,
-        )
-
-      cadenceBasis =
-        'deferral'
-    }
-  }
-
-  // -------------------------------------------------------------------
-  // Intenção: histórica vs atual
-  // -------------------------------------------------------------------
-  const intentSignal =
-    [...signals]
-      .reverse()
-      .find(
-        signal =>
-          COMMERCIAL_INTENT_KINDS.has(
-            signal.kind,
-          ),
-      ) ?? null
 
   const unansweredTurns =
     lastCustomer
@@ -1137,61 +1960,328 @@ export function buildCommercialTemporalContext({
         ).length
       : sellerMessages.length
 
+  // -------------------------------------------------------------------
+  // Pausa combinada com o cliente ("me chama semana que vem")
+  // -------------------------------------------------------------------
+  let agreedPause:
+    CommercialAgreedPause | null =
+      null
+
+  let pauseRequestedAt:
+    number | null =
+      null
+
+  let pauseResumeAt:
+    number | null =
+      null
+
+  let pauseUntil:
+    number | null =
+      null
+
+  if (
+    latestKindSignal?.kind ===
+      'deferral'
+  ) {
+    const deferralMessage =
+      customerMessages.find(
+        item =>
+          item.message.id ===
+            latestKindSignal.message_id,
+      )
+
+    const requestedAt =
+      parse(
+        latestKindSignal.occurred_at,
+      )
+
+    // O combinado só vale enquanto o cliente não voltou com conteúdo.
+    const customerCameBack =
+      requestedAt !== null &&
+      customerMessages.some(
+        item =>
+          item.at > requestedAt &&
+          !isCustomerPhaticMessage(
+            messageText(
+              item.message,
+            ),
+          ),
+      )
+
+    if (
+      deferralMessage &&
+      requestedAt !== null &&
+      !customerCameBack
+    ) {
+      const plan =
+        deferralPlan(
+          messageText(
+            deferralMessage.message,
+          ),
+          requestedAt,
+        )
+
+      pauseRequestedAt =
+        requestedAt
+      pauseResumeAt =
+        plan.resume_at
+      pauseUntil =
+        plan.agreed_until
+
+      agreedPause = {
+        requested_message_id:
+          deferralMessage.message.id,
+        requested_at:
+          new Date(
+            requestedAt,
+          ).toISOString(),
+        resume_at:
+          new Date(
+            plan.resume_at,
+          ).toISOString(),
+        agreed_until:
+          new Date(
+            plan.agreed_until,
+          ).toISOString(),
+        seller_owes_contact:
+          plan.seller_owes_contact,
+        horizon_label:
+          plan.horizon_label,
+        status:
+          evaluatedAt <
+          plan.resume_at
+            ? 'in_progress'
+            : evaluatedAt <=
+                plan.agreed_until
+              ? 'due'
+              : 'overdue',
+      }
+
+      cadenceBasis =
+        'deferral'
+    }
+  }
+
+  // -------------------------------------------------------------------
+  // Intenção: histórica vs atual
+  // -------------------------------------------------------------------
+  const latestCommercialSignal =
+    [...signals]
+      .reverse()
+      .find(
+        signal =>
+          COMMERCIAL_INTENT_KINDS.has(
+            signal.kind,
+          ),
+      ) ?? null
+
+  // Reconfirmação fraca ("ainda tenho interesse, vamos seguir?") não
+  // substitui a intenção mais forte que ela reconfirma: ela a RENOVA.
+  const intentSignal =
+    (() => {
+      if (
+        !latestCommercialSignal ||
+        latestCommercialSignal.confidence ===
+          'high'
+      ) {
+        return latestCommercialSignal
+      }
+
+      const message =
+        customerMessages.find(
+          item =>
+            item.message.id ===
+              latestCommercialSignal.message_id,
+        )
+
+      if (
+        !message ||
+        !expressesAffirmativeContinuation(
+          messageText(
+            message.message,
+          ),
+        )
+      ) {
+        return latestCommercialSignal
+      }
+
+      const rank = {
+        low: 0,
+        medium: 1,
+        high: 2,
+      } as const
+
+      return [...signals]
+        .reverse()
+        .find(
+          signal =>
+            signal !==
+              latestCommercialSignal &&
+            COMMERCIAL_INTENT_KINDS.has(
+              signal.kind,
+            ) &&
+            rank[signal.confidence] >
+              rank[
+                latestCommercialSignal
+                  .confidence
+              ] &&
+            (
+              parse(
+                signal.occurred_at,
+              ) ?? 0
+            ) <=
+              (
+                parse(
+                  latestCommercialSignal
+                    .occurred_at,
+                ) ?? 0
+              ),
+        ) ?? latestCommercialSignal
+    })()
+
+  const intentDemonstratedAt =
+    intentSignal
+      ? parse(
+          intentSignal.occurred_at,
+        ) ?? evaluatedAt
+      : null
+
+  const intentExpired =
+    intentSignal &&
+    intentDemonstratedAt !== null
+      ? timeWindowExpired({
+          reference:
+            intentSignal.time_reference,
+          demonstratedAt:
+            intentDemonstratedAt,
+          evaluatedAt,
+        })
+      : false
+
+  // Urgência declarada pelo próprio cliente encurta o ritmo esperado
+  // enquanto a janela dele está aberta ("quero contratar hoje").
+  const timeSensitiveIntent =
+    Boolean(
+      intentSignal &&
+      !intentExpired &&
+      HIGH_INTENT_KINDS.has(
+        intentSignal.kind,
+      ) &&
+      (
+        intentSignal.time_reference ===
+          'same_day' ||
+        intentSignal.time_reference ===
+          'next_day'
+      ),
+    )
+
+  const customerExpected =
+    timeSensitiveIntent
+      ? Math.min(
+          customerRhythmWindow,
+          COMMERCIAL_TEMPORAL_POLICY
+            .time_sensitive_customer_window_ms,
+        )
+      : customerRhythmWindow
+
   let intent:
     CommercialTemporalContext['intent'] =
       null
 
-  if (intentSignal) {
+  if (
+    intentSignal &&
+    intentDemonstratedAt !== null
+  ) {
     const demonstratedAt =
-      parse(
-        intentSignal.occurred_at,
-      ) ?? evaluatedAt
+      intentDemonstratedAt
 
-    // Qualquer resposta posterior do cliente na mesma linha mantém o tema
-    // vivo (ex.: "Não fiz ainda" depois de pedir uma experiência). Um
-    // encerramento explícito posterior fecha a intenção.
-    const lastEngagement =
+    const refresh =
       closed
-        ? demonstratedAt
-        : Math.max(
+        ? null
+        : latestRelatedEngagement({
+            messages,
+            trace,
+            signals,
+            intentSignal,
             demonstratedAt,
-            lastCustomer?.at ??
-              demonstratedAt,
-          )
+          })
 
-    const engagementAge =
+    const relatedAt =
       Math.max(
-        0,
-        evaluatedAt -
-          lastEngagement,
+        demonstratedAt,
+        refresh?.at ??
+          demonstratedAt,
       )
 
-    const recentExchange =
-      transitionAt !== null &&
-      evaluatedAt - transitionAt <=
-        COMMERCIAL_TEMPORAL_POLICY
-          .active_exchange_window_ms
+    const relatedAge =
+      Math.max(
+        0,
+        evaluatedAt - relatedAt,
+      )
+
+    // Enquanto o combinado vale, a intenção envelhece mais devagar.
+    const decayAge =
+      pauseRequestedAt !== null &&
+      pauseUntil !== null &&
+      relatedAt >= pauseRequestedAt
+        ? Math.max(
+            0,
+            Math.min(
+              evaluatedAt,
+              pauseUntil,
+            ) - relatedAt,
+          ) *
+            COMMERCIAL_TEMPORAL_POLICY
+              .agreed_pause_decay_weight +
+          Math.max(
+            0,
+            evaluatedAt - pauseUntil,
+          )
+        : relatedAge
+
+    const vitality =
+      closed
+        ? 0
+        : COMMERCIAL_TEMPORAL_POLICY
+            .intent_confidence_base[
+              intentSignal.confidence
+            ] *
+          Math.exp(
+            -decayAge /
+              (
+                customerExpected *
+                COMMERCIAL_TEMPORAL_POLICY
+                  .intent_decay_windows
+              ),
+          ) *
+          (
+            intentExpired
+              ? COMMERCIAL_TEMPORAL_POLICY
+                  .intent_expired_window_factor
+              : 1
+          ) *
+          Math.pow(
+            COMMERCIAL_TEMPORAL_POLICY
+              .unanswered_outbound_factor,
+            Math.max(
+              0,
+              unansweredTurns.length - 1,
+            ),
+          )
 
     const freshness:
       CommercialIntentFreshness =
         closed
           ? 'closed'
-          : recentExchange ||
-              engagementAge <=
-                expectedWindow
+          : vitality >=
+              COMMERCIAL_TEMPORAL_POLICY
+                .intent_current_vitality
             ? 'current'
-            : engagementAge <=
-                dormancyHorizon
+            : vitality >=
+                COMMERCIAL_TEMPORAL_POLICY
+                  .intent_aging_vitality
               ? 'aging'
               : 'stale'
-
-    const expired =
-      timeWindowExpired({
-        reference:
-          intentSignal.time_reference,
-        demonstratedAt,
-        evaluatedAt,
-      })
 
     intent = {
       kind:
@@ -1204,13 +2294,13 @@ export function buildCommercialTemporalContext({
         intentSignal.occurred_at,
       last_engagement_at:
         new Date(
-          lastEngagement,
+          relatedAt,
         ).toISOString(),
       freshness,
       time_reference:
         intentSignal.time_reference,
       time_window_expired:
-        expired,
+        intentExpired,
       expressed_enthusiasm:
         signals.some(
           signal =>
@@ -1227,22 +2317,31 @@ export function buildCommercialTemporalContext({
       needs_reconfirmation:
         !closed &&
         (
-          freshness === 'stale' ||
+          vitality <
+            COMMERCIAL_TEMPORAL_POLICY
+              .intent_reconfirmation_vitality ||
           (
-            freshness === 'aging' &&
-            (
-              expired ||
-              unansweredTurns.length >= 2
-            )
+            intentExpired &&
+            vitality <
+              COMMERCIAL_TEMPORAL_POLICY
+                .intent_expired_reconfirmation_vitality
           )
         ),
+      vitality:
+        round(vitality, 3),
+      related_age_ms:
+        relatedAge,
+      refreshed_by:
+        refresh?.reason ??
+        'new_statement',
     }
   }
 
   // -------------------------------------------------------------------
-  // Momentum e responsabilidade
+  // Momentum progressivo e responsabilidade
   // -------------------------------------------------------------------
   const reasonCodes: string[] = []
+  const factors: string[] = []
 
   let state:
     CommercialMomentumState =
@@ -1252,9 +2351,37 @@ export function buildCommercialTemporalContext({
     CommercialTemporalWaitingOn =
       'unknown'
 
+  let responsible:
+    CommercialTemporalResponsible =
+      'unknown'
+
   let waitingSince:
     number | null =
       null
+
+  let silenceMs:
+    number | null =
+      null
+
+  let expectedMs:
+    number | null =
+      null
+
+  let expectedBasis:
+    CommercialTemporalProgression[
+      'expected_window_basis'
+    ] = null
+
+  let ratio:
+    number | null =
+      null
+
+  let severity = 0
+
+  let owedResponse:
+    CommercialTemporalProgression[
+      'owed_response'
+    ] = null
 
   let confidence:
     SellerExecutionConfidence =
@@ -1262,18 +2389,39 @@ export function buildCommercialTemporalContext({
         ? 'high'
         : 'medium'
 
-  const pendingCustomerBurstStart =
+  const rhythmBasis:
+    CommercialTemporalProgression[
+      'expected_window_basis'
+    ] =
+      timeSensitiveIntent
+        ? 'time_sensitive_intent'
+        : cadenceBasis === 'observed'
+          ? 'observed'
+          : 'default'
+
+  factors.push(
+    cadenceBasis === 'observed'
+      ? 'customer_rhythm_observed'
+      : 'default_reply_rhythm',
+  )
+
+  if (timeSensitiveIntent) {
+    factors.push(
+      'customer_time_sensitive_intent',
+    )
+  }
+
+  const pendingCustomerBurst =
     (() => {
       if (
         !last ||
         last.author !==
           'customer'
       ) {
-        return null
+        return [] as AuthoredMessage[]
       }
 
-      let start =
-        last.at
+      const burst: AuthoredMessage[] = []
 
       for (
         let index =
@@ -1288,12 +2436,46 @@ export function buildCommercialTemporalContext({
           break
         }
 
-        start =
-          messages[index].at
+        burst.unshift(
+          messages[index],
+        )
       }
 
-      return start
+      return burst
     })()
+
+  const pendingCustomerBurstStart =
+    pendingCustomerBurst[0]?.at ??
+    null
+
+  const lastBurstIsPauseRequest =
+    agreedPause !== null &&
+    pendingCustomerBurst.some(
+      item =>
+        item.message.id ===
+          agreedPause?.requested_message_id,
+    )
+
+  // Pedido de pausa acabou de chegar: o vendedor ainda deve confirmar o
+  // combinado. Depois disso, o combinado vale por si.
+  const pauseAcknowledgementPending =
+    lastBurstIsPauseRequest &&
+    (since(
+      pendingCustomerBurstStart,
+    ) ?? 0) <=
+      COMMERCIAL_TEMPORAL_POLICY
+        .active_exchange_window_ms
+
+  const pauseGoverns =
+    agreedPause !== null &&
+    pauseRequestedAt !== null &&
+    pauseResumeAt !== null &&
+    pauseUntil !== null &&
+    !pauseAcknowledgementPending &&
+    (
+      last?.author === 'seller' ||
+      lastBurstIsPauseRequest
+    )
 
   if (!last) {
     state = 'no_history'
@@ -1301,6 +2483,7 @@ export function buildCommercialTemporalContext({
   } else if (closed) {
     state = 'closed'
     waitingOn = 'none'
+    responsible = 'none'
     waitingSince =
       parse(
         latestKindSignal?.occurred_at,
@@ -1309,94 +2492,227 @@ export function buildCommercialTemporalContext({
       'customer_explicitly_disengaged',
     )
   } else if (
+    pauseGoverns &&
+    pauseRequestedAt !== null &&
+    pauseResumeAt !== null &&
+    pauseUntil !== null &&
+    agreedPause
+  ) {
+    factors.push(
+      'agreed_pause',
+    )
+
+    const pauseLength =
+      Math.max(
+        60_000,
+        pauseUntil -
+          pauseRequestedAt,
+      )
+
+    silenceMs =
+      since(pauseRequestedAt)
+
+    expectedMs = pauseLength
+    expectedBasis =
+      'agreed_pause'
+
+    if (
+      evaluatedAt <= pauseUntil
+    ) {
+      ratio =
+        (silenceMs ?? 0) /
+        pauseLength
+
+      severity =
+        continuitySeverity(
+          ratio,
+          0,
+        )
+
+      responsible =
+        agreedPause.seller_owes_contact &&
+        evaluatedAt >=
+          pauseResumeAt
+          ? 'seller'
+          : 'agreed_pause'
+    } else {
+      ratio =
+        1 +
+        (evaluatedAt - pauseUntil) /
+          customerExpected
+
+      responsible =
+        agreedPause.seller_owes_contact
+          ? 'seller'
+          : 'customer'
+
+      severity =
+        continuitySeverity(
+          ratio,
+          responsible === 'customer'
+            ? unansweredTurns.length
+            : 0,
+        )
+
+      factors.push(
+        'agreed_pause_elapsed',
+      )
+    }
+
+    waitingOn =
+      responsible === 'seller'
+        ? 'seller'
+        : responsible === 'customer'
+          ? 'customer'
+          : 'none'
+
+    waitingSince =
+      responsible === 'seller'
+        ? pauseResumeAt
+        : pauseRequestedAt
+
+    reasonCodes.push(
+      responsible === 'agreed_pause'
+        ? 'customer_deferral_in_progress'
+        : responsible === 'seller'
+          ? 'agreed_recontact_due'
+          : 'agreed_pause_elapsed',
+    )
+  } else if (
     last.author ===
       'customer'
   ) {
     waitingOn = 'seller'
+    responsible = 'seller'
     waitingSince =
       pendingCustomerBurstStart
 
     const wait =
       since(waitingSince) ?? 0
 
-    if (
-      wait <=
-      COMMERCIAL_TEMPORAL_POLICY
-        .active_exchange_window_ms
-    ) {
-      state = 'awaiting_seller'
-      reasonCodes.push(
-        'customer_spoke_last_recently',
+    silenceMs = wait
+    expectedMs =
+      customerExpected
+    expectedBasis =
+      rhythmBasis
+    ratio =
+      wait / customerExpected
+
+    severity =
+      continuitySeverity(
+        ratio,
+        0,
       )
-    } else if (
-      wait <= expectedWindow
-    ) {
-      state = 'awaiting_seller'
-      reasonCodes.push(
-        'seller_response_late',
-      )
-    } else if (
-      wait <= dormancyHorizon
-    ) {
-      state = 'cooling'
-      reasonCodes.push(
-        'customer_waiting_long_for_seller',
-      )
-    } else {
-      state = 'dormant'
-      reasonCodes.push(
-        'seller_left_customer_without_response',
-      )
+
+    const pendingIntent =
+      signals
+        .filter(
+          signal =>
+            pendingCustomerBurst.some(
+              item =>
+                item.message.id ===
+                  signal.message_id,
+            ),
+        )
+        .find(
+          signal =>
+            signal.confidence ===
+              'high' &&
+            HIGH_INTENT_KINDS.has(
+              signal.kind,
+            ),
+        ) ?? null
+
+    const owedBasis =
+      pendingIntent?.time_reference ===
+        'same_day'
+        ? 'time_sensitive_intent'
+        : pendingIntent
+          ? 'high_intent'
+          : 'standard'
+
+    const owedExpected =
+      owedBasis === 'standard'
+        ? COMMERCIAL_TEMPORAL_POLICY
+            .seller_standard_response_window_ms
+        : COMMERCIAL_TEMPORAL_POLICY
+            .seller_high_intent_response_window_ms
+
+    const overdueRatio =
+      wait / owedExpected
+
+    owedResponse = {
+      owner: 'seller',
+      expected_ms:
+        owedExpected,
+      elapsed_ms: wait,
+      overdue_ratio:
+        round(overdueRatio, 2),
+      severity:
+        round(
+          overdueRatio <= 1
+            ? 0
+            : 1 -
+              Math.exp(
+                -(overdueRatio - 1) /
+                  COMMERCIAL_TEMPORAL_POLICY
+                    .owed_response_decay_ratio,
+              ),
+          3,
+        ),
+      basis: owedBasis,
     }
+
+    factors.push(
+      overdueRatio <= 1
+        ? 'seller_response_within_window'
+        : 'seller_response_overdue',
+    )
+
+    reasonCodes.push(
+      wait <=
+        COMMERCIAL_TEMPORAL_POLICY
+          .active_exchange_window_ms &&
+        overdueRatio <= 1
+        ? 'customer_spoke_last_recently'
+        : 'seller_response_late',
+    )
   } else {
     waitingOn = 'customer'
+    responsible = 'customer'
     waitingSince =
       lastSeller?.at ?? null
 
-    const customerSilence =
-      lastCustomer
-        ? since(lastCustomer.at) ?? 0
-        : since(
-            sellerMessages[0]?.at ??
-              null,
-          ) ?? 0
+    const firstUnanswered =
+      sellerMessages.find(
+        item =>
+          !lastCustomer ||
+          item.at > lastCustomer.at,
+      ) ?? null
+
+    silenceMs =
+      since(
+        firstUnanswered?.at ??
+          null,
+      ) ?? 0
+
+    expectedMs =
+      customerExpected
+    expectedBasis =
+      rhythmBasis
+    ratio =
+      silenceMs /
+      customerExpected
+
+    severity =
+      continuitySeverity(
+        ratio,
+        unansweredTurns.length,
+      )
 
     if (!lastCustomer) {
       reasonCodes.push(
         'customer_never_replied',
-      )
-    }
-
-    if (
-      deferralEndsAt !== null &&
-      evaluatedAt <=
-        deferralEndsAt +
-          expectedWindow
-    ) {
-      state = 'awaiting_customer'
-      reasonCodes.push(
-        'customer_deferral_in_progress',
-      )
-    } else if (
-      customerSilence <=
-      expectedWindow
-    ) {
-      state = 'awaiting_customer'
-      reasonCodes.push(
-        'within_expected_reply_window',
-      )
-    } else if (
-      customerSilence <=
-      dormancyHorizon
-    ) {
-      state = 'cooling'
-      reasonCodes.push(
-        'customer_silence_beyond_expected_window',
-      )
-    } else {
-      state = 'dormant'
-      reasonCodes.push(
-        'customer_silence_beyond_dormancy_horizon',
       )
     }
 
@@ -1406,12 +2722,125 @@ export function buildCommercialTemporalContext({
       reasonCodes.push(
         'seller_outbound_streak_without_reply',
       )
+      factors.push(
+        'unanswered_outbound_streak',
+      )
+    }
+
+    const lastUnanswered =
+      unansweredTurns[
+        unansweredTurns.length - 1
+      ] ?? null
+
+    if (
+      lastUnanswered?.action_types.some(
+        action =>
+          action ===
+            'scheduling_open_question' ||
+          action ===
+            'scheduling_guided_choice' ||
+          action ===
+            'close_request',
+      )
+    ) {
+      factors.push(
+        'awaiting_answer_to_commitment_ask',
+      )
+    }
+  }
+
+  const sla =
+    operational?.sla ?? null
+
+  if (
+    sla?.configured &&
+    sla.applicable &&
+    sla.risk === 'high' &&
+    (
+      responsible === 'seller' ||
+      responsible === 'customer'
+    )
+  ) {
+    severity =
+      1 -
+      (1 - severity) *
+        COMMERCIAL_TEMPORAL_POLICY
+          .sla_risk_factor
+    factors.push(
+      'stage_sla_risk_high',
+    )
+  }
+
+  if (
+    intentExpired
+  ) {
+    factors.push(
+      'intent_time_window_expired',
+    )
+  }
+
+  let stage:
+    CommercialMomentumStage =
+      !last
+        ? 'no_history'
+        : closed
+          ? 'closed'
+          : stageForSeverity(
+              severity,
+            )
+
+  if (
+    last &&
+    !closed
+  ) {
+    if (
+      responsible ===
+        'agreed_pause'
+    ) {
+      state =
+        'awaiting_customer'
+    } else if (
+      responsible ===
+        'customer'
+    ) {
+      state =
+        stage === 'within_rhythm'
+          ? 'awaiting_customer'
+          : stage === 'long_dormancy'
+            ? 'dormant'
+            : 'cooling'
+
+      reasonCodes.push(
+        stage === 'within_rhythm'
+          ? 'within_expected_reply_window'
+          : stage === 'long_dormancy'
+            ? 'customer_silence_beyond_dormancy_horizon'
+            : 'customer_silence_beyond_expected_window',
+      )
+    } else if (
+      responsible ===
+        'seller'
+    ) {
+      state =
+        stage === 'within_rhythm' ||
+        stage === 'early_loss'
+          ? 'awaiting_seller'
+          : stage === 'long_dormancy'
+            ? 'dormant'
+            : 'cooling'
 
       if (
-        state ===
-        'awaiting_customer'
+        state === 'cooling'
       ) {
-        state = 'cooling'
+        reasonCodes.push(
+          'customer_waiting_long_for_seller',
+        )
+      } else if (
+        state === 'dormant'
+      ) {
+        reasonCodes.push(
+          'seller_left_customer_without_response',
+        )
       }
     }
   }
@@ -1467,6 +2896,9 @@ export function buildCommercialTemporalContext({
     reasonCodes.push(
       'newer_activity_pending_analysis',
     )
+    factors.push(
+      'newer_activity_outside_snapshot',
+    )
 
     if (
       evaluatedAt - liveLatest <=
@@ -1478,6 +2910,7 @@ export function buildCommercialTemporalContext({
       )
     ) {
       state = 'active'
+      stage = 'within_rhythm'
     }
   }
 
@@ -1508,15 +2941,34 @@ export function buildCommercialTemporalContext({
         ? 'respond_now'
         : 'none'
   } else if (
+    responsible ===
+      'agreed_pause'
+  ) {
+    mode = 'wait'
+    reactivationReasons.push(
+      'agreed_pause_in_progress',
+    )
+  } else if (
+    waitingOn === 'seller' &&
+    agreedPause &&
+    pauseGoverns
+  ) {
+    // O cliente pediu para ser chamado e o momento chegou: o próximo
+    // movimento é o contato combinado (retomada contextual), não resposta
+    // a uma pergunta pendente.
+    mode =
+      stage === 'long_dormancy'
+        ? 'reactivate'
+        : 'light_follow_up'
+    reactivationReasons.push(
+      'agreed_recontact_due',
+    )
+  } else if (
     waitingOn === 'seller'
   ) {
-    const wait =
-      since(waitingSince) ?? 0
-
     if (
-      wait <=
-      COMMERCIAL_TEMPORAL_POLICY
-        .active_exchange_window_ms
+      owedResponse &&
+      owedResponse.overdue_ratio <= 1
     ) {
       mode = 'respond_now'
     } else {
@@ -1557,7 +3009,7 @@ export function buildCommercialTemporalContext({
     } else if (
       sinceSeller !== null &&
       sinceSeller <=
-        expectedWindow &&
+        customerExpected &&
       lastUnansweredTurn?.action_types.includes(
         'reengagement',
       )
@@ -1591,7 +3043,7 @@ export function buildCommercialTemporalContext({
     mode !== 'none' &&
     Boolean(
       intent?.needs_reconfirmation ||
-      state === 'dormant' ||
+      stage === 'long_dormancy' ||
       (
         mode === 'recover_delay' &&
         intent?.time_window_expired
@@ -1606,7 +3058,7 @@ export function buildCommercialTemporalContext({
 
   if (
     intent &&
-    state === 'dormant' &&
+    stage === 'long_dormancy' &&
     intent.freshness !== 'closed' &&
     !intent.needs_reconfirmation
   ) {
@@ -1727,6 +3179,41 @@ export function buildCommercialTemporalContext({
   }
 
   if (
+    stage !== 'no_history' &&
+    stage !== 'closed'
+  ) {
+    temporalSignals.push(
+      `momentum_stage_${stage}`,
+    )
+  }
+
+  if (
+    responsible ===
+      'agreed_pause'
+  ) {
+    // Dentro do combinado a próxima ação é do cliente (ou do calendário):
+    // espera disciplinada, sem nova mensagem.
+    temporalSignals.push(
+      'customer_future_action',
+      'waiting_on_customer',
+    )
+    temporalSituations.push(
+      'customer_commitment_pending',
+    )
+  }
+
+  if (agreedPause) {
+    temporalSignals.push(
+      agreedPause.status ===
+        'in_progress'
+        ? 'agreed_pause_in_progress'
+        : agreedPause.status === 'due'
+          ? 'agreed_pause_due'
+          : 'agreed_pause_elapsed',
+    )
+  }
+
+  if (
     intent?.freshness ===
       'stale'
   ) {
@@ -1801,9 +3288,6 @@ export function buildCommercialTemporalContext({
     )
   }
 
-  const sla =
-    operational?.sla ?? null
-
   if (
     sla?.configured &&
     sla.applicable &&
@@ -1850,6 +3334,61 @@ export function buildCommercialTemporalContext({
       waitingOn === 'customer'
         ? `Última mensagem do vendedor há ${formatCommercialDuration(sinceSeller)} — ${unansweredTurns.length} tentativas seguidas sem resposta do cliente.`
         : `Última mensagem do vendedor há ${formatCommercialDuration(sinceSeller)}.`,
+    )
+  }
+
+  if (
+    responsible === 'customer' &&
+    ratio !== null &&
+    ratio >= 1.5 &&
+    expectedBasis !== 'agreed_pause'
+  ) {
+    const rhythm =
+      expectedBasis === 'observed'
+        ? 'o ritmo de resposta deste cliente'
+        : expectedBasis ===
+            'time_sensitive_intent'
+          ? 'a janela que o próprio pedido do cliente indicava'
+          : 'o intervalo de resposta esperado'
+
+    factLines.push(
+      ratio < 2
+        ? `O silêncio já passou de ${rhythm}.`
+        : `O silêncio já é cerca de ${Math.round(ratio)} vezes ${rhythm}.`,
+    )
+  }
+
+  if (agreedPause) {
+    const requestedLabel =
+      agreedPause.seller_owes_contact
+        ? `O cliente pediu para ser chamado ${agreedPause.horizon_label}`
+        : `O cliente pediu um prazo e disse que retomaria ${agreedPause.horizon_label}`
+
+    factLines.push(
+      agreedPause.status ===
+        'in_progress'
+        ? `${requestedLabel}; o combinado ainda está dentro do prazo.`
+        : agreedPause.status === 'due'
+          ? agreedPause.seller_owes_contact
+            ? `${requestedLabel} — chegou o momento combinado de retomar.`
+            : `${requestedLabel}; o período combinado está em curso.`
+          : `${requestedLabel}; o prazo combinado passou há ${formatCommercialDuration(evaluatedAt - (pauseUntil ?? evaluatedAt))}.`,
+    )
+  }
+
+  if (
+    intent &&
+    intent.needs_reconfirmation &&
+    lastCustomer &&
+    lastCustomer.at >
+      (
+        parse(
+          intent.last_engagement_at,
+        ) ?? lastCustomer.at
+      )
+  ) {
+    factLines.push(
+      `A última manifestação do cliente sobre este interesse foi há ${formatCommercialDuration(intent.related_age_ms)}; as mensagens depois disso não o reconfirmaram.`,
     )
   }
 
@@ -1965,9 +3504,12 @@ export function buildCommercialTemporalContext({
       seller_median_reply_ms:
         median(sellerLatencies),
       expected_customer_reply_window_ms:
-        expectedWindow,
+        customerExpected,
       dormancy_horizon_ms:
-        dormancyHorizon,
+        Math.round(
+          customerExpected *
+            longDormancyRatio(),
+        ),
       basis:
         cadenceBasis,
     },
@@ -1992,12 +3534,48 @@ export function buildCommercialTemporalContext({
             }
           : null,
       pending_customer_wait_ms:
-        waitingOn === 'seller'
-          ? since(waitingSince)
+        waitingOn === 'seller' &&
+        !pauseGoverns
+          ? since(
+              pendingCustomerBurstStart,
+            )
           : null,
     },
 
     intent,
+
+    progression: {
+      responsible,
+      silence_ms: silenceMs,
+      expected_window_ms:
+        expectedMs,
+      expected_window_basis:
+        expectedBasis,
+      elapsed_ratio:
+        ratio === null
+          ? null
+          : round(ratio, 2),
+      severity:
+        round(severity, 3),
+      stage,
+      intent_vitality:
+        intent?.vitality ?? null,
+      intent_related_age_ms:
+        intent?.related_age_ms ??
+        null,
+      bidirectional_inactivity_ms:
+        since(transitionAt),
+      unanswered_outbound:
+        waitingOn === 'customer'
+          ? unansweredTurns.length
+          : 0,
+      owed_response:
+        owedResponse,
+      agreed_pause:
+        agreedPause,
+      factors:
+        unique(factors),
+    },
 
     momentum: {
       state,
@@ -2047,7 +3625,12 @@ export function buildCommercialTemporalContext({
 
     narrative: {
       momentum_label:
-        momentumLabel(state),
+        momentumLabel({
+          state,
+          stage,
+          responsible,
+          agreedPause,
+        }),
       intent_label:
         intent
           ? intentFreshnessLabel(

@@ -124,6 +124,20 @@ export type CommercialCoachingTemporalView = {
   reactivation_mode:
     CommercialReactivationMode
   requalify_before_continuing: boolean
+  // Intensidade progressiva (quantitativa) da lacuna e da intenção.
+  progression: {
+    stage:
+      CommercialTemporalContext[
+        'progression'
+      ]['stage']
+    severity: number
+    elapsed_ratio: number | null
+    intent_vitality: number | null
+    responsible:
+      CommercialTemporalContext[
+        'progression'
+      ]['responsible']
+  }
   facts: string[]
 }
 
@@ -1674,6 +1688,22 @@ function temporalView(
     requalify_before_continuing:
       temporal.reactivation
         .requalify_before_continuing,
+    progression: {
+      stage:
+        temporal.progression.stage,
+      severity:
+        temporal.progression
+          .severity,
+      elapsed_ratio:
+        temporal.progression
+          .elapsed_ratio,
+      intent_vitality:
+        temporal.progression
+          .intent_vitality,
+      responsible:
+        temporal.progression
+          .responsible,
+    },
     facts: [
       ...temporal.narrative.facts,
     ],
@@ -1770,6 +1800,16 @@ function buildSynthesis({
   ) {
     pieces.push(
       'A intenção do cliente ainda não foi reconfirmada desde a última conversa.',
+    )
+  } else if (
+    intent &&
+    !intent.is_current &&
+    intent.freshness === 'stale'
+  ) {
+    // O cliente pode ter voltado a falar ("Bom dia") sem reconfirmar nada:
+    // conversa recente não é intenção recente.
+    pieces.push(
+      'A intenção demonstrada antes não foi reconfirmada pelas mensagens mais recentes; trate-a como histórico até o cliente confirmar.',
     )
   }
 

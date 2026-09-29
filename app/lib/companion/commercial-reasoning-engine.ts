@@ -896,14 +896,63 @@ function temporalSituation(
         .filter(Boolean)
         .join(' ')
 
-    case 'light_follow_up':
-      return [
-        silenceSentence(temporal),
+    case 'light_follow_up': {
+      const pause =
+        temporal.progression
+          .agreed_pause
+
+      if (
+        pause &&
+        temporal.reactivation
+          .reason_codes.includes(
+            'agreed_recontact_due',
+          )
+      ) {
+        return [
+          `O cliente pediu para ser chamado ${pause.horizon_label} e o momento combinado chegou.`,
+          temporal.reactivation
+            .requalify_before_continuing
+            ? 'Passou tempo suficiente para o interesse precisar ser reconfirmado: a retomada lembra o combinado e pergunta como está o assunto hoje.'
+            : 'A retomada cumpre o combinado: lembra o que ficou em aberto e reabre o assunto sem pressão.',
+        ].join(' ')
+      }
+
+      const requalifyText =
         temporal.reactivation
           .requalify_before_continuing
-          ? 'A conversa está esfriando e o momento indicado pelo cliente já passou; vale reconfirmar o interesse antes de retomar o passo pendente.'
-          : 'A conversa está esfriando; a retomada precisa reabrir o objetivo sem repetir a mesma cobrança.',
-      ].join(' ')
+          ? temporal.intent?.time_window_expired
+            ? ' O momento indicado pelo cliente já passou; vale reconfirmar o interesse antes de retomar o passo pendente.'
+            : ' O interesse atual não está confirmado; descobrir o que mudou vem antes do passo pendente.'
+          : ''
+
+      switch (
+        temporal.progression.stage
+      ) {
+        case 'early_loss':
+          return `${silenceSentence(temporal)} O silêncio acabou de passar do ritmo normal de resposta; um lembrete leve e contextual basta — ainda não é caso de reativação.${requalifyText}`
+
+        case 'prolonged_silence':
+          return `${silenceSentence(temporal)} O silêncio já é prolongado; antes de cobrar o passo pendente, vale checar de forma leve se o assunto continua de pé.${requalifyText}`
+
+        case 'strong_gap':
+          return `${silenceSentence(temporal)} A lacuna de continuidade já é forte: a retomada precisa descobrir o estado atual do interesse, não repetir o passo antigo.${requalifyText}`
+
+        default:
+          return `${silenceSentence(temporal)} A conversa está esfriando; a retomada precisa reabrir o objetivo sem repetir a mesma cobrança.${requalifyText}`
+      }
+    }
+
+    case 'respond_now': {
+      if (
+        !temporal.reactivation
+          .requalify_before_continuing ||
+        !intent
+      ) {
+        return null
+      }
+
+      return `O cliente voltou a falar agora, mas a última manifestação dele sobre ${intentPhrase(intent.kind)} foi há ${formatCommercialDuration(intent.related_age_ms)} e a mensagem nova não a reconfirma. Responder já, sem tratar a intenção antiga como atual.`
+    }
 
     case 'recover_delay': {
       const wait =
@@ -1003,6 +1052,16 @@ function inferObjectiveNow({
       .requalify_before_continuing
   ) {
     return 'Responder agora ao pedido que ficou sem resposta, reconhecendo a demora em uma frase, e reconfirmar se ele ainda faz sentido antes de retomar o compromisso original — sem presumir a data ou o momento antigo.'
+  }
+
+  if (
+    selectedTechniques[0]
+      ?.intelligence_id ===
+      'technique.state_change_reactivation' &&
+    temporal?.reactivation.mode ===
+      'respond_now'
+  ) {
+    return 'Responder agora ao que o cliente trouxe e, na mesma mensagem, perguntar de forma simples como está o interesse que ele havia demonstrado — sem presumir que o passo antigo continua de pé e sem pedir data, escolha ou fechamento.'
   }
 
   const techniqueObjective =
@@ -1113,6 +1172,36 @@ function prioritizeSelectedTechniques({
     push(
       'technique.delayed_response_recovery',
     )
+
+    if (
+      temporal.reactivation
+        .requalify_before_continuing
+    ) {
+      push(
+        'technique.state_change_reactivation',
+      )
+    }
+  } else if (
+    temporal &&
+    temporalMode === 'wait'
+  ) {
+    // O tempo sustenta espera (dentro do ritmo, vendedor acabou de agir ou
+    // prazo combinado com o cliente): nenhuma mensagem nova agora.
+    push(
+      'technique.commitment_wait',
+    )
+  } else if (
+    temporal &&
+    temporalMode ===
+      'respond_now' &&
+    temporal.reactivation
+      .requalify_before_continuing
+  ) {
+    // O cliente voltou a falar, mas sem reconfirmar a intenção antiga:
+    // responder e descobrir o estado atual antes do passo antigo.
+    push(
+      'technique.state_change_reactivation',
+    )
   } else if (
     temporal &&
     (
@@ -1140,43 +1229,94 @@ function prioritizeSelectedTechniques({
       temporal.reactivation
         .requalify_before_continuing
 
-    // Dormente: descobrir o estado atual vem antes de tudo. Esfriando com
-    // várias ofertas sem resposta: primeiro mudar o formato (a própria
-    // quebra de padrão já pergunta, com baixo esforço, como está o
-    // interesse).
+    const stage =
+      temporal.progression.stage
+
+    // ESCADA PROGRESSIVA: a técnica acompanha a intensidade da lacuna,
+    // não um único limiar "normal → reativação".
+    //   perda inicial      → retomada contextual leve
+    //   silêncio prolongado → checagem com permissão
+    //   lacuna forte        → mudança de estado (reconfirmar o interesse)
+    //   sem continuidade    → mudança de estado / quebra de padrão
+    // Várias ofertas sem resposta antes da dormência: mudar o formato
+    // primeiro (a quebra de padrão já pergunta, com baixo esforço, como
+    // está o interesse).
     if (
-      temporalMode ===
-        'reactivate'
+      temporal.reactivation
+        .reason_codes.includes(
+          'agreed_recontact_due',
+        ) &&
+      !requalify
     ) {
-      if (requalify) {
+      push(
+        'technique.contextual_reengagement',
+      )
+    }
+
+    if (
+      unanswered >= 2 &&
+      pushedOffer &&
+      stage !== 'long_dormancy'
+    ) {
+      push(
+        'technique.pattern_interrupt_reengagement',
+      )
+    }
+
+    switch (stage) {
+      case 'early_loss':
+        if (requalify) {
+          push(
+            'technique.state_change_reactivation',
+          )
+        }
+        push(
+          'technique.contextual_reengagement',
+        )
+        break
+
+      case 'prolonged_silence':
+        if (requalify) {
+          push(
+            'technique.state_change_reactivation',
+          )
+        }
+        push(
+          'technique.permission_based_reengagement',
+        )
+        break
+
+      case 'strong_gap':
         push(
           'technique.state_change_reactivation',
         )
-      }
-
-      if (
-        unanswered >= 2 &&
-        pushedOffer
-      ) {
         push(
-          'technique.pattern_interrupt_reengagement',
+          'technique.permission_based_reengagement',
         )
-      }
-    } else {
-      if (
-        unanswered >= 2 &&
-        pushedOffer
-      ) {
-        push(
-          'technique.pattern_interrupt_reengagement',
-        )
-      }
+        break
 
-      if (requalify) {
+      case 'long_dormancy':
         push(
           'technique.state_change_reactivation',
         )
-      }
+
+        if (
+          unanswered >= 2 &&
+          pushedOffer
+        ) {
+          push(
+            'technique.pattern_interrupt_reengagement',
+          )
+        }
+        break
+
+      default:
+        if (requalify) {
+          push(
+            'technique.state_change_reactivation',
+          )
+        }
+        break
     }
 
     if (
@@ -1187,23 +1327,14 @@ function prioritizeSelectedTechniques({
       )
     }
 
-    if (
-      temporalMode ===
-        'light_follow_up'
-    ) {
-      push(
-        'technique.contextual_reengagement',
-      )
-    }
-
+    push(
+      'technique.contextual_reengagement',
+    )
     push(
       'technique.state_change_reactivation',
     )
     push(
       'technique.permission_based_reengagement',
-    )
-    push(
-      'technique.contextual_reengagement',
     )
   }
 
@@ -1390,6 +1521,80 @@ function prioritizeSelectedTechniques({
         CommercialReasoningTechnique =>
         Boolean(technique),
     )
+}
+
+// O tempo restringe a decisão final mesmo quando nenhuma técnica temporal
+// foi selecionada: cliente esperando o vendedor pede resposta (não
+// "follow-up"), e intenção que precisa ser reconfirmada nunca vira passo
+// operacional herdado da leitura antiga.
+const OPERATIONAL_DECISIONS: ReadonlySet<
+  CommercialReading[
+    'best_approach'
+  ]['decision']
+> = new Set([
+  'close',
+  'set_commitment',
+  'compare',
+  'demonstrate_value',
+  'deepen_discovery',
+])
+
+function temporalDecisionGuard({
+  decision,
+  temporal,
+}: {
+  decision:
+    CommercialReading[
+      'best_approach'
+    ]['decision']
+  temporal:
+    CommercialTemporalContext | null
+}): CommercialReading[
+  'best_approach'
+]['decision'] {
+  if (!temporal) {
+    return decision
+  }
+
+  const mode =
+    temporal.reactivation.mode
+
+  const sellerOwesReply =
+    mode === 'respond_now' ||
+    mode === 'recover_delay'
+
+  if (
+    temporal.reactivation
+      .requalify_before_continuing &&
+    OPERATIONAL_DECISIONS.has(
+      decision,
+    )
+  ) {
+    return sellerOwesReply
+      ? 'respond'
+      : 'follow_up'
+  }
+
+  // Espera sustentada pelo tempo nunca vira mensagem nova.
+  if (
+    mode === 'wait' &&
+    decision !== 'give_space'
+  ) {
+    return 'wait'
+  }
+
+  if (
+    sellerOwesReply &&
+    (
+      decision === 'follow_up' ||
+      decision === 'wait' ||
+      decision === 'give_space'
+    )
+  ) {
+    return 'respond'
+  }
+
+  return decision
 }
 
 function decisionForTechnique(
@@ -1822,13 +2027,23 @@ export function buildCommercialReasoning({
       ),
     ])
 
-  const decision =
+  const rawDecision =
     status === 'silent'
       ? 'no_intervention'
       : decisionForTechnique(
           selectedTechniques[0],
         ) ??
         reading.best_approach.decision
+
+  const decision =
+    status === 'silent'
+      ? rawDecision
+      : temporalDecisionGuard({
+          decision:
+            rawDecision,
+          temporal:
+            temporalContext,
+        })
 
   const decisionReason =
     status === 'silent'

@@ -48,6 +48,13 @@ export type CommercialMessageTemporalFrame = {
   intent_time_window_expired: boolean
   unanswered_seller_attempts: number
   enthusiasm_evidenced: boolean
+  // Intensidade progressiva da lacuna (não só o balde seller-facing).
+  momentum_stage?:
+    CommercialTemporalContext[
+      'progression'
+    ]['stage'] | null
+  gap_severity?: number | null
+  silence_to_rhythm_ratio?: number | null
   guidance: string[]
 }
 
@@ -504,7 +511,21 @@ function buildTemporalFrame({
   const guidance: string[] = []
   const tactics: string[] = []
 
+  const agreedRecontact =
+    temporal.reactivation
+      .reason_codes.includes(
+        'agreed_recontact_due',
+      )
+
   if (
+    agreedRecontact &&
+    temporal.progression
+      .agreed_pause
+  ) {
+    guidance.push(
+      `O cliente pediu para ser chamado ${temporal.progression.agreed_pause.horizon_label}: é o contato combinado. Lembre o combinado com naturalidade e reabra o assunto dele — não trate como cobrança de silêncio.`,
+    )
+  } else if (
     temporal.reactivation.mode ===
       'reactivate' ||
     temporal.reactivation.mode ===
@@ -512,6 +533,45 @@ function buildTemporalFrame({
   ) {
     guidance.push(
       `Passou tempo desde a última resposta do cliente (${duration(temporal.facts.silence_since_last_customer_message_ms) ?? 'tempo relevante'}). Reconheça a continuidade com naturalidade, sem culpar o cliente pelo silêncio.`,
+    )
+
+    // A intensidade da lacuna muda o tom, não só a técnica.
+    switch (
+      temporal.progression.stage
+    ) {
+      case 'early_loss':
+        guidance.push(
+          'O silêncio acabou de passar do ritmo normal: lembrete leve e contextual. Nada de tom de reativação, "sumiu?" ou pedido de desculpas por insistir.',
+        )
+        break
+      case 'prolonged_silence':
+        guidance.push(
+          'Silêncio prolongado: cheque com leveza se o assunto continua de pé, com saída fácil para o cliente.',
+        )
+        break
+      case 'strong_gap':
+        guidance.push(
+          'Lacuna forte: não retome o passo antigo como se estivesse vivo; descubra o que mudou desde então.',
+        )
+        break
+      case 'long_dormancy':
+        guidance.push(
+          'Oportunidade sem continuidade há muito tempo: reative pelo contexto concreto do cliente, sem presumir que o interesse continua.',
+        )
+        break
+      default:
+        break
+    }
+  }
+
+  if (
+    temporal.reactivation.mode ===
+      'respond_now' &&
+    requalify &&
+    temporal.intent
+  ) {
+    guidance.push(
+      `O cliente voltou a falar, mas não reconfirmou o interesse demonstrado há ${duration(temporal.intent.related_age_ms)}: responda ao que ele disse agora e pergunte como está esse interesse, sem tratá-lo como atual.`,
     )
   }
 
@@ -658,6 +718,14 @@ function buildTemporalFrame({
           .outbound_unanswered_turns,
       enthusiasm_evidenced:
         enthusiasm,
+      momentum_stage:
+        temporal.progression.stage,
+      gap_severity:
+        temporal.progression
+          .severity,
+      silence_to_rhythm_ratio:
+        temporal.progression
+          .elapsed_ratio,
       guidance,
     },
     tactics,

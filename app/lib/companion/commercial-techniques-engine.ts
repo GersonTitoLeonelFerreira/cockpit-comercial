@@ -80,6 +80,14 @@ export type CommercialTechniqueContext = {
       CommercialTemporalContext[
         'momentum'
       ]['state'] | null
+    // Intensidade contínua da lacuna (0..1) e sua síntese seller-facing.
+    momentum_stage:
+      CommercialTemporalContext[
+        'progression'
+      ]['stage'] | null
+    momentum_severity: number | null
+    // O cliente pediu um prazo e ele ainda vale.
+    agreed_pause_in_progress: boolean
   }
 
   signals: string[]
@@ -324,13 +332,23 @@ function buildDecision({
     id ===
       'technique.state_change_reactivation'
   ) {
+    // Reativação por mudança de estado: dormência, ou qualquer momento
+    // em que o vendedor precisa agir e o interesse atual não está
+    // confirmado (inclusive quando o cliente voltou a falar sem
+    // reconfirmar a intenção antiga).
     if (
       !(
         temporalMode ===
           'reactivate' ||
         (
-          temporalMode ===
-            'light_follow_up' &&
+          (
+            temporalMode ===
+              'light_follow_up' ||
+            temporalMode ===
+              'respond_now' ||
+            temporalMode ===
+              'recover_delay'
+          ) &&
           context.temporal
             .requalify_before_continuing
         )
@@ -464,6 +482,40 @@ function buildDecision({
     }
   }
 
+  // Pausa combinada com o cliente: avançar o compromisso ou "retomar"
+  // agora atropelaria o combinado.
+  if (
+    context.temporal
+      .agreed_pause_in_progress &&
+    [
+      'technique.guided_choice',
+      'technique.explicit_close_execution',
+      'technique.commitment_ladder',
+      'technique.discovery_before_prescription',
+      'technique.value_linkage',
+      'technique.comparison_by_criteria',
+      'technique.contextual_reengagement',
+      'technique.permission_based_reengagement',
+      'technique.state_change_reactivation',
+      'technique.pattern_interrupt_reengagement',
+    ].includes(id)
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'blocked',
+      score:
+        ranked.score,
+      reasons: [
+        ...reasons,
+        'O cliente pediu um prazo e ele ainda vale; qualquer nova mensagem agora atropelaria o combinado.',
+      ],
+      unmet_requirements: [
+        'agreed_pause_in_progress',
+      ],
+    }
+  }
+
   if (
     temporalMode ===
       'respect_closure' &&
@@ -573,7 +625,9 @@ function buildDecision({
 
     if (
       context.sequence
-        .customer_fact_after_action
+        .customer_fact_after_action &&
+      !context.temporal
+        .agreed_pause_in_progress
     ) {
       return {
         intelligence_id:
@@ -593,7 +647,9 @@ function buildDecision({
 
     if (
       !context.sequence
-        .waiting_for_customer
+        .waiting_for_customer &&
+      !context.temporal
+        .agreed_pause_in_progress
     ) {
       return {
         intelligence_id:
@@ -1145,6 +1201,17 @@ export function buildCommercialTechniqueContext({
       momentum_state:
         temporal?.momentum.state ??
         null,
+      momentum_stage:
+        temporal?.progression.stage ??
+        null,
+      momentum_severity:
+        temporal?.progression
+          .severity ??
+        null,
+      agreed_pause_in_progress:
+        temporal?.progression
+          .responsible ===
+          'agreed_pause',
     },
     signals:
       unique([

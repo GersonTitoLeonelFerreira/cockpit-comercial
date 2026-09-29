@@ -110,10 +110,45 @@ test(
         '2026-09-06T12:00:00Z',
       )
 
+    // O cliente falou por último, mas pediu prazo: dentro do combinado
+    // ninguém deve movimento imediato (não é "cliente aguardando").
     assert.equal(
       result.momentum.waiting_on,
+      'none',
+    )
+    assert.equal(
+      result.progression.responsible,
+      'agreed_pause',
+    )
+    assert.equal(
+      result.reactivation.mode,
+      'wait',
+    )
+    assert.equal(
+      result.progression.agreed_pause
+        .seller_owes_contact,
+      false,
+      '"te aviso" deixa o próximo movimento combinado com o cliente',
+    )
+
+    const justRequested =
+      temporal(
+        [
+          ['customer', '2026-09-01T12:00:00Z', 'Quero entender os planos para a equipe.'],
+          ['seller', '2026-09-01T12:10:00Z', 'Claro! Segue a proposta.'],
+          ['customer', '2026-09-01T13:00:00Z', 'Vou analisar com o time e te aviso semana que vem.'],
+        ],
+        '2026-09-01T13:20:00Z',
+      )
+
+    assert.equal(
+      justRequested.momentum.waiting_on,
       'seller',
-      'o cliente falou por último',
+      'logo depois do pedido de prazo, cabe ao vendedor confirmar o combinado',
+    )
+    assert.equal(
+      justRequested.reactivation.mode,
+      'respond_now',
     )
 
     const afterSellerAck =
@@ -351,6 +386,127 @@ test(
     assert.equal(
       formatCommercialDuration(18 * 24 * 60 * 60 * 1000),
       '18 dias',
+    )
+  },
+)
+
+test(
+  'pausa combinada usa o calendário comercial: "semana que vem" dita numa quarta começa na segunda seguinte',
+  () => {
+    const turns = [
+      ['customer', '2026-09-16T13:00:00Z', 'Quero conhecer os planos para a minha equipe.'],
+      ['seller', '2026-09-16T13:05:00Z', 'Claro! Quer que eu te explique as diferenças?'],
+      ['customer', '2026-09-16T13:20:00Z', 'Agora estou sem tempo, me chama semana que vem.'],
+      ['seller', '2026-09-16T13:25:00Z', 'Combinado! Te chamo na segunda.'],
+    ]
+
+    const sunday =
+      temporal(
+        turns,
+        '2026-09-20T22:00:00Z',
+      )
+
+    // Segunda 21/09 às 9h em São Paulo (UTC-3).
+    assert.equal(
+      sunday.progression.agreed_pause
+        .resume_at,
+      '2026-09-21T12:00:00.000Z',
+    )
+    assert.equal(
+      sunday.progression.agreed_pause
+        .status,
+      'in_progress',
+    )
+    assert.equal(
+      sunday.reactivation.mode,
+      'wait',
+    )
+
+    const monday =
+      temporal(
+        turns,
+        '2026-09-21T12:30:00Z',
+      )
+
+    assert.equal(
+      monday.progression.agreed_pause
+        .status,
+      'due',
+    )
+    assert.equal(
+      monday.progression.responsible,
+      'seller',
+    )
+    assert.equal(
+      monday.momentum.waiting_on,
+      'seller',
+    )
+    assert.equal(
+      monday.seller_timing
+        .pending_customer_wait_ms,
+      null,
+      'o cliente não está "esperando resposta": é o contato combinado',
+    )
+  },
+)
+
+test(
+  'frescor por engajamento relacionado: assunto relacionado renova, conversa fática não',
+  () => {
+    const base = [
+      ['customer', '2026-09-01T13:00:00Z', 'Quero agendar uma visita ao apartamento da Rua das Flores.'],
+      ['seller', '2026-09-01T13:05:00Z', 'Claro! Posso te mostrar o apartamento na quinta?'],
+    ]
+
+    const related =
+      temporal(
+        [
+          ...base,
+          ['customer', '2026-09-05T12:00:00Z', 'O apartamento ainda está disponível?'],
+        ],
+        '2026-09-05T12:10:00Z',
+      )
+
+    assert.equal(
+      related.intent.last_engagement_at,
+      '2026-09-05T12:00:00.000Z',
+    )
+    assert.equal(
+      related.intent.needs_reconfirmation,
+      false,
+    )
+
+    const phatic =
+      temporal(
+        [
+          ...base,
+          ['customer', '2026-09-05T12:00:00Z', 'Boa tarde! Tudo bem?'],
+        ],
+        '2026-09-05T12:10:00Z',
+      )
+
+    assert.equal(
+      phatic.intent.last_engagement_at,
+      '2026-09-01T13:00:00.000Z',
+    )
+    assert.ok(
+      phatic.intent.vitality <
+        related.intent.vitality,
+    )
+
+    const unrelated =
+      temporal(
+        [
+          ...base,
+          ['customer', '2026-09-05T12:00:00Z', 'Você pode me mandar o boleto do condomínio de agosto?'],
+        ],
+        '2026-09-05T12:10:00Z',
+      )
+
+    assert.equal(
+      unrelated.intent.last_engagement_at,
+      '2026-09-01T13:00:00.000Z',
+      'pedido de outro assunto não reconfirma a visita',
     )
   },
 )

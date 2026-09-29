@@ -223,6 +223,8 @@ export const GENERAL_COMMERCIAL_INTELLIGENCE_LIBRARY:
       'seller_already_asked_open_question',
       'customer_intent_hot',
       'seller_action_already_performed',
+      // O cliente pediu para ser chamado e o momento combinado chegou.
+      'agreed_pause_due',
     ],
     when_to_use: [
       'O cliente já demonstrou uma intenção comercial clara e a conversa perdeu continuidade antes de concluir o próximo passo.',
