@@ -220,6 +220,22 @@ function createCompanionMessageController({
       : null
   }
 
+  function isCanonicalNoMessageState(
+    analysisViewModel,
+  ) {
+    const diagnosis =
+      analysisViewModel?.coaching_diagnosis
+
+    return Boolean(
+      diagnosis &&
+      diagnosis.status !== 'silent' &&
+      diagnosis
+        .chosen_technique
+        ?.id ===
+        'technique.commitment_wait'
+    )
+  }
+
   function getCoachingPresets(analysisViewModel) {
     const diagnosis =
       analysisViewModel?.coaching_diagnosis
@@ -237,6 +253,14 @@ function createCompanionMessageController({
           .chosen_technique
           ?.id || '',
       )
+
+    if (
+      isCanonicalNoMessageState(
+        analysisViewModel,
+      )
+    ) {
+      return []
+    }
 
     const presets = []
 
@@ -286,6 +310,16 @@ function createCompanionMessageController({
     guidance,
     analysisViewModel,
   ) {
+    if (
+      isCanonicalNoMessageState(
+        analysisViewModel,
+      )
+    ) {
+      // Decisão canônica de espera tem precedência sobre qualquer fallback
+      // legado: não converta "aguardar" em intenção outbound.
+      return []
+    }
+
     const coaching =
       getCoachingPresets(
         analysisViewModel,
@@ -425,6 +459,10 @@ function createCompanionMessageController({
     const state = getState(context)
     const analysisViewModel =
       getAnalysisViewModel(context)
+    const canonicalNoMessage =
+      isCanonicalNoMessageState(
+        analysisViewModel,
+      )
     const coachingPresets =
       getCoachingPresets(
         analysisViewModel,
@@ -435,6 +473,7 @@ function createCompanionMessageController({
     )
     const trimmedIntent = state.intent.trim()
     const disabled =
+      canonicalNoMessage ||
       !trimmedIntent ||
       state.status === 'loading'
 
@@ -442,7 +481,9 @@ function createCompanionMessageController({
     // no_message e error usam um status compacto (uma linha, sem card),
     // para nunca competir em altura com o card do objetivo.
     const resultHtml =
-      state.status === 'ready' && state.message
+      canonicalNoMessage
+        ? '<div class="yolen-message-status">A Yolen recomenda aguardar a resposta do cliente. Não há uma mensagem necessária agora.</div>'
+        : state.status === 'ready' && state.message
         ? [
             '<div class="yolen-message-result-card">',
             '<div class="yolen-message-result-label">✨ Mensagem sugerida</div>',
@@ -470,34 +511,46 @@ function createCompanionMessageController({
       ? `<div class="yolen-message-feedback">${escapeHtml(state.feedback)}</div>`
       : ''
 
-    const html = [
-      '<div class="yolen-message-objective-card">',
-      '<div class="yolen-message-objective-title">Objetivo da mensagem</div>',
-      '<div class="yolen-message-objective-help">Escolha um foco ou descreva o que você quer comunicar.</div>',
-      '<div class="yolen-message-presets">',
-      presets.map((preset, index) => {
-        const recommended =
-          coachingPresets.length > 0 &&
-          index === 0 &&
-          coachingPresets[0] === preset
+    const objectiveHtml =
+      canonicalNoMessage
+        ? [
+            '<div class="yolen-message-objective-card">',
+            '<div class="yolen-message-objective-title">Objetivo da mensagem</div>',
+            '<div class="yolen-message-objective-help">A decisão comercial atual é aguardar. A Yolen não recomenda iniciar uma nova mensagem agora.</div>',
+            '</div>',
+          ].join('')
+        : [
+            '<div class="yolen-message-objective-card">',
+            '<div class="yolen-message-objective-title">Objetivo da mensagem</div>',
+            '<div class="yolen-message-objective-help">Escolha um foco ou descreva o que você quer comunicar.</div>',
+            '<div class="yolen-message-presets">',
+            presets.map((preset, index) => {
+              const recommended =
+                coachingPresets.length > 0 &&
+                index === 0 &&
+                coachingPresets[0] === preset
 
-        return `<button type="button" class="yolen-message-preset${preset.trim() === trimmedIntent ? ' yolen-message-preset--active' : ''}" data-yolen-seller-message-preset="${index}">${recommended ? '<span class="yolen-message-preset-recommended">Recomendado pela Yolen · </span>' : ''}${escapeHtml(shortPresetLabel(preset))}</button>`
-      }).join(''),
-      '</div>',
-      '<div class="yolen-message-intent-field">',
-      `<textarea class="yolen-message-intent" data-yolen-seller-message-intent maxlength="${INTENT_MAX_LENGTH}" placeholder="Ex.: Quero responder ao ponto específico que o cliente trouxe.">`,
-      escapeHtml(state.intent),
-      '</textarea>',
-      `<div class="yolen-message-intent-counter" data-yolen-seller-message-counter>${state.intent.length} / ${INTENT_MAX_LENGTH}</div>`,
-      '</div>',
-      '<button type="button" class="yolen-primary-button yolen-message-generate" data-yolen-seller-message-action="generate"',
-      disabled ? ' disabled' : '',
-      '>',
-      state.status === 'loading'
-        ? '<span class="yolen-message-spinner" aria-hidden="true"></span>Gerando…'
-        : 'Gerar mensagem',
-      '</button>',
-      '</div>',
+              return `<button type="button" class="yolen-message-preset${preset.trim() === trimmedIntent ? ' yolen-message-preset--active' : ''}" data-yolen-seller-message-preset="${index}">${recommended ? '<span class="yolen-message-preset-recommended">Recomendado pela Yolen · </span>' : ''}${escapeHtml(shortPresetLabel(preset))}</button>`
+            }).join(''),
+            '</div>',
+            '<div class="yolen-message-intent-field">',
+            `<textarea class="yolen-message-intent" data-yolen-seller-message-intent maxlength="${INTENT_MAX_LENGTH}" placeholder="Ex.: Quero responder ao ponto específico que o cliente trouxe.">`,
+            escapeHtml(state.intent),
+            '</textarea>',
+            `<div class="yolen-message-intent-counter" data-yolen-seller-message-counter>${state.intent.length} / ${INTENT_MAX_LENGTH}</div>`,
+            '</div>',
+            '<button type="button" class="yolen-primary-button yolen-message-generate" data-yolen-seller-message-action="generate"',
+            disabled ? ' disabled' : '',
+            '>',
+            state.status === 'loading'
+              ? '<span class="yolen-message-spinner" aria-hidden="true"></span>Gerando…'
+              : 'Gerar mensagem',
+            '</button>',
+            '</div>',
+          ].join('')
+
+    const html = [
+      objectiveHtml,
       resultHtml,
       feedbackHtml,
     ].join('')
@@ -651,7 +704,24 @@ function createCompanionMessageController({
     const context = currentContext
     const state = getState(context)
 
-    if (!context || !state || !state.intent.trim()) {
+    if (!context || !state) {
+      return
+    }
+
+    if (
+      isCanonicalNoMessageState(
+        getAnalysisViewModel(context),
+      )
+    ) {
+      state.status = 'no_message'
+      state.message = null
+      state.error = null
+      state.feedback = null
+      queueRender()
+      return
+    }
+
+    if (!state.intent.trim()) {
       return
     }
 
