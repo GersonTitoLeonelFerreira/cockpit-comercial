@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
+  assessCustomerOpportunityStance,
   buildSellerExecutionTrace,
+  classifySellerActionText,
 } from './seller-execution-trace.ts'
 
 import {
@@ -1272,5 +1274,1163 @@ test(
       first.evaluated_at,
       new Date(item.evaluated_at).toISOString(),
     )
+  },
+)
+
+// ============================================================================
+// Rodada de fechamento (PR #356): rejeição vs mudança dentro da
+// oportunidade, saudação vs conteúdo, frescor de intenção por engajamento
+// relacionado, momentum progressivo e pausa combinada.
+// ============================================================================
+
+const MINUTE = 60 * 1000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+const REENGAGEMENT_TECHNIQUES = [
+  'technique.contextual_reengagement',
+  'technique.permission_based_reengagement',
+  'technique.state_change_reactivation',
+  'technique.pattern_interrupt_reengagement',
+]
+
+const OPERATIONAL_TECHNIQUES = [
+  'technique.guided_choice',
+  'technique.explicit_close_execution',
+  'technique.commitment_ladder',
+  'technique.discovery_before_prescription',
+  'technique.value_linkage',
+  'technique.comparison_by_criteria',
+]
+
+const OPERATIONAL_DECISIONS = [
+  'close',
+  'set_commitment',
+  'compare',
+  'demonstrate_value',
+  'deepen_discovery',
+]
+
+function shift(iso, ms) {
+  return new Date(
+    Date.parse(iso) + ms,
+  ).toISOString()
+}
+
+function stanceTurns(item) {
+  const start =
+    '2026-09-23T13:00:00.000Z'
+
+  return {
+    turns: [
+      ['in', start, item.opener],
+      ['out', shift(start, 5 * MINUTE), item.offer],
+      ['in', shift(start, 20 * MINUTE), item.text],
+    ],
+    evaluated_at:
+      shift(start, 30 * MINUTE),
+  }
+}
+
+// Coleta todos os resultados da rodada para a auditoria transversal.
+const ROUND_TWO_RESULTS = []
+
+function run(item) {
+  const result =
+    runCase(item)
+
+  ROUND_TWO_RESULTS.push({
+    label:
+      item.label ??
+      item.evaluated_at,
+    ...result,
+  })
+
+  return result
+}
+
+test(
+  'P1 rejeição da oportunidade vs mudança dentro da oportunidade (golden multissetorial)',
+  () => {
+    for (const item of CORPUS.opportunity_stance.cases) {
+      const scenario =
+        stanceTurns(item)
+
+      const {
+        temporal,
+        reasoning,
+        coaching,
+        input,
+      } =
+        run({
+          ...scenario,
+          label: `stance ${item.id}`,
+        })
+
+      const stance =
+        assessCustomerOpportunityStance(
+          item.text,
+        ).stance
+
+      const trace =
+        buildSellerExecutionTrace({
+          diagnostic_input: input,
+        })
+
+      const lastSignal =
+        trace.customer_signals.at(-1)
+
+      const label =
+        `${item.id} (${item.industry}): "${item.text}"`
+
+      if (item.expect.closed) {
+        assert.equal(
+          stance,
+          'rejects_opportunity',
+          label,
+        )
+        assert.equal(
+          lastSignal?.kind,
+          'disengaged',
+          label,
+        )
+        assert.equal(
+          temporal.momentum.state,
+          'closed',
+          label,
+        )
+        assert.equal(
+          temporal.reactivation.mode,
+          'respect_closure',
+          label,
+        )
+        assert.equal(
+          techniqueIds(reasoning)[0],
+          'technique.respectful_closure',
+          label,
+        )
+        assert.equal(
+          reasoning.decision,
+          'give_space',
+          label,
+        )
+        continue
+      }
+
+      assert.equal(
+        stance,
+        'changes_within_opportunity',
+        label,
+      )
+      assert.equal(
+        lastSignal?.kind,
+        item.expect.intent_kind,
+        label,
+      )
+      assert.notEqual(
+        temporal.momentum.state,
+        'closed',
+        label,
+      )
+      assert.equal(
+        temporal.reactivation.mode,
+        'respond_now',
+        `${label}: o cliente escolheu/avançou e espera o vendedor`,
+      )
+      assert.equal(
+        techniqueIds(reasoning).includes(
+          'technique.respectful_closure',
+        ),
+        false,
+        label,
+      )
+      assert.notEqual(
+        reasoning.decision,
+        'give_space',
+        label,
+      )
+      assert.notEqual(
+        coaching.client_intent_now?.kind,
+        'disengaged',
+        label,
+      )
+    }
+  },
+)
+
+test(
+  'P2 saudação pura é rapport; saudação com oferta/disponibilidade/proposta/agenda é resposta com conteúdo',
+  () => {
+    for (const text of CORPUS.greeting_vs_content.pure_greetings) {
+      assert.equal(
+        classifySellerActionText(text),
+        'rapport_opening',
+        text,
+      )
+    }
+
+    for (const text of CORPUS.greeting_vs_content.greeting_with_content) {
+      assert.notEqual(
+        classifySellerActionText(text),
+        'rapport_opening',
+        text,
+      )
+    }
+
+    // Na cadeia: saudação pura em resposta a um pedido é pedido ignorado;
+    // saudação com disponibilidade responde ao pedido.
+    const start =
+      '2026-09-24T12:00:00.000Z'
+
+    const signalsFor = reply => {
+      const input =
+        buildInput(
+          [
+            ['in', start, 'Quero agendar uma avaliação.'],
+            ['out', shift(start, 5 * MINUTE), reply],
+          ],
+          shift(start, 10 * MINUTE),
+        )
+
+      return buildSellerExecutionTrace({
+        diagnostic_input: input,
+      }).turns.flatMap(
+        turn =>
+          turn.negative_signals,
+      )
+    }
+
+    assert.ok(
+      signalsFor('Oi, Maria').includes(
+        'request_not_addressed',
+      ),
+    )
+    assert.equal(
+      signalsFor('Oi, temos horários amanhã às 10h ou às 15h.').includes(
+        'request_not_addressed',
+      ),
+      false,
+    )
+    assert.equal(
+      signalsFor('Oi, posso agendar amanhã às 10h?').includes(
+        'request_not_addressed',
+      ),
+      false,
+    )
+  },
+)
+
+test(
+  'P1 RECÊNCIA DA CONVERSA != RECÊNCIA DA INTENÇÃO: "Bom dia" no dia 6 não rejuvenesce "Quero contratar" do dia 1',
+  () => {
+    const fixture =
+      CORPUS.intent_refresh
+
+    const demonstratedAt =
+      fixture.base_turns[0][1]
+
+    for (const text of fixture.irrelevant) {
+      const {
+        temporal,
+        reasoning,
+        coaching,
+        strategy,
+      } =
+        run({
+          label: `refresh irrelevant ${text}`,
+          turns: [
+            ...fixture.base_turns,
+            ['in', fixture.day6_at, text],
+          ],
+          evaluated_at:
+            fixture.evaluated_at,
+          reading: {
+            best_approach:
+              'close',
+          },
+        })
+
+      assert.equal(
+        temporal.intent.kind,
+        'close',
+        text,
+      )
+      assert.equal(
+        Date.parse(
+          temporal.intent
+            .last_engagement_at,
+        ),
+        Date.parse(demonstratedAt),
+        `${text}: mensagem fática não renova a intenção`,
+      )
+      assert.equal(
+        temporal.intent.refreshed_by,
+        'new_statement',
+        text,
+      )
+      assert.equal(
+        temporal.intent.freshness,
+        'stale',
+        text,
+      )
+      assert.equal(
+        temporal.intent
+          .needs_reconfirmation,
+        true,
+        text,
+      )
+      assert.ok(
+        temporal.intent.vitality < 0.5,
+        `${text}: vitalidade ${temporal.intent.vitality}`,
+      )
+
+      // O cliente falou agora: responder já — mas reconfirmando.
+      assert.equal(
+        temporal.reactivation.mode,
+        'respond_now',
+        text,
+      )
+      assert.equal(
+        temporal.reactivation
+          .requalify_before_continuing,
+        true,
+        text,
+      )
+      assert.equal(
+        techniqueIds(reasoning)[0],
+        'technique.state_change_reactivation',
+        text,
+      )
+      assert.equal(
+        reasoning.decision,
+        'respond',
+        text,
+      )
+      assert.equal(
+        coaching.client_intent_now
+          ?.is_current,
+        false,
+        text,
+      )
+      assert.ok(
+        strategy.blocked_action_types.includes(
+          'close_request',
+        ),
+        text,
+      )
+      assert.ok(
+        temporal.narrative.facts.some(
+          fact =>
+            /não o reconfirmaram/.test(fact),
+        ),
+        text,
+      )
+    }
+
+    for (const text of fixture.reconfirming) {
+      const {
+        temporal,
+        reasoning,
+        coaching,
+      } =
+        run({
+          label: `refresh reconfirming ${text}`,
+          turns: [
+            ...fixture.base_turns,
+            ['in', fixture.day6_at, text],
+          ],
+          evaluated_at:
+            fixture.evaluated_at,
+          reading: {
+            best_approach:
+              'close',
+          },
+        })
+
+      assert.equal(
+        Date.parse(
+          temporal.intent
+            .last_engagement_at,
+        ),
+        Date.parse(fixture.day6_at),
+        `${text}: reconfirmação legítima renova a intenção`,
+      )
+      assert.equal(
+        temporal.intent.kind,
+        'close',
+        `${text}: a reconfirmação renova a intenção forte, não a rebaixa`,
+      )
+      assert.equal(
+        temporal.intent.freshness,
+        'current',
+        text,
+      )
+      assert.equal(
+        temporal.intent
+          .needs_reconfirmation,
+        false,
+        text,
+      )
+      assert.equal(
+        temporal.reactivation
+          .requalify_before_continuing,
+        false,
+        text,
+      )
+      assert.notEqual(
+        techniqueIds(reasoning)[0],
+        'technique.state_change_reactivation',
+        text,
+      )
+      assert.equal(
+        coaching.client_intent_now
+          ?.is_current,
+        true,
+        text,
+      )
+    }
+
+    // Resposta com conteúdo à ação do vendedor que deu sequência à
+    // intenção também renova (mesmo sem repetir a intenção).
+    const answered =
+      run({
+        label: 'refresh answer',
+        turns: [
+          ['in', '2026-09-01T13:00:00Z', 'Quero contratar.'],
+          ['out', '2026-09-01T13:05:00Z', 'Perfeito! Prefere o plano mensal ou o anual?'],
+          ['in', '2026-09-04T12:00:00Z', 'O anual.'],
+        ],
+        evaluated_at:
+          '2026-09-04T12:10:00Z',
+        reading: {
+          best_approach:
+            'close',
+        },
+      })
+
+    assert.equal(
+      Date.parse(
+        answered.temporal.intent
+          .last_engagement_at,
+      ),
+      Date.parse(
+        '2026-09-04T12:00:00Z',
+      ),
+    )
+    assert.equal(
+      answered.temporal.intent
+        .needs_reconfirmation,
+      false,
+    )
+  },
+)
+
+test(
+  'MOMENTUM PROGRESSIVO: mesma conversa em 9 instantes — tempo quantitativo, piora gradual, técnica acompanha a intensidade',
+  () => {
+    const fixture =
+      CORPUS.progression
+
+    const sellerAt =
+      Date.parse(
+        fixture.turns[1][1],
+      )
+
+    const intentAt =
+      Date.parse(
+        fixture.turns[0][1],
+      )
+
+    const points =
+      fixture.points.map(
+        point => ({
+          label: point.label,
+          ...run({
+            label: `progression ${point.label}`,
+            turns: fixture.turns,
+            evaluated_at:
+              point.evaluated_at,
+            reading: {
+              best_approach:
+                'set_commitment',
+            },
+          }),
+        }),
+      )
+
+    // 1. O tempo quantitativo é preservado (não vira só um balde).
+    for (const [index, point] of points.entries()) {
+      const evaluatedAt =
+        Date.parse(
+          fixture.points[index]
+            .evaluated_at,
+        )
+
+      const progression =
+        point.temporal.progression
+
+      assert.equal(
+        progression.silence_ms,
+        evaluatedAt - sellerAt,
+        point.label,
+      )
+      assert.equal(
+        progression.intent_related_age_ms,
+        evaluatedAt - intentAt,
+        point.label,
+      )
+      assert.equal(
+        progression.expected_window_ms,
+        36 * HOUR,
+        point.label,
+      )
+      assert.ok(
+        Math.abs(
+          progression.elapsed_ratio -
+            (evaluatedAt - sellerAt) /
+              (36 * HOUR),
+        ) < 0.01,
+        point.label,
+      )
+    }
+
+    // 2/3. Sem fato novo, a severidade sobe e a vitalidade da intenção
+    // cai a cada ponto — inclusive dentro do mesmo estágio (5d vs 7d).
+    for (
+      let index = 1;
+      index < points.length;
+      index += 1
+    ) {
+      const previous =
+        points[index - 1].temporal.progression
+
+      const current =
+        points[index].temporal.progression
+
+      assert.ok(
+        current.severity >
+          previous.severity,
+        `${points[index].label}: severidade ${current.severity} deveria superar ${previous.severity}`,
+      )
+      assert.ok(
+        current.intent_vitality <
+          previous.intent_vitality,
+        `${points[index].label}: vitalidade ${current.intent_vitality} deveria cair abaixo de ${previous.intent_vitality}`,
+      )
+    }
+
+    const stages =
+      points.map(
+        point =>
+          point.temporal.progression.stage,
+      )
+
+    assert.deepEqual(
+      stages,
+      [
+        'within_rhythm',
+        'within_rhythm',
+        'within_rhythm',
+        'early_loss',
+        'prolonged_silence',
+        'strong_gap',
+        'strong_gap',
+        'long_dormancy',
+        'long_dormancy',
+      ],
+    )
+
+    assert.deepEqual(
+      points.map(
+        point =>
+          point.temporal.intent.freshness,
+      ),
+      [
+        'current',
+        'current',
+        'current',
+        'aging',
+        'aging',
+        'stale',
+        'stale',
+        'stale',
+        'stale',
+      ],
+    )
+
+    // 4. Nenhum salto único de "normal" para "reativação": entre a última
+    // espera e a primeira reativação há movimentos intermediários.
+    const modes =
+      points.map(
+        point =>
+          point.temporal.reactivation.mode,
+      )
+
+    assert.deepEqual(
+      modes,
+      [
+        // 30 min: troca ainda ativa (o vendedor acabou de agir).
+        'none',
+        'wait',
+        'wait',
+        'light_follow_up',
+        'light_follow_up',
+        'light_follow_up',
+        'light_follow_up',
+        'reactivate',
+        'reactivate',
+      ],
+    )
+
+    const lastWait =
+      modes.lastIndexOf('wait')
+
+    const firstReactivate =
+      modes.indexOf('reactivate')
+
+    assert.ok(
+      firstReactivate - lastWait >= 3,
+    )
+
+    // 5. A técnica acompanha a intensidade da lacuna.
+    const firstTechniques =
+      points.map(
+        point =>
+          techniqueIds(point.reasoning)[0],
+      )
+
+    assert.deepEqual(
+      firstTechniques,
+      [
+        'technique.commitment_wait',
+        'technique.commitment_wait',
+        'technique.commitment_wait',
+        'technique.contextual_reengagement',
+        'technique.permission_based_reengagement',
+        'technique.state_change_reactivation',
+        'technique.state_change_reactivation',
+        'technique.state_change_reactivation',
+        'technique.state_change_reactivation',
+      ],
+    )
+
+    const techniqueChanges =
+      firstTechniques.filter(
+        (id, index) =>
+          index > 0 &&
+          id !==
+            firstTechniques[index - 1],
+      ).length
+
+    assert.ok(
+      techniqueChanges >= 3,
+    )
+
+    // Reconfirmação só entra quando a intenção perdeu força suficiente.
+    assert.deepEqual(
+      points.map(
+        point =>
+          point.temporal.reactivation
+            .requalify_before_continuing,
+      ),
+      [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+      ],
+    )
+
+    // A mensagem recebe a intensidade, não só o balde.
+    for (const point of points.slice(3)) {
+      assert.equal(
+        point.strategy.temporal_frame
+          .momentum_stage,
+        point.temporal.progression.stage,
+      )
+      assert.equal(
+        point.strategy.temporal_frame
+          .gap_severity,
+        point.temporal.progression.severity,
+      )
+    }
+
+    assert.notEqual(
+      points[3].reasoning.objective_now,
+      points[4].reasoning.objective_now,
+    )
+    assert.notEqual(
+      points[4].reasoning.objective_now,
+      points[5].reasoning.objective_now,
+    )
+    assert.notEqual(
+      points[3].reasoning.current_situation,
+      points[4].reasoning.current_situation,
+    )
+  },
+)
+
+test(
+  'MOMENTUM PROGRESSIVO: com ritmo observado de 1 dia, 2 dias e 6 dias de silêncio são leituras diferentes',
+  () => {
+    const fixture =
+      CORPUS.progression
+        .observed_rhythm
+
+    const [twoDays, sixDays] =
+      [
+        fixture.two_days,
+        fixture.six_days,
+      ].map(
+        evaluatedAt =>
+          run({
+            label: `observed ${evaluatedAt}`,
+            turns: fixture.turns,
+            evaluated_at:
+              evaluatedAt,
+            reading: {
+              best_approach:
+                'set_commitment',
+            },
+          }),
+      )
+
+    for (const result of [twoDays, sixDays]) {
+      assert.equal(
+        result.temporal.cadence.basis,
+        'observed',
+      )
+      assert.equal(
+        result.temporal.progression
+          .expected_window_ms,
+        DAY,
+      )
+    }
+
+    assert.equal(
+      twoDays.temporal.progression
+        .elapsed_ratio,
+      2,
+    )
+    assert.equal(
+      sixDays.temporal.progression
+        .elapsed_ratio,
+      6,
+    )
+    assert.ok(
+      sixDays.temporal.progression.severity >
+        twoDays.temporal.progression.severity + 0.3,
+    )
+    assert.notEqual(
+      twoDays.temporal.progression.stage,
+      sixDays.temporal.progression.stage,
+    )
+    assert.notEqual(
+      twoDays.temporal.reactivation.mode,
+      sixDays.temporal.reactivation.mode,
+    )
+    assert.notEqual(
+      techniqueIds(twoDays.reasoning)[0],
+      techniqueIds(sixDays.reasoning)[0],
+    )
+    assert.ok(
+      sixDays.temporal.narrative.facts.some(
+        fact =>
+          /cerca de 6 vezes o ritmo de resposta deste cliente/.test(
+            fact,
+          ),
+      ),
+      sixDays.temporal.narrative.facts.join(' | '),
+    )
+  },
+)
+
+test(
+  'PAUSA COMBINADA: "me chama semana que vem" muda a curva — 2 a 4 dias dentro do combinado não são silêncio',
+  () => {
+    const fixture =
+      CORPUS.agreed_pause
+
+    for (const evaluatedAt of fixture.inside_points) {
+      const deferred =
+        run({
+          label: `pause inside ${evaluatedAt}`,
+          turns: fixture.deferred_turns,
+          evaluated_at:
+            evaluatedAt,
+          reading: {
+            best_approach:
+              'set_commitment',
+          },
+        })
+
+      const undeferred =
+        run({
+          label: `no pause ${evaluatedAt}`,
+          turns: fixture.undeferred_turns,
+          evaluated_at:
+            evaluatedAt,
+          reading: {
+            best_approach:
+              'set_commitment',
+          },
+        })
+
+      const pause =
+        deferred.temporal.progression
+
+      assert.equal(
+        pause.responsible,
+        'agreed_pause',
+        evaluatedAt,
+      )
+      assert.equal(
+        pause.agreed_pause.status,
+        'in_progress',
+      )
+      assert.equal(
+        pause.agreed_pause
+          .seller_owes_contact,
+        true,
+      )
+      assert.equal(
+        pause.stage,
+        'within_rhythm',
+        evaluatedAt,
+      )
+      assert.equal(
+        deferred.temporal.reactivation.mode,
+        'wait',
+        evaluatedAt,
+      )
+      assert.equal(
+        deferred.reasoning.decision,
+        'wait',
+        evaluatedAt,
+      )
+      assert.equal(
+        REENGAGEMENT_TECHNIQUES.includes(
+          techniqueIds(deferred.reasoning)[0],
+        ),
+        false,
+        evaluatedAt,
+      )
+
+      // Mesmo intervalo sem combinado: já é perda de continuidade.
+      assert.equal(
+        undeferred.temporal.progression
+          .responsible,
+        'customer',
+      )
+      assert.notEqual(
+        undeferred.temporal.progression.stage,
+        'within_rhythm',
+        evaluatedAt,
+      )
+      assert.equal(
+        undeferred.temporal.reactivation.mode,
+        'light_follow_up',
+        evaluatedAt,
+      )
+      assert.ok(
+        undeferred.temporal.progression.severity >
+          pause.severity,
+      )
+      assert.ok(
+        undeferred.temporal.intent.vitality <
+          deferred.temporal.intent.vitality,
+        `${evaluatedAt}: a intenção envelhece mais devagar dentro do combinado`,
+      )
+    }
+
+    // Segunda-feira: chegou o momento combinado — é a vez do vendedor.
+    const due =
+      run({
+        label: 'pause due',
+        turns: fixture.deferred_turns,
+        evaluated_at:
+          fixture.due_at,
+        reading: {
+          best_approach:
+            'set_commitment',
+        },
+      })
+
+    assert.equal(
+      due.temporal.progression
+        .agreed_pause.status,
+      'due',
+    )
+    assert.equal(
+      due.temporal.progression.responsible,
+      'seller',
+    )
+    assert.equal(
+      due.temporal.reactivation.mode,
+      'light_follow_up',
+    )
+    assert.ok(
+      due.temporal.reactivation.reason_codes.includes(
+        'agreed_recontact_due',
+      ),
+    )
+    assert.equal(
+      techniqueIds(due.reasoning)[0],
+      'technique.contextual_reengagement',
+    )
+    assert.equal(
+      due.reasoning.decision,
+      'follow_up',
+    )
+    assert.ok(
+      due.temporal.narrative.facts.some(
+        fact =>
+          /chegou o momento combinado/.test(fact),
+      ),
+    )
+
+    // Muito depois do combinado, sem contato: a curva volta a piorar.
+    const longAfter =
+      run({
+        label: 'pause long after',
+        turns: fixture.deferred_turns,
+        evaluated_at:
+          fixture.long_after,
+        reading: {
+          best_approach:
+            'set_commitment',
+        },
+      })
+
+    assert.equal(
+      longAfter.temporal.progression
+        .agreed_pause.status,
+      'overdue',
+    )
+    assert.ok(
+      longAfter.temporal.progression.severity >
+        due.temporal.progression.severity,
+    )
+    assert.equal(
+      longAfter.temporal.reactivation
+        .requalify_before_continuing,
+      true,
+    )
+  },
+)
+
+test(
+  'URGÊNCIA DO CLIENTE: "quero contratar hoje" torna 3 horas de espera um atraso; pedido sem urgência não',
+  () => {
+    const fixture =
+      CORPUS.time_sensitive_request
+
+    const urgent =
+      run({
+        label: 'urgent',
+        turns: fixture.urgent_turns,
+        evaluated_at:
+          fixture.evaluated_at,
+      })
+
+    const standard =
+      run({
+        label: 'standard',
+        turns: fixture.standard_turns,
+        evaluated_at:
+          fixture.evaluated_at,
+      })
+
+    const owed =
+      urgent.temporal.progression
+        .owed_response
+
+    assert.equal(
+      owed.basis,
+      'time_sensitive_intent',
+    )
+    assert.equal(
+      owed.overdue_ratio,
+      3,
+    )
+    assert.ok(owed.severity > 0)
+    assert.equal(
+      urgent.temporal.progression
+        .expected_window_basis,
+      'time_sensitive_intent',
+    )
+    assert.equal(
+      urgent.temporal.reactivation.mode,
+      'recover_delay',
+    )
+    assert.equal(
+      techniqueIds(urgent.reasoning)[0],
+      'technique.delayed_response_recovery',
+    )
+    assert.equal(
+      urgent.reasoning.decision,
+      'respond',
+    )
+
+    assert.equal(
+      standard.temporal.progression
+        .owed_response.basis,
+      'standard',
+    )
+    assert.equal(
+      standard.temporal.reactivation.mode,
+      'respond_now',
+    )
+  },
+)
+
+test(
+  'AUDITORIA TRANSVERSAL de invariantes sobre todos os goldens da rodada',
+  () => {
+    const all = [
+      ...ROUND_TWO_RESULTS,
+      ...CORPUS.cases.map(
+        item => ({
+          label: `case ${item.id}`,
+          ...runCase(item),
+        }),
+      ),
+    ]
+
+    assert.ok(all.length >= 40)
+
+    for (const result of all) {
+      const {
+        label,
+        temporal,
+        reasoning,
+        coaching,
+        strategy,
+      } = result
+
+      // Espera nunca produz mensagem nem convive com cliente aguardando.
+      if (reasoning.decision === 'wait') {
+        assert.notEqual(
+          temporal.momentum.waiting_on,
+          'seller',
+          `${label}: espera com cliente aguardando o vendedor`,
+        )
+        assert.ok(
+          ['wait', 'none'].includes(
+            temporal.reactivation.mode,
+          ),
+          `${label}: espera com modo ${temporal.reactivation.mode}`,
+        )
+        assert.equal(
+          strategy.desired_microcommitment,
+          null,
+          `${label}: espera não pede microcompromisso`,
+        )
+      }
+
+      // Intenção que precisa ser reconfirmada nunca vira passo operacional
+      // nem aparece como atual.
+      if (
+        temporal.reactivation
+          .requalify_before_continuing
+      ) {
+        assert.equal(
+          OPERATIONAL_TECHNIQUES.includes(
+            techniqueIds(reasoning)[0],
+          ),
+          false,
+          `${label}: técnica operacional com intenção não reconfirmada`,
+        )
+        assert.equal(
+          OPERATIONAL_DECISIONS.includes(
+            reasoning.decision,
+          ),
+          false,
+          `${label}: decisão ${reasoning.decision} com intenção não reconfirmada`,
+        )
+      }
+
+      if (
+        temporal.intent
+          ?.needs_reconfirmation &&
+        coaching.client_intent_now
+      ) {
+        assert.equal(
+          coaching.client_intent_now
+            .is_current,
+          false,
+          `${label}: intenção antiga apresentada como atual`,
+        )
+      }
+
+      // Encerramento explícito sempre é respeitado.
+      if (temporal.momentum.state === 'closed') {
+        assert.equal(
+          temporal.reactivation.mode,
+          'respect_closure',
+          label,
+        )
+      }
+
+      // A mesma ação nunca é elogio e erro ao mesmo tempo.
+      if (
+        coaching.seller_strength &&
+        coaching.seller_mistake
+      ) {
+        const mistakeIds =
+          new Set(
+            coaching.seller_mistake
+              .evidence_message_ids,
+          )
+
+        assert.equal(
+          coaching.seller_strength
+            .evidence_message_ids.some(
+              id =>
+                mistakeIds.has(id),
+            ),
+          false,
+          `${label}: mesma mensagem como acerto e erro`,
+        )
+      }
+
+      // Reativação considera o tempo: todo movimento temporal carrega a
+      // intensidade quantitativa.
+      if (
+        ['light_follow_up', 'reactivate'].includes(
+          temporal.reactivation.mode,
+        )
+      ) {
+        assert.ok(
+          temporal.progression.severity > 0,
+          label,
+        )
+        assert.equal(
+          typeof temporal.progression
+            .elapsed_ratio,
+          'number',
+          label,
+        )
+      }
+
+      // A estratégia de mensagem continua gerando copy quando há algo a
+      // enviar.
+      if (
+        !['wait', 'give_space', 'no_intervention'].includes(
+          reasoning.decision,
+        ) &&
+        reasoning.status !== 'silent'
+      ) {
+        assert.ok(
+          strategy.objective,
+          `${label}: decisão ${reasoning.decision} sem objetivo de mensagem`,
+        )
+      }
+    }
   },
 )
