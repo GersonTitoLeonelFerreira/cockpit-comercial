@@ -25,6 +25,10 @@ function createCompanionMessageController({
   // só o resultado gerado a partir do resumo anterior deixa de valer
   // (MSG-01). Trocar de conversa limpa tudo (clear()).
   const stateByConversation = new Map()
+  // Read-model canônico da ANÁLISE por conversa. Ele não decide técnica
+  // nem próximo passo no cliente: só permite que a aba MENSAGEM transforme
+  // a decisão já tomada pelo CoachingDiagnosis em atalhos executáveis.
+  const analysisViewModelByConversation = new Map()
   let currentContext = null
   let renderQueued = false
 
@@ -127,11 +131,13 @@ function createCompanionMessageController({
     if (!requestKey) {
       currentContext = null
       stateByConversation.clear()
+      analysisViewModelByConversation.clear()
       removeVisibleComposer()
       return
     }
 
     stateByConversation.delete(requestKey)
+    analysisViewModelByConversation.delete(requestKey)
 
     if (
       currentContext &&
@@ -197,7 +203,94 @@ function createCompanionMessageController({
     return context?.data?.method_guidance || null
   }
 
-  function getPresets(guidance) {
+  function getAnalysisViewModel(context) {
+    const requestKey =
+      buildRequestContextKey(
+        context?.payload,
+      )
+
+    return requestKey
+      ? analysisViewModelByConversation
+          .get(requestKey)
+          ?.data ?? null
+      : null
+  }
+
+  function getCoachingPresets(analysisViewModel) {
+    const diagnosis =
+      analysisViewModel?.coaching_diagnosis
+
+    if (
+      !diagnosis ||
+      diagnosis.status === 'silent'
+    ) {
+      return []
+    }
+
+    const techniqueId =
+      String(
+        diagnosis
+          .chosen_technique
+          ?.id || '',
+      )
+
+    const presets = []
+
+    // Tradução seller-facing da técnica já escolhida pelo Core.
+    // Não existe seleção comercial nova aqui: o controller só converte
+    // a decisão canônica em uma intenção clicável para o vendedor.
+    if (
+      techniqueId ===
+        'technique.contextual_reengagement'
+    ) {
+      presets.push(
+        'Quero criar um microcompromisso para retomar esta conversa sem repetir a pergunta anterior.',
+        'Quero confirmar se o interesse continua antes de voltar ao próximo passo.',
+      )
+    } else if (
+      techniqueId ===
+        'technique.guided_choice'
+    ) {
+      presets.push(
+        'Quero reduzir a fricção do próximo passo com poucas opções reais.',
+        'Quero transformar a decisão aberta em uma escolha simples para o cliente.',
+      )
+    }
+
+    const nextAction =
+      typeof diagnosis
+        .next_action === 'string'
+        ? diagnosis
+            .next_action
+            .trim()
+        : ''
+
+    if (nextAction) {
+      presets.push(
+        `Quero executar este próximo objetivo: ${nextAction}`,
+      )
+    }
+
+    return Array.from(
+      new Set(
+        presets.filter(Boolean),
+      ),
+    ).slice(0, 3)
+  }
+
+  function getPresets(
+    guidance,
+    analysisViewModel,
+  ) {
+    const coaching =
+      getCoachingPresets(
+        analysisViewModel,
+      )
+
+    if (coaching.length > 0) {
+      return coaching
+    }
+
     const contextual = Array.isArray(
       guidance?.seller_intents,
     )
@@ -326,7 +419,16 @@ function createCompanionMessageController({
     }
 
     const state = getState(context)
-    const presets = getPresets(guidance)
+    const analysisViewModel =
+      getAnalysisViewModel(context)
+    const coachingPresets =
+      getCoachingPresets(
+        analysisViewModel,
+      )
+    const presets = getPresets(
+      guidance,
+      analysisViewModel,
+    )
     const trimmedIntent = state.intent.trim()
     const disabled =
       !trimmedIntent ||
@@ -369,9 +471,14 @@ function createCompanionMessageController({
       '<div class="yolen-message-objective-title">Objetivo da mensagem</div>',
       '<div class="yolen-message-objective-help">Escolha um foco ou descreva o que você quer comunicar.</div>',
       '<div class="yolen-message-presets">',
-      presets.map((preset, index) => (
-        `<button type="button" class="yolen-message-preset${preset.trim() === trimmedIntent ? ' yolen-message-preset--active' : ''}" data-yolen-seller-message-preset="${index}">${escapeHtml(shortPresetLabel(preset))}</button>`
-      )).join(''),
+      presets.map((preset, index) => {
+        const recommended =
+          coachingPresets.length > 0 &&
+          index === 0 &&
+          coachingPresets[0] === preset
+
+        return `<button type="button" class="yolen-message-preset${preset.trim() === trimmedIntent ? ' yolen-message-preset--active' : ''}" data-yolen-seller-message-preset="${index}">${recommended ? '<span class="yolen-message-preset-recommended">Recomendado pela Yolen · </span>' : ''}${escapeHtml(shortPresetLabel(preset))}</button>`
+      }).join(''),
       '</div>',
       '<div class="yolen-message-intent-field">',
       `<textarea class="yolen-message-intent" data-yolen-seller-message-intent maxlength="${INTENT_MAX_LENGTH}" placeholder="Ex.: Quero responder ao ponto específico que o cliente trouxe.">`,
@@ -745,6 +852,82 @@ function createCompanionMessageController({
     return true
   }
 
+  function syncAnalysisViewModel(
+    payload,
+    data,
+  ) {
+    const requestKey =
+      buildRequestContextKey(
+        payload,
+      )
+
+    if (
+      !requestKey ||
+      !data ||
+      typeof data !== 'object'
+    ) {
+      return false
+    }
+
+    const signature =
+      hashText(
+        JSON.stringify(
+          data.coaching_diagnosis ??
+          null,
+        ),
+      )
+
+    const previous =
+      analysisViewModelByConversation
+        .get(requestKey)
+
+    analysisViewModelByConversation
+      .set(
+        requestKey,
+        {
+          data,
+          signature,
+        },
+      )
+
+    // Uma mudança real na decisão canônica invalida a copy gerada com a
+    // decisão anterior, mas preserva o texto que o vendedor estava
+    // editando. Re-render sem mudança semântica não apaga resultado.
+    if (
+      previous &&
+      previous.signature !==
+        signature
+    ) {
+      const state =
+        stateByConversation.get(
+          requestKey,
+        )
+
+      if (state) {
+        Object.assign(
+          state,
+          {
+            status: 'idle',
+            message: null,
+            error: null,
+            feedback: null,
+          },
+        )
+      }
+    }
+
+    if (
+      currentContext &&
+      buildRequestContextKey(
+        currentContext.payload,
+      ) === requestKey
+    ) {
+      queueRender()
+    }
+
+    return true
+  }
+
 
   document.addEventListener(
     'input',
@@ -802,7 +985,10 @@ function createCompanionMessageController({
         const context = currentContext
         const state = getState(context)
         const presets =
-          getPresets(getGuidance(context))
+          getPresets(
+            getGuidance(context),
+            getAnalysisViewModel(context),
+          )
         const index = Number(
           presetButton.getAttribute(
             'data-yolen-seller-message-preset',
@@ -903,6 +1089,7 @@ function createCompanionMessageController({
   return Object.freeze({
     render: queueRender,
     syncContext,
+    syncAnalysisViewModel,
     clear(payload) {
       clearContext(payload)
     },
