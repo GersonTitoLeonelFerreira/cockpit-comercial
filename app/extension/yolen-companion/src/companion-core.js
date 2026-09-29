@@ -8770,8 +8770,11 @@ function createCompanionCore(ctx) {
 
       if (!result?.ok || !result.payload?.ok) {
         // Sessão perdida: nenhuma resolução anterior pode ser reaproveitada
-        // (antes: clearSession() envolvido por lead-resolution-runtime-cache).
+        // e nenhum estado seller-facing da MENSAGEM pode sobreviver ao
+        // logout/relogin. O cache privado inclui CoachingDiagnosis e copy
+        // por conversa, então precisa ser limpo na mesma fronteira.
         coreApiComposition.clearLeadResolutionCache()
+        messageController.clear()
         lastSessionUserId = null
 
         accountMenuOpen = false
@@ -8806,6 +8809,9 @@ function createCompanionCore(ctx) {
         nextUserId !== lastSessionUserId
       ) {
         coreApiComposition.clearLeadResolutionCache()
+        // Mesmo dentro da mesma empresa, vendedor diferente é outra
+        // fronteira de ownership para intenção, copy e CoachingDiagnosis.
+        messageController.clear()
       }
 
       lastSessionUserId = nextUserId
