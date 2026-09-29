@@ -486,3 +486,90 @@ test('mudança A→B→A incrementa revisão e não revalida geração antiga', 
     /revision,/,
   )
 })
+
+
+test('commitment_wait vira estado canônico sem mensagem e bloqueia fallback legado', () => {
+  const helperStart =
+    sellerRuntime.indexOf(
+      'function isCanonicalNoMessageState(',
+    )
+  const presetsStart =
+    sellerRuntime.indexOf(
+      'function getPresets(',
+    )
+  const requestStart =
+    sellerRuntime.indexOf(
+      'async function requestGeneration()',
+    )
+  const renderStart =
+    sellerRuntime.indexOf(
+      'function renderComposer()',
+    )
+
+  assert.notEqual(
+    helperStart,
+    -1,
+  )
+  assert.match(
+    sellerRuntime.slice(
+      helperStart,
+      presetsStart,
+    ),
+    /technique\.commitment_wait/,
+  )
+
+  const presetsBlock =
+    sellerRuntime.slice(
+      presetsStart,
+      requestStart,
+    )
+
+  assert.match(
+    presetsBlock,
+    /isCanonicalNoMessageState/,
+  )
+  assert.match(
+    presetsBlock,
+    /return \[\]/,
+  )
+
+  const requestBlock =
+    sellerRuntime.slice(
+      requestStart,
+      sellerRuntime.indexOf(
+        'const INSERT_FEEDBACK',
+        requestStart,
+      ),
+    )
+
+  assert.match(
+    requestBlock,
+    /isCanonicalNoMessageState/,
+  )
+  assert.match(
+    requestBlock,
+    /status = 'no_message'/,
+  )
+
+  const renderBlock =
+    sellerRuntime.slice(
+      renderStart,
+      sellerRuntime.indexOf(
+        'const INTENT_FIELD_SELECTOR',
+        renderStart,
+      ),
+    )
+
+  assert.match(
+    renderBlock,
+    /canonicalNoMessage/,
+  )
+  assert.match(
+    renderBlock,
+    /A Yolen recomenda aguardar a resposta do cliente/,
+  )
+  assert.match(
+    renderBlock,
+    /A decisão comercial atual é aguardar/,
+  )
+})
