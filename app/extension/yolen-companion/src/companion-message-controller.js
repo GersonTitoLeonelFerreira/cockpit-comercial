@@ -676,16 +676,18 @@ function createCompanionMessageController({
         context.payload,
       )
 
-    const coachingSignatureAtStart =
+    const coachingRevisionAtStart =
       requestKey
         ? analysisViewModelByConversation
             .get(requestKey)
-            ?.signature ?? null
-        : null
+            ?.revision ?? 0
+        : 0
 
     // Resposta de uma geração cujo contexto já não é o atual (troca de
-    // conversa, A→B→A, empresa ou sessão) OU cuja decisão canônica de
-    // coaching mudou enquanto o backend ainda estava em voo é descartada.
+    // conversa, empresa ou sessão) OU cuja decisão canônica de coaching
+    // mudou enquanto o backend estava em voo é descartada. A revisão é
+    // monotônica: A→B→A continua sendo mudança e não pode "voltar" à mesma
+    // assinatura para ressuscitar uma resposta antiga.
     const isStillCurrent = () =>
       isStateCurrent(context, state) &&
       isOperationContextCurrent(context.operationContext) &&
@@ -694,8 +696,8 @@ function createCompanionMessageController({
         (
           analysisViewModelByConversation
             .get(requestKey)
-            ?.signature ?? null
-        ) === coachingSignatureAtStart
+            ?.revision ?? 0
+        ) === coachingRevisionAtStart
       )
 
     // FASE 16.9 — a mensagem não envia mais uma orientação própria
@@ -914,15 +916,6 @@ function createCompanionMessageController({
       analysisViewModelByConversation
         .get(requestKey)
 
-    analysisViewModelByConversation
-      .set(
-        requestKey,
-        {
-          data,
-          signature,
-        },
-      )
-
     // O primeiro sync ausente→null é apenas baseline e não invalida
     // geração. Depois que existe cache, porém, qualquer mudança de
     // assinatura é uma mudança real de decisão — inclusive diagnóstico
@@ -932,6 +925,21 @@ function createCompanionMessageController({
         ? previous.signature !==
           signature
         : signature !== null
+
+    const revision =
+      coachingChanged
+        ? (previous?.revision ?? 0) + 1
+        : previous?.revision ?? 0
+
+    analysisViewModelByConversation
+      .set(
+        requestKey,
+        {
+          data,
+          signature,
+          revision,
+        },
+      )
 
     if (coachingChanged) {
       const state =
