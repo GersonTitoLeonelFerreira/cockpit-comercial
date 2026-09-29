@@ -938,3 +938,315 @@ test(
     )
   },
 )
+
+test(
+  'review final não pode transformar retomada válida em bloqueio; faz reparo e revisa novamente',
+  async () => {
+    const calls = []
+    const messageStrategy = {
+      contract_version:
+        'commercial-message-strategy-v1',
+      objective:
+        'Retomar a intenção já demonstrada sem repetir a pergunta de agenda.',
+      relationship_bridge:
+        'Retomar a intenção já demonstrada pelo cliente.',
+      context_reference: null,
+      technique_id:
+        'technique.contextual_reengagement',
+      technique_title:
+        'Retomada contextual',
+      desired_microcommitment:
+        'Confirmar se a cliente ainda quer avançar na aula experimental.',
+      facts_allowed: [],
+      facts_required_but_missing: [],
+      prohibited_moves: [
+        'Não repetir a pergunta de dia e horário.',
+      ],
+      blocked_action_types: [
+        'scheduling_open_question',
+      ],
+      required_action_type:
+        'reengagement',
+      tone: 'Humana e direta',
+      max_length: 420,
+      evidence_message_ids: [],
+      memory_ids: [],
+    }
+
+    const validReengagement =
+      'Oi, Lorena! Vi que sua aula experimental ficou em aberto. Ainda faz sentido retomarmos?'
+
+    const invalidReviewRewrite =
+      'Oi, Lorena! Qual dia e horário fica melhor para você fazer a aula experimental?'
+
+    const result =
+      await composeSellerMessage({
+        workingSummary:
+          'Lorena demonstrou interesse em uma aula experimental. A pergunta de dia e horário ficou sem resposta e a conversa depois perdeu continuidade.',
+        currentInteraction: [
+          {
+            direction: 'outgoing',
+            occurred_at:
+              '2026-09-10T16:28:00.000Z',
+            text:
+              'Qual dia e horário fica melhor para você?',
+          },
+        ],
+        sellerIntent:
+          'Quero responder ao ponto principal desta conversa.',
+        recipientName:
+          'Lorena Galvão',
+        method,
+        reasoning:
+          buildReasoning({
+            current_situation:
+              'A conversa perdeu continuidade antes de concluir o compromisso da aula experimental.',
+            objective_now:
+              'Retomar a intenção da cliente sem repetir a pergunta anterior.',
+            do_not_do: [
+              'Não repetir a mesma ação comercial sem fato novo.',
+            ],
+            selected_techniques: [
+              {
+                intelligence_id:
+                  'technique.contextual_reengagement',
+                title:
+                  'Retomada contextual',
+                why_applicable:
+                  'A conversa perdeu continuidade.',
+              },
+            ],
+          }),
+        messageStrategy,
+        provider:
+          createProvider(
+            [
+              {
+                message:
+                  validReengagement,
+              },
+              {
+                message:
+                  invalidReviewRewrite,
+                changed: true,
+                issue_code:
+                  'canonical_contradiction',
+              },
+              {
+                message:
+                  validReengagement,
+              },
+              reviewedSame(
+                validReengagement,
+              ),
+            ],
+            calls,
+          ),
+      })
+
+    assert.equal(
+      result.status,
+      'ready',
+    )
+    assert.equal(
+      result.message,
+      validReengagement,
+    )
+    assert.equal(
+      calls.length,
+      4,
+    )
+
+    assert.match(
+      calls[2].system_prompt,
+      /obrigatoriamente .*reengagement|ação comercial seja obrigatoriamente/i,
+    )
+    assert.match(
+      calls[2].system_prompt,
+      /revisão final invalidou|critic da estratégia comercial/i,
+    )
+  },
+)
+
+
+test(
+  'falha transitória do reviewer não dispara regeneração pós-review',
+  async () => {
+    const calls = []
+    const candidate =
+      'Oi! Posso confirmar o que ainda falta para avançarmos?'
+
+    const result =
+      await composeSellerMessage({
+        workingSummary:
+          'Existe uma pendência antes do próximo passo.',
+        currentInteraction: [],
+        sellerIntent:
+          'Quero confirmar o que ainda falta para avançar.',
+        method,
+        provider:
+          createProvider(
+            [
+              {
+                message:
+                  candidate,
+              },
+              // Sem segunda saída: o reviewer lança provider_sem_saida.
+              // O contrato correto encerra no gate e NÃO tenta reparar
+              // uma copy que já havia passado pela validação inicial.
+            ],
+            calls,
+          ),
+      })
+
+    assert.equal(
+      result.status,
+      'error',
+    )
+    assert.equal(
+      result.message,
+      null,
+    )
+    assert.match(
+      result.error,
+      /gate customer-facing/i,
+    )
+    assert.equal(
+      calls.length,
+      2,
+    )
+  },
+)
+
+test(
+  'segunda revisão transitória preserva a rejeição determinística original',
+  async () => {
+    const calls = []
+    const messageStrategy = {
+      contract_version:
+        'commercial-message-strategy-v1',
+      objective:
+        'Retomar a intenção já demonstrada sem repetir a pergunta de agenda.',
+      relationship_bridge:
+        'Retomar a intenção já demonstrada pelo cliente.',
+      context_reference: null,
+      technique_id:
+        'technique.contextual_reengagement',
+      technique_title:
+        'Retomada contextual',
+      desired_microcommitment:
+        'Confirmar se a cliente ainda quer avançar na aula experimental.',
+      facts_allowed: [],
+      facts_required_but_missing: [],
+      prohibited_moves: [
+        'Não repetir a pergunta de dia e horário.',
+      ],
+      blocked_action_types: [
+        'scheduling_open_question',
+      ],
+      required_action_type:
+        'reengagement',
+      tone:
+        'Humana e direta',
+      max_length: 420,
+      evidence_message_ids: [],
+      memory_ids: [],
+    }
+
+    const validReengagement =
+      'Oi, Lorena! Vi que sua aula experimental ficou em aberto. Ainda faz sentido retomarmos?'
+
+    const invalidReviewRewrite =
+      'Oi, Lorena! Qual dia e horário fica melhor para você fazer a aula experimental?'
+
+    const result =
+      await composeSellerMessage({
+        workingSummary:
+          'Lorena demonstrou interesse em uma aula experimental. A pergunta de dia e horário ficou sem resposta.',
+        currentInteraction: [
+          {
+            direction:
+              'outgoing',
+            occurred_at:
+              '2026-09-10T16:28:00.000Z',
+            text:
+              'Qual dia e horário fica melhor para você?',
+          },
+        ],
+        sellerIntent:
+          'Quero responder ao ponto principal desta conversa.',
+        recipientName:
+          'Lorena Galvão',
+        method,
+        reasoning:
+          buildReasoning({
+            current_situation:
+              'A conversa perdeu continuidade antes de concluir o compromisso da aula experimental.',
+            objective_now:
+              'Retomar a intenção da cliente sem repetir a pergunta anterior.',
+            do_not_do: [
+              'Não repetir a mesma ação comercial sem fato novo.',
+            ],
+            selected_techniques: [
+              {
+                intelligence_id:
+                  'technique.contextual_reengagement',
+                title:
+                  'Retomada contextual',
+                kind:
+                  'technique',
+                scope:
+                  'general',
+                why_applicable:
+                  'A conversa perdeu continuidade.',
+                risks: [],
+              },
+            ],
+          }),
+        messageStrategy,
+        provider:
+          createProvider(
+            [
+              {
+                message:
+                  validReengagement,
+              },
+              {
+                message:
+                  invalidReviewRewrite,
+                changed: true,
+                issue_code:
+                  'canonical_contradiction',
+              },
+              {
+                message:
+                  validReengagement,
+              },
+              // Sem quarta saída: segunda revisão falha transitoriamente.
+            ],
+            calls,
+          ),
+      })
+
+    assert.equal(
+      result.status,
+      'error',
+    )
+    assert.equal(
+      result.message,
+      null,
+    )
+    assert.match(
+      result.error,
+      /critic da estratégia comercial/i,
+    )
+    assert.doesNotMatch(
+      result.error,
+      /falha no gate customer-facing/i,
+    )
+    assert.equal(
+      calls.length,
+      4,
+    )
+  },
+)

@@ -574,6 +574,10 @@ function canonicalGroundingContext(
 type MessageAttempt = {
   message: string | null
   failure: string | null
+  failure_kind?:
+    | 'validation'
+    | 'transient'
+    | null
 }
 
 function sellerIntentMode(
@@ -1153,6 +1157,8 @@ async function reviewCustomerFacingMessage({
       return {
         message: null,
         failure: 'O gate customer-facing não retornou saída estruturada.',
+        failure_kind:
+          'transient',
       }
     }
 
@@ -1168,6 +1174,8 @@ async function reviewCustomerFacingMessage({
       return {
         message: null,
         failure: 'O gate customer-facing retornou mensagem vazia.',
+        failure_kind:
+          'transient',
       }
     }
 
@@ -1213,18 +1221,23 @@ async function reviewCustomerFacingMessage({
         failure:
           validationFailure ||
           'A mensagem revisada não passou pelo critic da estratégia comercial.',
+        failure_kind:
+          'validation',
       }
     }
 
     return {
       message,
       failure: null,
+      failure_kind: null,
     }
   } catch {
     return {
       message: null,
       failure:
         'Falha no gate customer-facing da mensagem. A mensagem não foi liberada.',
+      failure_kind:
+        'transient',
     }
   }
 }
@@ -1369,12 +1382,104 @@ export async function composeSellerMessage({
   })
 
   if (!reviewed.message) {
+    // O reparo pós-review existe para corrigir uma REESCRITA inválida do
+    // reviewer, não para mascarar indisponibilidade do próprio gate.
+    // Timeout, JSON malformado ou saída estruturada ausente encerram aqui:
+    // regenerar uma mensagem já validada só adicionaria latência/custo sem
+    // evidência de que a copy precisa ser alterada.
+    if (
+      reviewed.failure_kind !==
+        'validation'
+    ) {
+      return {
+        status: 'error',
+        message: null,
+        error:
+          reviewed.failure ||
+          'Falha no gate customer-facing da mensagem. A mensagem não foi liberada.',
+      }
+    }
+
+    const postReviewRepair =
+      await runAttempt({
+        summary,
+        interaction,
+        intent,
+        method,
+        reasoning,
+        messageStrategy,
+        roles,
+        recipientName:
+          canonicalRecipientName,
+        provider,
+        correctionReason: [
+          reviewed.failure ||
+            'A revisão final invalidou a mensagem.',
+          strictStrategyCorrection(
+            messageStrategy,
+          ),
+          'A mensagem já chegou a esta etapa após passar pela geração e pelo critic inicial. Corrija somente o conflito apontado pela revisão e preserve a ação canônica.',
+        ]
+          .filter(
+            (item): item is string =>
+              Boolean(item),
+          )
+          .join(' '),
+      })
+
+    if (!postReviewRepair.message) {
+      return {
+        status: 'error',
+        message: null,
+        error:
+          reviewed.failure ||
+          postReviewRepair.failure ||
+          'A mensagem não passou pelo gate customer-facing.',
+      }
+    }
+
+    const secondReview =
+      await reviewCustomerFacingMessage({
+        candidateMessage:
+          postReviewRepair.message,
+        summary,
+        interaction,
+        intent,
+        reasoning,
+        messageStrategy,
+        roles,
+        recipientName:
+          canonicalRecipientName,
+        provider,
+      })
+
+    if (!secondReview.message) {
+      return {
+        status: 'error',
+        message: null,
+        error:
+          secondReview.failure_kind ===
+            'transient'
+            ? (
+                reviewed.failure ||
+                secondReview.failure ||
+                postReviewRepair.failure ||
+                'A mensagem não passou pelo gate customer-facing após o reparo final.'
+              )
+            : (
+                secondReview.failure ||
+                reviewed.failure ||
+                postReviewRepair.failure ||
+                'A mensagem não passou pelo gate customer-facing após o reparo final.'
+              ),
+      }
+    }
+
     return {
-      status: 'error',
-      message: null,
-      error:
-        reviewed.failure ||
-        'A mensagem não passou pelo gate customer-facing.',
+      status: 'ready',
+      message:
+        secondReview.message,
+      error: null,
     }
   }
 
