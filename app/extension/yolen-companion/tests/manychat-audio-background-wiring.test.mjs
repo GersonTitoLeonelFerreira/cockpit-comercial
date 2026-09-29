@@ -226,6 +226,7 @@ test('manifest mantém background correto e ativa somente o runtime mínimo Many
   // FASE 7 — o ManyChat compõe o MESMO bootstrap/Core/controllers/views
   // do WhatsApp com o ManyChatAdapter, atrás do kill switch.
   assert.deepEqual(manyChatBlocks[0].js, [
+    'src/build-identity.js',
     'src/yolen-api.js',
     'src/ux8-interaction-consistency-runtime.js',
     'src/lead-summary-expand-state.js',

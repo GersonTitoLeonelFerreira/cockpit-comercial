@@ -98,6 +98,7 @@ export const ICON_SIZES = [16, 32, 48, 128]
 export const SHARED_RUNTIME_FILES = [
   'assets/yolen-mark.png',
   'src/background.js',
+  'src/build-identity.js',
   'src/capture-batch.js',
   'src/capture-resilience-null-base.js',
   'src/capture-resilience.js',
@@ -459,6 +460,122 @@ export function readE2ESourceCommit() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Identidade rastreável do pacote (recuperação do especialista comercial,
+// release): source atualizado → main atualizada → Firefox recarregado → dist
+// antigo já aconteceu. A identidade do pacote não pode depender de memória
+// humana. Ela é DETERMINÍSTICA (mesmo código + mesmo commit = mesma
+// identidade, preservando a reprodutibilidade do zip) e aparece no painel.
+// O horário de build fica só em build-identity.json (fora do zip).
+// ---------------------------------------------------------------------------
+export const BUILD_IDENTITY_PATHNAME = 'src/build-identity.js'
+export const BUILD_IDENTITY_JSON = 'build-identity.json'
+
+function gitOutput(args) {
+  try {
+    return execFileSync('git', args, {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return null
+  }
+}
+
+export function readSourceGitIdentity() {
+  const commit = gitOutput(['rev-parse', 'HEAD'])
+  const status = gitOutput(['status', '--porcelain', '--', 'app/extension/yolen-companion'])
+
+  return {
+    commit: commit || null,
+    commit_short: commit ? commit.slice(0, 8) : null,
+    // Alterações locais não commitadas no código da extensão: o painel
+    // mostra "+" para que um pacote de código não versionado nunca se passe
+    // por um commit conhecido.
+    dirty: status === null ? null : status.length > 0,
+  }
+}
+
+export function computeSourceFingerprint(stagingDir, entries) {
+  const hash = createHash('sha256')
+
+  for (const entry of [...entries].sort()) {
+    if (entry === BUILD_IDENTITY_PATHNAME) {
+      continue
+    }
+
+    hash.update(entry)
+    hash.update('\u0000')
+    hash.update(readFileSync(join(stagingDir, entry)))
+    hash.update('\u0000')
+  }
+
+  return hash.digest('hex').slice(0, 16)
+}
+
+export function buildIdentityFor({ version, environment, targetName, git, fingerprint }) {
+  const buildId = createHash('sha256')
+    .update([version, environment, targetName, git.commit ?? 'no-commit', git.dirty ? 'dirty' : 'clean', fingerprint].join('|'))
+    .digest('hex')
+    .slice(0, 12)
+
+  return {
+    version,
+    commit: git.commit,
+    commit_short: git.commit_short,
+    dirty: git.dirty,
+    source_fingerprint: fingerprint,
+    build_id: buildId,
+    environment: `${targetName}-${environment}`,
+  }
+}
+
+export function renderBuildIdentitySource(identity) {
+  return [
+    ';(function initYolenCompanionBuildIdentity(root) {',
+    '  // GERADO por build-package.mjs — identidade real deste pacote.',
+    `  const identity = Object.freeze(${JSON.stringify(identity, null, 2).replace(/\n/g, '\n  ')})`,
+    '',
+    '  root.YolenCompanionBuildIdentity = identity',
+    "})(typeof globalThis !== 'undefined' ? globalThis : window)",
+    '',
+  ].join('\n')
+}
+
+export function parseBuildIdentitySource(sourceCode) {
+  const match = String(sourceCode).match(/Object\.freeze\((\{[\s\S]*?\})\)/)
+  if (!match) {
+    return null
+  }
+
+  try {
+    return JSON.parse(match[1])
+  } catch {
+    return null
+  }
+}
+
+function stampBuildIdentity({ stagingDir, targetName, environment, sourceManifest, entries }) {
+  const git = readSourceGitIdentity()
+  const fingerprint = computeSourceFingerprint(stagingDir, entries)
+  const identity = buildIdentityFor({
+    version: sourceManifest.version,
+    environment,
+    targetName,
+    git,
+    fingerprint,
+  })
+
+  writeFileSync(join(stagingDir, BUILD_IDENTITY_PATHNAME), renderBuildIdentitySource(identity))
+  writeFileSync(
+    join(stagingDir, BUILD_IDENTITY_JSON),
+    `${JSON.stringify({ ...identity, built_at: new Date().toISOString() }, null, 2)}\n`,
+  )
+
+  return identity
+}
+
 export function toE2EManifest(sourceManifest, targetName, { sourceCommit = readE2ESourceCommit() } = {}) {
   const target = TARGETS[targetName]
   if (!target) {
@@ -695,6 +812,14 @@ function buildTarget(targetName, environment, sourceManifest, { outputRoot = OUT
 
   const zipEntries = getTargetZipEntries(targetName)
 
+  const buildIdentity = stampBuildIdentity({
+    stagingDir,
+    targetName,
+    environment,
+    sourceManifest,
+    entries: zipEntries,
+  })
+
   const zipPath = join(outputRoot, zipFileName(targetName, environment, sourceManifest.version))
   createZip(stagingDir, zipPath, zipEntries)
 
@@ -702,9 +827,11 @@ function buildTarget(targetName, environment, sourceManifest, { outputRoot = OUT
     target: targetName,
     environment,
     zipPath,
+    stagingDir,
     sha256: sha256(zipPath),
     entries: zipEntries,
     effectiveManyChatCaptureEnabled,
+    buildIdentity,
   }
 }
 
@@ -737,14 +864,16 @@ function writeBuildSummary({ results, sourceManifest, outputRoot, fileName, note
     version: sourceManifest.version,
     generatedAt: new Date().toISOString(),
     note,
-    packages: results.map(({ target, environment, zipPath, sha256: hash, entries, effectiveManyChatCaptureEnabled }) => ({
+    packages: results.map(({ target, environment, zipPath, stagingDir, sha256: hash, entries, effectiveManyChatCaptureEnabled, buildIdentity }) => ({
       target,
       environment,
       zipPath: zipPath.replace(`${REPO_ROOT}/`, ''),
+      stagingDir: stagingDir.replace(`${REPO_ROOT}/`, ''),
       sha256: hash,
       fileCount: entries.length,
       entries,
       effectiveManyChatCaptureEnabled,
+      buildIdentity,
     })),
   }
 
@@ -756,6 +885,8 @@ function logResults(summary) {
   for (const pkg of summary.packages) {
     console.log(`\n[${pkg.target}/${pkg.environment}] ${pkg.zipPath}`)
     console.log(`  sha256: ${pkg.sha256}`)
+    console.log(`  identidade: v${pkg.buildIdentity.version} · commit ${pkg.buildIdentity.commit_short}${pkg.buildIdentity.dirty ? ' (+ alterações locais)' : ''} · build ${pkg.buildIdentity.build_id}`)
+    console.log(`  staging: ${pkg.stagingDir}`)
     console.log(`  MANYCHAT_CAPTURE_ENABLED: ${pkg.effectiveManyChatCaptureEnabled}`)
     console.log(`  arquivos (${pkg.fileCount}):`)
     for (const entry of pkg.entries) {

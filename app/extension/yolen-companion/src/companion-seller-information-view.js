@@ -356,7 +356,47 @@
       'Compare alternativas pelos critérios que o cliente declarou e pelos fatos oficiais disponíveis.',
     'principle.company_rules_before_claim':
       'Antes de afirmar preço, condição, política, promessa ou capacidade, use somente a informação oficial da empresa.',
+    'technique.state_change_reactivation':
+      'Relembre de forma concreta o que o cliente estava avaliando e pergunte como está isso hoje — descubra o estado atual antes de retomar o passo antigo.',
+    'technique.permission_based_reengagement':
+      'Depois de tentativas sem resposta, peça permissão para retomar o assunto e deixe uma saída fácil; qualquer resposta curta já é avanço.',
+    'technique.pattern_interrupt_reengagement':
+      'Se o mesmo tipo de mensagem já ficou sem resposta, mude o formato: mensagem curta, diferente e ancorada no que o cliente trouxe.',
+    'technique.delayed_response_recovery':
+      'O cliente ficou esperando: reconheça a demora em uma frase, responda ao pedido e confirme o que ainda faz sentido agora.',
+    'technique.respectful_closure':
+      'O cliente encerrou ou resolveu por outro caminho: agradeça, respeite a decisão e deixe a porta aberta, sem nova oferta.',
   })
+
+  function renderCoachingTemporal(temporal) {
+    if (!temporal || typeof temporal !== 'object') {
+      return ''
+    }
+
+    const label = displayText(temporal.momentum_label)
+    const facts = Array.isArray(temporal.facts)
+      ? temporal.facts.map(displayText).filter(Boolean)
+      : []
+
+    if (!label && facts.length === 0) {
+      return ''
+    }
+
+    return `
+      <div
+        class="yolen-seller-detail"
+        data-yolen-coaching-temporal="${escapeHtml(temporal.momentum_state || 'unknown')}"
+      >
+        <div class="yolen-seller-detail-label">Momento da oportunidade</div>
+        ${label ? `<div class="yolen-seller-detail-copy">${escapeHtml(label)}${temporal.requalify_before_continuing ? ' — interesse atual precisa ser reconfirmado.' : ''}</div>` : ''}
+        ${facts.length > 0 ? `
+          <ul class="yolen-seller-text-list">
+            ${facts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join('')}
+          </ul>
+        ` : ''}
+      </div>
+    `
+  }
 
   function techniqueSimpleExplanation(technique) {
     const id = displayText(technique?.id)
@@ -458,6 +498,8 @@
     const technique = diagnosis.chosen_technique
     const intent = diagnosis.client_intent_now
 
+    const synthesis = diagnosis.synthesis || null
+
     const hasContent = [
       diagnosis.current_commercial_goal,
       strength?.summary,
@@ -465,6 +507,7 @@
       lastMove?.summary,
       technique?.title,
       intent?.label,
+      synthesis?.diagnosis,
     ].some((value) => displayText(value))
 
     if (!hasContent) {
@@ -484,6 +527,17 @@
         </div>
 
         <div class="yolen-seller-stack">
+          ${displayText(synthesis?.diagnosis) ? `
+            <article
+              class="yolen-seller-insight"
+              data-yolen-coaching-synthesis
+            >
+              <div class="yolen-seller-insight-type">Diagnóstico da condução</div>
+              <div class="yolen-seller-insight-title">${escapeHtml(displayText(synthesis.diagnosis))}</div>
+              ${renderCoachingTemporal(diagnosis.temporal)}
+            </article>
+          ` : renderCoachingTemporal(diagnosis.temporal)}
+
           ${strength?.summary ? `
             <article class="yolen-seller-insight yolen-seller-insight--positive">
               <div class="yolen-seller-insight-type">Principal acerto</div>
@@ -518,7 +572,13 @@
           >
             <summary>Ver raciocínio</summary>
             ${renderLabeledCopy('Objetivo comercial agora', diagnosis.current_commercial_goal)}
-            ${renderLabeledCopy('Intenção atual do cliente', intent?.label)}
+            ${renderLabeledCopy(
+              intent && intent.is_current === false
+                ? 'Intenção demonstrada (histórico)'
+                : 'Intenção atual do cliente',
+              intent?.label,
+            )}
+            ${renderLabeledCopy('Próximo aprendizado', synthesis?.next_learning)}
             ${renderLabeledCopy('Último movimento válido do vendedor', lastMove?.action_label)}
             ${renderLabeledCopy('Por que esta técnica', technique?.why_now)}
             ${diagnosis.sequence_break?.happened
@@ -723,8 +783,11 @@
     `
   }
 
-  function renderRecovery(method) {
+  function renderRecovery(method, guidance = null) {
     const adherence = method?.adherence
+    // Depois de um intervalo longo, o que faltou na última tentativa (ex.:
+    // dia/horário) é histórico — não a lacuna atual da venda.
+    const historical = guidance?.historical_open_loops === true
 
     if (adherence?.status !== 'off_method') {
       return ''
@@ -751,10 +814,11 @@
         <div class="yolen-method-recovery-heading">Como voltar para o método</div>
         ${renderLabeledCopy('Onde saiu', whereItLeft)}
         ${renderLabeledCopy('O que aconteceu', adherence.what_happened)}
-        ${renderTextList('O que faltou', missing)}
+        ${renderTextList(historical ? 'O que ficou em aberto na última tentativa' : 'O que faltou', missing)}
+        ${historical ? renderLabeledCopy('Antes de retomar', 'Reconfirmar se o interesse do cliente continua depois do intervalo.') : ''}
         ${renderLabeledCopy('Por que importa', adherence.why_it_matters)}
         ${renderLabeledCopy('Objetivo da correção', recovery?.objective)}
-        ${renderLabeledCopy('Próximo movimento', recovery?.recommended_move)}
+        ${historical ? '' : renderLabeledCopy('Próximo movimento', recovery?.recommended_move)}
         ${renderLabeledCopy('Pergunta opcional', recovery?.optional_question)}
         ${renderEvidence(recovery || adherence)}
       </div>
@@ -874,7 +938,7 @@
 
           ${renderMethodGuidance(method, guidance)}
           ${renderMethodStages(method, guidance)}
-          ${renderRecovery(method)}
+          ${renderRecovery(method, guidance)}
           <div class="yolen-operational-note" data-yolen-method-crm-independence>
             Método comercial e etapa do CRM são avaliações independentes.
           </div>
@@ -1289,12 +1353,28 @@
     }
 
     if (analysisViewModel.neutral) {
+      // Pouca certeza sobre o cliente não apaga a leitura da execução do
+      // vendedor: o servidor só envia coaching não silencioso aqui quando
+      // há evidência determinística da condução (escopo seller_execution_only).
+      const sellerExecutionCoaching =
+        analysisViewModel.coaching_diagnosis &&
+        analysisViewModel.coaching_diagnosis.status !== 'silent' &&
+        analysisViewModel.coaching_diagnosis.scope === 'seller_execution_only'
+
       return [
         `
           <div class="yolen-seller-empty-state" data-yolen-analysis-neutral>
             ${escapeHtml(analysisViewModel.neutral_headline || '')} ${escapeHtml(analysisViewModel.neutral_description || '')}
           </div>
         `,
+        sellerExecutionCoaching
+          ? renderCoachingDiagnosis(analysisViewModel.coaching_diagnosis)
+          : '',
+        sellerExecutionCoaching
+          ? renderAdditionalCoachingFindings(
+              analysisViewModel.coaching_diagnosis.additional_findings,
+            )
+          : '',
         renderCommitments(analysisViewModel.commitments),
         renderContinuity(analysisViewModel.continuity),
       ].filter(Boolean).join('')

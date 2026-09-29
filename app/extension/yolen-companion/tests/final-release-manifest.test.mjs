@@ -37,9 +37,11 @@ test(
       'Yolen Companion',
     )
 
+    // Versão pinada junto com o bump intencional de release (identidade
+    // rastreável do pacote: versão + commit no painel).
     assert.equal(
       manifest.version,
-      '1.0.0',
+      '1.5.0',
     )
 
     assert.equal(
@@ -205,6 +207,7 @@ test(
     // FASE 7 — mesmo bootstrap/Core/controllers/views do WhatsApp com o
     // ManyChatAdapter, atrás do kill switch (manychat-feature-flags.js).
     assert.deepEqual(idleIsolatedBlock.js, [
+      'src/build-identity.js',
       'src/yolen-api.js',
       'src/ux8-interaction-consistency-runtime.js',
       'src/lead-summary-expand-state.js',

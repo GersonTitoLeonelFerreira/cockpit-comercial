@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Yolen Companion",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "Assistente comercial da Yolen para canais de conversa.",
   "permissions": [
     "storage",
@@ -42,6 +42,7 @@
         "https://web.whatsapp.com/*"
       ],
       "js": [
+        "src/build-identity.js",
         "src/yolen-api.js",
         "src/ux8-interaction-consistency-runtime.js",
         "src/lead-summary-expand-state.js",
@@ -110,6 +111,7 @@
         "https://app.manychat.com/*"
       ],
       "js": [
+        "src/build-identity.js",
         "src/yolen-api.js",
         "src/ux8-interaction-consistency-runtime.js",
         "src/lead-summary-expand-state.js",

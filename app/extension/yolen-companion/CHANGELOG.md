@@ -9,6 +9,25 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 A versão da extensão (`manifest.json` → `version`) permanece `1.0.0` até que
 uma fase futura de release decida um esquema de versionamento próprio.
 
+## [1.5.0] — Recuperação do especialista comercial + identidade rastreável do pacote
+
+### Adicionado
+
+- `src/build-identity.js`: identidade do pacote carregado (versão, commit de
+  origem, indicador de alterações locais, fingerprint do código empacotado e
+  build id), exibida no cabeçalho do painel (`v1.5.0 · <commit>`). O arquivo
+  do repositório se identifica como "fonte"; o `build-package.mjs`
+  substitui o conteúdo DENTRO do staging/zip pela identidade real e
+  determinística (mesmo código + mesmo commit = mesma identidade; o horário
+  do build fica só em `build-identity.json`, fora do zip, preservando a
+  reprodutibilidade).
+- `scripts/verify-staged-build.mjs` (`npm run verify:companion-firefox-prod`):
+  compara o staging que o navegador carrega com o checkout atual (commit,
+  versão, conteúdo de cada arquivo de runtime e fingerprint) e falha quando o
+  pacote está desatualizado — o recarregamento de um dist antigo deixa de
+  depender de memória humana.
+- `build-summary.json` registra `stagingDir` e `buildIdentity` de cada pacote.
+
 ## [Não lançado] — D3: Separação DEV/PROD e Release Candidate de loja
 
 ### Adicionado

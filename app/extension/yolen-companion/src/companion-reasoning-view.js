@@ -78,11 +78,30 @@
           return ''
         }
 
+        const momentum =
+          reasoning.momentum &&
+          typeof reasoning.momentum === 'object'
+            ? reasoning.momentum
+            : null
+        const momentumLabel =
+          momentum ? text(momentum.label) : null
+        const momentumFacts =
+          momentum ? items(momentum.facts).map(text).filter(Boolean).slice(0, 2) : []
+
         return `
           <section
             class="yolen-seller-section yolen-reasoning-section yolen-now-rationale"
             data-yolen-reasoning="agora"
           >
+            ${momentumLabel && momentum.state !== 'active' ? `
+              <div
+                class="yolen-seller-detail"
+                data-yolen-agora-momentum="${escapeHtml(momentum.state || 'unknown')}"
+              >
+                <div class="yolen-seller-detail-label">Momento</div>
+                <div class="yolen-seller-detail-copy">${escapeHtml(momentumLabel)}${momentumFacts.length > 0 ? ` · ${escapeHtml(momentumFacts.join(' '))}` : ''}</div>
+              </div>
+            ` : ''}
             ${safeWhyNow ? `
               <div class="yolen-seller-detail yolen-now-rationale-main">
                 <div class="yolen-seller-detail-label">Por que essa ação</div>

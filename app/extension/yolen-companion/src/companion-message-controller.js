@@ -203,6 +203,46 @@ function createCompanionMessageController({
     )
   }
 
+  // A decisão canônica muda quando muda o momentum, o frescor da intenção
+  // ou a técnica — não quando "há 18 dias" vira "há 19 dias". Textos com
+  // duração relativa ficam fora da assinatura de revisão do coaching.
+  function stableCoachingSignaturePayload(diagnosis) {
+    if (!diagnosis || typeof diagnosis !== 'object') {
+      return diagnosis
+    }
+
+    const temporal =
+      diagnosis.temporal &&
+      typeof diagnosis.temporal === 'object'
+        ? {
+            momentum_state:
+              diagnosis.temporal.momentum_state ?? null,
+            intent_freshness:
+              diagnosis.temporal.intent_freshness ?? null,
+            reactivation_mode:
+              diagnosis.temporal.reactivation_mode ?? null,
+            requalify_before_continuing:
+              diagnosis.temporal.requalify_before_continuing ?? null,
+          }
+        : null
+
+    const intent =
+      diagnosis.client_intent_now &&
+      typeof diagnosis.client_intent_now === 'object'
+        ? {
+            ...diagnosis.client_intent_now,
+            label: null,
+          }
+        : diagnosis.client_intent_now ?? null
+
+    return {
+      ...diagnosis,
+      client_intent_now: intent,
+      temporal,
+      synthesis: null,
+    }
+  }
+
   function getGuidance(context) {
     return context?.data?.method_guidance || null
   }
@@ -989,7 +1029,9 @@ function createCompanionMessageController({
         ? null
         : hashText(
             JSON.stringify(
-              coachingDiagnosis,
+              stableCoachingSignaturePayload(
+                coachingDiagnosis,
+              ),
             ),
           )
 

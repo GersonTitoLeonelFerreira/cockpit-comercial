@@ -7463,6 +7463,74 @@ function createCompanionCore(ctx) {
     )
   }
 
+  // Identidade visível do pacote carregado (versão + commit). Um dist
+  // antigo recarregado no navegador fica reconhecível sem depender de
+  // memória humana.
+  function getBuildIdentityBadgeHtml() {
+    const identity =
+      root.YolenCompanionBuildIdentity &&
+      typeof root.YolenCompanionBuildIdentity === 'object'
+        ? root.YolenCompanionBuildIdentity
+        : null
+
+    let version =
+      identity && typeof identity.version === 'string'
+        ? identity.version
+        : null
+
+    if (!version) {
+      try {
+        const runtime =
+          root.browser?.runtime ||
+          root.chrome?.runtime
+
+        version =
+          runtime?.getManifest?.()?.version ||
+          null
+      } catch {
+        version = null
+      }
+    }
+
+    const commit =
+      identity && typeof identity.commit_short === 'string'
+        ? identity.commit_short
+        : null
+
+    const label = [
+      version ? `v${version}` : null,
+      commit
+        ? `${commit}${identity.dirty ? '+' : ''}`
+        : identity?.environment === 'source'
+          ? 'fonte'
+          : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    if (!label) {
+      return ''
+    }
+
+    const title = [
+      'Yolen Companion',
+      version ? `versão ${version}` : null,
+      identity?.commit ? `commit ${identity.commit}` : null,
+      identity?.dirty ? 'código com alterações locais não commitadas' : null,
+      identity?.build_id ? `build ${identity.build_id}` : null,
+      identity?.environment ? `ambiente ${identity.environment}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    return (
+      '<div class="yolen-build-badge" data-yolen-build-identity' +
+      ' title="' + escapeHtml(title) + '">' +
+      escapeHtml(label) +
+      '</div>'
+    )
+  }
+
   function getYolenMarkHtml() {
     const markUrl =
       getYolenMarkUrl()
@@ -8069,6 +8137,8 @@ function createCompanionCore(ctx) {
             '<div class="yolen-title">',
               'Yolen Companion',
             '</div>',
+
+            getBuildIdentityBadgeHtml(),
 
             accountAvailable
               ? [
