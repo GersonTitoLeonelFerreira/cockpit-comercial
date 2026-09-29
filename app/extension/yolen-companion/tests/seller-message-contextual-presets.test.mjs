@@ -207,11 +207,15 @@ test('primeiro CoachingDiagnosis real invalida geração legada, mas baseline nu
   )
   assert.match(
     block,
-    /const coachingChanged =\s*signature !== null/,
+    /const coachingChanged =\s*previous\s*\?/,
   )
   assert.match(
     block,
-    /!previous \|\|\s*previous\.signature !==\s*signature/,
+    /previous\.signature !==\s*signature/,
+  )
+  assert.match(
+    block,
+    /: signature !== null/,
   )
   assert.match(
     block,
@@ -414,5 +418,40 @@ test('diagnóstico nulo preserva a assinatura baseline da geração em voo', () 
   assert.match(
     syncBlock,
     /signature !== null/,
+  )
+})
+
+
+test('diagnóstico existente que desaparece invalida copy e loading anteriores', () => {
+  const start =
+    sellerRuntime.indexOf(
+      'function syncAnalysisViewModel(',
+    )
+  const end =
+    sellerRuntime.indexOf(
+      "document.addEventListener(\n    'input'",
+      start,
+    )
+  const block =
+    sellerRuntime.slice(
+      start,
+      end,
+    )
+
+  assert.notEqual(
+    start,
+    -1,
+  )
+  assert.match(
+    block,
+    /previous\s*\? previous\.signature !==\s*signature\s*: signature !== null/,
+  )
+  assert.match(
+    block,
+    /status: 'idle'/,
+  )
+  assert.match(
+    block,
+    /message: null/,
   )
 })
