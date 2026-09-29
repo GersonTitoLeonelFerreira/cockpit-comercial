@@ -323,28 +323,49 @@
     `
   }
 
+  const TECHNIQUE_SIMPLE_EXPLANATIONS = Object.freeze({
+    'technique.contextual_reengagement':
+      'Use um microcompromisso: peça uma decisão pequena que reabra a conversa antes de voltar ao agendamento, à oferta ou a um passo maior.',
+    'technique.guided_choice':
+      'Reduza o esforço da decisão oferecendo poucas opções reais, em vez de deixar toda a escolha aberta para o cliente.',
+    'technique.objection_diagnosis':
+      'Antes de responder à objeção, descubra qual é a causa real da resistência para não prescrever uma solução genérica.',
+    'technique.third_party_handoff':
+      'Quando alguém fala por outra pessoa, preserve os papéis e conduza a passagem para o prospect real sem misturar identidade ou decisão.',
+    'technique.discovery_before_prescription':
+      'Antes de recomendar uma solução, descubra apenas a informação que realmente pode mudar a recomendação.',
+    'technique.commitment_wait':
+      'Quando o próximo movimento já depende do cliente, não repita a ação; preserve o compromisso e espere resposta ou vencimento do prazo.',
+    'technique.decision_criteria_clarification':
+      'Descubra o que realmente pesa na decisão do cliente antes de comparar opções ou recomendar uma delas.',
+    'technique.impact_exploration':
+      'Explore o impacto concreto do problema para entender por que a mudança importa, sem dramatizar nem inventar dor.',
+    'technique.value_linkage':
+      'Conecte uma capacidade real da solução a uma necessidade ou objetivo que o cliente já demonstrou.',
+    'technique.objection_isolation':
+      'Confirme se a objeção atual é realmente a principal trava antes de negociar, conceder ou responder em profundidade.',
+    'technique.evidence_based_reassurance':
+      'Reduza a incerteza usando evidência oficial e pertinente, sem prometer o que não está comprovado.',
+    'technique.stakeholder_mapping':
+      'Mapeie quem usa, influencia e decide para que o próximo passo respeite o processo real de decisão.',
+    'technique.commitment_ladder':
+      'Transforme a intenção atual no menor próximo compromisso útil que realmente faça a negociação avançar.',
+    'technique.explicit_close_execution':
+      'Quando a decisão já está madura, execute o próximo passo do fechamento sem reabrir uma descoberta que já foi superada.',
+    'technique.comparison_by_criteria':
+      'Compare alternativas pelos critérios que o cliente declarou e pelos fatos oficiais disponíveis.',
+    'principle.company_rules_before_claim':
+      'Antes de afirmar preço, condição, política, promessa ou capacidade, use somente a informação oficial da empresa.',
+  })
+
   function techniqueSimpleExplanation(technique) {
     const id = displayText(technique?.id)
 
-    if (
-      id ===
-        'technique.contextual_reengagement'
-    ) {
-      return (
-        'Use um microcompromisso: peça uma decisão pequena que reabra a conversa antes de voltar ao agendamento, à oferta ou a um passo maior.'
-      )
-    }
-
-    if (
-      id ===
-        'technique.guided_choice'
-    ) {
-      return (
-        'Reduza o esforço da decisão oferecendo poucas opções reais, em vez de deixar toda a escolha aberta para o cliente.'
-      )
-    }
-
-    return null
+    return (
+      TECHNIQUE_SIMPLE_EXPLANATIONS[id] ||
+      displayText(technique?.why_now) ||
+      null
+    )
   }
 
   function renderAdditionalCoachingFindings(findingsList) {
