@@ -1621,13 +1621,24 @@ const TOPIC_TIME_EXPRESSIONS =
 // "vocês podem me mandar"). Pedido para o vendedor ENVIAR algo vira o que o
 // cliente queria RECEBER.
 const TOPIC_REQUEST_LEADS: ReadonlyArray<[RegExp, string]> = [
-  [/^(?:voc[eê]s?|vcs)\s+(?:podem|pode|poderiam|poderia|conseguem|consegue|conseguiriam)\s+(?:me\s+)?(?:mandar|enviar|passar)\s+/iu, 'receber '],
+  [/^(?:(?:voc[eê]s?|vcs)\s+)?(?:podem|pode|poderiam|poderia|conseguem|consegue|conseguiriam)\s+(?:me\s+)?(?:mandar|enviar|passar)\s+/iu, 'receber '],
   [/^(?:me\s+)?(?:manda|mande|envia|envie|passa|passe)\s+/iu, 'receber '],
+  // Pedido de explicação ("você pode me explicar como funciona o plano?")
+  // vira o que o cliente queria ENTENDER.
+  [/^(?:(?:voc[eê]s?|vcs)\s+)?(?:podem|pode|poderiam|poderia|conseguem|consegue|conseguiriam)\s+(?:me\s+)?(?:explicar|detalhar|contar|dizer|mostrar|apresentar)\s+(?:(?:melhor|mais)\s+)?(?:sobre\s+)?/iu, 'entender '],
+  [/^(?:me\s+)?(?:explica|explique|detalha|detalhe|conta|conte|mostra|mostre)\s+(?:(?:melhor|mais)\s+)?(?:sobre\s+)?/iu, 'entender '],
   [/^(?:eu\s+)?(?:gostaria\s+de|queria|quero|preciso\s+de|preciso|vou\s+querer)\s+/iu, ''],
   [/^(?:n[oó]s\s+)?(?:podemos|poder[ií]amos|posso|poderia|podia|consigo|conseguiria|conseguimos|d[aá]\s+(?:pra|para)|tem\s+como|seria\s+poss[ií]vel|ser[aá]\s+que\s+(?:d[aá]|consigo|posso)(?:\s+(?:pra|para))?)\s+/iu, ''],
   [/^(?:voc[eê]s?|vcs)\s+(?:t[eê]m|tem|fazem|faz|trabalham\s+com|atendem)\s+/iu, ''],
   [/^(?:tem|t[eê]m|existe)\s+/iu, ''],
 ]
+
+// "Dra. Ana", "Sr. João": o ponto da abreviação não encerra a frase e volta
+// intacto no assunto citado.
+const TOPIC_ABBREVIATIONS =
+  /(?<![\p{L}])(Dra|Dr|Sra|Srta|Sr|Profa|Prof|Av|Ltda|Jr|Eng|Arq|Cia)\.(?=\s)/gu
+
+const TOPIC_ABBREVIATION_DOT = '․'
 
 const TOPIC_COURTESY_TOKENS =
   new Set([
@@ -1647,6 +1658,10 @@ export function customerRequestTopic(
 ): string | null {
   const sentences =
     text
+      .replace(
+        TOPIC_ABBREVIATIONS,
+        `$1${TOPIC_ABBREVIATION_DOT}`,
+      )
       .split(/(?<=[.!?])\s+|\n+/)
       .map(sentence => sentence.trim())
       .filter(Boolean)
@@ -1765,7 +1780,12 @@ export function customerRequestTopic(
     return null
   }
 
-  return topic.charAt(0).toLowerCase() + topic.slice(1)
+  const cited =
+    topic
+      .split(TOPIC_ABBREVIATION_DOT)
+      .join('.')
+
+  return cited.charAt(0).toLowerCase() + cited.slice(1)
 }
 
 // Pergunta de retomada por técnica: UMA pergunta de baixo esforço, que

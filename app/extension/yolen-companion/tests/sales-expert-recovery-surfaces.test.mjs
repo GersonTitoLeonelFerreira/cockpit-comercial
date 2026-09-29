@@ -560,6 +560,40 @@ test(
 )
 
 test(
+  'deduplicação semântica preserva a negação: afirmação e negação nunca contam como repetição',
+  () => {
+    // Polaridade oposta nunca é "a mesma coisa".
+    assert.equal(base.repeatsContent('O cliente não confirmou interesse.', ['O cliente confirmou interesse.']), false)
+    assert.equal(base.repeatsContent('O cliente confirmou interesse.', ['O cliente não confirmou interesse.']), false)
+    assert.equal(base.repeatsContent('Não avance para o fechamento.', ['Avance para o fechamento.']), false)
+    assert.equal(base.repeatsContent('Retome sem reenviar a oferta.', ['Reenvie a oferta.']), false)
+
+    // Mesma polaridade continua sendo repetição.
+    assert.equal(base.repeatsContent('O cliente não confirmou o interesse.', ['O interesse do cliente não foi confirmado ainda.']), true)
+    assert.equal(base.repeatsContent('O cliente confirmou o interesse.', ['O cliente confirmou interesse.']), true)
+
+    // Uma frase negada nunca some do primeiro nível por "repetir" a afirmação.
+    assert.deepEqual(
+      base.novelSentences(
+        'O cliente confirmou interesse. Não avance para o fechamento.',
+        ['O cliente confirmou interesse e quer avançar para o fechamento.'],
+      ),
+      ['Não avance para o fechamento.'],
+    )
+  },
+)
+
+test(
+  'abreviação ("Dra. Ana", "Sr. Paulo") não quebra a frase na deduplicação',
+  () => {
+    assert.deepEqual(
+      base.splitSentences('A avaliação com a Dra. Ana ficou sem data. O Sr. Paulo pediu retorno.'),
+      ['A avaliação com a Dra. Ana ficou sem data.', 'O Sr. Paulo pediu retorno.'],
+    )
+  },
+)
+
+test(
   'identidade de build é determinística e legível de volta a partir do arquivo gerado',
   () => {
     const git = {

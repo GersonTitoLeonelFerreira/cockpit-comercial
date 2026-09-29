@@ -196,11 +196,17 @@
   const OVERLAP_STOPWORDS = new Set([
     'a', 'o', 'as', 'os', 'um', 'uma', 'uns', 'umas', 'de', 'do', 'da',
     'dos', 'das', 'em', 'no', 'na', 'nos', 'nas', 'por', 'pelo', 'pela',
-    'para', 'pra', 'com', 'sem', 'que', 'e', 'ou', 'se', 'ao', 'aos',
+    'para', 'pra', 'com', 'que', 'e', 'ou', 'se', 'ao', 'aos',
     'mas', 'mais', 'ja', 'ainda', 'isso', 'esse', 'essa', 'este', 'esta',
     'ele', 'ela', 'foi', 'ser', 'estar', 'estava', 'ter', 'tem',
-    'ha', 'antes', 'depois', 'desde', 'entao', 'nao', 'como', 'muito',
+    'ha', 'antes', 'depois', 'desde', 'entao', 'como', 'muito',
     'sobre', 'cliente', 'vendedor', 'hoje', 'agora',
+  ])
+
+  // Negação carrega sentido: "não confirmou" nunca repete "confirmou". O
+  // negador marca o radical de conteúdo seguinte com "!".
+  const OVERLAP_NEGATORS = new Set([
+    'nao', 'nem', 'nunca', 'jamais', 'sem', 'nenhum', 'nenhuma', 'ninguem',
   ])
 
   const OVERLAP_STEM_LENGTH = 5
@@ -208,27 +214,48 @@
 
   function contentStems(value) {
     const clean = displayText(value)
+    const stems = new Set()
 
     if (!clean) {
-      return new Set()
+      return stems
     }
 
-    return new Set(
-      clean
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter(
-          (token) =>
-            /^\d+$/.test(token) ||
-            (token.length > 2 && !OVERLAP_STOPWORDS.has(token)),
-        )
-        .map((token) => token.slice(0, OVERLAP_STEM_LENGTH)),
-    )
+    const tokens = clean
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+
+    let negated = false
+
+    for (const token of tokens) {
+      if (OVERLAP_NEGATORS.has(token)) {
+        negated = true
+        continue
+      }
+
+      if (
+        !/^\d+$/.test(token) &&
+        (token.length <= 2 || OVERLAP_STOPWORDS.has(token))
+      ) {
+        continue
+      }
+
+      const stem = token.slice(0, OVERLAP_STEM_LENGTH)
+
+      stems.add(negated ? `!${stem}` : stem)
+      negated = false
+    }
+
+    return stems
+  }
+
+  function oppositeStem(stem) {
+    return stem.startsWith('!') ? stem.slice(1) : `!${stem}`
   }
 
   // Fração do conteúdo de `candidate` que já aparece em `references`.
+  // Polaridade oposta ("não confirmou" x "confirmou") nunca é repetição.
   function contentCoverage(candidate, references) {
     const stems = contentStems(candidate)
 
@@ -241,6 +268,18 @@
     for (const reference of references || []) {
       for (const stem of contentStems(reference)) {
         known.add(stem)
+      }
+    }
+
+    for (const stem of stems) {
+      const opposite = oppositeStem(stem)
+
+      if (
+        known.has(opposite) &&
+        !known.has(stem) &&
+        !stems.has(opposite)
+      ) {
+        return 0
       }
     }
 
@@ -259,6 +298,12 @@
     return contentCoverage(candidate, references) >= REPEATED_CONTENT_RATIO
   }
 
+  // "Dra. Ana", "Sr. João", "Av. Brasil": o ponto da abreviação não
+  // encerra a frase.
+  const SENTENCE_ABBREVIATION =
+    /(?<![A-Za-zÀ-ÿ])(Dra|Dr|Sra|Srta|Sr|Profa|Prof|Av|Ltda|Jr|Eng|Arq|Cia)\.(?=\s)/g
+  const ABBREVIATION_DOT = '․'
+
   function splitSentences(value) {
     const clean = displayText(value)
 
@@ -267,8 +312,9 @@
     }
 
     return clean
+      .replace(SENTENCE_ABBREVIATION, `$1${ABBREVIATION_DOT}`)
       .split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ0-9])/)
-      .map((sentence) => sentence.trim())
+      .map((sentence) => sentence.split(ABBREVIATION_DOT).join('.').trim())
       .filter(Boolean)
   }
 

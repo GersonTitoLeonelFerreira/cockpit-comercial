@@ -418,6 +418,15 @@ test('assunto do pedido é citado sem o horizonte antigo e sem a formulação da
     // A voz do cliente vira a do vendedor: "nosso condomínio" → "seu condomínio".
     ['Vocês podem me mandar uma proposta para a manutenção predial do nosso condomínio?', 'receber uma proposta para a manutenção predial do seu condomínio'],
     ['Queria orçar a reforma da nossa loja.', 'orçar a reforma da sua loja'],
+    // Pedido em segunda pessoa: o assunto é o que o cliente queria entender
+    // ou receber, nunca "me explicar"/"me mandar".
+    ['Você pode me explicar como funciona o plano anual?', 'entender como funciona o plano anual'],
+    ['Vocês poderiam me detalhar melhor o contrato de manutenção?', 'entender o contrato de manutenção'],
+    ['Me explica como funciona a garantia estendida?', 'entender como funciona a garantia estendida'],
+    ['Pode me mandar o catálogo de cursos?', 'receber o catálogo de cursos'],
+    // Abreviação não quebra a frase: o nome continua no assunto citado.
+    ['Gostaria de fazer uma avaliação com a Dra. Ana na sexta.', 'fazer uma avaliação com a Dra. Ana'],
+    ['Oi! Quero agendar a visita com o Sr. Paulo amanhã.', 'agendar a visita com o Sr. Paulo'],
   ]
 
   for (const [text, topic] of cases) {
@@ -452,4 +461,34 @@ test('técnica escolhida muda a condução da pergunta de retomada, sempre com u
       `${technique}: ${composed.message}`,
     )
   }
+})
+
+test('pedido em segunda pessoa ("você pode me explicar…") não termina em erro: a copy da estratégia cita o que o cliente queria entender', async () => {
+  const strategy = reactivationStrategy({
+    reference: 'Você pode me explicar como funciona o plano anual?',
+    anchors: ['explicar', 'funciona', 'plano', 'anual'],
+  })
+  const { provider } = adversarialProvider()
+
+  const result = await composeSellerMessage({
+    ...lorenaRequest({ messageStrategy: strategy }),
+    provider,
+  })
+
+  assert.equal(result.status, 'ready', JSON.stringify(result.diagnostics))
+  assert.equal(result.diagnostics.source, 'strategy_grounded')
+  assert.match(result.message, /você tinha comentado sobre entender como funciona o plano anual\./)
+  assert.doesNotMatch(result.message, /\bme explicar\b/)
+})
+
+test('abreviação no pedido ("Dra. Ana") chega inteira à copy da estratégia', () => {
+  const strategy = reactivationStrategy({
+    reference: 'Gostaria de fazer uma avaliação com a Dra. Ana na sexta.',
+    anchors: ['fazer', 'avaliacao', 'ana'],
+  })
+  const composed = composeStrategyGroundedMessage({ strategy, recipient_name: 'Paula Lima' })
+
+  assert.ok(composed)
+  assert.match(composed.message, /você tinha comentado sobre fazer uma avaliação com a Dra\. Ana\. /)
+  assert.doesNotMatch(composed.message, /sexta/)
 })
