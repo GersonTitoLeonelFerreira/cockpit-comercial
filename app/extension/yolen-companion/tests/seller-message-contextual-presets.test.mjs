@@ -184,7 +184,7 @@ test('geração em voo é descartada quando CoachingDiagnosis muda', () => {
 })
 
 
-test('primeira sincronização canônica invalida geração legada já iniciada ou concluída', () => {
+test('primeiro CoachingDiagnosis real invalida geração legada, mas baseline nulo não', () => {
   const start =
     sellerRuntime.indexOf(
       'function syncAnalysisViewModel(',
@@ -203,11 +203,15 @@ test('primeira sincronização canônica invalida geração legada já iniciada 
   assert.notEqual(start, -1)
   assert.match(
     block,
-    /const coachingChanged =\s*!previous \|\|/,
+    /coachingDiagnosis === null\s*\? null/,
   )
   assert.match(
     block,
-    /previous\.signature !==\s*signature/,
+    /const coachingChanged =\s*signature !== null/,
+  )
+  assert.match(
+    block,
+    /!previous \|\|\s*previous\.signature !==\s*signature/,
   )
   assert.match(
     block,
@@ -364,5 +368,51 @@ test('AnalysisViewModel ready ressincroniza CoachingDiagnosis com MENSAGEM após
   assert.match(
     block,
     /ctx\.state\.analysisViewModel\.data/,
+  )
+})
+
+
+test('diagnóstico nulo preserva a assinatura baseline da geração em voo', () => {
+  const start =
+    sellerRuntime.indexOf(
+      'async function requestGeneration()',
+    )
+  const end =
+    sellerRuntime.indexOf(
+      'const INSERT_FEEDBACK',
+      start,
+    )
+  const generationBlock =
+    sellerRuntime.slice(
+      start,
+      end,
+    )
+
+  const syncStart =
+    sellerRuntime.indexOf(
+      'function syncAnalysisViewModel(',
+    )
+  const syncEnd =
+    sellerRuntime.indexOf(
+      "document.addEventListener(\n    'input'",
+      syncStart,
+    )
+  const syncBlock =
+    sellerRuntime.slice(
+      syncStart,
+      syncEnd,
+    )
+
+  assert.match(
+    generationBlock,
+    /\?\.signature \?\? null/,
+  )
+  assert.match(
+    syncBlock,
+    /coachingDiagnosis === null\s*\? null/,
+  )
+  assert.match(
+    syncBlock,
+    /signature !== null/,
   )
 })
