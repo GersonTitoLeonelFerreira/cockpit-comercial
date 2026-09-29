@@ -150,3 +150,35 @@ test('clear escopado invalida a copy mas preserva CoachingDiagnosis canônico da
     /analysisViewModelByConversation\.clear\(\)/,
   )
 })
+
+
+test('geração em voo é descartada quando CoachingDiagnosis muda', () => {
+  const start =
+    sellerRuntime.indexOf(
+      'async function requestGeneration()',
+    )
+  const end =
+    sellerRuntime.indexOf(
+      'const INSERT_FEEDBACK',
+      start,
+    )
+  const block =
+    sellerRuntime.slice(
+      start,
+      end,
+    )
+
+  assert.notEqual(start, -1)
+  assert.match(
+    block,
+    /coachingSignatureAtStart/,
+  )
+  assert.match(
+    block,
+    /analysisViewModelByConversation[\s\S]*signature/,
+  )
+  assert.match(
+    block,
+    /=== coachingSignatureAtStart/,
+  )
+})
