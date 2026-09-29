@@ -152,7 +152,7 @@ test('clear escopado invalida a copy mas preserva CoachingDiagnosis canônico da
 })
 
 
-test('geração em voo é descartada quando CoachingDiagnosis muda', () => {
+test('geração em voo é descartada por revisão monotônica quando CoachingDiagnosis muda', () => {
   const start =
     sellerRuntime.indexOf(
       'async function requestGeneration()',
@@ -171,15 +171,15 @@ test('geração em voo é descartada quando CoachingDiagnosis muda', () => {
   assert.notEqual(start, -1)
   assert.match(
     block,
-    /coachingSignatureAtStart/,
+    /coachingRevisionAtStart/,
   )
   assert.match(
     block,
-    /analysisViewModelByConversation[\s\S]*signature/,
+    /analysisViewModelByConversation[\s\S]*revision/,
   )
   assert.match(
     block,
-    /=== coachingSignatureAtStart/,
+    /=== coachingRevisionAtStart/,
   )
 })
 
@@ -409,7 +409,7 @@ test('diagnóstico nulo preserva a assinatura baseline da geração em voo', () 
 
   assert.match(
     generationBlock,
-    /\?\.signature \?\? null/,
+    /\?\.revision \?\? 0/,
   )
   assert.match(
     syncBlock,
@@ -453,5 +453,36 @@ test('diagnóstico existente que desaparece invalida copy e loading anteriores',
   assert.match(
     block,
     /message: null/,
+  )
+})
+
+
+test('mudança A→B→A incrementa revisão e não revalida geração antiga', () => {
+  const start =
+    sellerRuntime.indexOf(
+      'function syncAnalysisViewModel(',
+    )
+  const end =
+    sellerRuntime.indexOf(
+      "document.addEventListener(\n    'input'",
+      start,
+    )
+  const block =
+    sellerRuntime.slice(
+      start,
+      end,
+    )
+
+  assert.notEqual(
+    start,
+    -1,
+  )
+  assert.match(
+    block,
+    /const revision =\s*coachingChanged\s*\? \(previous\?\.revision \?\? 0\) \+ 1\s*: previous\?\.revision \?\? 0/,
+  )
+  assert.match(
+    block,
+    /revision,/,
   )
 })
