@@ -248,7 +248,7 @@ test('troca de empresa limpa caches seller-facing da MENSAGEM antes do novo rend
 })
 
 
-test('perda de sessão e troca de vendedor limpam o coaching privado da MENSAGEM', () => {
+test('perda de sessão e troca de vendedor limpam e recarregam o contexto privado da MENSAGEM', () => {
   const sessionStart =
     coreRuntime.indexOf(
       'async function loadYolenSession(options = {})',
@@ -291,7 +291,7 @@ test('perda de sessão e troca de vendedor limpam o coaching privado da MENSAGEM
 
   const userChangeStart =
     block.indexOf(
-      'lastSessionUserId !== null',
+      'const sessionUserChanged =',
     )
   const userChangeEnd =
     block.indexOf(
@@ -307,5 +307,27 @@ test('perda de sessão e troca de vendedor limpam o coaching privado da MENSAGEM
   assert.match(
     userChangeBlock,
     /messageController\.clear\(\)/,
+  )
+
+  const resolveAfterSessionStart =
+    block.indexOf(
+      'if (options.resolveLeadAfterLoad === true',
+    )
+  const resolveAfterSessionBlock =
+    block.slice(
+      resolveAfterSessionStart,
+    )
+
+  assert.match(
+    resolveAfterSessionBlock,
+    /companyChanged \|\|\s*sessionUserChanged \|\|\s*!wasConnected/,
+  )
+  assert.match(
+    resolveAfterSessionBlock,
+    /resolveCurrentLead\(\)/,
+  )
+  assert.match(
+    resolveAfterSessionBlock,
+    /runAutomaticContactLookup/,
   )
 })
