@@ -894,13 +894,21 @@ function createCompanionMessageController({
       return false
     }
 
+    const coachingDiagnosis =
+      data.coaching_diagnosis ??
+      null
+
+    // Ausência de diagnóstico é o baseline: não existe decisão canônica
+    // para invalidar uma geração iniciada apenas com o lead summary.
+    // Uma assinatura só nasce quando há CoachingDiagnosis real.
     const signature =
-      hashText(
-        JSON.stringify(
-          data.coaching_diagnosis ??
-          null,
-        ),
-      )
+      coachingDiagnosis === null
+        ? null
+        : hashText(
+            JSON.stringify(
+              coachingDiagnosis,
+            ),
+          )
 
     const previous =
       analysisViewModelByConversation
@@ -915,17 +923,18 @@ function createCompanionMessageController({
         },
       )
 
-    // Qualquer transição para uma decisão canônica nova invalida a copy
-    // gerada com a decisão anterior. Isso inclui a PRIMEIRA sincronização:
-    // o lead summary pode liberar a MENSAGEM antes de a ANÁLISE chegar, e
-    // nesse intervalo pode existir geração legada em voo ou já concluída.
-    // A chegada do primeiro CoachingDiagnosis precisa zerar esse resultado
-    // para impedir copy stale e também tirar o estado de "loading" quando
-    // a resposta antiga for descartada pela assinatura abaixo.
+    // Só uma decisão canônica REAL invalida copy anterior. O primeiro
+    // sync com coaching_diagnosis=null é equivalente à ausência de cache:
+    // não há decisão nova e a geração em voo deve continuar válida.
+    // Quando o primeiro CoachingDiagnosis real chegar — ou quando mudar —
+    // aí sim a copy antiga precisa ser descartada.
     const coachingChanged =
-      !previous ||
-      previous.signature !==
-        signature
+      signature !== null &&
+      (
+        !previous ||
+        previous.signature !==
+          signature
+      )
 
     if (coachingChanged) {
       const state =
