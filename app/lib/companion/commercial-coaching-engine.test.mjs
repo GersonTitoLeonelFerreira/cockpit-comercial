@@ -1017,3 +1017,104 @@ test(
     )
   },
 )
+
+
+test(
+  'follow-up duplicado não reaparece em additional_findings quando já é o principal ajuste',
+  () => {
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          reading(),
+        reasoning:
+          reasoning({
+            objective:
+              'Preservar a última ação e aguardar resposta.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Quero agendar uma demonstração.',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Qual dia e horário fica melhor para você?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Qual dia e horário fica melhor para você?',
+            },
+          ]),
+      })
+
+    assert.match(
+      diagnosis.seller_mistake
+        ?.summary ?? '',
+      /repetida sem resposta|mesma ação comercial/i,
+    )
+
+    assert.equal(
+      diagnosis.additional_findings
+        .some(
+          finding =>
+            finding.kind ===
+              'follow_up',
+        ),
+      false,
+    )
+  },
+)
+
+test(
+  'discovery tardia não reaparece em additional_findings quando já é o principal ajuste',
+  () => {
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          reading(),
+        reasoning:
+          reasoning({
+            objective:
+              'Avançar a contratação sem reabrir descoberta desnecessária.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Quero contratar a licença anual. Como faço para assinar?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Antes disso, qual é o principal desafio que vocês querem resolver hoje?',
+            },
+          ]),
+      })
+
+    assert.match(
+      diagnosis.seller_mistake
+        ?.summary ?? '',
+      /continuou descobrindo depois|intenção explícita de avançar/i,
+    )
+
+    assert.equal(
+      diagnosis.additional_findings
+        .some(
+          finding =>
+            finding.kind ===
+              'discovery_timing',
+        ),
+      false,
+    )
+  },
+)
