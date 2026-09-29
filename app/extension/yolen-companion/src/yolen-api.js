@@ -1,11 +1,29 @@
 /* global browser, chrome */
 
 ;(function initYolenCompanionApi() {
-  const DEFAULT_BASE_URL =
-    'https://cockpit-comercial-vocn.vercel.app'
-
   const LOCAL_BASE_URL =
     'http://localhost:3000'
+
+  // Configuração canônica do canal (src/companion-environment.js, carregada
+  // antes deste arquivo; nos pacotes prod/homolog ela é GERADA pelo build).
+  // Só ela decide o backend padrão e as origens de sessão autorizadas.
+  // Fora do manifest (testes que avaliam só este arquivo) vale o canal dev.
+  const companionEnvironment =
+    globalThis.YolenCompanionEnvironment || {
+      channel: 'dev',
+      api_base_url: 'https://cockpit-comercial-vocn.vercel.app',
+      allowed_base_urls: [
+        'https://cockpit-comercial-vocn.vercel.app',
+        LOCAL_BASE_URL,
+      ],
+      backend_match_required: false,
+    }
+
+  const DEFAULT_BASE_URL =
+    companionEnvironment.api_base_url
+
+  const ALLOWED_BASE_URLS =
+    companionEnvironment.allowed_base_urls
 
   let sessionBaseUrl = null
   let lastLeadLookupContext = null
@@ -38,10 +56,10 @@
     )
   }
 
+  // Só origens do canal deste pacote (HOMOLOG: só o preview configurado).
   function getAllowedSessionBaseUrl(value) {
     if (
-      value === DEFAULT_BASE_URL ||
-      value === LOCAL_BASE_URL
+      ALLOWED_BASE_URLS.includes(value)
     ) {
       return value
     }
@@ -943,8 +961,19 @@
     return sendToBackground('SAVE_LEAD_SUMMARY', payload)
   }
 
+  function getCompanionEnvironment() {
+    return companionEnvironment
+  }
+
+  // Commit do backend deste canal (homolog confere com o do pacote).
+  async function getBackendBuildIdentity() {
+    return sendToBackground('GET_BACKEND_BUILD_IDENTITY', null)
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
+    getCompanionEnvironment,
+    getBackendBuildIdentity,
     getMe,
     setSession,
     clearSession,

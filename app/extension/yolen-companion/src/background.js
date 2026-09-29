@@ -2,8 +2,32 @@
 
 const SESSION_STORAGE_KEY = 'yolen_companion_session'
 const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
-const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
 const LOCAL_BASE_URL = 'http://localhost:3000'
+
+// Configuração canônica do canal (src/companion-environment.js, carregada
+// antes deste arquivo; nos pacotes prod/homolog ela é GERADA pelo build).
+// Só ela decide o backend padrão e as origens da Yolen autorizadas: PROD
+// aceita só produção, HOMOLOG só o preview configurado naquele build.
+// Fora do manifest (testes que avaliam só este arquivo) vale o canal dev.
+const companionEnvironment =
+  globalThis.YolenCompanionEnvironment || {
+    channel: 'dev',
+    api_base_url: 'https://cockpit-comercial-vocn.vercel.app',
+    allowed_base_urls: ['https://cockpit-comercial-vocn.vercel.app', LOCAL_BASE_URL],
+    backend_match_required: false,
+  }
+
+const DEFAULT_BASE_URL = companionEnvironment.api_base_url
+const ALLOWED_BASE_URLS = companionEnvironment.allowed_base_urls
+
+if (
+  !Array.isArray(ALLOWED_BASE_URLS) ||
+  !ALLOWED_BASE_URLS.includes(DEFAULT_BASE_URL)
+) {
+  throw new Error(
+    'Configuração de ambiente do Companion inválida.',
+  )
+}
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
 
@@ -55,13 +79,10 @@ if (!manyChatSafeIdentityTools) {
 
 let deviceKeyPromise = null
 
+// Qualquer origem fora do canal cai no backend do canal — nunca em outro.
 function getAllowedBaseUrl(baseUrl) {
-  if (baseUrl === LOCAL_BASE_URL) {
-    return LOCAL_BASE_URL
-  }
-
-  if (baseUrl === DEFAULT_BASE_URL) {
-    return DEFAULT_BASE_URL
+  if (ALLOWED_BASE_URLS.includes(baseUrl)) {
+    return baseUrl
   }
 
   return DEFAULT_BASE_URL
@@ -231,10 +252,9 @@ async function refreshCachedSessionIdentity(
   }
 
   const sessionBaseUrl =
-    cachedSession.origin ===
-      LOCAL_BASE_URL ||
-    cachedSession.origin ===
-      DEFAULT_BASE_URL
+    ALLOWED_BASE_URLS.includes(
+      cachedSession.origin,
+    )
       ? cachedSession.origin
       : null
 
@@ -379,10 +399,9 @@ async function requestYolenWithToken(message, path, body) {
   }
 
   const sessionBaseUrl =
-    cachedSession.origin ===
-      LOCAL_BASE_URL ||
-    cachedSession.origin ===
-      DEFAULT_BASE_URL
+    ALLOWED_BASE_URLS.includes(
+      cachedSession.origin,
+    )
       ? cachedSession.origin
       : null
 
@@ -643,7 +662,67 @@ async function handleManyChatAudioTranscription(message) {
   }
 }
 
+// Identidade do backend que ESTE pacote usa (canal homolog: o preview
+// configurado — nunca a origem de uma sessão nem produção). Sem token: o
+// endpoint só expõe ambiente e commit do deploy.
+async function fetchBackendBuildIdentity() {
+  const baseUrl = DEFAULT_BASE_URL
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/api/companion/build-identity`,
+      {
+        method: 'GET',
+        credentials: 'omit',
+        cache: 'no-store',
+      },
+    )
+
+    const payload = await response.json().catch(() => null)
+
+    const commit =
+      typeof payload?.commit === 'string' &&
+      /^[0-9a-f]{40}$/.test(payload.commit)
+        ? payload.commit
+        : null
+
+    const ok = response.ok && Boolean(commit)
+
+    return {
+      ok,
+      statusCode: response.status,
+      payload: {
+        ok,
+        base_url: baseUrl,
+        environment:
+          typeof payload?.environment === 'string'
+            ? payload.environment
+            : null,
+        commit,
+        commit_short: commit ? commit.slice(0, 8) : null,
+      },
+    }
+  } catch {
+    return {
+      ok: false,
+      statusCode: 0,
+      payload: {
+        ok: false,
+        base_url: baseUrl,
+        environment: null,
+        commit: null,
+        commit_short: null,
+        error: 'Backend indisponível para conferir o commit.',
+      },
+    }
+  }
+}
+
 async function handleCompanionMessage(message, sender) {
+  if (message.action === 'GET_BACKEND_BUILD_IDENTITY') {
+    return fetchBackendBuildIdentity()
+  }
+
   // FASE 6 — fonte de áudio do ManyChatAdapter (só a mídia validada).
   if (message.action === 'FETCH_MANYCHAT_AUDIO_SOURCE') {
     return manyChatAudioTransportTools.handleAudioSourceRequest(
@@ -920,8 +999,48 @@ async function handleCompanionMessage(message, sender) {
   }
 }
 
-async function handleBridgeMessage(message) {
+// undefined: remetente sem URL; null: URL que não se consegue ler (nunca
+// passa como a origem declarada).
+function getSenderOrigin(sender) {
+  if (!sender?.url) {
+    return undefined
+  }
+
+  try {
+    return new URL(sender.url).origin
+  } catch {
+    return null
+  }
+}
+
+async function handleBridgeMessage(message, sender) {
   if (message.action === 'SESSION_UPDATE') {
+    const senderOrigin = getSenderOrigin(sender)
+
+    // A ponte só entrega sessão de uma origem que o canal deste pacote
+    // autoriza (HOMOLOG: só o preview; PROD: só produção), e a origem
+    // declarada precisa ser a da página que enviou.
+    if (
+      isValidSession(message.session) &&
+      (
+        !ALLOWED_BASE_URLS.includes(message.session.origin) ||
+        (
+          senderOrigin !== undefined &&
+          senderOrigin !== message.session.origin
+        )
+      )
+    ) {
+      return {
+        ok: false,
+        statusCode: 403,
+        payload: {
+          ok: false,
+          status: 'SESSION_IGNORED_ORIGIN',
+          error: 'Sessão de uma origem que este pacote não autoriza.',
+        },
+      }
+    }
+
     if (isValidSession(message.session)) {
       await setCachedSession(message.session)
 
@@ -987,7 +1106,7 @@ async function handleMessage(message, sender) {
   }
 
   if (message.source === 'YOLEN_COMPANION_BRIDGE') {
-    return handleBridgeMessage(message)
+    return handleBridgeMessage(message, sender)
   }
 
   return {

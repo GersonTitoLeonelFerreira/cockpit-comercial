@@ -2841,3 +2841,32 @@ html.yolen-companion-collapsed #app {
   opacity: 0.65;
   white-space: nowrap;
 }
+
+/* Canal homolog: extensão × backend visíveis; commit diferente é alerta. */
+#yolen-companion-panel .yolen-build-badge-hml,
+#yolen-companion-panel .yolen-build-badge-backend {
+  opacity: 0.95;
+  font-weight: 650;
+}
+
+#yolen-companion-panel .yolen-build-badge-hml {
+  color: #fbbf24;
+}
+
+#yolen-companion-panel .yolen-build-badge-backend[data-yolen-backend-status="match"] {
+  color: #86efac;
+}
+
+#yolen-companion-panel .yolen-build-mismatch {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: #b91c1c;
+  color: #ffffff;
+  font-size: 10.5px;
+  line-height: 1.3;
+  white-space: normal;
+}

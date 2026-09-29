@@ -173,6 +173,38 @@ dist/yolen-companion/
 Este script não é registrado em `package.json` nesta fase (fora do escopo
 autorizado) — rode-o diretamente com `node` como acima.
 
+## Canal HOMOLOG (extensão + backend de preview do mesmo HEAD)
+
+Para homologar um HEAD antes do merge, a extensão precisa falar com o
+backend de preview DESSE HEAD — nunca com produção. O backend vem de uma
+variável de ambiente, nunca de edição manual da fonte:
+
+```bash
+YOLEN_COMPANION_HOMOLOG_BASE_URL=https://<preview>.vercel.app npm run build:companion-extension:homolog
+YOLEN_COMPANION_HOMOLOG_BASE_URL=https://<preview>.vercel.app npm run verify:companion-firefox-homolog
+```
+
+- O build falha se a variável faltar, não for HTTPS ou não for uma origem
+  exata (sem caminho, porta, query, credenciais ou wildcard) ou apontar
+  para produção.
+- Saída isolada: `dist/yolen-companion/<alvo>/homolog/staging/` e
+  `yolen-companion-<alvo>-homolog-v<versão>.zip` (nunca o staging prod).
+- `src/companion-environment.js` é a configuração canônica do canal
+  (backend e origens da Yolen autorizadas), GERADA para cada pacote: PROD
+  aceita só produção, DEV produção + localhost, HOMOLOG só o preview
+  configurado. A fonte versionada é o canal dev e o build falha se ela for
+  editada.
+- Manifest HOMOLOG: host de produção trocado pelo host EXATO do preview em
+  `host_permissions`, na bridge da Yolen e no page bridge; nome
+  `Yolen Companion [HML]`; id Firefox próprio.
+- O painel mostra `HML · v<versão> · <commit do pacote>` e
+  `Backend · <commit do backend>` (lido de `/api/companion/build-identity`,
+  que só expõe ambiente e commit do deploy). Commit diferente mostra
+  `BUILD INCOMPATÍVEL` com os dois commits: a análise não vale como
+  homologação.
+- O verificador HOMOLOG exige a mesma variável e acusa staging gerado para
+  outro preview, fonte alterada ou staging editado.
+
 ## Validação automatizada de Release Candidate (D2/D3)
 
 `scripts/validate-release-candidate.mjs` builda os quatro pacotes do zero e

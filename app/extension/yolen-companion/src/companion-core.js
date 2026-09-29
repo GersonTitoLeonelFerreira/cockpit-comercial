@@ -145,6 +145,15 @@ function createCompanionCore(ctx) {
   let accountMenuOpen = false
   let accountMenuDocumentListenersInstalled = false
 
+  // Canal homolog: o painel só vale como homologação quando o commit do
+  // backend configurado no pacote é o MESMO commit do pacote.
+  // status: 'checking' | 'match' | 'mismatch' | 'unavailable'.
+  let backendBuildCheck = {
+    status: 'checking',
+    commitShort: null,
+  }
+  let backendBuildCheckInFlight = null
+
   const conversationBoundary =
     conversationBoundaryRuntime
       .createConversationBoundary()
@@ -4153,10 +4162,16 @@ function createCompanionCore(ctx) {
     )
   }
 
+  // Sempre o backend do canal deste pacote (HOMOLOG: o preview) — nunca
+  // um endereço fixo de produção.
   function openYolen(path) {
     const baseUrl =
       window.YolenCompanionApi?.getBaseUrl?.() ||
-      'https://cockpit-comercial-vocn.vercel.app'
+      getCompanionEnvironment()?.api_base_url
+
+    if (!baseUrl) {
+      return
+    }
 
     window.open(`${baseUrl}${path}`, '_blank', 'noopener,noreferrer')
   }
@@ -7463,15 +7478,165 @@ function createCompanionCore(ctx) {
     )
   }
 
+  function getCompanionEnvironment() {
+    const environment =
+      root.YolenCompanionEnvironment
+
+    return environment &&
+      typeof environment === 'object'
+      ? environment
+      : null
+  }
+
+  function isBackendMatchRequired() {
+    return (
+      getCompanionEnvironment()
+        ?.backend_match_required === true
+    )
+  }
+
+  function getPackageBuildIdentity() {
+    return root.YolenCompanionBuildIdentity &&
+      typeof root.YolenCompanionBuildIdentity === 'object'
+      ? root.YolenCompanionBuildIdentity
+      : null
+  }
+
+  // Conferência extensão × backend (canal homolog). Nunca bloqueia o
+  // painel: só deixa explícito se a análise vale como homologação.
+  // Repetida a cada refresh de sessão — um redeploy do preview para outro
+  // commit aparece como incompatível.
+  function refreshBackendBuildCheck() {
+    if (
+      !isBackendMatchRequired() ||
+      backendBuildCheckInFlight
+    ) {
+      return backendBuildCheckInFlight
+    }
+
+    backendBuildCheckInFlight = (async () => {
+      let result = null
+
+      try {
+        result =
+          await window.YolenCompanionApi
+            ?.getBackendBuildIdentity?.()
+      } catch {
+        result = null
+      }
+
+      const identity =
+        getPackageBuildIdentity()
+
+      const backendCommit =
+        result?.ok === true &&
+        typeof result.payload?.commit === 'string'
+          ? result.payload.commit
+          : null
+
+      const next = !backendCommit
+        ? {
+            status: 'unavailable',
+            commitShort: null,
+          }
+        : {
+            status:
+              identity?.commit &&
+              identity.commit === backendCommit &&
+              identity.dirty !== true
+                ? 'match'
+                : 'mismatch',
+            commitShort:
+              backendCommit.slice(0, 8),
+          }
+
+      const changed =
+        next.status !== backendBuildCheck.status ||
+        next.commitShort !== backendBuildCheck.commitShort
+
+      backendBuildCheck = next
+
+      if (changed) {
+        renderPanel()
+      }
+
+      return next
+    })().finally(() => {
+      backendBuildCheckInFlight = null
+    })
+
+    return backendBuildCheckInFlight
+  }
+
+  // Cabeçalho do canal homolog: "HML · v1.5.2 · <commit do pacote>" e
+  // "Backend · <commit do backend>". Commit diferente (ou backend sem
+  // commit confirmado) vira um aviso explícito de que a análise NÃO vale
+  // como homologação.
+  function getHomologBuildBadgeHtml(version, identity) {
+    const extensionCommit =
+      identity?.commit_short
+        ? `${identity.commit_short}${identity.dirty ? '+' : ''}`
+        : 'sem commit'
+
+    const backendLabel =
+      backendBuildCheck.status === 'checking'
+        ? 'verificando…'
+        : backendBuildCheck.commitShort ||
+          'indisponível'
+
+    const title = [
+      'Yolen Companion — canal de homologação',
+      identity?.commit ? `extensão ${identity.commit}` : null,
+      getCompanionEnvironment()?.api_base_url
+        ? `backend ${getCompanionEnvironment().api_base_url}`
+        : null,
+      identity?.build_id ? `build ${identity.build_id}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    const invalid =
+      backendBuildCheck.status === 'mismatch' ||
+      backendBuildCheck.status === 'unavailable'
+
+    return [
+      '<div class="yolen-build-badge yolen-build-badge-hml" data-yolen-build-identity data-yolen-build-channel="homolog"' +
+        ' title="' + escapeHtml(title) + '">' +
+        escapeHtml(
+          ['HML', version ? `v${version}` : null, extensionCommit]
+            .filter(Boolean)
+            .join(' · '),
+        ) +
+      '</div>',
+      '<div class="yolen-build-badge yolen-build-badge-backend" data-yolen-backend-identity' +
+        ' data-yolen-backend-status="' + escapeHtml(backendBuildCheck.status) + '">' +
+        escapeHtml(`Backend · ${backendLabel}`) +
+      '</div>',
+      invalid
+        ? [
+            '<div class="yolen-build-mismatch" role="alert" data-yolen-build-mismatch>',
+              '<strong>',
+                escapeHtml(
+                  backendBuildCheck.status === 'mismatch'
+                    ? 'BUILD INCOMPATÍVEL'
+                    : 'BUILD NÃO CONFIRMADO',
+                ),
+              '</strong>',
+              '<span>', escapeHtml(`Extensão: ${extensionCommit}`), '</span>',
+              '<span>', escapeHtml(`Backend: ${backendLabel}`), '</span>',
+              '<span>', escapeHtml('Esta análise NÃO vale como homologação.'), '</span>',
+            '</div>',
+          ].join('')
+        : '',
+    ].join('')
+  }
+
   // Identidade visível do pacote carregado (versão + commit). Um dist
   // antigo recarregado no navegador fica reconhecível sem depender de
   // memória humana.
   function getBuildIdentityBadgeHtml() {
     const identity =
-      root.YolenCompanionBuildIdentity &&
-      typeof root.YolenCompanionBuildIdentity === 'object'
-        ? root.YolenCompanionBuildIdentity
-        : null
+      getPackageBuildIdentity()
 
     let version =
       identity && typeof identity.version === 'string'
@@ -7490,6 +7655,13 @@ function createCompanionCore(ctx) {
       } catch {
         version = null
       }
+    }
+
+    if (isBackendMatchRequired()) {
+      return getHomologBuildBadgeHtml(
+        version,
+        identity,
+      )
     }
 
     const commit =
@@ -8819,6 +8991,9 @@ function createCompanionCore(ctx) {
 
   async function loadYolenSession(options = {}) {
     const showLoading = options.showLoading === true
+
+    // Canal homolog: reconfere o commit do backend a cada refresh.
+    refreshBackendBuildCheck()
 
     if (showLoading) {
       state = {

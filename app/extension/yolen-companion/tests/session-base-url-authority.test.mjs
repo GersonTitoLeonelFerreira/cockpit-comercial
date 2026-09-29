@@ -71,14 +71,27 @@ test(
         allowlistEnd,
       )
 
+    // Canal HOMOLOG: as origens autorizadas vêm SÓ da configuração
+    // canônica do canal (src/companion-environment.js, gerada pelo build) —
+    // nunca de uma lista fixa neste arquivo.
     assert.match(
       allowlistBlock,
-      /DEFAULT_BASE_URL/,
+      /ALLOWED_BASE_URLS\.includes\(value\)/,
     )
 
     assert.match(
-      allowlistBlock,
-      /LOCAL_BASE_URL/,
+      yolenApi,
+      /const ALLOWED_BASE_URLS =\s*companionEnvironment\.allowed_base_urls/,
+    )
+
+    assert.match(
+      yolenApi,
+      /const DEFAULT_BASE_URL =\s*companionEnvironment\.api_base_url/,
+    )
+
+    assert.match(
+      yolenApi,
+      /globalThis\.YolenCompanionEnvironment/,
     )
 
     assert.doesNotMatch(

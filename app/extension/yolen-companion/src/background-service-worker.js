@@ -1,6 +1,7 @@
 /* Yolen Companion — Chrome Manifest V3 background entry point */
 
 importScripts(
+  'companion-environment.js',
   'capture-transport.js',
   'manychat-audio-background-transport.js',
   'manychat-safe-identity-background.js',

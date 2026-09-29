@@ -79,12 +79,33 @@ async function getCompanionBaseUrl() {
     candidate ===
       LOCAL_COMPANION_BASE_URL ||
     candidate ===
-      PRODUCTION_COMPANION_BASE_URL
+      PRODUCTION_COMPANION_BASE_URL ||
+    getPreviewCompanionBaseUrls().includes(
+      candidate,
+    )
   ) {
     return candidate
   }
 
   return PRODUCTION_COMPANION_BASE_URL
+}
+
+// Canal HOMOLOG da extensão: num deploy de preview, a sessão publicada
+// carrega a origem EXATA deste deploy (alias da branch ou URL do deploy,
+// informados pela própria Vercel) — nunca um host qualquer do cabeçalho e
+// nunca fora de preview. Produção continua respondendo só produção.
+function getPreviewCompanionBaseUrls() {
+  if (process.env.VERCEL_ENV !== 'preview') {
+    return []
+  }
+
+  return [
+    process.env.VERCEL_BRANCH_URL,
+    process.env.VERCEL_URL,
+  ]
+    .map((host) => host?.trim())
+    .filter((host): host is string => Boolean(host))
+    .map((host) => `https://${host}`)
 }
 
 function getTokenSecret() {

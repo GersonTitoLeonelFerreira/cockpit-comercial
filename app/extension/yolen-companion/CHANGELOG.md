@@ -11,6 +11,21 @@ uma fase futura de release decida um esquema de versionamento próprio.
 
 ## [1.5.2] — Opt-out do cliente respeitado na MENSAGEM
 
+### Adicionado — canal HOMOLOG
+
+- `npm run build:companion-extension:homolog` / `npm run
+  verify:companion-firefox-homolog`: pacote de homologação contra o backend
+  de preview de `YOLEN_COMPANION_HOMOLOG_BASE_URL` (origem HTTPS exata,
+  validada; falha fechado), staging próprio em
+  `dist/yolen-companion/<alvo>/homolog/staging/`.
+- `src/companion-environment.js`: configuração canônica do canal (backend
+  e origens autorizadas) lida por background, `yolen-api`, bridges e Core,
+  gerada pelo build por pacote. PROD passa a aceitar só produção.
+- Background ignora sessão da ponte de origem não autorizada (ou diferente
+  da página remetente) e expõe `GET_BACKEND_BUILD_IDENTITY`; o cabeçalho do
+  canal HOMOLOG compara o commit do pacote com o do backend e mostra
+  `BUILD INCOMPATÍVEL` quando diferem.
+
 ### Alterado
 
 - `src/companion-message-controller.js`: pedido explícito do cliente para

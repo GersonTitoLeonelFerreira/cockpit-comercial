@@ -86,6 +86,7 @@ test('Firefox PROD: background contém somente scripts (sem service_worker)', ()
   const prodManifest = toProductionManifest(sourceManifest, 'firefox')
   assert.deepEqual(Object.keys(prodManifest.background), ['scripts'])
   assert.deepEqual(prodManifest.background.scripts, [
+    'src/companion-environment.js',
     'src/capture-transport.js',
     'src/manychat-audio-background-transport.js',
     'src/manychat-safe-identity-background.js',

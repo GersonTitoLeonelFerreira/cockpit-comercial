@@ -93,7 +93,10 @@ export function rejectingFetch(error) {
   }
 }
 
-export function loadBackgroundScript({ fetchFn, initialStorage } = {}) {
+// `environmentSource`: conteúdo de src/companion-environment.js a carregar
+// antes do background (default: a fonte versionada, canal dev) — testes do
+// canal homolog/prod passam a configuração GERADA pelo build.
+export function loadBackgroundScript({ fetchFn, initialStorage, environmentSource } = {}) {
   const runtime = createFakeBrowserRuntime(initialStorage)
   const fetchImpl = fetchFn ?? (async () => jsonResponse(200, { ok: true }))
 
@@ -102,11 +105,14 @@ export function loadBackgroundScript({ fetchFn, initialStorage } = {}) {
     browser: runtime.browser,
     fetch: fetchImpl,
     crypto: globalThis.crypto,
+    // Presente em qualquer background real (origem do remetente da ponte).
+    URL,
     Promise,
   }
 
   vm.createContext(sandbox)
 
+  vm.runInContext(environmentSource ?? readSource('companion-environment.js'), sandbox, { filename: 'companion-environment.js' })
   vm.runInContext(readSource('capture-transport.js'), sandbox, { filename: 'capture-transport.js' })
   vm.runInContext(readSource('manychat-audio-background-transport.js'), sandbox, { filename: 'manychat-audio-background-transport.js' })
   vm.runInContext(readSource('manychat-safe-identity-background.js'), sandbox, { filename: 'manychat-safe-identity-background.js' })

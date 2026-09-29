@@ -3,6 +3,12 @@
 ;(function initYolenCompanionBridge() {
   const PAGE_BRIDGE_SOURCE = 'YOLEN_COMPANION_PAGE_BRIDGE'
 
+  // Origens da Yolen que o canal deste pacote autoriza
+  // (src/companion-environment.js, carregado antes): PROD só produção,
+  // HOMOLOG só o preview configurado. Sem configuração, nenhuma.
+  const ALLOWED_ORIGINS =
+    globalThis.YolenCompanionEnvironment?.allowed_base_urls || []
+
   function getRuntime() {
     if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
       return browser.runtime
@@ -16,10 +22,7 @@
   }
 
   function isYolenPage() {
-    return (
-      window.location.origin === 'http://localhost:3000' ||
-      window.location.origin === 'https://cockpit-comercial-vocn.vercel.app'
-    )
+    return ALLOWED_ORIGINS.includes(window.location.origin)
   }
 
   async function tryDirectSessionCapture() {
@@ -69,6 +72,9 @@
     script.id = 'yolen-page-bridge-script'
     script.src = runtime.getURL('src/yolen-page-bridge.js')
     script.async = false
+    // A página não enxerga a configuração da extensão: o page bridge recebe
+    // as origens autorizadas por aqui.
+    script.dataset.yolenAllowedOrigins = ALLOWED_ORIGINS.join(' ')
 
     script.onload = () => {
       script.remove()

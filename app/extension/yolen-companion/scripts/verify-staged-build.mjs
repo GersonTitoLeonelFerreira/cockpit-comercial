@@ -18,7 +18,16 @@
 // Também detecta staging editado à mão depois do build (fingerprint) e
 // arquivos que não pertencem ao pacote.
 //
-// Uso: node app/extension/yolen-companion/scripts/verify-staged-build.mjs [firefox|chrome] [prod|dev]
+//
+// Canal homolog: além de tudo acima, exige YOLEN_COMPANION_HOMOLOG_BASE_URL
+// (a mesma origem usada no build) e prova, a partir do staging real, que o
+// manifest só tem o host exato do preview (permissão, bridge, page bridge),
+// que a configuração canônica do canal aponta só para esse backend, que o
+// background carrega essa configuração primeiro, que a flag do ManyChat é
+// false e que a identidade do pacote é firefox|chrome-homolog com esse
+// backend. Um staging gerado para OUTRO preview é DESATUALIZADO.
+//
+// Uso: node app/extension/yolen-companion/scripts/verify-staged-build.mjs [firefox|chrome] [prod|dev|homolog]
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
@@ -27,6 +36,11 @@ import { fileURLToPath } from 'node:url'
 import {
   BUILD_IDENTITY_JSON,
   BUILD_IDENTITY_PATHNAME,
+  CHANNEL_HOSTS,
+  COMPANION_ENVIRONMENT_PATHNAME,
+  HOMOLOG_BASE_URL_ENV,
+  assertCompanionEnvironmentSourceIsSafe,
+  companionEnvironmentFor,
   EXPECTED_MANYCHAT_CAPTURE_ENABLED_BY_ENVIRONMENT,
   EXTENSION_ROOT,
   FEATURE_FLAGS_PATHNAME,
@@ -38,6 +52,8 @@ import {
   featureFlagSourceForEnvironment,
   getTargetZipEntries,
   parseBuildIdentitySource,
+  parseCompanionEnvironmentSource,
+  parseHomologBaseUrl,
   parseManyChatCaptureEnabledFromSource,
   readSourceGitIdentity,
   readSourceManifest,
@@ -50,6 +66,10 @@ export { stagingDirFor }
 function describeMismatch(entry, environment) {
   if (entry === 'manifest.json') {
     return `manifest.json do staging difere do manifest ${environment} que as fontes atuais geram.`
+  }
+
+  if (entry === COMPANION_ENVIRONMENT_PATHNAME) {
+    return `Configuração do canal no staging (${COMPANION_ENVIRONMENT_PATHNAME}) difere da que o canal ${environment} exige (backend/origens autorizadas).`
   }
 
   if (entry === FEATURE_FLAGS_PATHNAME) {
@@ -69,18 +89,148 @@ function listStagedFiles(stagingDir) {
     .map((dirent) => relative(stagingDir, join(dirent.parentPath ?? dirent.path, dirent.name)).split(sep).join('/'))
 }
 
+function readJson(path) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+// Fatos do staging homolog lidos dos ARQUIVOS REAIS (não das funções de
+// build): o que o navegador vai de fato carregar.
+function inspectHomologStaging({ stagingDir, targetName, baseUrl, identity }) {
+  const problems = []
+  const previewPattern = `${baseUrl}/*`
+  const manifest = readJson(join(stagingDir, 'manifest.json'))
+  const envPath = join(stagingDir, COMPANION_ENVIRONMENT_PATHNAME)
+  const stagedEnvironment = existsSync(envPath)
+    ? parseCompanionEnvironmentSource(readFileSync(envPath, 'utf8'))
+    : null
+
+  if (stagedEnvironment?.api_base_url && stagedEnvironment.api_base_url !== baseUrl) {
+    problems.push(
+      `Staging HML foi gerado para ${stagedEnvironment.api_base_url}, mas ${HOMOLOG_BASE_URL_ENV}=${baseUrl}. Rode o build homolog de novo.`,
+    )
+  }
+
+  const bridge = manifest?.content_scripts?.find((block) => block.js?.includes('src/yolen-bridge.js'))
+  const pageBridge = manifest?.web_accessible_resources?.find((block) =>
+    block.resources?.includes('src/yolen-page-bridge.js'),
+  )
+  const hosts = [...(manifest?.host_permissions ?? [])].sort()
+  const expectedHosts = [...CHANNEL_HOSTS, previewPattern].sort()
+
+  const backgroundLoadsEnvironmentFirst =
+    targetName === 'firefox'
+      ? manifest?.background?.scripts?.[0] === COMPANION_ENVIRONMENT_PATHNAME
+      : /importScripts\(\s*'companion-environment\.js'/.test(
+          existsSync(join(stagingDir, 'src/background-service-worker.js'))
+            ? readFileSync(join(stagingDir, 'src/background-service-worker.js'), 'utf8')
+            : '',
+        )
+
+  const contentScriptsLoadEnvironment = (manifest?.content_scripts ?? [])
+    .filter((block) => block.js?.includes('src/yolen-api.js') || block.js?.includes('src/yolen-bridge.js'))
+    .every((block) => {
+      const index = block.js.indexOf(COMPANION_ENVIRONMENT_PATHNAME)
+      const consumer = Math.max(block.js.indexOf('src/yolen-api.js'), block.js.indexOf('src/yolen-bridge.js'))
+      return index !== -1 && index < consumer
+    })
+
+  const flagPath = join(stagingDir, FEATURE_FLAGS_PATHNAME)
+  let manyChatCaptureEnabled = null
+  try {
+    manyChatCaptureEnabled = parseManyChatCaptureEnabledFromSource(readFileSync(flagPath, 'utf8'))
+  } catch {
+    manyChatCaptureEnabled = null
+  }
+
+  const facts = {
+    environment: stagedEnvironment?.channel ?? null,
+    api_base_url: stagedEnvironment?.api_base_url ?? null,
+    allowed_base_urls: stagedEnvironment?.allowed_base_urls ?? null,
+    backend_match_required: stagedEnvironment?.backend_match_required ?? null,
+    host_permissions: hosts,
+    bridge_matches: bridge?.matches ?? null,
+    page_bridge_matches: pageBridge?.matches ?? null,
+    background_loads_environment_first: backgroundLoadsEnvironmentFirst,
+    content_scripts_load_environment: contentScriptsLoadEnvironment,
+    manychat_capture_enabled: manyChatCaptureEnabled,
+    extension_name: manifest?.name ?? null,
+    gecko_id: manifest?.browser_specific_settings?.gecko?.id ?? null,
+    identity_environment: identity?.environment ?? null,
+    identity_api_base_url: identity?.api_base_url ?? null,
+  }
+
+  const expectations = [
+    [facts.environment === 'homolog', `Canal do staging é "${facts.environment}", esperado "homolog".`],
+    [facts.api_base_url === baseUrl, `Backend do staging é ${facts.api_base_url}, esperado ${baseUrl}.`],
+    [
+      JSON.stringify(facts.allowed_base_urls) === JSON.stringify([baseUrl]),
+      `Origens autorizadas do staging: ${JSON.stringify(facts.allowed_base_urls)}; homolog aceita só ${baseUrl}.`,
+    ],
+    [facts.backend_match_required === true, 'Staging homolog não exige conferência de commit com o backend.'],
+    [
+      JSON.stringify(hosts) === JSON.stringify(expectedHosts),
+      `host_permissions do staging ${JSON.stringify(hosts)} != ${JSON.stringify(expectedHosts)}.`,
+    ],
+    [
+      JSON.stringify(facts.bridge_matches) === JSON.stringify([previewPattern]),
+      `Bridge da Yolen no staging casa ${JSON.stringify(facts.bridge_matches)}, esperado só ${previewPattern}.`,
+    ],
+    [
+      JSON.stringify(facts.page_bridge_matches) === JSON.stringify([previewPattern]),
+      `Page bridge no staging casa ${JSON.stringify(facts.page_bridge_matches)}, esperado só ${previewPattern}.`,
+    ],
+    [backgroundLoadsEnvironmentFirst, 'Background do staging não carrega a configuração do canal antes de tudo.'],
+    [contentScriptsLoadEnvironment, 'Content scripts do staging não carregam a configuração do canal antes de yolen-api/bridge.'],
+    [manyChatCaptureEnabled === false, `MANYCHAT_CAPTURE_ENABLED efetivo do staging homolog é ${manyChatCaptureEnabled}.`],
+    [facts.identity_environment === `${targetName}-homolog`, `Identidade do pacote é ${facts.identity_environment}.`],
+    [facts.identity_api_base_url === baseUrl, `Identidade do pacote aponta ${facts.identity_api_base_url}.`],
+  ]
+
+  for (const [ok, message] of expectations) {
+    if (!ok) {
+      problems.push(message)
+    }
+  }
+
+  return { problems, facts }
+}
+
 export function verifyStagedBuild({
   targetName = 'firefox',
   environment = 'prod',
   extensionRoot = EXTENSION_ROOT,
   repoRoot = REPO_ROOT,
   stagingDir = stagingDirFor(targetName, environment),
+  homologBaseUrl = null,
 } = {}) {
   if (!TARGETS[targetName]) {
     throw new Error(`Alvo desconhecido: ${targetName}`)
   }
 
   const problems = []
+
+  // Canal homolog: sem a MESMA origem do build não há o que comparar.
+  let baseUrl = null
+  if (environment === 'homolog') {
+    try {
+      baseUrl = parseHomologBaseUrl(homologBaseUrl)
+    } catch (error) {
+      return { fresh: false, stagingDir, identity: null, expectedIdentity: null, homolog: null, problems: [error.message] }
+    }
+  } else {
+    // Ambiente desconhecido falha alto.
+    companionEnvironmentFor(environment)
+  }
+
+  try {
+    assertCompanionEnvironmentSourceIsSafe({ extensionRoot })
+  } catch (error) {
+    problems.push(error.message)
+  }
 
   const identityPath = join(stagingDir, BUILD_IDENTITY_PATHNAME)
 
@@ -135,6 +285,7 @@ export function verifyStagedBuild({
         environment,
         sourceManifest,
         extensionRoot,
+        homologBaseUrl: baseUrl,
       })
     } catch (error) {
       problems.push(`Não foi possível calcular o conteúdo esperado de ${entry} a partir das fontes atuais: ${error.message}`)
@@ -185,6 +336,7 @@ export function verifyStagedBuild({
       extensionRoot,
       repoRoot,
       contents: expectedContents,
+      homologBaseUrl: baseUrl,
     })
 
     if (renderBuildIdentitySource(expectedIdentity) !== stagedIdentitySource) {
@@ -212,18 +364,30 @@ export function verifyStagedBuild({
     }
   }
 
+  const homolog =
+    environment === 'homolog' ? inspectHomologStaging({ stagingDir, targetName, baseUrl, identity }) : null
+
+  if (homolog) {
+    problems.unshift(...homolog.problems)
+  }
+
   return {
     fresh: problems.length === 0,
     stagingDir,
     identity,
     expectedIdentity,
+    homolog: homolog?.facts ?? null,
     problems,
   }
 }
 
 function main() {
   const [targetName = 'firefox', environment = 'prod'] = process.argv.slice(2)
-  const result = verifyStagedBuild({ targetName, environment })
+  const result = verifyStagedBuild({
+    targetName,
+    environment,
+    homologBaseUrl: environment === 'homolog' ? process.env[HOMOLOG_BASE_URL_ENV] : null,
+  })
 
   const label = result.identity
     ? `v${result.identity.version} · commit ${result.identity.commit_short}${result.identity.dirty ? ' (+ alterações locais)' : ''} · build ${result.identity.build_id}`
@@ -231,6 +395,18 @@ function main() {
 
   console.log(`[${targetName}/${environment}] ${result.stagingDir}`)
   console.log(`  identidade: ${label}`)
+
+  if (result.homolog) {
+    const facts = result.homolog
+    const commit = result.identity?.commit_short ?? '????????'
+    console.log(`  canal: ${facts.environment} · backend configurado: ${facts.api_base_url}`)
+    console.log(`  origens autorizadas: ${JSON.stringify(facts.allowed_base_urls)} · conferência de commit com o backend: ${facts.backend_match_required}`)
+    console.log(`  host_permissions: ${JSON.stringify(facts.host_permissions)}`)
+    console.log(`  bridge: ${JSON.stringify(facts.bridge_matches)} · page bridge: ${JSON.stringify(facts.page_bridge_matches)}`)
+    console.log(`  background carrega a configuração primeiro: ${facts.background_loads_environment_first} · content scripts: ${facts.content_scripts_load_environment}`)
+    console.log(`  MANYCHAT_CAPTURE_ENABLED: ${facts.manychat_capture_enabled} · extensão: ${facts.extension_name}${facts.gecko_id ? ` (${facts.gecko_id})` : ''}`)
+    console.log(`  cabeçalho esperado: "HML · v${result.identity?.version} · ${commit}" / "Backend · ${commit}" (backend no mesmo commit)`)
+  }
 
   if (result.fresh) {
     console.log('  estado: ATUAL — o staging corresponde ao que as fontes atuais produzem (manifest, feature flag, ícones, arquivos e identidade).')
