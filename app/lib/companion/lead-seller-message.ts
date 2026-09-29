@@ -1401,8 +1401,8 @@ export async function composeSellerMessage({
         status: 'error',
         message: null,
         error:
-          postReviewRepair.failure ||
           reviewed.failure ||
+          postReviewRepair.failure ||
           'A mensagem não passou pelo gate customer-facing.',
       }
     }
