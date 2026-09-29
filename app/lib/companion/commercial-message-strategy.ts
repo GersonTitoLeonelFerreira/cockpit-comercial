@@ -15,6 +15,13 @@ import {
   type SellerExecutionActionType,
 } from './seller-execution-trace'
 
+import {
+  formatCommercialDuration,
+  type CommercialMomentumState,
+  type CommercialReactivationMode,
+  type CommercialTemporalContext,
+} from './commercial-temporal-context'
+
 export const COMMERCIAL_MESSAGE_STRATEGY_VERSION =
   'commercial-message-strategy-v1' as const
 
@@ -23,6 +30,25 @@ export type CommercialMessageContextReference = {
   evidence_message_id: string
   required_in_draft: boolean
   anchors: string[]
+}
+
+// Enquadramento temporal da mensagem: o redator precisa saber que tempo
+// passou, se a intenção antiga ainda pode ser tratada como atual e quais
+// táticas de retomada são legítimas neste contexto — sem inventar fatos.
+export type CommercialMessageTemporalFrame = {
+  evaluated_at: string
+  momentum:
+    CommercialMomentumState
+  reactivation_mode:
+    CommercialReactivationMode
+  requalify_before_continuing: boolean
+  elapsed_since_last_customer_message: string | null
+  elapsed_since_customer_intent: string | null
+  customer_waiting_for_seller_for: string | null
+  intent_time_window_expired: boolean
+  unanswered_seller_attempts: number
+  enthusiasm_evidenced: boolean
+  guidance: string[]
 }
 
 export type CommercialMessageStrategy = {
@@ -51,6 +77,10 @@ export type CommercialMessageStrategy = {
   tone: string | null
   max_length: number
 
+  temporal_frame?:
+    CommercialMessageTemporalFrame | null
+  reactivation_tactics?: string[]
+
   evidence_message_ids: string[]
   memory_ids: string[]
 }
@@ -64,6 +94,8 @@ export type CommercialMessageCriticViolation =
   | 'technique_mismatch'
   | 'generic_filler'
   | 'weak_microcommitment'
+  | 'assumes_current_intent'
+  | 'fabricated_enthusiasm'
 
 export type CommercialMessageCriticResult = {
   passed: boolean
@@ -98,7 +130,41 @@ const STOPWORDS =
     'você',
     'quer',
     'quero',
+    // Palavras de pedido/tempo não ancoram o assunto: "podemos ... hoje"
+    // não é o contexto concreto; "aula experimental" é.
+    'podemos',
+    'poderia',
+    'gostaria',
+    'queria',
+    'posso',
+    'pode',
+    'hoje',
+    'amanha',
+    'tudo',
+    'obrigado',
+    'obrigada',
+    'favor',
+    'fazer',
+    'saber',
   ])
+
+const REENGAGEMENT_TECHNIQUES =
+  new Set([
+    'technique.contextual_reengagement',
+    'technique.state_change_reactivation',
+    'technique.permission_based_reengagement',
+    'technique.pattern_interrupt_reengagement',
+  ])
+
+const OPERATIONAL_ACTIONS:
+  readonly SellerExecutionActionType[] = [
+    'scheduling_open_question',
+    'scheduling_guided_choice',
+    'close_request',
+    'price_presentation',
+    'product_presentation',
+    'commitment_request',
+  ]
 
 function unique(
   values: string[],
@@ -178,6 +244,40 @@ function activeMessageText(
   return clean || null
 }
 
+function customerReferenceById(
+  input:
+    CompanionDiagnosticInput,
+  messageId: string | null | undefined,
+): {
+  text: string
+  message_id: string
+} | null {
+  if (!messageId) {
+    return null
+  }
+
+  const message =
+    input.conversation.messages.find(
+      item =>
+        item.id === messageId &&
+        item.direction ===
+          'incoming',
+    )
+
+  const text =
+    message
+      ? activeMessageText(message)
+      : null
+
+  return message && text
+    ? {
+        text,
+        message_id:
+          message.id,
+      }
+    : null
+}
+
 function latestCustomerReference(
   input:
     CompanionDiagnosticInput,
@@ -246,6 +346,11 @@ function requiredActionForTechnique(
     case 'technique.explicit_close_execution':
       return 'close_request'
 
+    case 'technique.state_change_reactivation':
+    case 'technique.permission_based_reengagement':
+    case 'technique.pattern_interrupt_reengagement':
+      return 'reengagement'
+
     default:
       return null
   }
@@ -278,6 +383,21 @@ function desiredMicrocommitment({
 
     case 'technique.contextual_reengagement':
       return 'Obter um microcompromisso simples que confirme se o cliente ainda quer avançar no objetivo já demonstrado, sem repetir a pergunta anterior.'
+
+    case 'technique.state_change_reactivation':
+      return 'Obter uma resposta curta que revele o estado atual do interesse (continua, mudou, adiou ou resolveu), sem exigir decisão agora.'
+
+    case 'technique.permission_based_reengagement':
+      return 'Obter permissão simples para retomar o assunto — um "sim, vamos" ou "agora não" já é avanço.'
+
+    case 'technique.pattern_interrupt_reengagement':
+      return 'Obter qualquer resposta curta a uma pergunta fácil, quebrando o padrão das tentativas sem resposta.'
+
+    case 'technique.delayed_response_recovery':
+      return 'Responder ao pedido que ficou esperando e confirmar o que ainda faz sentido agora.'
+
+    case 'technique.respectful_closure':
+      return null
 
     case 'technique.commitment_wait':
       return null
@@ -341,6 +461,209 @@ function bridgeFor({
   return null
 }
 
+function buildTemporalFrame({
+  temporal,
+  techniqueId,
+  factsAllowed,
+}: {
+  temporal:
+    CommercialTemporalContext | null
+  techniqueId: string | null
+  factsAllowed: string[]
+}): {
+  frame:
+    CommercialMessageTemporalFrame | null
+  tactics: string[]
+} {
+  if (!temporal) {
+    return {
+      frame: null,
+      tactics: [],
+    }
+  }
+
+  const duration = (
+    value: number | null,
+  ) =>
+    value === null
+      ? null
+      : formatCommercialDuration(
+          value,
+        )
+
+  const requalify =
+    temporal.reactivation
+      .requalify_before_continuing
+
+  const enthusiasm =
+    Boolean(
+      temporal.intent
+        ?.expressed_enthusiasm,
+    )
+
+  const guidance: string[] = []
+  const tactics: string[] = []
+
+  if (
+    temporal.reactivation.mode ===
+      'reactivate' ||
+    temporal.reactivation.mode ===
+      'light_follow_up'
+  ) {
+    guidance.push(
+      `Passou tempo desde a última resposta do cliente (${duration(temporal.facts.silence_since_last_customer_message_ms) ?? 'tempo relevante'}). Reconheça a continuidade com naturalidade, sem culpar o cliente pelo silêncio.`,
+    )
+  }
+
+  if (requalify) {
+    guidance.push(
+      'A intenção antiga do cliente NÃO está confirmada agora: não pergunte data, horário, escolha, pagamento ou fechamento; descubra primeiro como está o interesse hoje.',
+    )
+  }
+
+  if (
+    temporal.intent
+      ?.time_window_expired
+  ) {
+    guidance.push(
+      'O momento que o cliente indicou (ex.: "hoje", "amanhã") já passou: nunca repita essa referência de tempo como se ainda valesse.',
+    )
+  }
+
+  if (
+    temporal.reactivation
+      .outbound_unanswered_turns >= 2
+  ) {
+    guidance.push(
+      'Já houve tentativas sem resposta: não reenvie oferta, lista, link ou a mesma cobrança; mude o formato.',
+    )
+  }
+
+  if (
+    temporal.reactivation.mode ===
+      'recover_delay'
+  ) {
+    guidance.push(
+      'O cliente ficou esperando o vendedor: reconheça a demora em no máximo uma frase curta e responda ao que ele pediu.',
+    )
+  }
+
+  if (
+    temporal.reactivation.mode ===
+      'respect_closure'
+  ) {
+    guidance.push(
+      'O cliente encerrou: agradeça e respeite a decisão; nenhuma oferta, desconto ou urgência.',
+    )
+  }
+
+  switch (techniqueId) {
+    case 'technique.state_change_reactivation':
+      tactics.push(
+        'Recuperação de contexto: cite de forma concreta o que o cliente pediu ou estava avaliando.',
+        'Pergunta de mudança de estado: pergunte como ficou / o que mudou desde então, não peça decisão.',
+        'Baixo esforço: uma única pergunta curta que aceite resposta de uma linha.',
+        'Saída fácil: tom sem cobrança; está tudo bem se o cliente não quiser mais.',
+      )
+      break
+
+    case 'technique.permission_based_reengagement':
+      tactics.push(
+        'Retomada com permissão: pergunte se ainda faz sentido retomar o assunto concreto do cliente.',
+        'Saída fácil: deixe claro que tudo bem se não for o momento.',
+      )
+      break
+
+    case 'technique.pattern_interrupt_reengagement':
+      tactics.push(
+        'Quebra de padrão: formato curto e diferente das tentativas sem resposta — sem lista, link ou oferta.',
+        'Pergunta fácil ancorada no que o próprio cliente trouxe.',
+      )
+      break
+
+    case 'technique.delayed_response_recovery':
+      tactics.push(
+        'Reconhecer a demora em uma frase, sem justificativa longa.',
+        'Responder exatamente ao pedido original.',
+        'Se o momento pedido já passou, confirmar o que ainda faz sentido em vez de presumir a data antiga.',
+      )
+      break
+
+    case 'technique.respectful_closure':
+      tactics.push(
+        'Agradecer, respeitar a decisão e, no máximo, deixar a porta aberta.',
+      )
+      break
+
+    case 'technique.contextual_reengagement':
+      tactics.push(
+        'Retomar pelo objetivo que o cliente demonstrou, com um microcompromisso diferente da pergunta que ficou sem resposta.',
+      )
+      break
+
+    default:
+      break
+  }
+
+  if (
+    tactics.length > 0 &&
+    factsAllowed.length > 0
+  ) {
+    tactics.push(
+      'Curiosidade legítima: só se um fato oficial de facts_allowed for relevante ao que o cliente buscava; nunca invente novidade, vaga ou prazo.',
+    )
+  }
+
+  if (
+    tactics.length > 0 &&
+    enthusiasm
+  ) {
+    tactics.push(
+      'Recuperação emocional permitida: o próprio cliente demonstrou entusiasmo; retome esse sentimento com as palavras dele, sem exagerar.',
+    )
+  }
+
+  return {
+    frame: {
+      evaluated_at:
+        temporal.evaluated_at,
+      momentum:
+        temporal.momentum.state,
+      reactivation_mode:
+        temporal.reactivation.mode,
+      requalify_before_continuing:
+        requalify,
+      elapsed_since_last_customer_message:
+        duration(
+          temporal.facts
+            .silence_since_last_customer_message_ms,
+        ),
+      elapsed_since_customer_intent:
+        duration(
+          temporal.facts
+            .age_of_last_customer_intent_ms,
+        ),
+      customer_waiting_for_seller_for:
+        duration(
+          temporal.seller_timing
+            .pending_customer_wait_ms,
+        ),
+      intent_time_window_expired:
+        Boolean(
+          temporal.intent
+            ?.time_window_expired,
+        ),
+      unanswered_seller_attempts:
+        temporal.reactivation
+          .outbound_unanswered_turns,
+      enthusiasm_evidenced:
+        enthusiasm,
+      guidance,
+    },
+    tactics,
+  }
+}
+
 export function buildCommercialMessageStrategy({
   reasoning,
   coaching,
@@ -356,7 +679,37 @@ export function buildCommercialMessageStrategy({
   seller_intent?:
     string | null
 }): CommercialMessageStrategy {
+  const temporal =
+    reasoning.temporal_context ??
+    null
+
+  const techniqueId =
+    coaching.chosen_technique
+      ?.id ??
+    null
+
+  const reengagementTechnique =
+    REENGAGEMENT_TECHNIQUES.has(
+      techniqueId ?? '',
+    )
+
+  // Na retomada, a âncora de contexto é o pedido comercial que o cliente
+  // fez (ex.: "aula experimental"), não a última fala solta ("Não fiz
+  // ainda."). É isso que torna a retomada específica e não transplantável.
   const reference =
+    (
+      coaching.sequence_break
+        .happened ||
+      reengagementTechnique ||
+      techniqueId ===
+        'technique.delayed_response_recovery'
+        ? customerReferenceById(
+            diagnostic_input,
+            coaching.client_intent_now
+              ?.evidence_message_id,
+          )
+        : null
+    ) ??
     latestCustomerReference(
       diagnostic_input,
     )
@@ -375,11 +728,14 @@ export function buildCommercialMessageStrategy({
       !sellerIntentIsContextLight(
         seller_intent,
       ) &&
+      techniqueId !==
+        'technique.respectful_closure' &&
       reference &&
       referenceAnchors.length > 0 &&
       (
         coaching.sequence_break
           .happened ||
+        reengagementTechnique ||
         coaching
           .client_intent_now
           ?.confidence === 'high'
@@ -410,9 +766,7 @@ export function buildCommercialMessageStrategy({
       (
         coaching.sequence_break
           .happened ||
-        coaching.chosen_technique
-          ?.id ===
-          'technique.contextual_reengagement' ||
+        reengagementTechnique ||
         reasoning.do_not_do.some(
           item =>
             /não repetir/i.test(
@@ -422,14 +776,54 @@ export function buildCommercialMessageStrategy({
       ),
     )
 
+  const requalify =
+    Boolean(
+      temporal?.reactivation
+        .requalify_before_continuing,
+    )
+
+  // Reativação/requalificação: pedir o compromisso operacional ou reenviar
+  // oferta agora trataria a intenção antiga como atual.
   const blockedActionTypes:
     SellerExecutionActionType[] =
-      shouldBlockLastMove &&
-      lastMoveAction
-        ? [
-            lastMoveAction,
-          ]
-        : []
+      Array.from(
+        new Set([
+          ...(
+            shouldBlockLastMove &&
+            lastMoveAction
+              ? [lastMoveAction]
+              : []
+          ),
+          ...(
+            requalify ||
+            (
+              reengagementTechnique &&
+              (temporal?.reactivation
+                .outbound_unanswered_turns ??
+                0) >= 2
+            )
+              ? OPERATIONAL_ACTIONS
+              : []
+          ),
+          ...(
+            techniqueId ===
+              'technique.respectful_closure'
+              ? OPERATIONAL_ACTIONS
+              : []
+          ),
+        ]),
+      )
+
+  const {
+    frame: temporalFrame,
+    tactics: reactivationTactics,
+  } =
+    buildTemporalFrame({
+      temporal,
+      techniqueId,
+      factsAllowed:
+        unique(factsAllowed),
+    })
 
   const prohibitedMoves =
     unique([
@@ -443,6 +837,20 @@ export function buildCommercialMessageStrategy({
         )
           ? [
               'Não inventar alternativas, horários, vagas ou disponibilidade para criar uma escolha guiada.',
+            ]
+          : []
+      ),
+      ...(
+        requalify
+          ? [
+              'Não tratar a intenção antiga como confirmada nem pedir data, horário, pagamento ou decisão antes de reconfirmar o interesse atual.',
+            ]
+          : []
+      ),
+      ...(
+        reactivationTactics.length > 0
+          ? [
+              'Não inventar entusiasmo, urgência, escassez, perda, relacionamento ou necessidade que o cliente não demonstrou.',
             ]
           : []
       ),
@@ -506,11 +914,15 @@ export function buildCommercialMessageStrategy({
         .commercial_context
         .communication_tone,
     max_length:
-      coaching.chosen_technique
-        ?.id ===
-          'technique.contextual_reengagement'
+      reengagementTechnique ||
+      techniqueId ===
+        'technique.respectful_closure'
         ? REENGAGEMENT_MAX_LENGTH
         : MAX_MESSAGE_LENGTH,
+    temporal_frame:
+      temporalFrame,
+    reactivation_tactics:
+      reactivationTactics,
     evidence_message_ids:
       unique([
         ...coaching
@@ -530,26 +942,90 @@ export function buildCommercialMessageStrategy({
   }
 }
 
-function hasGenericFiller(
-  message: string,
-): boolean {
-  const normalized =
-    comparable(message)
+const FILLER_PHRASES = [
+  'posso ajudar com o que for necessario',
+  'fico a disposicao',
+  'estou a disposicao',
+  'sigo a disposicao',
+  'qualquer coisa estou a disposicao',
+  'qualquer duvida',
+  'qualquer coisa me chama',
+  'qualquer coisa me avisa',
+  'conte comigo para o que precisar',
+  'estou por aqui',
+  'fico no aguardo',
+  'aguardo seu retorno',
+  'aguardo retorno',
+  'para avancarmos',
+] as const
 
-  return [
-    'posso ajudar com o que for necessario',
-    'fico a disposicao',
-    'estou a disposicao',
-    'qualquer coisa estou a disposicao',
-    'conte comigo para o que precisar',
-    'para avancarmos',
-  ].some(
+// Frases da mensagem, preservando a pontuação final.
+function sentencesOf(
+  message: string,
+): string[] {
+  // Só quebra em pontuação seguida de espaço/fim: "R$ 1.299" e
+  // "site.com" permanecem inteiros.
+  return message
+    .split(
+      /(?<=[.!?])\s+|\n+/,
+    )
+    .map(
+      sentence =>
+        sentence.trim(),
+    )
+    .filter(Boolean)
+}
+
+// Fechamento vazio é uma FRASE que só oferece disponibilidade/cortesia e
+// não carrega o microcompromisso. "Qual o melhor dia para avançarmos?" é
+// a pergunta comercial — não é filler, mesmo contendo "para avançarmos".
+function isFillerSentence(
+  sentence: string,
+): boolean {
+  if (sentence.includes('?')) {
+    return false
+  }
+
+  const normalized =
+    comparable(sentence)
+
+  return FILLER_PHRASES.some(
     phrase =>
       normalized.includes(
         phrase,
       ),
   )
 }
+
+function hasGenericFiller(
+  message: string,
+): boolean {
+  return sentencesOf(message)
+    .some(isFillerSentence)
+}
+
+// Pergunta fática ("tudo bem?") que não carrega compromisso comercial.
+function isPhaticQuestion(
+  segment: string,
+): boolean {
+  const normalized =
+    comparable(segment)
+      .replace(
+        /^(oi|ola|bom dia|boa tarde|boa noite)\b/,
+        '',
+      )
+      .trim()
+
+  return (
+    segment.includes('?') &&
+    /^([a-z]+ )?(tudo bem|tudo bom|como vai|como voce esta|como esta)( com voce)?$/.test(
+      normalized,
+    )
+  )
+}
+
+const REENGAGEMENT_MICROCOMMITMENT =
+  /\b(ainda|retom\w*|continu\w*|interesse|faz sentido|segue|quer|como ficou|chegou a|conseguiu|desde entao|mudou|resolveu|decidiu|pensando|avaliando|prioridade|momento|podemos|vamos)\b/
 
 function hasReengagementMicrocommitment(
   message: string,
@@ -561,6 +1037,15 @@ function hasReengagementMicrocommitment(
 
   return questionSegments.some(
     segment => {
+      if (
+        isPhaticQuestion(
+          segment.split(/[.!]/).pop() ??
+            segment,
+        )
+      ) {
+        return false
+      }
+
       const normalized =
         comparable(segment)
 
@@ -568,18 +1053,120 @@ function hasReengagementMicrocommitment(
         normalized.includes(
           'tudo bem',
         ) &&
-        !/\b(ainda|retom|continu|interesse|faz sentido|segue|quer)\b/
-          .test(normalized)
+        !REENGAGEMENT_MICROCOMMITMENT
+          .test(
+            normalized.replace(
+              'tudo bem',
+              '',
+            ),
+          )
       ) {
         return false
       }
 
-      return /\b(ainda|retom|continu|interesse|faz sentido|segue|quer)\b/
-        .test(
-          normalized,
-        )
+      return (
+        REENGAGEMENT_MICROCOMMITMENT
+          .test(normalized) ||
+        classifySellerActionText(
+          segment,
+        ) === 'reengagement'
+      )
     },
   )
+}
+
+const FABRICATED_ENTHUSIASM =
+  /\b(voce|vc) (estava|ficou|parecia|tava) (super |bem |muito |tao )?(animad\w*|empolgad\w*|ansios\w*|entusiasmad\w*)|\b(sei|lembro) (o quanto|que) (voce|vc) (queria muito|adorou|amou|estava animad\w*)/
+
+const UNGROUNDED_URGENCY =
+  /\b(ultimas? vagas?|vagas? limitadas?|so ate hoje|so hoje|ultima chance|corre|nao perca|acaba (hoje|amanha)|por tempo limitado|antes que acabe)\b/
+
+// Reparo determinístico SEM relaxar o critic: remove somente o que é
+// trivialmente removível (frase de disponibilidade vazia, pergunta fática
+// concorrendo com a pergunta comercial). O resultado passa de novo pelo
+// MESMO critic/validação; se não passar, o reparo não é usado.
+export function repairCommercialMessageDraft(
+  message: string,
+): {
+  message: string
+  repairs: string[]
+} {
+  const repairs: string[] = []
+
+  let sentences =
+    sentencesOf(message)
+
+  const withoutFiller =
+    sentences.filter(
+      sentence =>
+        !isFillerSentence(
+          sentence,
+        ),
+    )
+
+  if (
+    withoutFiller.length > 0 &&
+    withoutFiller.length <
+      sentences.length
+  ) {
+    sentences = withoutFiller
+    repairs.push(
+      'removed_generic_filler',
+    )
+  }
+
+  const questionCount =
+    sentences.filter(
+      sentence =>
+        sentence.includes('?'),
+    ).length
+
+  if (questionCount > 1) {
+    const adjusted =
+      sentences.map(
+        sentence => {
+          if (
+            !isPhaticQuestion(
+              sentence,
+            )
+          ) {
+            return sentence
+          }
+
+          // Mantém a saudação e o nome ("Oi, Lorena") e remove só a cauda
+          // fática ("tudo bem?").
+          const greeting =
+            sentence
+              .replace(
+                /[,\s]*(tudo bem|tudo bom|como vai|como (você|voce) (está|esta))[^?]*\?\s*$/i,
+                '',
+              )
+              .trim()
+              .replace(/[,;:]+$/, '')
+
+          repairs.push(
+            'removed_phatic_question',
+          )
+
+          return greeting
+            ? `${greeting}!`
+            : ''
+        },
+      )
+        .filter(Boolean)
+
+    sentences = adjusted
+  }
+
+  return {
+    message:
+      sentences
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    repairs:
+      unique(repairs),
+  }
 }
 
 function repeatsRecentOutgoing({
@@ -717,12 +1304,56 @@ export function evaluateCommercialMessageDraft({
     )
   }
 
+  const groundedFacts =
+    comparable(
+      strategy.facts_allowed.join(' '),
+    )
+
+  const urgency =
+    comparable(message).match(
+      UNGROUNDED_URGENCY,
+    )?.[0] ?? null
+
   if (
     candidateAction ===
-      'pressure_or_false_urgency'
+      'pressure_or_false_urgency' ||
+    (
+      urgency &&
+      !groundedFacts.includes(
+        urgency,
+      )
+    )
   ) {
     violations.push(
       'pressure_risk',
+    )
+  }
+
+  const temporalFrame =
+    strategy.temporal_frame ??
+    null
+
+  if (
+    temporalFrame
+      ?.requalify_before_continuing &&
+    OPERATIONAL_ACTIONS.includes(
+      candidateAction,
+    )
+  ) {
+    violations.push(
+      'assumes_current_intent',
+    )
+  }
+
+  if (
+    !temporalFrame
+      ?.enthusiasm_evidenced &&
+    FABRICATED_ENTHUSIASM.test(
+      comparable(message),
+    )
+  ) {
+    violations.push(
+      'fabricated_enthusiasm',
     )
   }
 
@@ -753,8 +1384,9 @@ export function evaluateCommercialMessageDraft({
   }
 
   if (
-    techniqueId ===
-      'technique.contextual_reengagement' &&
+    REENGAGEMENT_TECHNIQUES.has(
+      techniqueId ?? '',
+    ) &&
     !hasReengagementMicrocommitment(
       message,
     )

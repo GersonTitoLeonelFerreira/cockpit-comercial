@@ -31,6 +31,7 @@ import {
 } from './canonical-integrated-commercial-context-source'
 
 import {
+  applySellerExecutionCoachingToNeutralView,
   buildAnalysisViewModel,
   type AnalysisViewModel,
 } from './analysis-view-model'
@@ -217,6 +218,15 @@ export async function loadAnalysisViewModel({
           diagnostic_input:
             reasoningBundle
               .diagnostic_input,
+          evaluated_at:
+            canonicalContext
+              .reference_time,
+          cycle_state:
+            canonicalContext.state_read
+              .mode === 'found'
+              ? canonicalContext
+                  .state_read.state
+              : null,
         })
       : null
 
@@ -248,7 +258,10 @@ export async function loadAnalysisViewModel({
       : viewModel.opportunity
 
   return {
-    ...viewModel,
+    ...applySellerExecutionCoachingToNeutralView(
+      viewModel,
+      coachingDiagnosis,
+    ),
     opportunity,
     reasoning,
     coaching_diagnosis:

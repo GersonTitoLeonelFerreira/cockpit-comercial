@@ -16,6 +16,8 @@ import type {
 
 import {
   evaluateCommercialMessageDraft,
+  repairCommercialMessageDraft,
+  type CommercialMessageCriticViolation,
   type CommercialMessageStrategy,
 } from './commercial-message-strategy'
 
@@ -818,6 +820,246 @@ function validateMessage({
   return null
 }
 
+// Correção específica por violação: o reparo precisa dizer ao redator O
+// QUE mudar, não só que "falhou".
+const STRATEGY_VIOLATION_MESSAGES:
+  ReadonlyArray<[
+    CommercialMessageCriticViolation,
+    string,
+  ]> = [
+    [
+      'generic_message',
+      'A mensagem ficou genérica demais para o contexto atual. Cite naturalmente o assunto concreto que o cliente trouxe.',
+    ],
+    [
+      'repeats_recent_seller_action',
+      'A mensagem repete uma ação recente do vendedor sem fato novo. Não reformule a pergunta ou oferta que ficou sem resposta.',
+    ],
+    [
+      'assumes_current_intent',
+      'A mensagem tratou a intenção antiga do cliente como confirmada (pediu data, escolha, pagamento ou fechamento). Primeiro descubra se o interesse continua.',
+    ],
+    [
+      'message_too_long',
+      'A mensagem excedeu o tamanho permitido pela estratégia. Reduza para poucas frases curtas.',
+    ],
+    [
+      'excessive_questions',
+      'A mensagem empilhou perguntas demais; reduza para um único microcompromisso claro (sem "tudo bem?" competindo com a pergunta principal).',
+    ],
+    [
+      'pressure_risk',
+      'A mensagem introduziu pressão ou urgência artificial. Remova escassez, prazo ou urgência que não estejam nos fatos oficiais.',
+    ],
+    [
+      'fabricated_enthusiasm',
+      'A mensagem atribuiu ao cliente um entusiasmo que ele não demonstrou. Use apenas o que ele realmente disse.',
+    ],
+    [
+      'technique_mismatch',
+      'A mensagem não executou a técnica comercial escolhida para este momento.',
+    ],
+    [
+      'generic_filler',
+      'A mensagem usou fechamento genérico que não ajuda o cliente a tomar o próximo microcompromisso. Remova frases como "fico à disposição" e termine na pergunta principal.',
+    ],
+    [
+      'weak_microcommitment',
+      'A mensagem de retomada não formulou um microcompromisso comercial claro em forma de pergunta.',
+    ],
+  ]
+
+function strategyFailureMessage(
+  violations:
+    readonly CommercialMessageCriticViolation[],
+): string | null {
+  if (violations.length === 0) {
+    return null
+  }
+
+  const messages =
+    STRATEGY_VIOLATION_MESSAGES
+      .filter(
+        ([violation]) =>
+          violations.includes(
+            violation,
+          ),
+      )
+      .map(
+        ([, message]) =>
+          message,
+      )
+
+  return messages.length > 0
+    ? messages.join(' ')
+    : 'A mensagem não passou pelo critic da estratégia comercial.'
+}
+
+function evaluateAgainstStrategy({
+  message,
+  interaction,
+  messageStrategy,
+}: {
+  message: string
+  interaction: readonly SellerMessageCurrentInteraction[]
+  messageStrategy:
+    CommercialMessageStrategy | null
+}) {
+  return messageStrategy
+    ? evaluateCommercialMessageDraft({
+        message,
+        strategy:
+          messageStrategy,
+        recent_outgoing_messages:
+          interaction
+            .filter(
+              entry =>
+                entry.direction ===
+                  'outgoing',
+            )
+            .map(
+              entry =>
+                entry.text,
+            ),
+      })
+    : {
+        passed: true,
+        violations:
+          [] as CommercialMessageCriticViolation[],
+      }
+}
+
+// Validação seller-facing + critic da estratégia sobre a mesma mensagem.
+// Quando a ÚNICA falha é trivialmente reparável (frase de disponibilidade
+// vazia, "tudo bem?" competindo com a pergunta comercial), aplica o reparo
+// determinístico e revalida o resultado com o MESMO critic — estratégia
+// válida chega a copy válida sem afrouxar nenhuma regra.
+function checkCandidateMessage({
+  message,
+  summary,
+  interaction,
+  intent,
+  reasoning,
+  messageStrategy,
+  recipientName,
+}: {
+  message: string
+  summary: string
+  interaction: readonly SellerMessageCurrentInteraction[]
+  intent: string
+  reasoning: SellerMessageCanonicalReasoning | null
+  messageStrategy: CommercialMessageStrategy | null
+  recipientName: string | null
+}): {
+  message: string
+  failure: string | null
+  repaired: boolean
+} {
+  const validate = (
+    candidate: string,
+  ) => {
+    const validationFailure =
+      validateMessage({
+        message: candidate,
+        summary,
+        interaction,
+        intent,
+        reasoning,
+        messageStrategy,
+        recipientName,
+      })
+
+    const critic =
+      evaluateAgainstStrategy({
+        message: candidate,
+        interaction,
+        messageStrategy,
+      })
+
+    return {
+      failure:
+        validationFailure ||
+        strategyFailureMessage(
+          critic.violations,
+        ),
+      violations:
+        critic.violations,
+    }
+  }
+
+  const first =
+    validate(message)
+
+  if (!first.failure) {
+    return {
+      message,
+      failure: null,
+      repaired: false,
+    }
+  }
+
+  const repairable =
+    first.violations.length > 0 &&
+    first.violations.every(
+      violation =>
+        violation ===
+          'generic_filler' ||
+        violation ===
+          'excessive_questions',
+    )
+
+  if (repairable) {
+    const repaired =
+      repairCommercialMessageDraft(
+        message,
+      )
+
+    if (
+      repaired.repairs.length > 0 &&
+      repaired.message &&
+      repaired.message !== message
+    ) {
+      const second =
+        validate(
+          repaired.message,
+        )
+
+      if (!second.failure) {
+        return {
+          message:
+            repaired.message,
+          failure: null,
+          repaired: true,
+        }
+      }
+    }
+  }
+
+  return {
+    message,
+    failure:
+      first.failure,
+    repaired: false,
+  }
+}
+
+function describeTemporalFrame(
+  strategy:
+    CommercialMessageStrategy | null,
+): string[] {
+  const frame =
+    strategy?.temporal_frame
+
+  if (!frame) {
+    return []
+  }
+
+  return [
+    `Instante atual da conversa: ${frame.evaluated_at}. Considere o tempo que passou desde as mensagens citadas.`,
+    ...frame.guidance,
+  ]
+}
+
 async function runAttempt({
   summary,
   interaction,
@@ -893,6 +1135,10 @@ async function runAttempt({
         'Quando houver conhecimento oficial relevante em facts_allowed/company_knowledge_used, conecte-o ao contexto do cliente em vez de listar benefícios genéricos.',
         'Prefira mensagem curta e natural. Remova introduções, explicações e frases de disponibilidade que não aumentem a chance do microcompromisso desejado.',
         'message_strategy.prohibited_moves é limite duro: nunca faça nada listado ali.',
+        'message_strategy.temporal_frame descreve o TEMPO da conversa. Se requalify_before_continuing=true, a intenção antiga não está confirmada: não peça data, horário, escolha, pagamento ou fechamento — faça uma pergunta de baixo esforço que descubra como está o interesse hoje, relembrando de forma concreta o que o cliente queria.',
+        'message_strategy.reactivation_tactics lista as táticas legítimas para este momento. Use-as na condução (recuperação de contexto, pergunta de mudança de estado, permissão, quebra de padrão), nunca como vocabulário técnico.',
+        'Persuasão sem invenção: nunca atribua ao cliente entusiasmo, urgência, escassez, perda, relacionamento ou necessidade que ele não demonstrou. Recuperação emocional só quando temporal_frame.enthusiasm_evidenced=true.',
+        'Não termine com frases de disponibilidade como "fico à disposição" ou "qualquer dúvida estou aqui": a mensagem termina na pergunta do microcompromisso.',
         'message_strategy.facts_allowed contém somente conhecimento de empresa já autorizado pelo reasoning. message_strategy.facts_required_but_missing descreve fatos que ainda NÃO estão disponíveis e nunca podem ser inventados.',
         'Nunca faça nada que apareça em commercial_reasoning.do_not_do.',
         'Só use um fato de commercial_reasoning.company_knowledge_used como conhecimento de empresa; nunca introduza uma regra, política ou condição da empresa que não esteja ali.',
@@ -908,6 +1154,9 @@ async function runAttempt({
           ? `O nome canônico do destinatário atual é "${recipientName}". Em WhatsApp, use preferencialmente só o primeiro nome "${recipientName.trim().split(/\s+/)[0] ?? recipientName}" na saudação. Só use o nome completo se message_strategy.tone exigir tratamento formal. Nunca use nome extraído de mensagem outgoing do vendedor.`
           : 'Não existe nome canônico seguro do destinatário neste contexto. Não invente nem copie para a saudação um nome visto em mensagem outgoing do vendedor.',
         'Entregue somente a mensagem, sem comentário adicional.',
+        ...describeTemporalFrame(
+          messageStrategy,
+        ),
         ...correction,
       ].join('\n'),
       user_prompt: JSON.stringify({
@@ -983,91 +1232,30 @@ async function runAttempt({
       }
     }
 
-    const validationFailure = validateMessage({
-      message,
-      summary,
-      interaction,
-      intent,
-      reasoning,
-      messageStrategy,
-      recipientName,
-    })
-
-    const strategyCritic =
-      messageStrategy
-        ? evaluateCommercialMessageDraft({
-            message,
-            strategy:
-              messageStrategy,
-            recent_outgoing_messages:
-              interaction
-                .filter(
-                  entry =>
-                    entry.direction ===
-                      'outgoing',
-                )
-                .map(
-                  entry =>
-                    entry.text,
-                ),
-          })
-        : {
-            passed: true,
-            violations: [],
-          }
+    const checked =
+      checkCandidateMessage({
+        message,
+        summary,
+        interaction,
+        intent,
+        reasoning,
+        messageStrategy,
+        recipientName,
+      })
 
     const strategyFailure =
-      strategyCritic.passed
-        ? null
-        : strategyCritic.violations
-            .includes(
-              'generic_message',
-            )
-          ? 'A mensagem ficou genérica demais para o contexto atual.'
-          : strategyCritic.violations
-              .includes(
-                'repeats_recent_seller_action',
-              )
-            ? 'A mensagem repete uma ação recente do vendedor sem fato novo.'
-            : strategyCritic.violations
-                .includes(
-                  'message_too_long',
-                )
-              ? 'A mensagem excedeu o tamanho permitido pela estratégia.'
-              : strategyCritic.violations
-                  .includes(
-                    'excessive_questions',
-                  )
-                ? 'A mensagem empilhou perguntas demais; reduza para um único microcompromisso claro.'
-                : strategyCritic.violations
-                    .includes(
-                      'pressure_risk',
-                    )
-                  ? 'A mensagem introduziu pressão ou urgência artificial.'
-                  : strategyCritic.violations
-                      .includes(
-                        'technique_mismatch',
-                      )
-                    ? 'A mensagem não executou a técnica comercial escolhida para este momento.'
-                    : strategyCritic.violations
-                        .includes(
-                          'generic_filler',
-                        )
-                      ? 'A mensagem usou fechamento genérico que não ajuda o cliente a tomar o próximo microcompromisso.'
-                      : strategyCritic.violations
-                          .includes(
-                            'weak_microcommitment',
-                          )
-                        ? 'A mensagem de retomada não formulou um microcompromisso comercial claro em forma de pergunta.'
-                        : 'A mensagem não passou pelo critic da estratégia comercial.'
-
-    const failure =
-      validationFailure ||
-      strategyFailure
-
-    return failure
-      ? { message: null, failure }
-      : { message, failure: null }
+      checked.failure
+    return strategyFailure
+      ? {
+          message: null,
+          failure:
+            strategyFailure,
+        }
+      : {
+          message:
+            checked.message,
+          failure: null,
+        }
   } catch {
     return {
       message: null,
@@ -1179,55 +1367,30 @@ async function reviewCustomerFacingMessage({
       }
     }
 
-    const validationFailure = validateMessage({
-      message,
-      summary,
-      interaction,
-      intent,
-      reasoning,
-      messageStrategy,
-      recipientName,
-    })
+    const checked =
+      checkCandidateMessage({
+        message,
+        summary,
+        interaction,
+        intent,
+        reasoning,
+        messageStrategy,
+        recipientName,
+      })
 
-    const strategyCritic =
-      messageStrategy
-        ? evaluateCommercialMessageDraft({
-            message,
-            strategy:
-              messageStrategy,
-            recent_outgoing_messages:
-              interaction
-                .filter(
-                  entry =>
-                    entry.direction ===
-                      'outgoing',
-                )
-                .map(
-                  entry =>
-                    entry.text,
-                ),
-          })
-        : {
-            passed: true,
-            violations: [],
-          }
-
-    if (
-      validationFailure ||
-      !strategyCritic.passed
-    ) {
+    if (checked.failure) {
       return {
         message: null,
         failure:
-          validationFailure ||
-          'A mensagem revisada não passou pelo critic da estratégia comercial.',
+          `A mensagem revisada não passou pelo critic da estratégia comercial: ${checked.failure}`,
         failure_kind:
           'validation',
       }
     }
 
     return {
-      message,
+      message:
+        checked.message,
       failure: null,
       failure_kind: null,
     }
@@ -1343,11 +1506,21 @@ export async function composeSellerMessage({
         recipientName:
           canonicalRecipientName,
         provider,
+        // O reparo estrito precisa carregar o motivo CONCRETO da falha
+        // anterior; sem ele o redator repetia o mesmo defeito (ex.: o
+        // "fico à disposição" que derrubou a tentativa anterior).
         correctionReason:
-          strictStrategyCorrection(
-            messageStrategy,
-          ) ||
-          generationFailure ||
+          [
+            generationFailure,
+            strictStrategyCorrection(
+              messageStrategy,
+            ),
+          ]
+            .filter(
+              (item): item is string =>
+                Boolean(item),
+            )
+            .join(' ') ||
           'A saída anterior não executou a estratégia canônica.',
       })
 

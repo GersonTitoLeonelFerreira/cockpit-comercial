@@ -62,6 +62,8 @@ export type SellerExecutionCustomerIntentKind =
   | 'product_interest'
   | 'third_party_interest'
   | 'general_interest'
+  | 'deferral'
+  | 'disengaged'
   | 'unknown'
 
 export type SellerExecutionSignal =
@@ -77,11 +79,62 @@ export type SellerExecutionSignal =
   | 'late_discovery_after_close_intent'
   | 'generic_response_candidate'
   | 'customer_rejected_options'
+  | 'request_not_addressed'
 
 export type SellerExecutionCustomerIntent = {
   kind: SellerExecutionCustomerIntentKind
   confidence: SellerExecutionConfidence
   evidence_message_id: string
+}
+
+// Referência temporal explícita dita pelo cliente ("hoje", "amanhã",
+// "sexta"). É evidência textual, não cálculo: o módulo temporal decide se
+// essa janela já passou em relação ao instante avaliado.
+export type SellerExecutionTimeReference =
+  | 'same_day'
+  | 'next_day'
+  | 'this_week'
+  | null
+
+export type SellerExecutionCustomerSignal = {
+  message_id: string
+  occurred_at: string
+  kind: SellerExecutionCustomerIntentKind
+  confidence: SellerExecutionConfidence
+  time_reference: SellerExecutionTimeReference
+  // Marcadores textuais de entusiasmo realmente escritos pelo cliente.
+  // Só eles autorizam recuperação emocional numa retomada — nunca um
+  // interesse neutro ("quero saber sobre X").
+  expressed_enthusiasm: boolean
+}
+
+// Turno do vendedor: sequência contígua de mensagens humanas outgoing sem
+// resposta do cliente entre elas e com intervalo curto (rajada). Uma oferta
+// enviada em várias bolhas (texto, planos, links, CTA) é UMA ação comercial;
+// julgar só a última bolha fazia elogio e crítica apontarem para IDs
+// diferentes da mesma ação.
+export type SellerExecutionTurn = {
+  turn_id: string
+  message_ids: string[]
+  started_at: string
+  ended_at: string
+  action_types: SellerExecutionActionType[]
+  dominant_action_type: SellerExecutionActionType
+  // Mensagens do cliente que este turno respondeu (rajada do cliente
+  // imediatamente anterior). Vazio quando o turno é follow-up sem resposta
+  // do cliente entre turnos.
+  responds_to_customer_message_ids: string[]
+  // Intenção mais forte presente na rajada do cliente respondida.
+  pending_customer_intent:
+    SellerExecutionCustomerIntent | null
+  // null = não havia pedido comercial pendente para endereçar.
+  addresses_customer_request: boolean | null
+  // Latência desde a primeira mensagem ainda não respondida do cliente.
+  response_latency_ms: number | null
+  negative_signals: SellerExecutionSignal[]
+  breaks_active_customer_goal: boolean
+  observed_outcome:
+    SellerExecutionObservedOutcome
 }
 
 export type SellerExecutionEvent = {
@@ -119,6 +172,15 @@ export type SellerExecutionEvent = {
 
   signals: SellerExecutionSignal[]
   evidence_message_ids: string[]
+
+  turn_id: string
+  timing: {
+    // Primeira mensagem do cliente ainda sem resposta quando esta ação
+    // aconteceu (null quando a ação não responde a nenhuma fala nova).
+    responds_to_customer_message_id: string | null
+    response_latency_ms: number | null
+    previous_message_gap_ms: number | null
+  }
 }
 
 export type SellerExecutionTrace = {
@@ -139,6 +201,8 @@ export type SellerExecutionTrace = {
   }
 
   events: SellerExecutionEvent[]
+  turns: SellerExecutionTurn[]
+  customer_signals: SellerExecutionCustomerSignal[]
 }
 
 function normalizeText(
@@ -194,6 +258,104 @@ function includesAny(
   )
 }
 
+// Encerramento explícito pelo cliente: resolveu, comprou/contratou em outro
+// lugar ou disse que não tem mais interesse. Verificado ANTES de fechamento
+// porque "já fiz matrícula em outra" ou "fechei com outra empresa" contêm
+// vocabulário de fechamento mas significam o oposto para esta venda.
+const DISENGAGEMENT_PATTERNS: readonly RegExp[] = [
+  /\b(ja )?(fechei|comprei|contratei|assinei|matriculei|escolhi|optei)\b.{0,30}\b(outr[oa]s?|outro lugar|la mesmo|concorrente)\b/,
+  /\bfiz (a )?(matricula|inscricao|compra|contratacao)\b.{0,30}\boutr[oa]s?\b/,
+  /\b(ja )?(resolvi|consegui resolver|encontrei|achei)\b.{0,20}\b(outr[oa]s?|por conta|sozinh[oa]|em outro lugar)\b/,
+  /\bnao (tenho|tenho mais) interesse\b/,
+  /\bnao (preciso|quero) mais\b/,
+  /\bnao faz mais sentido\b/,
+  /\bpode (cancelar|me tirar|tirar meu)\b/,
+  /\bdesisti\b(?!\s+de\s+(cancel|desist))/,
+  /\bvou ficar com (a )?outr[oa]\b/,
+]
+
+// Adiamento explícito com horizonte ("mês que vem", "te aviso", "vou
+// pensar"). Não é objeção nem encerramento: muda a expectativa de tempo de
+// resposta e, portanto, a leitura de silêncio.
+const DEFERRAL_PATTERNS: readonly RegExp[] = [
+  /\bvou pensar\b/,
+  /\b(te|lhe) (aviso|falo|retorno|chamo)\b/,
+  /\b(depois|mais tarde) (te|eu) (aviso|falo|retorno|chamo|vejo)\b/,
+  /\b(mes|semana) que vem\b/,
+  /\bproxim[oa] (mes|semana)\b/,
+  /\bdepois d[ao]s? (ferias|festas|pagamento|viagem)\b/,
+  /\bmais (pra|para) frente\b/,
+  /\b(fim|final) do mes\b/,
+]
+
+function matchesAny(
+  value: string,
+  patterns: readonly RegExp[],
+): boolean {
+  return patterns.some(
+    pattern =>
+      pattern.test(value),
+  )
+}
+
+export function detectCustomerTimeReference(
+  text: string,
+): SellerExecutionTimeReference {
+  const normalized =
+    normalizeText(text)
+
+  if (
+    /\b(hoje|hj|agora|ainda hoje|daqui a pouco|nesta tarde|nesta manha|essa tarde|essa noite|hoje a noite)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'same_day'
+  }
+
+  if (
+    /\b(amanha|amanh)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'next_day'
+  }
+
+  if (
+    /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo|essa semana|esta semana|fim de semana|final de semana)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'this_week'
+  }
+
+  return null
+}
+
+function expressesEnthusiasm(
+  text: string,
+): boolean {
+  const normalized =
+    normalizeText(text)
+
+  return (
+    /\b(amei|adorei|adoraria|animad[oa]|empolgad[oa]|ansios[oa]|quero muito|to doid[oa]|estou doid[oa]|nao vejo a hora|perfeito demais|maravilh)\w*/.test(
+      normalized,
+    ) ||
+    /!{2,}/.test(text)
+  )
+}
+
+export function inferCustomerIntentFromText(
+  text: string,
+  messageId: string,
+): SellerExecutionCustomerIntent {
+  return inferCustomerIntent({
+    id: messageId,
+    text_content: text,
+    audio_transcription: null,
+  } as DiagnosticInputMessage)
+}
+
 function inferCustomerIntent(
   message: DiagnosticInputMessage,
 ): SellerExecutionCustomerIntent {
@@ -201,6 +363,20 @@ function inferCustomerIntent(
     normalizeText(
       messageText(message),
     )
+
+  if (
+    matchesAny(
+      text,
+      DISENGAGEMENT_PATTERNS,
+    )
+  ) {
+    return {
+      kind: 'disengaged',
+      confidence: 'high',
+      evidence_message_id:
+        message.id,
+    }
+  }
 
   if (
     includesAny(
@@ -263,6 +439,40 @@ function inferCustomerIntent(
     }
   }
 
+  // Pedido com referência de tempo explícita ("consigo trazer amanhã
+  // cedo?", "dá pra ir hoje?") é pedido de agenda em qualquer vertical,
+  // mesmo sem as palavras "agendar/marcar".
+  if (
+    messageText(message).includes('?') &&
+    detectCustomerTimeReference(
+      text,
+    ) !== null &&
+    /\b(consigo|posso|podemos|pode ser|da pra|da para|tem como|daria|seria possivel|vou poder|voces conseguem|conseguem|atendem)\b/.test(
+      text,
+    )
+  ) {
+    return {
+      kind: 'scheduling',
+      confidence: 'high',
+      evidence_message_id:
+        message.id,
+    }
+  }
+
+  if (
+    matchesAny(
+      text,
+      DEFERRAL_PATTERNS,
+    )
+  ) {
+    return {
+      kind: 'deferral',
+      confidence: 'medium',
+      evidence_message_id:
+        message.id,
+    }
+  }
+
   if (
     includesAny(
       text,
@@ -314,6 +524,10 @@ function inferCustomerIntent(
         'preço',
         'valor',
         'quanto custa',
+        'quanto e',
+        'quanto fica',
+        'quanto sai',
+        'qual o investimento',
       ].map(normalizeText),
     )
   ) {
@@ -467,7 +681,124 @@ function containsReengagementLanguage(
       'seguimos',
       'ficou em aberto',
       'deixamos em aberto',
+      // Retomada por mudança de estado / recuperação de contexto: a
+      // pergunta se ancora no que aconteceu antes e pergunta pelo estado
+      // atual, em vez de repetir o pedido operacional.
+      'como ficou',
+      'chegou a',
+      'desde entao',
+      'desde a ultima',
+      'da ultima vez',
+      'quando conversamos',
+      'quando falamos',
+      'ficou pendente',
+      'ficou parado',
+      'voltar a falar',
+      'retomando',
+      'passando para saber',
+      'passando pra saber',
+      'nesse periodo',
+      'nesse meio tempo',
+      'faz um tempo',
+      'faz algum tempo',
+      'ainda pretende',
+      'ainda esta pensando',
+      'ainda pensa em',
+      'ainda e prioridade',
+      'continua sendo prioridade',
+      'algo mudou',
+      'mudou alguma coisa',
+      'conseguiu resolver',
+      'ainda esta avaliando',
+      'segue avaliando',
+      'continua avaliando',
     ].map(normalizeText),
+  )
+}
+
+const GREETING_TOKENS =
+  new Set([
+    'oi',
+    'oii',
+    'oie',
+    'ola',
+    'opa',
+    'bom',
+    'boa',
+    'dia',
+    'tarde',
+    'noite',
+    'tudo',
+    'bem',
+    'e',
+    'ai',
+    'como',
+    'vai',
+    'voce',
+    'vc',
+    'esta',
+    'td',
+    'blz',
+    'beleza',
+    'prazer',
+    'hey',
+    'hello',
+    'tranquilo',
+  ])
+
+// Saudação pura ("Olá", "Oi, Lorena!", "Bom dia, tudo bem?"). Não é
+// resposta factual nem pivô de objetivo: é abertura/rapport. Quando é tudo
+// que o vendedor responde a um pedido comercial, o problema é não endereçar
+// o pedido — não uma "quebra de sequência".
+function isPureGreeting(
+  value: string,
+): boolean {
+  const tokens =
+    normalizeText(value)
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean)
+
+  if (
+    tokens.length === 0 ||
+    tokens.length > 7 ||
+    !GREETING_TOKENS.has(
+      tokens[0],
+    )
+  ) {
+    return false
+  }
+
+  const nonGreeting =
+    tokens.filter(
+      token =>
+        !GREETING_TOKENS.has(
+          token,
+        ),
+    )
+
+  // Até dois tokens livres cobrem o nome do cliente ("Olá, Lorena").
+  return nonGreeting.length <= 2
+}
+
+function isShortAcknowledgement(
+  value: string,
+): boolean {
+  const normalized =
+    normalizeText(value)
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  if (
+    !normalized ||
+    wordCount(normalized) > 8
+  ) {
+    return false
+  }
+
+  return /^(que (otimo|bom|legal|maravilha|show)|otimo|otima|show|beleza|maravilha|legal|certo|ok|okay|excelente|top|boa|perfeito|perfeita|entendi|entendido|claro|combinado|sem problemas?)\b/.test(
+    normalized,
   )
 }
 
@@ -515,6 +846,14 @@ function classifySellerAction(
     hasQuestion(text)
 
   if (
+    isPureGreeting(
+      text,
+    )
+  ) {
+    return 'rapport_opening'
+  }
+
+  if (
     containsReengagementLanguage(
       normalized,
     )
@@ -556,6 +895,13 @@ function classifySellerAction(
         'objeção',
         'impede',
         'dificulta',
+        'o que pesa',
+        'pesa mais',
+        'te preocupa',
+        'preocupacao',
+        'preocupação',
+        'o que falta para',
+        'o que faltaria',
       ].map(normalizeText),
     )
   ) {
@@ -622,6 +968,11 @@ function classifySellerAction(
         'mensalidade',
         'orcamento',
         'orçamento',
+        'desconto',
+        'promocao',
+        'promoção',
+        'condicao especial',
+        'condição especial',
       ].map(normalizeText),
     )
   ) {
@@ -684,16 +1035,21 @@ function classifySellerAction(
   }
 
   if (
-    includesAny(
-      normalized,
-      [
-        'perfeito',
-        'entendi',
-        'claro',
-        'combinado',
-      ].map(normalizeText),
-    ) &&
-    wordCount(text) <= 14
+    (
+      includesAny(
+        normalized,
+        [
+          'perfeito',
+          'entendi',
+          'claro',
+          'combinado',
+        ].map(normalizeText),
+      ) &&
+      wordCount(text) <= 14
+    ) ||
+    isShortAcknowledgement(
+      text,
+    )
   ) {
     return 'confirmation'
   }
@@ -989,6 +1345,20 @@ function actionFollowsIntent({
         'clarification_question',
         'factual_response',
       ],
+      deferral: [
+        'confirmation',
+        'factual_response',
+        'clarification_question',
+        'objection_probe',
+        'follow_up',
+        'reengagement',
+      ],
+      disengaged: [
+        'confirmation',
+        'factual_response',
+        'clarification_question',
+        'reengagement',
+      ],
       unknown: [],
     }
 
@@ -1173,6 +1543,298 @@ function orderedMessages(
   )
 }
 
+// Intervalo máximo entre bolhas do vendedor para que ainda sejam a mesma
+// ação (rajada). Ofertas em várias mensagens costumam sair em segundos ou
+// poucos minutos; um novo envio depois disso é um novo turno/follow-up.
+export const SELLER_TURN_BURST_GAP_MS =
+  10 * 60 * 1000
+
+function timestampOf(
+  message: Pick<
+    DiagnosticInputMessage,
+    'occurred_at'
+  >,
+): number | null {
+  const parsed =
+    Date.parse(
+      message.occurred_at,
+    )
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : null
+}
+
+function comparableTokens(
+  value: string,
+): string[] {
+  return normalizeText(value)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(
+      token =>
+        token.length >= 3,
+    )
+}
+
+function nearlySameText(
+  left: string,
+  right: string,
+): boolean {
+  const leftTokens =
+    comparableTokens(left)
+
+  const rightTokens =
+    comparableTokens(right)
+
+  if (
+    leftTokens.length === 0 ||
+    rightTokens.length === 0
+  ) {
+    return (
+      normalizeText(left) ===
+      normalizeText(right)
+    )
+  }
+
+  const rightSet =
+    new Set(rightTokens)
+
+  const shared =
+    leftTokens.filter(
+      token =>
+        rightSet.has(token),
+    ).length
+
+  return (
+    shared /
+      Math.max(
+        leftTokens.length,
+        rightTokens.length,
+      ) >=
+    0.8
+  )
+}
+
+const DOMINANT_ACTION_PRIORITY:
+  readonly SellerExecutionActionType[] = [
+    'close_request',
+    'price_presentation',
+    'product_presentation',
+    'stage_jump_unrelated_offer',
+    'pressure_or_false_urgency',
+    'scheduling_guided_choice',
+    'scheduling_open_question',
+    'objection_probe',
+    'objection_response',
+    'discovery_question',
+    'qualification_question',
+    'reengagement',
+    'follow_up',
+    'commitment_request',
+    'value_explanation',
+    'factual_proof',
+    'clarification_question',
+    'factual_response',
+    'confirmation',
+    'rapport_opening',
+    'unknown',
+  ]
+
+const CONFIDENCE_RANK:
+  Record<
+    SellerExecutionConfidence,
+    number
+  > = {
+    high: 3,
+    medium: 2,
+    low: 1,
+  }
+
+function strongestIntent(
+  intents:
+    readonly SellerExecutionCustomerIntent[],
+): SellerExecutionCustomerIntent | null {
+  return [...intents]
+    .filter(
+      intent =>
+        intent.kind !== 'unknown',
+    )
+    .sort(
+      (left, right) =>
+        CONFIDENCE_RANK[
+          right.confidence
+        ] -
+        CONFIDENCE_RANK[
+          left.confidence
+        ],
+    )[0] ?? null
+}
+
+const TURN_NEGATIVE_SIGNALS:
+  readonly SellerExecutionSignal[] = [
+    'sequence_break',
+    'premature_product_offer',
+    'duplicate_followup',
+    'late_discovery_after_close_intent',
+  ]
+
+function buildSellerTurns({
+  events,
+  drafts,
+}: {
+  events: SellerExecutionEvent[]
+  drafts: Array<{
+    event_indexes: number[]
+    responds_to: DiagnosticInputMessage[]
+    pending_intents: SellerExecutionCustomerIntent[]
+  }>
+}): SellerExecutionTurn[] {
+  return drafts
+    .filter(
+      draft =>
+        draft.event_indexes.length > 0,
+    )
+    .map((draft, index) => {
+      const turnEvents =
+        draft.event_indexes.map(
+          eventIndex =>
+            events[eventIndex],
+        )
+
+      const actionTypes =
+        unique(
+          turnEvents.map(
+            event =>
+              event.action_type,
+          ),
+        )
+
+      const dominant =
+        DOMINANT_ACTION_PRIORITY.find(
+          action =>
+            actionTypes.includes(
+              action,
+            ),
+        ) ?? 'unknown'
+
+      const pendingIntent =
+        strongestIntent(
+          draft.pending_intents,
+        )
+
+      // Um turno endereça o pedido quando pelo menos uma ação dele segue a
+      // intenção pendente com conteúdo (não só saudação/confirmação).
+      const addressesRequest =
+        !pendingIntent ||
+        pendingIntent.kind ===
+          'disengaged'
+          ? null
+          : turnEvents.some(
+              event =>
+                event.sequence
+                  .follows_previous_context ===
+                  true &&
+                event.action_type !==
+                  'rapport_opening' &&
+                event.action_type !==
+                  'confirmation',
+            )
+
+      const negativeSignals =
+        unique([
+          ...turnEvents.flatMap(
+            event =>
+              event.signals.filter(
+                signal =>
+                  TURN_NEGATIVE_SIGNALS.includes(
+                    signal,
+                  ),
+              ),
+          ),
+          ...(
+            addressesRequest === false &&
+            pendingIntent &&
+            pendingIntent.confidence !==
+              'low'
+              ? [
+                  'request_not_addressed' as const,
+                ]
+              : []
+          ),
+        ])
+
+      if (
+        negativeSignals.includes(
+          'request_not_addressed',
+        )
+      ) {
+        const lastEvent =
+          turnEvents[
+            turnEvents.length - 1
+          ]
+
+        if (
+          !lastEvent.signals.includes(
+            'request_not_addressed',
+          )
+        ) {
+          lastEvent.signals.push(
+            'request_not_addressed',
+          )
+        }
+      }
+
+      const firstEvent =
+        turnEvents[0]
+
+      const lastEvent =
+        turnEvents[
+          turnEvents.length - 1
+        ]
+
+      return {
+        turn_id:
+          `turn-${index + 1}`,
+        message_ids:
+          turnEvents.map(
+            event =>
+              event.message_id,
+          ),
+        started_at:
+          firstEvent.occurred_at,
+        ended_at:
+          lastEvent.occurred_at,
+        action_types:
+          actionTypes,
+        dominant_action_type:
+          dominant,
+        responds_to_customer_message_ids:
+          draft.responds_to.map(
+            message =>
+              message.id,
+          ),
+        pending_customer_intent:
+          pendingIntent,
+        addresses_customer_request:
+          addressesRequest,
+        response_latency_ms:
+          firstEvent.timing
+            .response_latency_ms,
+        negative_signals:
+          negativeSignals,
+        breaks_active_customer_goal:
+          turnEvents.some(
+            event =>
+              event.sequence
+                .breaks_active_customer_goal,
+          ),
+        observed_outcome:
+          lastEvent.observed_outcome,
+      }
+    })
+}
+
 export function buildSellerExecutionTrace({
   diagnostic_input,
 }: {
@@ -1197,8 +1859,35 @@ export function buildSellerExecutionTrace({
 
   let latestCustomerText = ''
 
+  let lastSellerText = ''
+
+  let lastSellerOccurredAt:
+    number | null =
+      null
+
+  let previousMessageOccurredAt:
+    number | null =
+      null
+
+  let pendingCustomerMessages:
+    DiagnosticInputMessage[] = []
+
+  let pendingCustomerIntents:
+    SellerExecutionCustomerIntent[] = []
+
+  let currentTurnIndex = -1
+
   const events:
     SellerExecutionEvent[] = []
+
+  const customerSignals:
+    SellerExecutionCustomerSignal[] = []
+
+  const turnDrafts: Array<{
+    event_indexes: number[]
+    responds_to: DiagnosticInputMessage[]
+    pending_intents: SellerExecutionCustomerIntent[]
+  }> = []
 
   for (
     let index = 0;
@@ -1231,8 +1920,63 @@ export function buildSellerExecutionTrace({
       latestCustomerText =
         messageText(message)
 
+      const timeReference =
+        detectCustomerTimeReference(
+          latestCustomerText,
+        )
+
+      const enthusiasm =
+        expressesEnthusiasm(
+          latestCustomerText,
+        )
+
+      if (
+        inferredCustomerIntent.kind !==
+          'unknown' ||
+        timeReference !== null ||
+        enthusiasm
+      ) {
+        customerSignals.push({
+          message_id:
+            message.id,
+          occurred_at:
+            message.occurred_at,
+          kind:
+            inferredCustomerIntent.kind,
+          confidence:
+            inferredCustomerIntent.confidence,
+          time_reference:
+            timeReference,
+          expressed_enthusiasm:
+            enthusiasm,
+        })
+      }
+
+      if (
+        !customerMessageSinceLastSeller
+      ) {
+        pendingCustomerMessages = []
+        pendingCustomerIntents = []
+      }
+
+      pendingCustomerMessages.push(
+        message,
+      )
+
+      if (
+        inferredCustomerIntent.kind !==
+          'unknown'
+      ) {
+        pendingCustomerIntents.push(
+          inferredCustomerIntent,
+        )
+      }
+
       customerMessageSinceLastSeller =
         true
+
+      previousMessageOccurredAt =
+        timestampOf(message)
 
       continue
     }
@@ -1254,6 +1998,56 @@ export function buildSellerExecutionTrace({
         text,
       )
 
+    const occurredAt =
+      timestampOf(message)
+
+    // Mesma rajada = mensagens contíguas do vendedor, sem fala do cliente
+    // entre elas e com intervalo curto. Bolhas de uma mesma oferta formam
+    // UMA ação; follow-up em outro momento é um turno novo.
+    const sameBurst =
+      !customerMessageSinceLastSeller &&
+      lastSellerOccurredAt !== null &&
+      occurredAt !== null &&
+      occurredAt - lastSellerOccurredAt <=
+        SELLER_TURN_BURST_GAP_MS
+
+    if (
+      !sameBurst ||
+      currentTurnIndex < 0
+    ) {
+      turnDrafts.push({
+        event_indexes: [],
+        responds_to:
+          customerMessageSinceLastSeller
+            ? [
+                ...pendingCustomerMessages,
+              ]
+            : [],
+        pending_intents:
+          customerMessageSinceLastSeller
+            ? [
+                ...pendingCustomerIntents,
+              ]
+            : [],
+      })
+
+      currentTurnIndex =
+        turnDrafts.length - 1
+    }
+
+    const firstPendingCustomerMessage =
+      customerMessageSinceLastSeller
+        ? pendingCustomerMessages[0] ??
+          null
+        : null
+
+    const firstPendingAt =
+      firstPendingCustomerMessage
+        ? timestampOf(
+            firstPendingCustomerMessage,
+          )
+        : null
+
     const followsContext =
       actionFollowsIntent({
         action,
@@ -1261,12 +2055,35 @@ export function buildSellerExecutionTrace({
           activeCustomerIntent,
       })
 
+    // Repetição = mesma ação comercial sem resposta do cliente entre as
+    // tentativas. Dentro da mesma rajada só conta quando o conteúdo é
+    // praticamente o mesmo; partes diferentes de uma mesma oferta (planos,
+    // links, CTA) não são "follow-up duplicado".
     const repeatsPriorAction =
       !customerMessageSinceLastSeller &&
-      lastSellerAction === action
+      lastSellerAction === action &&
+      (
+        !sameBurst ||
+        nearlySameText(
+          lastSellerText,
+          text,
+        )
+      )
+
+    // Saudação e reconhecimento curto não mudam o objetivo da conversa;
+    // quando são tudo o que o vendedor respondeu a um pedido, o problema
+    // é "pedido não endereçado" (avaliado por turno), não quebra de
+    // sequência. Depois de encerramento explícito do cliente também não
+    // existe mais objetivo ativo a ser "quebrado".
+    const acknowledgementOnly =
+      action === 'rapport_opening' ||
+      action === 'confirmation'
 
     const sequenceBreakFromIntent =
       followsContext === false &&
+      !acknowledgementOnly &&
+      activeCustomerIntent?.kind !==
+        'disengaged' &&
       activeCustomerIntent?.confidence ===
         'high'
 
@@ -1504,14 +2321,63 @@ export function buildSellerExecutionTrace({
         ),
       evidence_message_ids:
         evidenceMessageIds,
+      turn_id:
+        `turn-${currentTurnIndex + 1}`,
+      timing: {
+        responds_to_customer_message_id:
+          firstPendingCustomerMessage
+            ?.id ??
+          null,
+        response_latency_ms:
+          firstPendingAt !== null &&
+          occurredAt !== null
+            ? Math.max(
+                0,
+                occurredAt -
+                  firstPendingAt,
+              )
+            : null,
+        previous_message_gap_ms:
+          previousMessageOccurredAt !==
+            null &&
+          occurredAt !== null
+            ? Math.max(
+                0,
+                occurredAt -
+                  previousMessageOccurredAt,
+              )
+            : null,
+      },
     })
+
+    turnDrafts[
+      currentTurnIndex
+    ].event_indexes.push(
+      events.length - 1,
+    )
 
     lastSellerAction =
       action
 
+    lastSellerText =
+      text
+
+    lastSellerOccurredAt =
+      occurredAt
+
+    previousMessageOccurredAt =
+      occurredAt
+
     customerMessageSinceLastSeller =
       false
   }
+
+  const turns =
+    buildSellerTurns({
+      events,
+      drafts:
+        turnDrafts,
+    })
 
   const classifiedMessageCount =
     events.filter(
@@ -1564,5 +2430,8 @@ export function buildSellerExecutionTrace({
         ),
     },
     events,
+    turns,
+    customer_signals:
+      customerSignals,
   }
 }

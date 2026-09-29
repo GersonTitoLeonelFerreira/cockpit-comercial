@@ -21,6 +21,10 @@ import {
 } from './stateful-copilot-supabase-reader'
 
 import {
+  inferCustomerIntentFromText,
+} from './seller-execution-trace'
+
+import {
   buildDurableMemorySeedFromPriorState,
   type DurableMemorySeed,
 } from './durable-memory-seed'
@@ -53,6 +57,28 @@ const STATEFUL_DIAGNOSTIC_MAX_MESSAGES =
 
 const STATEFUL_DIAGNOSTIC_CONTEXT_BRIDGE_MESSAGES =
   6
+
+// Conversas distribuídas por vários dias: a ponte curta pode deixar de fora
+// justamente o pedido comercial que originou a oportunidade (ex.: cliente
+// pediu uma experiência há semanas; a sessão atual é só uma oferta do
+// vendedor). Até N pedidos comerciais explícitos do cliente anteriores à
+// ponte entram como âncora, cada um com a resposta imediata do vendedor —
+// sem abrir a janela inteira e sem mudar a causalidade (ordem canônica).
+const STATEFUL_DIAGNOSTIC_INTENT_ANCHORS =
+  3
+
+const ANCHOR_INTENT_KINDS =
+  new Set([
+    'scheduling',
+    'close',
+    'payment_objection',
+    'objection',
+    'pricing',
+    'product_interest',
+    'third_party_interest',
+    'deferral',
+    'disengaged',
+  ])
 
 const COMPANY_FIELDS = `
   id,
@@ -1704,9 +1730,114 @@ export function selectStatefulDiagnosticMessages(
           )
       : []
 
+  const alreadySelected =
+    new Set(
+      [
+        ...bridgeMessages,
+        ...currentSession,
+      ].map(
+        message =>
+          message.id,
+      ),
+    )
+
+  const anchorCapacity =
+    Math.max(
+      0,
+      STATEFUL_DIAGNOSTIC_MAX_MESSAGES -
+        alreadySelected.size,
+    )
+
+  const anchorMessages:
+    NormalizedLedgerMessage[] = []
+
+  let anchorCount = 0
+
+  const anchorStartIndex =
+    bridgeEndIndex >= 0
+      ? bridgeEndIndex -
+        bridgeCount
+      : -1
+
+  for (
+    let index = anchorStartIndex;
+    index >= 0 &&
+    anchorCount <
+      STATEFUL_DIAGNOSTIC_INTENT_ANCHORS &&
+    anchorMessages.length + 2 <=
+      anchorCapacity;
+    index -= 1
+  ) {
+    const candidate =
+      orderedByActivity[index]
+        .message
+
+    if (
+      candidate.direction !==
+        'incoming' ||
+      candidate.is_deleted ||
+      alreadySelected.has(
+        candidate.id,
+      )
+    ) {
+      continue
+    }
+
+    const intent =
+      inferCustomerIntentFromText(
+        candidate.text_content ??
+          candidate.audio_transcription ??
+          '',
+        candidate.id,
+      )
+
+    if (
+      !ANCHOR_INTENT_KINDS.has(
+        intent.kind,
+      ) ||
+      intent.confidence === 'low'
+    ) {
+      continue
+    }
+
+    anchorCount += 1
+
+    anchorMessages.push(
+      candidate,
+    )
+
+    const reply =
+      orderedByActivity
+        .slice(index + 1)
+        .map(
+          item =>
+            item.message,
+        )
+        .find(
+          message =>
+            message.direction ===
+              'outgoing',
+        )
+
+    if (
+      reply &&
+      !alreadySelected.has(
+        reply.id,
+      ) &&
+      !anchorMessages.includes(
+        reply,
+      )
+    ) {
+      anchorMessages.push(
+        reply,
+      )
+    }
+  }
+
   const selectedIds =
     new Set(
       [
+        ...anchorMessages,
         ...bridgeMessages,
         ...currentSession,
       ].map(

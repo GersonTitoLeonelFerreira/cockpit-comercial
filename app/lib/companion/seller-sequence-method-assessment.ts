@@ -12,6 +12,10 @@ import type {
   SellerExecutionTrace,
 } from './seller-execution-trace'
 
+import type {
+  CommercialTemporalContext,
+} from './commercial-temporal-context'
+
 export const SELLER_SEQUENCE_METHOD_ASSESSMENT_VERSION =
   'seller-sequence-method-assessment-v1' as const
 
@@ -26,7 +30,12 @@ export type SellerSequenceMethodAssessment = {
   sequence: {
     break_detected: boolean
     duplicate_action_detected: boolean
+    // Espera ATUAL: estrutura (vendedor agiu, sem resposta) E tempo ainda
+    // dentro do ritmo normal. Depois que o tempo expira a espera, deixar de
+    // agir vira abandono — não disciplina.
     waiting_for_customer: boolean
+    // Somente a estrutura, independente do tempo (proveniência).
+    structural_waiting_for_customer: boolean
     customer_fact_after_action: boolean
     last_seller_message_id: string | null
   }
@@ -88,11 +97,14 @@ export function buildSellerSequenceMethodAssessment({
   reading,
   diagnostic_input,
   trace,
+  temporal = null,
 }: {
   reading: CommercialReading
   diagnostic_input:
     CompanionDiagnosticInput
   trace: SellerExecutionTrace
+  temporal?:
+    CommercialTemporalContext | null
 }): SellerSequenceMethodAssessment {
   const situations: string[] = []
   const signals: string[] = []
@@ -143,7 +155,7 @@ export function buildSellerSequenceMethodAssessment({
       'customer_rejected_options',
     )
 
-  const waitingForCustomer =
+  const structuralWaitingForCustomer =
     Boolean(
       lastEvent &&
       lastEvent.target_commitment &&
@@ -153,6 +165,23 @@ export function buildSellerSequenceMethodAssessment({
         .breaks_active_customer_goal &&
       !sequenceBreak,
     )
+
+  const temporalMode =
+    temporal?.reactivation.mode ??
+    null
+
+  const timeExpiredTheWait =
+    temporalMode === 'reactivate' ||
+    temporalMode ===
+      'light_follow_up' ||
+    temporalMode ===
+      'recover_delay' ||
+    temporalMode ===
+      'respect_closure'
+
+  const waitingForCustomer =
+    structuralWaitingForCustomer &&
+    !timeExpiredTheWait
 
   const customerFactAfterAction =
     Boolean(
@@ -339,6 +368,58 @@ export function buildSellerSequenceMethodAssessment({
     )
   }
 
+  if (
+    hasSignal(
+      trace,
+      'request_not_addressed',
+    )
+  ) {
+    signals.push(
+      'request_not_addressed',
+    )
+  }
+
+  if (
+    temporal?.reactivation
+      .requalify_before_continuing
+  ) {
+    restrictions.push(
+      'Não tratar a intenção antiga do cliente como confirmada: reconfirmar o interesse atual antes de pedir data, escolha, pagamento ou outro compromisso operacional.',
+    )
+  }
+
+  if (
+    structuralWaitingForCustomer &&
+    timeExpiredTheWait &&
+    temporalMode !==
+      'respect_closure'
+  ) {
+    restrictions.push(
+      'Não reenviar a mesma pergunta ou pedido que ficou sem resposta; a retomada precisa mudar o microcompromisso.',
+    )
+  }
+
+  if (
+    temporal?.reactivation
+      .outbound_unanswered_turns !==
+      undefined &&
+    temporal.reactivation
+      .outbound_unanswered_turns >= 2
+  ) {
+    restrictions.push(
+      'Não repetir o mesmo tipo de mensagem que já ficou sem resposta (oferta, lista, cobrança ou pergunta operacional).',
+    )
+  }
+
+  if (
+    temporalMode ===
+      'respect_closure'
+  ) {
+    restrictions.push(
+      'Não insistir em oferta, desconto ou urgência depois de o cliente declarar que encerrou ou resolveu por outro caminho.',
+    )
+  }
+
   const publishedMethod =
     diagnostic_input
       .commercial_context
@@ -407,6 +488,8 @@ export function buildSellerSequenceMethodAssessment({
         duplicateAction,
       waiting_for_customer:
         waitingForCustomer,
+      structural_waiting_for_customer:
+        structuralWaitingForCustomer,
       customer_fact_after_action:
         customerFactAfterAction,
       last_seller_message_id:

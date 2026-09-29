@@ -246,6 +246,195 @@ export const GENERAL_COMMERCIAL_INTELLIGENCE_LIBRARY:
     ],
   }),
 
+  // -------------------------------------------------------------------
+  // Reativação e recuperação de momentum — competência comercial própria.
+  // Selecionadas pelo contexto temporal canônico (momentum, frescor da
+  // intenção, tentativas sem resposta), nunca por vertical ou palavra-chave.
+  // -------------------------------------------------------------------
+  generalEntry({
+    id: 'technique.state_change_reactivation',
+    kind: 'technique',
+    title: 'Reativação por mudança de estado',
+    objective:
+      'Recuperar uma oportunidade dormente descobrindo o estado ATUAL do interesse antes de retomar o fluxo antigo.',
+    description:
+      'Relembra de forma concreta o que o cliente estava avaliando (recuperação de contexto) e faz uma única pergunta de baixo esforço sobre o que mudou desde então — continua, adiou, resolveu ou mudou de ideia —, sem tratar a intenção antiga como atual.',
+    situations: [
+      'reactivation',
+    ],
+    signals: [
+      'dormant_opportunity',
+      'stale_customer_intent',
+      'requalification_needed',
+      'intent_time_window_expired',
+      'reactivation_needed',
+    ],
+    when_to_use: [
+      'A última manifestação do cliente é antiga, a conversa perdeu continuidade e não há confirmação de que o interesse continua.',
+      'O próximo passo operacional anterior (data, horário, proposta) pode ter ficado superado pelo tempo.',
+    ],
+    when_not_to_use: [
+      'O cliente respondeu recentemente e a conversa está ativa.',
+      'O cliente declarou explicitamente que encerrou ou resolveu por outro caminho.',
+    ],
+    risks: [
+      'Soar como cobrança se a pergunta pedir decisão em vez de estado.',
+      'Presumir que o interesse continua ou que foi perdido sem evidência.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente pediu uma demonstração há semanas, não respondeu à tentativa de agendamento e depois recebeu uma oferta sem retorno.',
+        application:
+          'Relembrar a demonstração que ela quis fazer e perguntar como ficou essa avaliação desde então, sem pedir data nem reenviar oferta.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.permission_based_reengagement',
+    kind: 'technique',
+    title: 'Retomada com permissão',
+    objective:
+      'Reabrir a conversa pedindo permissão para retomar, reduzindo pressão depois de tentativas sem resposta.',
+    description:
+      'Reconhece que o próximo passo ficou em aberto e pergunta, de forma simples e fácil de responder, se ainda faz sentido retomar — preservando a autonomia do cliente e oferecendo uma saída sem constrangimento.',
+    situations: [
+      'reactivation',
+      'follow_up_cadence',
+    ],
+    signals: [
+      'seller_outbound_streak',
+      'cooling_conversation',
+      'reactivation_needed',
+    ],
+    when_to_use: [
+      'Já existem tentativas do vendedor sem resposta e insistir no mesmo pedido aumentaria pressão.',
+      'A conversa esfriou mas ainda há intenção recente o bastante para ser retomada.',
+    ],
+    when_not_to_use: [
+      'O cliente está aguardando uma resposta do vendedor.',
+      'A conversa está ativa e o cliente acabou de responder.',
+    ],
+    risks: [
+      'Pergunta genérica de "ainda tem interesse?" sem contexto concreto soa automática.',
+    ],
+    examples: [
+      {
+        situation:
+          'Vendedor enviou duas mensagens sobre uma proposta e não houve resposta.',
+        application:
+          'Retomar a proposta pelo que o cliente buscava e perguntar se ainda faz sentido conversar sobre isso agora.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.pattern_interrupt_reengagement',
+    kind: 'technique',
+    title: 'Quebra de padrão na retomada',
+    objective:
+      'Mudar o formato da abordagem quando o mesmo tipo de mensagem já foi enviado sem resposta.',
+    description:
+      'Em vez de repetir oferta, lista ou cobrança, envia uma mensagem curta, diferente das anteriores e ancorada no que o próprio cliente trouxe, com uma única pergunta fácil de responder.',
+    situations: [
+      'reactivation',
+      'follow_up_cadence',
+    ],
+    signals: [
+      'seller_outbound_streak',
+      'dormant_opportunity',
+      'reactivation_needed',
+    ],
+    when_to_use: [
+      'Há duas ou mais tentativas seguidas do vendedor sem resposta, especialmente com conteúdo longo ou promocional.',
+    ],
+    when_not_to_use: [
+      'Ainda não houve nenhuma tentativa sem resposta.',
+      'O cliente trouxe fato novo que exige resposta direta.',
+    ],
+    risks: [
+      'Confundir quebra de padrão com mensagem chamativa, curiosidade artificial ou urgência falsa.',
+    ],
+    examples: [
+      {
+        situation:
+          'Depois de uma pergunta de agenda sem resposta, o vendedor enviou uma oferta extensa com links; o cliente segue em silêncio.',
+        application:
+          'Não reenviar oferta; enviar uma frase curta que recupera o objetivo original do cliente e pergunta algo simples sobre o momento atual dele.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.delayed_response_recovery',
+    kind: 'technique',
+    title: 'Recuperação de resposta atrasada',
+    objective:
+      'Responder ao cliente que ficou esperando, reconhecendo o atraso sem desculpas longas e tratando o pedido original.',
+    description:
+      'Quando a próxima resposta era do vendedor e o tempo passou, a mensagem reconhece brevemente a demora, responde ao que o cliente pediu e, se o momento indicado pelo cliente já passou, confirma o que ainda faz sentido agora.',
+    situations: [
+      'delayed_response_recovery',
+    ],
+    signals: [
+      'customer_waiting_for_seller',
+      'seller_response_delayed',
+      'high_intent_response_delayed',
+    ],
+    when_to_use: [
+      'O cliente fez uma pergunta ou pedido e o vendedor ainda não respondeu depois de um intervalo relevante.',
+    ],
+    when_not_to_use: [
+      'A resposta do vendedor já foi enviada e a próxima ação está com o cliente.',
+    ],
+    risks: [
+      'Fingir que nenhum tempo passou e responder como se o pedido tivesse sido feito agora.',
+      'Transformar a desculpa em justificativa longa que desvia do pedido.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente pediu uma visita para "amanhã" e ficou quatro dias sem resposta.',
+        application:
+          'Reconhecer a demora em uma frase, retomar a visita pedida e perguntar se ainda faz sentido marcá-la, sem presumir a data antiga.',
+      },
+    ],
+  }),
+
+  generalEntry({
+    id: 'technique.respectful_closure',
+    kind: 'technique',
+    title: 'Encerramento respeitoso',
+    objective:
+      'Respeitar a decisão do cliente de encerrar ou de resolver por outro caminho, preservando a relação sem pressão.',
+    description:
+      'Quando o cliente declarou que resolveu, contratou em outro lugar ou não tem mais interesse, a condução correta é agradecer, respeitar a decisão e, no máximo, deixar a porta aberta — nunca insistir na oferta.',
+    situations: [
+      'closed_by_customer',
+    ],
+    signals: [
+      'opportunity_closed_by_customer',
+    ],
+    when_to_use: [
+      'Há declaração explícita do cliente de encerramento ou de solução por outro caminho.',
+    ],
+    when_not_to_use: [
+      'O cliente só está em silêncio — silêncio não é encerramento.',
+    ],
+    risks: [
+      'Tentar reverter a decisão com oferta ou urgência.',
+    ],
+    examples: [
+      {
+        situation:
+          'Cliente informa que já fechou com outro fornecedor.',
+        application:
+          'Agradecer, desejar sucesso e dizer que fica disponível caso algo mude — sem nova proposta.',
+      },
+    ],
+  }),
+
   generalEntry({
     id: 'technique.commitment_wait',
     kind: 'technique',

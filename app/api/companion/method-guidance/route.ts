@@ -557,6 +557,15 @@ export async function POST(request: Request) {
               diagnostic_input:
                 reasoningBundle
                   .diagnostic_input,
+              evaluated_at:
+                canonicalContext
+                  .reference_time,
+              cycle_state:
+                canonicalContext.state_read
+                  .mode === 'found'
+                  ? canonicalContext
+                      .state_read.state
+                  : null,
             })
           : null
 

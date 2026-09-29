@@ -18,6 +18,11 @@ import type {
   SellerSequenceMethodAssessment,
 } from './seller-sequence-method-assessment'
 
+import type {
+  CommercialReactivationMode,
+  CommercialTemporalContext,
+} from './commercial-temporal-context'
+
 export const COMMERCIAL_TECHNIQUES_ENGINE_VERSION =
   'commercial-techniques-engine-v1' as const
 
@@ -61,6 +66,20 @@ export type CommercialTechniqueContext = {
         'summary'
       ]['active_customer_intent']
     has_open_objection: boolean
+  }
+
+  // Leitura temporal canônica: o tempo decide se a espera ainda é espera,
+  // se a intenção ainda pode ser tratada como atual e se o próximo passo é
+  // reativação, recuperação de atraso ou encerramento respeitoso.
+  temporal: {
+    reactivation_mode:
+      CommercialReactivationMode
+    requalify_before_continuing: boolean
+    outbound_unanswered_turns: number
+    momentum_state:
+      CommercialTemporalContext[
+        'momentum'
+      ]['state'] | null
   }
 
   signals: string[]
@@ -292,6 +311,183 @@ function buildDecision({
     }
   }
 
+  const temporalMode =
+    context.temporal
+      .reactivation_mode
+
+  const reactivationMoment =
+    temporalMode === 'reactivate' ||
+    temporalMode ===
+      'light_follow_up'
+
+  if (
+    id ===
+      'technique.state_change_reactivation'
+  ) {
+    if (
+      !(
+        temporalMode ===
+          'reactivate' ||
+        (
+          temporalMode ===
+            'light_follow_up' &&
+          context.temporal
+            .requalify_before_continuing
+        )
+      )
+    ) {
+      return {
+        intelligence_id:
+          id,
+        status: 'conditional',
+        score:
+          ranked.score,
+        reasons,
+        unmet_requirements: [
+          'dormant_or_requalification_context_required',
+        ],
+      }
+    }
+  }
+
+  if (
+    id ===
+      'technique.permission_based_reengagement' &&
+    !(
+      reactivationMoment &&
+      context.temporal
+        .outbound_unanswered_turns >= 1
+    )
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'unanswered_seller_attempt_required',
+      ],
+    }
+  }
+
+  if (
+    id ===
+      'technique.pattern_interrupt_reengagement' &&
+    !(
+      reactivationMoment &&
+      context.temporal
+        .outbound_unanswered_turns >= 2
+    )
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'repeated_unanswered_attempts_required',
+      ],
+    }
+  }
+
+  if (
+    id ===
+      'technique.delayed_response_recovery' &&
+    temporalMode !==
+      'recover_delay'
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'customer_waiting_for_late_seller_response_required',
+      ],
+    }
+  }
+
+  if (
+    id ===
+      'technique.respectful_closure' &&
+    temporalMode !==
+      'respect_closure'
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'conditional',
+      score:
+        ranked.score,
+      reasons,
+      unmet_requirements: [
+        'explicit_customer_closure_required',
+      ],
+    }
+  }
+
+  // Técnicas que executam o compromisso operacional pressupõem intenção
+  // atual. Quando o tempo tornou a intenção incerta, primeiro é preciso
+  // reconfirmar o interesse — pedir data, escolha ou fechamento agora
+  // trataria a intenção antiga como confirmada.
+  if (
+    context.temporal
+      .requalify_before_continuing &&
+    [
+      'technique.guided_choice',
+      'technique.explicit_close_execution',
+      'technique.commitment_ladder',
+      'technique.discovery_before_prescription',
+      'technique.value_linkage',
+      'technique.comparison_by_criteria',
+    ].includes(id)
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'blocked',
+      score:
+        ranked.score,
+      reasons: [
+        ...reasons,
+        'O interesse atual do cliente não está confirmado depois do intervalo; avançar o compromisso antigo agora trataria intenção histórica como atual.',
+      ],
+      unmet_requirements: [
+        'current_intent_must_be_reconfirmed',
+      ],
+    }
+  }
+
+  if (
+    temporalMode ===
+      'respect_closure' &&
+    id !==
+      'technique.respectful_closure' &&
+    id !==
+      'principle.company_rules_before_claim'
+  ) {
+    return {
+      intelligence_id:
+        id,
+      status: 'blocked',
+      score:
+        ranked.score,
+      reasons: [
+        ...reasons,
+        'O cliente encerrou explicitamente; insistir com outra técnica comercial seria pressão.',
+      ],
+      unmet_requirements: [
+        'customer_closed_opportunity',
+      ],
+    }
+  }
+
   if (
     id ===
       'technique.guided_choice'
@@ -354,6 +550,27 @@ function buildDecision({
     id ===
       'technique.commitment_wait'
   ) {
+    if (
+      reactivationMoment ||
+      temporalMode ===
+        'recover_delay'
+    ) {
+      return {
+        intelligence_id:
+          id,
+        status: 'blocked',
+        score:
+          ranked.score,
+        reasons: [
+          ...reasons,
+          'O intervalo sem resposta já ultrapassou a espera normal; continuar esperando deixaria a oportunidade sem continuidade.',
+        ],
+        unmet_requirements: [
+          'wait_window_expired',
+        ],
+      }
+    }
+
     if (
       context.sequence
         .customer_fact_after_action
@@ -448,7 +665,8 @@ function buildDecision({
       contains(
         context.situations,
         'duplicate_followup',
-      )
+      ) ||
+      reactivationMoment
 
     if (!hasRecoverySignal) {
       return {
@@ -775,6 +993,7 @@ export function buildCommercialTechniqueContext({
   sequence_method,
   reading_signals = [],
   reading_situations = [],
+  temporal = null,
 }: {
   reading: CommercialReading
   diagnostic_input:
@@ -784,6 +1003,8 @@ export function buildCommercialTechniqueContext({
     SellerSequenceMethodAssessment
   reading_signals?: string[]
   reading_situations?: string[]
+  temporal?:
+    CommercialTemporalContext | null
 }): CommercialTechniqueContext {
   const scheduleOptions =
     groundedSchedulingOptions(
@@ -846,6 +1067,13 @@ export function buildCommercialTechniqueContext({
     )
   }
 
+  const temporalMode =
+    temporal?.reactivation.mode ??
+    'none'
+
+  // A leitura persistida pode ter recomendado esperar num momento em que a
+  // espera era normal; depois que o tempo expirou essa espera, ela não
+  // pode continuar mandando esperar.
   const readingWaitsForCustomer =
     (
       reading.best_approach
@@ -854,7 +1082,12 @@ export function buildCommercialTechniqueContext({
         .decision === 'give_space'
     ) &&
     !sequence_method.sequence
-      .customer_fact_after_action
+      .customer_fact_after_action &&
+    ![
+      'reactivate',
+      'light_follow_up',
+      'recover_delay',
+    ].includes(temporalMode)
 
   return {
     contract_version:
@@ -898,15 +1131,32 @@ export function buildCommercialTechniqueContext({
           .customer_objections.length >
           0,
     },
+    temporal: {
+      reactivation_mode:
+        temporalMode,
+      requalify_before_continuing:
+        temporal?.reactivation
+          .requalify_before_continuing ??
+        false,
+      outbound_unanswered_turns:
+        temporal?.reactivation
+          .outbound_unanswered_turns ??
+        0,
+      momentum_state:
+        temporal?.momentum.state ??
+        null,
+    },
     signals:
       unique([
         ...reading_signals,
         ...sequence_method.signals,
+        ...(temporal?.signals ?? []),
       ]),
     situations:
       unique([
         ...reading_situations,
         ...sequence_method.situations,
+        ...(temporal?.situations ?? []),
       ]),
   }
 }

@@ -38,6 +38,9 @@ import type {
  * - FASE 16.9: responsabilidade operacional determinística (quem está
  *   aguardando quem) reconcilia a decisão final para impedir que um gap de
  *   descoberta mande o vendedor repetir uma ação que já foi executada.
+ * - Recuperação do especialista comercial: o raciocínio é avaliado no
+ *   instante atual do vendedor (reference_time), não no instante em que o
+ *   snapshot foi persistido — tempo decorrido muda a decisão.
  */
 export type CanonicalSellerReasoningBundle = {
   reasoning: CommercialReasoning | null
@@ -93,6 +96,11 @@ export async function loadCanonicalSellerReasoningBundle({
     }
   }
 
+  // O snapshot comercial representa o instante da última análise; o
+  // vendedor olha a venda AGORA. O silêncio entre os dois é evidência
+  // comercial (Commercial Temporal Context), e os fatos operacionais que a
+  // aba CLIENTE já mostra (relacionamento, SLA configurado) chegam ao
+  // raciocínio canônico em vez de ficarem só na interface.
   const rawReasoning =
     buildCommercialReasoning({
       reading:
@@ -101,6 +109,15 @@ export async function loadCanonicalSellerReasoningBundle({
         context.state_read.state,
       diagnostic_input:
         snapshot.input,
+      evaluated_at:
+        context.reference_time,
+      operational_context: {
+        relationship:
+          context.client_context
+            .relationship,
+        sla:
+          context.client_context.sla,
+      },
     })
 
   const reasoning =

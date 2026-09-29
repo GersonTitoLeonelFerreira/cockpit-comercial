@@ -9,6 +9,10 @@ import type {
   CommercialIntelligenceKind,
 } from './commercial-intelligence-contract'
 
+import type {
+  CommercialTemporalContext,
+} from './commercial-temporal-context'
+
 export const COMMERCIAL_REASONING_CONTRACT_VERSION =
   'commercial-reasoning-v1' as const
 
@@ -81,4 +85,11 @@ export type CommercialReasoning = {
   memory_ids: string[]
 
   limitations: string[]
+
+  // Leitura temporal canônica usada para esta decisão (mesma fotografia e
+  // mesmo instante avaliado). Coaching e Message Strategy consomem este
+  // campo em vez de recalcular tempo por conta própria. Opcional para
+  // compatibilidade com reasoning persistido/fixtures anteriores.
+  temporal_context?:
+    CommercialTemporalContext | null
 }

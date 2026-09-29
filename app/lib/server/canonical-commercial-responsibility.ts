@@ -155,6 +155,30 @@ export function reconcileReasoningWithCommercialResponsibility({
     return reasoning
   }
 
+  // Decisão e técnica precisam dizer a mesma coisa: quando a
+  // responsabilidade força espera, a técnica exibida também é espera — uma
+  // técnica de envio (retomada, escolha guiada) contradiria o "aguardar".
+  const waitTechnique =
+    reasoning.selected_techniques.find(
+      technique =>
+        technique.intelligence_id ===
+          'technique.commitment_wait',
+    ) ?? {
+      intelligence_id:
+        'technique.commitment_wait',
+      title:
+        'Espera disciplinada',
+      kind:
+        'technique' as const,
+      scope:
+        'general' as const,
+      why_applicable:
+        'A próxima resposta está com o cliente; repetir a mesma ação sem fato novo adicionaria pressão, não informação.',
+      risks: [
+        'Confundir espera disciplinada com abandono da oportunidade.',
+      ],
+    }
+
   return {
     ...reasoning,
     decision: 'wait',
@@ -162,6 +186,9 @@ export function reconcileReasoningWithCommercialResponsibility({
       'O vendedor já fez a pergunta ou ação necessária e agora aguarda a resposta do cliente.',
     objective_now:
       'Aguardar a resposta do cliente sem repetir a pergunta ou forçar novo avanço.',
+    selected_techniques: [
+      waitTechnique,
+    ],
     do_not_do: Array.from(
       new Set([
         'Não repetir a pergunta ou ação que o vendedor já realizou nesta interação.',
