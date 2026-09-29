@@ -1118,3 +1118,74 @@ test(
     )
   },
 )
+
+
+test(
+  'pressão já apontada pelo Commercial Reading não reaparece em additional_findings na mesma evidência',
+  () => {
+    const pressureReading =
+      reading({
+        improvements: [
+          {
+            kind:
+              'pressure',
+            summary:
+              'O vendedor pressionou a decisão antes de existir base suficiente.',
+            why_it_matters:
+              'Pressão pode reduzir confiança e autonomia do cliente.',
+            impact:
+              'O cliente pode recuar.',
+            how_to_improve:
+              'Retire a urgência não comprovada e preserve a autonomia.',
+            evidence_message_ids:
+              ['m2'],
+            memory_ids: [],
+          },
+        ],
+      })
+
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          pressureReading,
+        reasoning:
+          reasoning({
+            objective:
+              'Preservar autonomia e responder sem pressão.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Tenho interesse, mas ainda estou avaliando.',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Corre, é urgente e você não perde essa oportunidade.',
+            },
+          ]),
+      })
+
+    assert.match(
+      diagnosis.seller_mistake
+        ?.summary ?? '',
+      /pressionou a decisão/i,
+    )
+
+    assert.equal(
+      diagnosis.additional_findings
+        .some(
+          finding =>
+            finding.kind ===
+              'pressure' &&
+            finding.evidence_message_ids
+              .includes('m2'),
+        ),
+      false,
+    )
+  },
+)
