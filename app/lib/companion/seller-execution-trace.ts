@@ -258,21 +258,192 @@ function includesAny(
   )
 }
 
-// Encerramento explícito pelo cliente: resolveu, comprou/contratou em outro
-// lugar ou disse que não tem mais interesse. Verificado ANTES de fechamento
-// porque "já fiz matrícula em outra" ou "fechei com outra empresa" contêm
-// vocabulário de fechamento mas significam o oposto para esta venda.
-const DISENGAGEMENT_PATTERNS: readonly RegExp[] = [
-  /\b(ja )?(fechei|comprei|contratei|assinei|matriculei|escolhi|optei)\b.{0,30}\b(outr[oa]s?|outro lugar|la mesmo|concorrente)\b/,
+// ---------------------------------------------------------------------------
+// Postura do cliente em relação À OPORTUNIDADE (não a um atributo dela).
+//
+// REJEIÇÃO DA OPORTUNIDADE: o cliente resolveu/comprou em outro lugar, ou
+// nega continuar a própria oportunidade ("não tenho mais interesse", "não
+// quero mais falar sobre isso", "desisti", "não quero mais contratar").
+//
+// NEGAÇÃO/MUDANÇA DENTRO DA OPORTUNIDADE: a negação recai sobre uma opção,
+// atributo ou processo — trocar de plano, deixar de precisar esperar,
+// recusar um item específico — e/ou vem acompanhada de continuação positiva
+// ("quero o premium", "quero fechar agora"). Isso é oportunidade ATIVA.
+//
+// A decisão é por cláusula: primeiro identifica cláusulas de rejeição e o
+// ESCOPO do que foi negado; depois procura continuação comercial positiva no
+// restante da mensagem. Só há encerramento quando existe rejeição de escopo
+// "oportunidade" (ou resolução externa) e nenhuma continuação positiva.
+// ---------------------------------------------------------------------------
+
+export type CustomerOpportunityStance =
+  | 'rejects_opportunity'
+  | 'changes_within_opportunity'
+  | 'none'
+
+// Resolução fora desta venda: a necessidade foi atendida por outro caminho.
+const EXTERNAL_RESOLUTION_PATTERNS: readonly RegExp[] = [
+  /\b(fechei|comprei|contratei|assinei|matriculei|escolhi|optei)\b.{0,30}\b(outr[oa]s?|outro lugar|concorrente)\b/,
   /\bfiz (a )?(matricula|inscricao|compra|contratacao)\b.{0,30}\boutr[oa]s?\b/,
-  /\b(ja )?(resolvi|consegui resolver|encontrei|achei)\b.{0,20}\b(outr[oa]s?|por conta|sozinh[oa]|em outro lugar)\b/,
-  /\bnao (tenho|tenho mais) interesse\b/,
-  /\bnao (preciso|quero) mais\b/,
-  /\bnao faz mais sentido\b/,
-  /\bpode (cancelar|me tirar|tirar meu)\b/,
-  /\bdesisti\b(?!\s+de\s+(cancel|desist))/,
-  /\bvou ficar com (a )?outr[oa]\b/,
+  /\b(resolvi|consegui resolver|encontrei|achei)\b.{0,20}\b(com outr[oa]s?|em outr[oa]s?|outro lugar|por conta propria|por conta|sozinh[oa])\b/,
+  /\bvou ficar com (a |o )?outr[oa]\b/,
+  /\bja (comprei|contratei|resolvi|fechei)\b\s*$/,
 ]
+
+// Núcleos de negação de continuidade. O ESCOPO é o que vem depois.
+const REJECTION_CORE =
+  /\b(nao (quero|preciso|vou (querer|precisar)) mais|nao tenho (mais )?interesse|perdi o interesse|nao faz mais sentido|desisti|pode (cancelar|me tirar|tirar meu)|nao (quero|preciso) mais nada)\b(.*)$/
+
+// Verbos de processo: negar "esperar", "pensar", "parcelar" muda COMO a
+// venda acontece, não SE ela acontece.
+const PROCESS_OBJECT =
+  /^\s*(de )?(esperar|aguardar|pensar|ver|avaliar|analisar|perguntar|parcelar|pagar a vista|dividir|negociar|comparar|visitar outr\w*|pesquisar)\b/
+
+// Objeto que É a própria oportunidade/conversa.
+const OPPORTUNITY_OBJECT =
+  /^\s*(,|\.|!|$|nada|isso|disso|nisso|obrigad\w*|valeu|falar\b|conversar\b|receber\b|ser contatad\w*|contato|mensage\w*|seguir\b|continuar\b|prosseguir\b|comprar\b|contratar\b|fechar\b|assinar\b|fazer\b|o servico\b\s*$|o produto\b\s*$|a proposta\b\s*$|no assunto|nesse assunto|neste assunto|em nada|em continuar|em seguir|por enquanto)/
+
+// Continuação comercial positiva (não negada) em outra cláusula.
+const POSITIVE_CONTINUATION =
+  /(^|\s)(quero|queria|prefiro|vou querer|vou (de|com|ficar com)|pode ser|bora|vamos|fecha|me (manda|envia|passa)|manda|quero fechar|quero contratar|quero seguir|tenho interesse)\b/
+
+function clausesOf(
+  normalized: string,
+): string[] {
+  return normalized
+    .split(
+      /[,.;!?]+|\b(?:mas|porem|so que|porque|pois|entao)\b/,
+    )
+    .map(
+      clause =>
+        clause.trim(),
+    )
+    .filter(Boolean)
+}
+
+export function assessCustomerOpportunityStance(
+  text: string,
+): {
+  stance: CustomerOpportunityStance
+  continuation_text: string | null
+  negated_scope: 'option' | 'process' | null
+} {
+  const normalized =
+    normalizeText(text)
+
+  // "Desisti de cancelar" é o oposto de desistir da oportunidade.
+  const sanitized =
+    normalized.replace(
+      /\bdesisti\s+de\s+(cancel|desist)\w*/g,
+      ' ',
+    )
+
+  const clauses =
+    clausesOf(sanitized)
+
+  let opportunityRejection = false
+  let scopedNegation = false
+  let negatedScope:
+    'option' | 'process' | null =
+      null
+
+  const nonRejectionClauses: string[] = []
+
+  for (const clause of clauses) {
+    const external =
+      matchesAny(
+        clause,
+        EXTERNAL_RESOLUTION_PATTERNS,
+      )
+
+    const rejection =
+      clause.match(
+        REJECTION_CORE,
+      )
+
+    if (external) {
+      opportunityRejection = true
+      continue
+    }
+
+    if (!rejection) {
+      nonRejectionClauses.push(
+        clause,
+      )
+      continue
+    }
+
+    const scope =
+      rejection[rejection.length - 1] ??
+      ''
+
+    if (
+      PROCESS_OBJECT.test(scope)
+    ) {
+      scopedNegation = true
+      negatedScope =
+        negatedScope ?? 'process'
+      continue
+    }
+
+    if (
+      OPPORTUNITY_OBJECT.test(scope) ||
+      /^\s*(nada|de nada)?\s*$/.test(scope)
+    ) {
+      opportunityRejection = true
+      continue
+    }
+
+    // Objeto específico (uma opção, item ou atributo): negação dentro da
+    // oportunidade.
+    scopedNegation = true
+    negatedScope = 'option'
+  }
+
+  const continuation =
+    nonRejectionClauses.filter(
+      clause =>
+        POSITIVE_CONTINUATION.test(
+          clause,
+        ) &&
+        !/\bnao\s+(quero|queria|prefiro|vou|tenho)\b/.test(
+          clause,
+        ),
+    )
+
+  if (continuation.length > 0) {
+    return {
+      stance:
+        opportunityRejection ||
+        scopedNegation
+          ? 'changes_within_opportunity'
+          : 'none',
+      continuation_text:
+        continuation.join(' '),
+      negated_scope:
+        negatedScope,
+    }
+  }
+
+  if (opportunityRejection) {
+    return {
+      stance:
+        'rejects_opportunity',
+      continuation_text: null,
+      negated_scope: null,
+    }
+  }
+
+  return {
+    stance:
+      scopedNegation
+        ? 'changes_within_opportunity'
+        : 'none',
+    continuation_text: null,
+    negated_scope:
+      negatedScope,
+  }
+}
 
 // Adiamento explícito com horizonte ("mês que vem", "te aviso", "vou
 // pensar"). Não é objeção nem encerramento: muda a expectativa de tempo de
@@ -364,14 +535,82 @@ function inferCustomerIntent(
       messageText(message),
     )
 
-  if (
-    matchesAny(
+  const stance =
+    assessCustomerOpportunityStance(
       text,
-      DISENGAGEMENT_PATTERNS,
     )
+
+  if (
+    stance.stance ===
+      'rejects_opportunity'
   ) {
     return {
       kind: 'disengaged',
+      confidence: 'high',
+      evidence_message_id:
+        message.id,
+    }
+  }
+
+  // Troca/negação dentro da oportunidade ("não quero mais o básico, quero o
+  // premium"; "não preciso mais esperar, quero fechar"): a intenção vem da
+  // continuação positiva, nunca da negação — não é objeção nem abandono.
+  if (
+    stance.stance ===
+      'changes_within_opportunity'
+  ) {
+    const continuation =
+      stance.continuation_text
+        ? inferCustomerIntentFromText(
+            stance.continuation_text,
+            message.id,
+          )
+        : null
+
+    if (
+      continuation &&
+      continuation.kind !== 'unknown' &&
+      continuation.kind !== 'objection' &&
+      continuation.kind !== 'disengaged'
+    ) {
+      return continuation
+    }
+
+    // Com continuação ("quero o premium"): escolha de opção. Sem
+    // continuação, recusar uma opção é resistência dentro da oportunidade;
+    // deixar de precisar de um processo ("esperar") é neutro.
+    return stance.continuation_text
+      ? {
+          kind: 'product_interest',
+          confidence: 'medium',
+          evidence_message_id:
+            message.id,
+        }
+      : stance.negated_scope ===
+          'option'
+        ? {
+            kind: 'objection',
+            confidence: 'medium',
+            evidence_message_id:
+              message.id,
+          }
+        : {
+            kind: 'unknown',
+            confidence: 'low',
+            evidence_message_id:
+              message.id,
+          }
+  }
+
+  // Continuar o processo de compra ("quero seguir com a contratação",
+  // "vamos dar andamento ao pedido") é intenção de fechamento em qualquer
+  // vertical.
+  if (
+    CLOSE_CONTINUATION.test(text) &&
+    !/\bnao (quero|vou|vamos|pretendo|posso)\b/.test(text)
+  ) {
+    return {
+      kind: 'close',
       confidence: 'high',
       evidence_message_id:
         message.id,
@@ -716,13 +955,23 @@ function containsReengagementLanguage(
   )
 }
 
-const GREETING_TOKENS =
+// Palavras de saudação e fórmulas fáticas ("tudo bem", "como vai").
+const GREETING_OPENERS =
   new Set([
     'oi',
     'oii',
     'oie',
     'ola',
     'opa',
+    'bom',
+    'boa',
+    'hey',
+    'hello',
+    'eai',
+  ])
+
+const PHATIC_TOKENS =
+  new Set([
     'bom',
     'boa',
     'dia',
@@ -741,44 +990,273 @@ const GREETING_TOKENS =
     'blz',
     'beleza',
     'prazer',
-    'hey',
-    'hello',
     'tranquilo',
+    'ok',
   ])
 
-// Saudação pura ("Olá", "Oi, Lorena!", "Bom dia, tudo bem?"). Não é
-// resposta factual nem pivô de objetivo: é abertura/rapport. Quando é tudo
-// que o vendedor responde a um pedido comercial, o problema é não endereçar
-// o pedido — não uma "quebra de sequência".
+// Partículas de nome próprio ("João da Silva").
+const NAME_PARTICLES =
+  new Set([
+    'da',
+    'de',
+    'do',
+    'dos',
+    'das',
+  ])
+
+// Palavras que NUNCA são vocativo: pronomes, artigos, verbos de ação
+// comercial, disponibilidade, oferta, proposta, agenda, preço. Uma saudação
+// seguida de qualquer uma delas é uma resposta com conteúdo, não rapport.
+const NON_VOCATIVE_WORDS =
+  new Set([
+    'a', 'o', 'as', 'os', 'um', 'uma', 'uns', 'umas',
+    'eu', 'nos', 'ele', 'ela', 'eles', 'elas', 'voces', 'vcs', 'senhor', 'senhora',
+    'me', 'te', 'se', 'lhe', 'meu', 'minha', 'seu', 'sua', 'nosso', 'nossa',
+    'aqui', 'ali', 'la', 'ja', 'sim', 'nao', 'so', 'mais', 'muito', 'pouco',
+    'que', 'qual', 'quais', 'quando', 'onde', 'quanto', 'quanta', 'porque', 'pois',
+    'para', 'pra', 'pro', 'com', 'sem', 'sobre', 'em', 'no', 'na', 'nos', 'nas', 'por', 'ate',
+    'hoje', 'amanha', 'agora', 'depois', 'ontem', 'semana', 'mes', 'horario', 'horarios',
+    'hora', 'horas', 'vaga', 'vagas', 'agenda', 'data', 'datas', 'turno', 'turma', 'turmas',
+    'temos', 'tenho', 'tem', 'ha', 'segue', 'seguem', 'sigo', 'envio', 'enviei', 'mando', 'mandei',
+    'posso', 'podemos', 'pode', 'podem', 'consigo', 'conseguimos', 'consegue',
+    'quer', 'quero', 'queria', 'gostaria', 'vamos', 'vou', 'vai', 'faz', 'fazemos', 'fica', 'ficou',
+    'agendar', 'marcar', 'reservar', 'confirmar', 'confirmado', 'confirmada', 'combinado', 'combinada',
+    'proposta', 'orcamento', 'valor', 'valores', 'preco', 'precos', 'plano', 'planos', 'pacote', 'pacotes',
+    'link', 'catalogo', 'tabela', 'oferta', 'ofertas', 'promocao', 'desconto', 'condicao', 'condicoes',
+    'disponivel', 'disponiveis', 'disponibilidade', 'livre', 'aberto', 'aberta',
+    'obrigado', 'obrigada', 'claro', 'certo', 'perfeito', 'perfeita', 'otimo', 'otima', 'entao',
+    'desculpa', 'desculpe', 'perdao', 'retorno', 'retornando', 'passando', 'tudo',
+  ])
+
+const VERB_LIKE_SUFFIX =
+  /(ar|er|ir|amos|emos|imos|ando|endo|indo|ado|ido|ei|ou|am|em)$/
+
+// Vocativo plausível: nome próprio (inicial maiúscula no texto original)
+// ou palavra minúscula que não é função gramatical, verbo nem vocabulário
+// comercial ("oi maria" é saudação; "oi temos" não).
+function isVocativeToken(
+  normalizedToken: string,
+  originalToken: string,
+): boolean {
+  if (
+    !/^[a-z]{2,}$/.test(
+      normalizedToken,
+    ) ||
+    NON_VOCATIVE_WORDS.has(
+      normalizedToken,
+    )
+  ) {
+    return false
+  }
+
+  const capitalized =
+    /^\p{Lu}/u.test(
+      originalToken,
+    )
+
+  return (
+    capitalized ||
+    !VERB_LIKE_SUFFIX.test(
+      normalizedToken,
+    )
+  )
+}
+
+// Saudação pura ("Olá", "Oi, Lorena!", "Bom dia, tudo bem?", "Olá, João
+// Silva"). Não é resposta factual nem pivô de objetivo: é abertura/rapport.
+// Só vale quando, além da saudação e das fórmulas fáticas, sobra no máximo
+// um vocativo plausível — nunca verbo, oferta, disponibilidade, agenda ou
+// pergunta não fática. "Oi, temos horários", "Olá, segue proposta" e "Oi,
+// posso agendar?" são respostas com conteúdo.
 function isPureGreeting(
   value: string,
 ): boolean {
-  const tokens =
-    normalizeText(value)
-      .replace(/[^a-z0-9\s]/g, ' ')
+  const originalTokens =
+    value
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
       .split(/\s+/)
       .filter(Boolean)
 
+  const tokens =
+    originalTokens.map(
+      token =>
+        normalizeText(token),
+    )
+
   if (
     tokens.length === 0 ||
-    tokens.length > 7 ||
-    !GREETING_TOKENS.has(
+    tokens.length > 8 ||
+    !GREETING_OPENERS.has(
       tokens[0],
     )
   ) {
     return false
   }
 
-  const nonGreeting =
-    tokens.filter(
-      token =>
-        !GREETING_TOKENS.has(
+  const remaining =
+    tokens
+      .map((token, index) => ({
+        token,
+        original:
+          originalTokens[index],
+      }))
+      .slice(1)
+      .filter(
+        ({ token }) =>
+          !PHATIC_TOKENS.has(
+            token,
+          ),
+      )
+
+  const vocative =
+    remaining.filter(
+      ({ token }) =>
+        !NAME_PARTICLES.has(
           token,
         ),
     )
 
-  // Até dois tokens livres cobrem o nome do cliente ("Olá, Lorena").
-  return nonGreeting.length <= 2
+  if (
+    vocative.length > 3 ||
+    !vocative.every(
+      ({ token, original }) =>
+        isVocativeToken(
+          token,
+          original,
+        ),
+    )
+  ) {
+    return false
+  }
+
+  // Pergunta só é aceitável quando é fática ("tudo bem?", "como vai?").
+  if (value.includes('?')) {
+    const questionPart =
+      normalizeText(
+        value.slice(
+          0,
+          value.lastIndexOf('?'),
+        ),
+      )
+
+    if (
+      !/(tudo bem|tudo bom|como vai|como (voce|vc) esta|td bem|blz|e ai)\s*$/.test(
+        questionPart
+          .replace(/[^a-z\s]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      )
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+
+const CLOSE_CONTINUATION =
+  /\b(seguir|prosseguir|continuar|avancar|dar andamento|dar continuidade|finalizar)\s+(com|a|ao|na|no)\s+(a |o )?(contratacao|compra|assinatura|adesao|matricula|inscricao|fechamento|pedido|pagamento|reserva)\b/
+
+// Fala do cliente sem conteúdo comercial: saudação, agradecimento,
+// reconhecimento, riso, emoji. Nunca prova que uma intenção antiga continua
+// atual ("Bom dia." seis dias depois de "Quero contratar." não reconfirma
+// nada).
+const CUSTOMER_PHATIC_TOKENS =
+  new Set([
+    ...GREETING_OPENERS,
+    ...PHATIC_TOKENS,
+    'obrigado', 'obrigada', 'obg', 'brigado', 'brigada', 'agradeco', 'valeu', 'vlw',
+    'certo', 'entendi', 'entendido', 'perfeito', 'perfeita', 'otimo', 'otima', 'show',
+    'top', 'legal', 'massa', 'joia', 'ta', 'tah', 'okay', 'okk', 'igualmente', 'tambem',
+    'tb', 'tbm', 'pra', 'para', 'muito', 'mto', 'kk', 'kkk', 'kkkk', 'haha', 'hehe', 'rs',
+    'rsrs', 'nada', 'de', 'disponha', 'tchau', 'ate', 'mais', 'abraco', 'abs', 'bjs', 'eh',
+  ])
+
+export function isCustomerPhaticMessage(
+  value: string,
+): boolean {
+  const trimmed =
+    value.trim()
+
+  if (!trimmed) {
+    return true
+  }
+
+  if (isPureGreeting(trimmed)) {
+    return true
+  }
+
+  const originalTokens =
+    trimmed
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .split(/\s+/)
+      .filter(Boolean)
+
+  if (originalTokens.length === 0) {
+    // Só emoji/pontuação.
+    return true
+  }
+
+  if (originalTokens.length > 10) {
+    return false
+  }
+
+  if (
+    trimmed.includes('?') &&
+    !/(tudo bem|tudo bom|como vai|como (voce|vc) esta|td bem|blz|e ai|e voce|e vc)\s*\?/.test(
+      normalizeText(trimmed),
+    )
+  ) {
+    return false
+  }
+
+  const content =
+    originalTokens.filter(
+      token =>
+        !CUSTOMER_PHATIC_TOKENS.has(
+          normalizeText(token),
+        ),
+    )
+
+  return (
+    content.length === 0 ||
+    (
+      content.length <= 2 &&
+      originalTokens.length > content.length &&
+      content.every(
+        token =>
+          !NAME_PARTICLES.has(
+            normalizeText(token),
+          ) &&
+          isVocativeToken(
+            normalizeText(token),
+            token,
+          ),
+      )
+    )
+  )
+}
+
+// Reconfirmação afirmativa de continuidade escrita pelo cliente ("Sim,
+// quero seguir", "Ainda tenho interesse", "Vamos continuar"). Negada na
+// mesma cláusula não conta.
+const AFFIRMATIVE_CONTINUATION =
+  /\b(ainda (quero|tenho interesse|estou interessad[oa]|to interessad[oa]|faz sentido|penso nisso|pretendo)|continuo interessad[oa]|sigo interessad[oa]|(quero|queremos|vamos|podemos|pode|bora|gostaria de) (sim )?(seguir|continuar|prosseguir|retomar|dar andamento|dar continuidade|avancar|fechar)|tenho interesse sim|faz sentido sim|segue fazendo sentido|quero sim|tenho sim|continua de pe|esta de pe|ta de pe)\b/
+
+export function expressesAffirmativeContinuation(
+  value: string,
+): boolean {
+  return clausesOf(
+    normalizeText(value),
+  ).some(
+    clause =>
+      AFFIRMATIVE_CONTINUATION.test(
+        clause,
+      ) &&
+      !/\bnao\b/.test(
+        clause,
+      ),
+  )
 }
 
 function isShortAcknowledgement(
@@ -1264,14 +1742,34 @@ function pressureRisk(
   return 'low'
 }
 
+// Resposta afirmativa de disponibilidade/agenda sem pergunta ("temos
+// horários", "pode vir às 18h", "consigo te encaixar amanhã").
+function answersSchedulingRequest(
+  text: string,
+): boolean {
+  const normalized =
+    normalizeText(text)
+
+  return (
+    containsSchedulingLanguage(
+      normalized,
+    ) ||
+    /\b(temos|tenho|ha) (horario|horarios|vaga|vagas|disponibilidade|agenda)\b|\b(pode vir|consigo te encaixar|te encaixo|esta disponivel|estamos disponiveis|as \d{1,2}(h|:\d{2})?)\b/.test(
+      normalized,
+    )
+  )
+}
+
 function actionFollowsIntent({
   action,
   intent,
+  text = '',
 }: {
   action:
     SellerExecutionActionType
   intent:
     SellerExecutionCustomerIntent | null
+  text?: string
 }): boolean | null {
   if (
     !intent ||
@@ -1282,6 +1780,14 @@ function actionFollowsIntent({
 
   if (
     action === 'reengagement'
+  ) {
+    return true
+  }
+
+  if (
+    intent.kind === 'scheduling' &&
+    action === 'factual_response' &&
+    answersSchedulingRequest(text)
   ) {
     return true
   }
@@ -2053,6 +2559,7 @@ export function buildSellerExecutionTrace({
         action,
         intent:
           activeCustomerIntent,
+        text,
       })
 
     // Repetição = mesma ação comercial sem resposta do cliente entre as
