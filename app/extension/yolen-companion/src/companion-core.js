@@ -258,6 +258,9 @@ function createCompanionCore(ctx) {
     get loadCustomerViewModelForCurrentCycle() {
       return loadCustomerViewModelForCurrentCycle
     },
+    get messageController() {
+      return messageController
+    },
     get messageLedgerMutationRevision() {
       return messageLedgerMutationRevision
     },
