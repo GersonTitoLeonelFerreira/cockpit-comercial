@@ -671,11 +671,32 @@ function createCompanionMessageController({
     state.feedback = null
     queueRender()
 
+    const requestKey =
+      buildRequestContextKey(
+        context.payload,
+      )
+
+    const coachingSignatureAtStart =
+      requestKey
+        ? analysisViewModelByConversation
+            .get(requestKey)
+            ?.signature ?? null
+        : null
+
     // Resposta de uma geração cujo contexto já não é o atual (troca de
-    // conversa, A→B→A, empresa ou sessão) é descartada sem tocar em nada.
+    // conversa, A→B→A, empresa ou sessão) OU cuja decisão canônica de
+    // coaching mudou enquanto o backend ainda estava em voo é descartada.
     const isStillCurrent = () =>
       isStateCurrent(context, state) &&
-      isOperationContextCurrent(context.operationContext)
+      isOperationContextCurrent(context.operationContext) &&
+      (
+        !requestKey ||
+        (
+          analysisViewModelByConversation
+            .get(requestKey)
+            ?.signature ?? null
+        ) === coachingSignatureAtStart
+      )
 
     // FASE 16.9 — a mensagem não envia mais uma orientação própria
     // (guidance_status/guidance_stage_name/guidance_next_step) ao
