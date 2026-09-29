@@ -246,3 +246,66 @@ test('troca de empresa limpa caches seller-facing da MENSAGEM antes do novo rend
     /conversationBoundary\.advanceBoundary/,
   )
 })
+
+
+test('perda de sessão e troca de vendedor limpam o coaching privado da MENSAGEM', () => {
+  const sessionStart =
+    coreRuntime.indexOf(
+      'async function loadYolenSession(options = {})',
+    )
+  const sessionEnd =
+    coreRuntime.indexOf(
+      'async function resolveCurrentLead',
+      sessionStart,
+    )
+  const block =
+    coreRuntime.slice(
+      sessionStart,
+      sessionEnd,
+    )
+
+  assert.notEqual(
+    sessionStart,
+    -1,
+  )
+
+  const lostSessionStart =
+    block.indexOf(
+      'if (!result?.ok || !result.payload?.ok) {',
+    )
+  const lostSessionEnd =
+    block.indexOf(
+      'const previousCompanyId',
+      lostSessionStart,
+    )
+  const lostSessionBlock =
+    block.slice(
+      lostSessionStart,
+      lostSessionEnd,
+    )
+
+  assert.match(
+    lostSessionBlock,
+    /messageController\.clear\(\)/,
+  )
+
+  const userChangeStart =
+    block.indexOf(
+      'lastSessionUserId !== null',
+    )
+  const userChangeEnd =
+    block.indexOf(
+      'lastSessionUserId = nextUserId',
+      userChangeStart,
+    )
+  const userChangeBlock =
+    block.slice(
+      userChangeStart,
+      userChangeEnd,
+    )
+
+  assert.match(
+    userChangeBlock,
+    /messageController\.clear\(\)/,
+  )
+})
