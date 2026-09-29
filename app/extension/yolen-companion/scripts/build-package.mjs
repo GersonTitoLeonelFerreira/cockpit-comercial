@@ -59,7 +59,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -67,7 +66,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { resizePngSquare } from './lib/png-resize.mjs'
@@ -298,8 +297,8 @@ export function parseManyChatCaptureEnabledFromSource(sourceCode) {
   return rawValue === 'true'
 }
 
-function readFeatureFlagsSourceCode(relativeSourcePath) {
-  return readFileSync(join(EXTENSION_ROOT, relativeSourcePath), 'utf8')
+function readFeatureFlagsSourceCode(relativeSourcePath, extensionRoot = EXTENSION_ROOT) {
+  return readFileSync(join(extensionRoot, relativeSourcePath), 'utf8')
 }
 
 // Defesa da FONTE (STEP 2B.1, seção 11) — roda antes de QUALQUER build
@@ -308,9 +307,9 @@ function readFeatureFlagsSourceCode(relativeSourcePath) {
 // exatamente `false` ou o e2e não for exatamente `true`. Isso é o que
 // impede alguém de editar src/manychat-feature-flags.js para `true` e
 // ainda assim conseguir gerar QUALQUER pacote — inclusive prod.
-export function assertFeatureFlagSourcesAreSafe() {
+export function assertFeatureFlagSourcesAreSafe({ extensionRoot = EXTENSION_ROOT } = {}) {
   const defaultValue = parseManyChatCaptureEnabledFromSource(
-    readFeatureFlagsSourceCode(FEATURE_FLAGS_SOURCE_DEFAULT),
+    readFeatureFlagsSourceCode(FEATURE_FLAGS_SOURCE_DEFAULT, extensionRoot),
   )
   if (defaultValue !== false) {
     throw new Error(
@@ -319,7 +318,9 @@ export function assertFeatureFlagSourcesAreSafe() {
     )
   }
 
-  const e2eValue = parseManyChatCaptureEnabledFromSource(readFeatureFlagsSourceCode(FEATURE_FLAGS_SOURCE_E2E))
+  const e2eValue = parseManyChatCaptureEnabledFromSource(
+    readFeatureFlagsSourceCode(FEATURE_FLAGS_SOURCE_E2E, extensionRoot),
+  )
   if (e2eValue !== true) {
     throw new Error(
       `Guarda de segurança falhou: ${FEATURE_FLAGS_SOURCE_E2E} precisa declarar MANYCHAT_CAPTURE_ENABLED = true ` +
@@ -396,7 +397,7 @@ function assertNoDevHostsRemain(manifest) {
   }
 }
 
-// `icons` do manifest final aponta para os PNGs que `stageIcons` já
+// `icons` do manifest final aponta para os PNGs que `stageTarget` já
 // escreve em `assets/icons/` — mesmos arquivos usados pelo pacote DEV,
 // só que agora referenciados de fato pelo manifest.
 function withProductionIcons(manifest) {
@@ -471,10 +472,10 @@ export function readE2ESourceCommit() {
 export const BUILD_IDENTITY_PATHNAME = 'src/build-identity.js'
 export const BUILD_IDENTITY_JSON = 'build-identity.json'
 
-function gitOutput(args) {
+function gitOutput(args, cwd = REPO_ROOT) {
   try {
     return execFileSync('git', args, {
-      cwd: REPO_ROOT,
+      cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim()
@@ -483,21 +484,44 @@ function gitOutput(args) {
   }
 }
 
-export function readSourceGitIdentity() {
-  const commit = gitOutput(['rev-parse', 'HEAD'])
-  const status = gitOutput(['status', '--porcelain', '--', 'app/extension/yolen-companion'])
+// Fontes que de fato entram (ou geram algo que entra) em algum pacote. É
+// sobre elas que "alterações locais" é calculado: editar um teste não
+// muda o pacote e não deve marcar a identidade como suja.
+export function packagedSourcePaths() {
+  return [
+    ...new Set([
+      'manifest.json',
+      ...SHARED_RUNTIME_FILES,
+      ...CHROME_ONLY_FILES,
+      FEATURE_FLAGS_SOURCE_DEFAULT,
+      FEATURE_FLAGS_SOURCE_E2E,
+      'assets/yolen-mark.png',
+    ]),
+  ].sort()
+}
+
+export function readSourceGitIdentity({ repoRoot = REPO_ROOT, extensionRoot = EXTENSION_ROOT } = {}) {
+  const commit = gitOutput(['rev-parse', 'HEAD'], repoRoot)
+  const extensionPath = relative(repoRoot, extensionRoot) || '.'
+  const status = gitOutput(
+    ['status', '--porcelain', '--', ...packagedSourcePaths().map((path) => join(extensionPath, path))],
+    repoRoot,
+  )
 
   return {
     commit: commit || null,
     commit_short: commit ? commit.slice(0, 8) : null,
-    // Alterações locais não commitadas no código da extensão: o painel
+    // Alterações locais não commitadas no código empacotado: o painel
     // mostra "+" para que um pacote de código não versionado nunca se passe
     // por um commit conhecido.
     dirty: status === null ? null : status.length > 0,
   }
 }
 
-export function computeSourceFingerprint(stagingDir, entries) {
+// Fingerprint do conteúdo de um pacote. Recebe um leitor de conteúdo para
+// que o build (bytes já staged) e o verificador (bytes ESPERADOS a partir
+// das fontes atuais) usem exatamente o mesmo cálculo.
+export function computeFingerprintFromContents(entries, readEntry) {
   const hash = createHash('sha256')
 
   for (const entry of [...entries].sort()) {
@@ -507,11 +531,15 @@ export function computeSourceFingerprint(stagingDir, entries) {
 
     hash.update(entry)
     hash.update('\u0000')
-    hash.update(readFileSync(join(stagingDir, entry)))
+    hash.update(readEntry(entry))
     hash.update('\u0000')
   }
 
   return hash.digest('hex').slice(0, 16)
+}
+
+export function computeSourceFingerprint(stagingDir, entries) {
+  return computeFingerprintFromContents(entries, (entry) => readFileSync(join(stagingDir, entry)))
 }
 
 export function buildIdentityFor({ version, environment, targetName, git, fingerprint }) {
@@ -556,8 +584,8 @@ export function parseBuildIdentitySource(sourceCode) {
   }
 }
 
-function stampBuildIdentity({ stagingDir, targetName, environment, sourceManifest, entries }) {
-  const git = readSourceGitIdentity()
+function stampBuildIdentity({ stagingDir, targetName, environment, sourceManifest, entries, repoRoot, extensionRoot }) {
+  const git = readSourceGitIdentity({ repoRoot, extensionRoot })
   const fingerprint = computeSourceFingerprint(stagingDir, entries)
   const identity = buildIdentityFor({
     version: sourceManifest.version,
@@ -635,9 +663,109 @@ export function toProductionManifest(sourceManifest, targetName) {
   return manifest
 }
 
-export function readSourceManifest() {
-  const raw = readFileSync(join(EXTENSION_ROOT, 'manifest.json'), 'utf8')
+export function readSourceManifest(extensionRoot = EXTENSION_ROOT) {
+  const raw = readFileSync(join(extensionRoot, 'manifest.json'), 'utf8')
   return JSON.parse(raw)
+}
+
+// Manifest que o pacote de cada ambiente carrega — única implementação,
+// usada pelo build e pelo verificador de staging.
+export function manifestForEnvironment(sourceManifest, targetName, environment) {
+  const target = TARGETS[targetName]
+  if (!target) {
+    throw new Error(`Alvo de empacotamento desconhecido: ${targetName}`)
+  }
+
+  return environment === 'prod'
+    ? toProductionManifest(sourceManifest, targetName)
+    : environment === 'e2e'
+      ? toE2EManifest(sourceManifest, targetName)
+      : target.adaptManifest(sourceManifest)
+}
+
+export function renderStagedManifest(manifest) {
+  return `${JSON.stringify(manifest, null, 2)}\n`
+}
+
+const ICON_ENTRY_PATTERN = /^assets\/icons\/icon-(\d+)\.png$/
+
+// Conteúdo CANÔNICO esperado de cada arquivo do pacote a partir das fontes
+// atuais: manifest transformado para o alvo/ambiente, fonte da feature flag
+// selecionada para o ambiente, ícones redimensionados e arquivos copiados.
+// O build escreve exatamente estes bytes; o verificador compara o staging
+// com eles. A identidade de build (src/build-identity.js) depende do
+// fingerprint do restante — ver expectedBuildIdentity.
+export function expectedStagedEntryContent({
+  entry,
+  targetName,
+  environment,
+  sourceManifest,
+  extensionRoot = EXTENSION_ROOT,
+}) {
+  if (entry === BUILD_IDENTITY_PATHNAME) {
+    throw new Error('A identidade de build depende do fingerprint do pacote — use expectedBuildIdentity.')
+  }
+
+  if (entry === 'manifest.json') {
+    return Buffer.from(renderStagedManifest(manifestForEnvironment(sourceManifest, targetName, environment)))
+  }
+
+  if (entry === FEATURE_FLAGS_PATHNAME) {
+    return readFileSync(join(extensionRoot, featureFlagSourceForEnvironment(environment)))
+  }
+
+  const icon = entry.match(ICON_ENTRY_PATTERN)
+  if (icon) {
+    return resizePngSquare(readFileSync(join(extensionRoot, 'assets', 'yolen-mark.png')), Number(icon[1]))
+  }
+
+  const source = join(extensionRoot, entry)
+  if (!existsSync(source)) {
+    throw new Error(`Arquivo de origem não existe: ${entry}`)
+  }
+
+  return readFileSync(source)
+}
+
+// Identidade que um build das fontes atuais carimbaria, calculada sem
+// escrever nada (mesmo fingerprint, mesma função de identidade).
+export function expectedBuildIdentity({
+  targetName,
+  environment,
+  sourceManifest,
+  extensionRoot = EXTENSION_ROOT,
+  repoRoot = REPO_ROOT,
+  contents = null,
+}) {
+  const entries = getTargetZipEntries(targetName)
+  const expected =
+    contents ??
+    new Map(
+      entries
+        .filter((entry) => entry !== BUILD_IDENTITY_PATHNAME)
+        .map((entry) => [
+          entry,
+          expectedStagedEntryContent({ entry, targetName, environment, sourceManifest, extensionRoot }),
+        ]),
+    )
+
+  return buildIdentityFor({
+    version: sourceManifest.version,
+    environment,
+    targetName,
+    git: readSourceGitIdentity({ repoRoot, extensionRoot }),
+    fingerprint: computeFingerprintFromContents(entries, (entry) => expected.get(entry)),
+  })
+}
+
+export function stagingDirFor(targetName, environment) {
+  if (environment === 'prod') {
+    return join(OUTPUT_ROOT, targetName, 'prod', 'staging')
+  }
+  if (environment === 'e2e') {
+    return join(E2E_OUTPUT_ROOT, targetName, 'staging')
+  }
+  return join(OUTPUT_ROOT, targetName, 'staging')
 }
 
 // Verificação de deriva: garante que a allowlist acima continua cobrindo
@@ -678,42 +806,10 @@ export function assertAllowlistMatchesManifest(manifest) {
   }
 }
 
-// Copia um arquivo de origem para um pathname de destino DIFERENTE dentro
-// do staging — necessário para o canal e2e, cuja fonte da flag
-// (FEATURE_FLAGS_SOURCE_E2E) precisa ocupar o mesmo pathname que o
-// manifest espera (FEATURE_FLAGS_PATHNAME), nunca o próprio nome do
-// arquivo `.e2e.js`.
-function stageFileFromSource(sourceRelativePath, destinationRelativePath, stagingDir) {
-  const source = join(EXTENSION_ROOT, sourceRelativePath)
-  if (!existsSync(source)) {
-    throw new Error(`Arquivo de origem não existe: ${sourceRelativePath}`)
-  }
-  const destination = join(stagingDir, destinationRelativePath)
+function writeStagedEntry(stagingDir, entry, content) {
+  const destination = join(stagingDir, entry)
   mkdirSync(dirname(destination), { recursive: true })
-  copyFileSync(source, destination)
-  utimesSync(destination, REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME)
-}
-
-function stageFile(relativePath, stagingDir) {
-  stageFileFromSource(relativePath, relativePath, stagingDir)
-}
-
-function stageIcons(stagingDir) {
-  const sourceIcon = readFileSync(join(EXTENSION_ROOT, 'assets', 'yolen-mark.png'))
-  const iconsDir = join(stagingDir, 'assets', 'icons')
-  mkdirSync(iconsDir, { recursive: true })
-
-  for (const size of ICON_SIZES) {
-    const resized = resizePngSquare(sourceIcon, size)
-    const destination = join(iconsDir, `icon-${size}.png`)
-    writeFileSync(destination, resized)
-    utimesSync(destination, REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME)
-  }
-}
-
-function stageManifest(manifest, stagingDir) {
-  const destination = join(stagingDir, 'manifest.json')
-  writeFileSync(destination, `${JSON.stringify(manifest, null, 2)}\n`)
+  writeFileSync(destination, content)
   utimesSync(destination, REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME)
 }
 
@@ -766,40 +862,40 @@ export function zipFileName(targetName, environment, version) {
     : `yolen-companion-${targetName}-v${version}.zip`
 }
 
-function buildTarget(targetName, environment, sourceManifest, { outputRoot = OUTPUT_ROOT } = {}) {
-  const target = TARGETS[targetName]
-  const stagingDir =
-    environment === 'prod'
-      ? join(OUTPUT_ROOT, targetName, 'prod', 'staging')
-      : environment === 'e2e'
-        ? join(outputRoot, targetName, 'staging')
-        : join(OUTPUT_ROOT, targetName, 'staging')
+// Monta o staging de um alvo/ambiente a partir das fontes. Toda entrada é
+// escrita com expectedStagedEntryContent — a MESMA função que o verificador
+// usa para saber o que o staging deveria conter. Raízes injetáveis para que
+// o ciclo build → verificar → alterar fonte → verificar seja testável numa
+// cópia isolada.
+export function stageTarget({
+  targetName,
+  environment,
+  sourceManifest,
+  extensionRoot = EXTENSION_ROOT,
+  repoRoot = REPO_ROOT,
+  stagingDir = stagingDirFor(targetName, environment),
+}) {
+  if (!TARGETS[targetName]) {
+    throw new Error(`Alvo de empacotamento desconhecido: ${targetName}`)
+  }
+
   rmSync(stagingDir, { recursive: true, force: true })
   mkdirSync(stagingDir, { recursive: true })
 
-  // Seleção de fonte da flag ANTES de copiar qualquer arquivo — dev/prod
-  // sempre pegam o arquivo normal, e2e sempre pega o arquivo e2e, mas os
-  // dois terminam no MESMO pathname dentro do staging.
-  const featureFlagsSource = featureFlagSourceForEnvironment(environment)
+  const zipEntries = getTargetZipEntries(targetName)
 
-  const sortedFiles = [...target.files].sort()
-  for (const relativePath of sortedFiles) {
-    if (relativePath === FEATURE_FLAGS_PATHNAME) {
-      stageFileFromSource(featureFlagsSource, FEATURE_FLAGS_PATHNAME, stagingDir)
+  // dev/prod sempre pegam a fonte normal da flag, e2e sempre a fonte e2e,
+  // mas as duas terminam no MESMO pathname dentro do staging.
+  for (const entry of zipEntries) {
+    if (entry === BUILD_IDENTITY_PATHNAME) {
       continue
     }
-    stageFile(relativePath, stagingDir)
+    writeStagedEntry(
+      stagingDir,
+      entry,
+      expectedStagedEntryContent({ entry, targetName, environment, sourceManifest, extensionRoot }),
+    )
   }
-
-  stageIcons(stagingDir)
-
-  const manifest =
-    environment === 'prod'
-      ? toProductionManifest(sourceManifest, targetName)
-      : environment === 'e2e'
-        ? toE2EManifest(sourceManifest, targetName)
-        : target.adaptManifest(sourceManifest)
-  stageManifest(manifest, stagingDir)
 
   // Defesa do EFETIVO: relê o arquivo já staged (nunca a fonte antes de
   // copiar) e falha o build se o valor não bater com o esperado para este
@@ -810,18 +906,34 @@ function buildTarget(targetName, environment, sourceManifest, { outputRoot = OUT
   )
   assertEffectiveManyChatFlagForEnvironment(environment, effectiveManyChatCaptureEnabled)
 
-  const zipEntries = getTargetZipEntries(targetName)
-
   const buildIdentity = stampBuildIdentity({
     stagingDir,
     targetName,
     environment,
     sourceManifest,
     entries: zipEntries,
+    repoRoot,
+    extensionRoot,
+  })
+  utimesSync(join(stagingDir, BUILD_IDENTITY_PATHNAME), REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME)
+
+  return {
+    stagingDir,
+    entries: zipEntries,
+    effectiveManyChatCaptureEnabled,
+    buildIdentity,
+  }
+}
+
+function buildTarget(targetName, environment, sourceManifest, { outputRoot = OUTPUT_ROOT } = {}) {
+  const { stagingDir, entries, effectiveManyChatCaptureEnabled, buildIdentity } = stageTarget({
+    targetName,
+    environment,
+    sourceManifest,
   })
 
   const zipPath = join(outputRoot, zipFileName(targetName, environment, sourceManifest.version))
-  createZip(stagingDir, zipPath, zipEntries)
+  createZip(stagingDir, zipPath, entries)
 
   return {
     target: targetName,
@@ -829,7 +941,7 @@ function buildTarget(targetName, environment, sourceManifest, { outputRoot = OUT
     zipPath,
     stagingDir,
     sha256: sha256(zipPath),
-    entries: zipEntries,
+    entries,
     effectiveManyChatCaptureEnabled,
     buildIdentity,
   }

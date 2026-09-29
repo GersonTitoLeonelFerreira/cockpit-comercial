@@ -9,6 +9,25 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 A versão da extensão (`manifest.json` → `version`) permanece `1.0.0` até que
 uma fase futura de release decida um esquema de versionamento próprio.
 
+## [1.5.1] — Fechamento da revisão do especialista comercial + verificador canônico do staging
+
+### Alterado
+
+- `scripts/verify-staged-build.mjs` deixou de pular os arquivos gerados: o
+  conteúdo esperado de TODO arquivo do staging (manifest transformado para o
+  alvo/ambiente, feature flag efetiva do ManyChat, ícones redimensionados,
+  arquivos de runtime e a própria identidade de build) é calculado pelas
+  mesmas funções canônicas que o build usa para escrever o staging
+  (`expectedStagedEntryContent`, `expectedBuildIdentity`) — não há segunda
+  implementação. Arquivos estranhos no staging também tornam o pacote
+  DESATUALIZADO.
+- `build-package.mjs`: `stageTarget` monta o staging a partir dessas funções
+  com raízes injetáveis (fonte, repositório e staging), o que torna o ciclo
+  build → ATUAL → fonte alterada → DESATUALIZADO → rebuild → ATUAL testável
+  numa cópia isolada (`tests/verify-staged-build.test.mjs`).
+- "Alterações locais" da identidade passa a considerar só as fontes que
+  entram no pacote (editar um teste não marca o pacote como sujo).
+
 ## [1.5.0] — Recuperação do especialista comercial + identidade rastreável do pacote
 
 ### Adicionado

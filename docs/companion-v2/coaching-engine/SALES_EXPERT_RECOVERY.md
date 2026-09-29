@@ -46,10 +46,67 @@ tempo** (`wait`, `respond_now`, `recover_delay`, `light_follow_up`,
 `reactivate`, `respect_closure`) com `requalify_before_continuing`.
 
 Sem limiar universal: a janela esperada deriva do ritmo do próprio cliente
-(3× mediana, entre 12h e 72h; 36h sem histórico); adiamento explícito
-("semana que vem", "mês que vem") estende o horizonte; SLA só é citado
-quando configurado pela empresa (passthrough da aba CLIENTE). Atividade mais
-nova que o snapshot analisado impede afirmar dormência.
+(3× mediana, entre 12h e 72h; 36h sem histórico); pedido com urgência do
+próprio cliente ("hoje", "amanhã") encurta a janela; SLA só é citado quando
+configurado pela empresa (passthrough da aba CLIENTE). Atividade mais nova
+que o snapshot analisado impede afirmar dormência.
+
+#### Momentum progressivo (não por baldes)
+`progression` preserva o tempo como variável quantitativa: silêncio de quem
+deve o movimento, janela esperada (e sua base), razão silêncio/janela,
+idade da última manifestação relacionada da intenção, inatividade
+bidirecional, tentativas sem resposta, resposta devida pelo vendedor
+(`owed_response`: janela de 1h para pedido de alta intenção/urgente, 4h
+padrão, razão de atraso e severidade) e pausa combinada.
+
+- `severity` (0..1) é contínua e monótona: cresce devagar dentro do ritmo
+  (até 0,08), depois `0,08 + 0,92·(1 − e^−(razão−1)/3)`, agravada por
+  tentativas seguidas sem resposta (×0,85 por tentativa extra) e por SLA
+  configurado em risco alto.
+- `stage` é só a síntese seller-facing da curva: `within_rhythm` →
+  `early_loss` → `prolonged_silence` → `strong_gap` → `long_dormancy`.
+  2 e 6 dias dentro de "esfriando" continuam diferentes em severidade,
+  vitalidade da intenção, técnica e mensagem.
+- Modo: dentro do ritmo → `wait`; perda inicial/silêncio prolongado/lacuna
+  forte → `light_follow_up`; sem continuidade → `reactivate`.
+- Escada de técnicas no Reasoning: perda inicial → retomada contextual;
+  silêncio prolongado → retomada com permissão; lacuna forte → mudança de
+  estado (reconfirmação); sem continuidade → mudança de estado / quebra de
+  padrão. Várias ofertas sem resposta antes da dormência → quebra de padrão
+  primeiro.
+
+#### Frescor por engajamento relacionado
+RECÊNCIA DA CONVERSA != RECÊNCIA DA INTENÇÃO. A intenção histórica só é
+renovada por: nova declaração equivalente, reconfirmação afirmativa ("sim,
+quero seguir"), resposta com conteúdo à ação do vendedor que deu sequência à
+intenção, fala sobre o mesmo assunto, adiamento combinado sobre ela ou reação
+entusiasmada à ação do vendedor. Saudação, agradecimento, "ok" e emoji nunca
+renovam. `intent.vitality` = base de confiança × `e^−(idade relacionada /
+3·janela)` × (0,6 se a janela temporal do pedido expirou) × tentativas sem
+resposta; `current` ≥ 0,7, `aging` ≥ 0,35, reconfirmação obrigatória < 0,5
+(ou < 0,7 com janela expirada). "Bom dia" no dia 6 depois de "Quero
+contratar" no dia 1 → responder já (`respond_now`) reconfirmando o interesse
+(`state_change_reactivation`), nunca tratando a intenção como atual.
+
+#### Pausa combinada
+"Me chama semana que vem" / "te aviso mês que vem" viram um prazo no
+calendário comercial (America/Sao_Paulo): a semana seguinte começa na
+segunda. Dentro do combinado ninguém deve movimento imediato
+(`responsible: agreed_pause`, espera disciplinada, técnicas operacionais e de
+retomada bloqueadas) e a intenção envelhece a ¼ da velocidade. Quando o
+cliente pediu para ser chamado, o momento combinado passa a ser do vendedor
+(retomada contextual lembrando o combinado); depois do prazo a curva volta a
+piorar normalmente. Logo após o pedido de prazo, cabe ao vendedor confirmar
+o combinado.
+
+### Rejeição da oportunidade vs mudança dentro dela
+`assessCustomerOpportunityStance` separa o NÚCLEO de negação ("não quero
+mais", "não preciso mais", "desisti") do seu ESCOPO: negar uma opção ("o
+plano básico, quero o premium") ou um processo ("esperar, quero fechar
+agora") mantém a oportunidade viva e a intenção da continuação vale; só
+negar a própria oportunidade/conversa ("não tenho mais interesse", "não
+quero mais falar sobre isso") ou resolver por outro caminho ("já fechei com
+outra") encerra.
 
 O reasoning é avaliado no instante atual do vendedor (`evaluated_at`) e
 carrega `temporal_context`; coaching e message strategy consomem o MESMO
@@ -57,7 +114,11 @@ objeto.
 
 ### Seller Execution Trace
 - **Turnos** (rajadas): bolhas contíguas do vendedor formam uma ação.
-- Saudação pura → `rapport_opening`; reconhecimento curto → `confirmation`;
+- Saudação pura → `rapport_opening` (saudação + fórmula fática + até três
+  vocativos plausíveis). Saudação seguida de verbo comercial, oferta,
+  disponibilidade, proposta, agenda ou pergunta não fática ("Oi, temos
+  horários", "Olá, segue proposta", "Oi, posso agendar?") é resposta com
+  conteúdo; reconhecimento curto → `confirmation`;
   nenhum dos dois é "quebra de sequência" — quando é tudo o que o vendedor
   respondeu a um pedido, o sinal é `request_not_addressed` (por turno).
 - Latência por evento/turno, sinais do cliente com referência temporal e
@@ -129,7 +190,11 @@ como âncora (com a resposta imediata do vendedor), preservando causalidade.
 `src/build-identity.js` (versão, commit, alterações locais, fingerprint,
 build id) é carimbado no staging pelo build e exibido no cabeçalho do painel;
 `npm run verify:companion-firefox-prod` falha quando o staging carregado pelo
-Firefox não corresponde ao checkout atual.
+Firefox não corresponde ao checkout atual. O verificador usa as MESMAS
+funções canônicas do build para calcular o conteúdo esperado de cada arquivo
+gerado (manifest transformado para o alvo/ambiente, feature flag efetiva,
+ícones redimensionados, identidade) e compara todos os arquivos do staging —
+inclusive os gerados — com o que as fontes atuais produziriam.
 
 ## 3. Evidência
 
@@ -138,5 +203,11 @@ Firefox não corresponde ao checkout atual.
   18 dias), cinco casos de momentum com próximos movimentos distintos,
   janela multi-dia, e o pipeline de MENSAGEM com um redator que insiste em
   "Fico à disposição".
+- Rodada de fechamento (mesmo arquivo de goldens): rejeição vs mudança dentro
+  da oportunidade (7 casos multissetoriais), saudação vs conteúdo, intenção
+  antiga vs "Bom dia"/reconfirmação, progressão em 9 instantes (30 min → 18
+  dias), ritmo observado (2 vs 6 dias com janela de 1 dia), pausa combinada
+  vs silêncio não combinado, urgência do cliente e auditoria transversal de
+  invariantes sobre todos os resultados.
 - `commercial-temporal-context.test.mjs`, `commercial-message-critic-repair.test.mjs`,
   `tests/sales-expert-recovery-surfaces.test.mjs`.
