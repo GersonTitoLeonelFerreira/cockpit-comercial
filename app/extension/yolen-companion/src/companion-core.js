@@ -8836,6 +8836,13 @@ function createCompanionCore(ctx) {
         clearAutomaticAnalysisTimer()
         analysisController.activeAnalysisAttempt = null
 
+        // MENSAGEM mantém estado e CoachingDiagnosis em caches próprios por
+        // ciclo/conversa. A mesma conversa pode permanecer selecionada após
+        // trocar a empresa ativa, então cycleId/conversationKey não provam
+        // ownership. A fronteira de empresa invalida integralmente esses
+        // caches antes de qualquer render na nova empresa.
+        messageController.clear()
+
         conversationBoundary.advanceBoundary({
           conversationKey:
             state.conversationKey,
