@@ -2434,3 +2434,321 @@ test(
     }
   },
 )
+
+// ============================================================================
+// Revisão final (PR #356): opt-out, pareamento de âncora, adiamentos com
+// horizonte explícito e janela "esta semana" no calendário.
+// ============================================================================
+
+test(
+  'OPT-OUT: "não quero mais receber mensagens" proíbe qualquer nova mensagem; encerramento comum ainda permite agradecer',
+  async () => {
+    const start =
+      '2026-09-24T13:00:00.000Z'
+
+    const turnsFor = text => [
+      ['in', start, 'Quero saber sobre o curso de inglês.'],
+      ['out', shift(start, 5 * MINUTE), 'Temos turmas à noite e aos sábados. Qual horário te atende?'],
+      ['in', shift(start, 20 * MINUTE), text],
+    ]
+
+    for (const text of [
+      'Pode me tirar da lista, por favor.',
+      'Não quero mais receber mensagens.',
+      'Para de me mandar mensagem.',
+      'Stop',
+    ]) {
+      const {
+        temporal,
+        reasoning,
+        coaching,
+        strategy,
+      } =
+        runCase({
+          turns: turnsFor(text),
+          evaluated_at:
+            shift(start, 30 * MINUTE),
+        })
+
+      assert.equal(temporal.momentum.state, 'closed', text)
+      assert.equal(temporal.reactivation.mode, 'respect_closure', text)
+      assert.equal(temporal.reactivation.contact_allowed, false, text)
+      assert.ok(
+        temporal.reactivation.reason_codes.includes(
+          'customer_requested_no_contact',
+        ),
+        text,
+      )
+      assert.match(reasoning.objective_now, /Não enviar nenhuma mensagem/, text)
+      assert.ok(
+        reasoning.do_not_do.some(
+          item =>
+            /nem agradecimento/.test(item),
+        ),
+        text,
+      )
+      assert.equal(coaching.temporal.contact_allowed, false, text)
+      assert.equal(strategy.outbound_allowed, false, text)
+      assert.equal(strategy.objective, null, text)
+      assert.equal(strategy.desired_microcommitment, null, text)
+      assert.equal(strategy.required_action_type, null, text)
+
+      let providerCalls = 0
+
+      const generation =
+        await composeSellerMessage({
+          workingSummary:
+            'Cliente perguntou sobre o curso e depois pediu para não receber mais contato.',
+          sellerIntent:
+            'Quero agradecer e deixar a porta aberta.',
+          method: {
+            name: 'Método',
+            description: null,
+            stages: [],
+            business_context: null,
+            seller_rules: [],
+          },
+          reasoning,
+          messageStrategy:
+            strategy,
+          provider:
+            async () => {
+              providerCalls += 1
+              throw new Error('não deveria gerar')
+            },
+        })
+
+      assert.equal(generation.status, 'no_message', text)
+      assert.equal(generation.message, null, text)
+      assert.equal(providerCalls, 0, `${text}: nenhuma chamada ao redator`)
+    }
+
+    // Encerramento comum (resolveu por outro caminho) não é opt-out.
+    const ordinary =
+      runCase({
+        turns: turnsFor(
+          'Obrigada, mas já fechei com outra escola.',
+        ),
+        evaluated_at:
+          shift(start, 30 * MINUTE),
+      })
+
+    assert.equal(ordinary.temporal.momentum.state, 'closed')
+    assert.equal(ordinary.temporal.reactivation.contact_allowed, true)
+    assert.equal(ordinary.strategy.outbound_allowed, true)
+    assert.ok(ordinary.strategy.objective)
+  },
+)
+
+test(
+  'ÂNCORA da janela multi-dia só é pareada com a resposta ao MESMO turno do cliente',
+  () => {
+    const ledgerWith = interveningTexts => {
+      const ledger = []
+
+      const push = (
+        id,
+        direction,
+        at,
+        text,
+      ) =>
+        ledger.push({
+          id,
+          company_id: 'company-golden',
+          cycle_id: 'cycle-golden',
+          conversation_key:
+            'conversation-golden',
+          message_key: `key-${id}`,
+          version: 1,
+          direction,
+          author_kind:
+            direction === 'incoming'
+              ? 'customer'
+              : 'human_agent',
+          occurred_at: at,
+          observed_at: at,
+          content_type: 'text',
+          text_content: text,
+          audio_transcription: null,
+          is_deleted: false,
+          deletion_reason: null,
+        })
+
+      push('1', 'incoming', '2026-09-01T12:00:00.000Z', 'Quero contratar o plano anual.')
+
+      interveningTexts.forEach(
+        (text, index) =>
+          push(
+            `i${index}`,
+            'incoming',
+            `2026-09-01T12:0${index + 1}:00.000Z`,
+            text,
+          ),
+      )
+
+      push('2', 'outgoing', '2026-09-01T12:09:00.000Z', 'Anotado, obrigado!')
+
+      for (let index = 0; index < 8; index += 1) {
+        push(
+          String(10 + index),
+          index % 2 === 0
+            ? 'incoming'
+            : 'outgoing',
+          `2026-09-05T12:${String(10 + index).padStart(2, '0')}:00.000Z`,
+          index % 2 === 0
+            ? 'Tudo certo por aí?'
+            : 'Tudo sim, obrigado!',
+        )
+      }
+
+      push('30', 'incoming', '2026-09-12T12:00:00.000Z', 'Bom dia!')
+
+      return selectStatefulDiagnosticMessages(
+        ledger,
+      ).map(
+        message =>
+          message.id,
+      )
+    }
+
+    // Uma fala intermediária do cliente: o trecho entra COMPLETO.
+    const withOne =
+      ledgerWith(['Rua Central, 10'])
+
+    assert.ok(withOne.includes('1'))
+    assert.ok(withOne.includes('2'))
+    assert.ok(
+      withOne.includes('i0'),
+      `a fala intermediária precisa acompanhar a resposta: ${withOne.join(',')}`,
+    )
+
+    // Trecho longo demais entre a âncora e a resposta: âncora sozinha,
+    // nunca pareada com uma resposta a outra fala.
+    const withMany =
+      ledgerWith([
+        'Rua Central, 10',
+        'Apartamento 42',
+        'CEP 01000-000',
+      ])
+
+    assert.ok(withMany.includes('1'))
+    assert.equal(
+      withMany.includes('2'),
+      false,
+      `resposta a outra fala não pode virar resposta à âncora: ${withMany.join(',')}`,
+    )
+  },
+)
+
+test(
+  'ADIAMENTO COM HORIZONTE EXPLÍCITO: "me chama amanhã / daqui a 10 dias / ano que vem" viram prazo combinado',
+  () => {
+    const start =
+      '2026-09-16T13:00:00.000Z'
+
+    const cases = [
+      {
+        text: 'Me chama daqui a 10 dias.',
+        resume_at: shift(start, 10 * DAY + 20 * MINUTE),
+        inside: shift(start, 5 * DAY),
+      },
+      {
+        text: 'Me chama amanhã.',
+        // Dia seguinte às 9h em São Paulo.
+        resume_at: '2026-09-17T12:00:00.000Z',
+        inside: '2026-09-16T20:00:00.000Z',
+      },
+      {
+        text: 'Me chama ano que vem.',
+        resume_at: '2027-01-05T12:00:00.000Z',
+        inside: '2026-11-20T13:00:00.000Z',
+      },
+    ]
+
+    for (const item of cases) {
+      const turns = [
+        ['in', start, 'Quero conhecer os planos para a minha equipe.'],
+        ['out', shift(start, 5 * MINUTE), 'Claro! Quer que eu te explique as diferenças?'],
+        ['in', shift(start, 20 * MINUTE), item.text],
+        ['out', shift(start, 25 * MINUTE), 'Combinado!'],
+      ]
+
+      const {
+        temporal,
+        reasoning,
+        input,
+      } =
+        runCase({
+          turns,
+          evaluated_at:
+            item.inside,
+          reading: {
+            best_approach:
+              'set_commitment',
+          },
+        })
+
+      const lastSignal =
+        buildSellerExecutionTrace({
+          diagnostic_input: input,
+        }).customer_signals.at(-1)
+
+      assert.equal(lastSignal.kind, 'deferral', item.text)
+      assert.equal(
+        temporal.progression.agreed_pause
+          ?.resume_at,
+        item.resume_at,
+        item.text,
+      )
+      assert.equal(
+        temporal.progression.agreed_pause
+          .seller_owes_contact,
+        true,
+        item.text,
+      )
+      assert.equal(temporal.reactivation.mode, 'wait', item.text)
+      assert.equal(reasoning.decision, 'wait', item.text)
+    }
+  },
+)
+
+test(
+  'JANELA "ESTA SEMANA" termina no calendário, não em sete dias corridos',
+  () => {
+    // Sexta-feira, 25/09/2026, 9h em São Paulo.
+    const friday =
+      '2026-09-25T12:00:00.000Z'
+
+    const expiredAt = (text, evaluatedAt) =>
+      runCase({
+        turns: [
+          ['in', friday, text],
+          ['out', shift(friday, 5 * MINUTE), 'Consegue sim! Prefere manhã ou tarde?'],
+        ],
+        evaluated_at:
+          evaluatedAt,
+      }).temporal.intent
+        .time_window_expired
+
+    // "Esta semana" dita na sexta: vale até o fim do domingo.
+    assert.equal(
+      expiredAt('Quero ir esta semana, consigo?', '2026-09-27T20:00:00.000Z'),
+      false,
+    )
+    assert.equal(
+      expiredAt('Quero ir esta semana, consigo?', '2026-09-28T04:00:00.000Z'),
+      true,
+      'na segunda seguinte a janela "esta semana" já passou',
+    )
+
+    // "Segunda" dita na sexta: a próxima segunda, até o fim dela.
+    assert.equal(
+      expiredAt('Consigo ir segunda?', '2026-09-28T20:00:00.000Z'),
+      false,
+    )
+    assert.equal(
+      expiredAt('Consigo ir segunda?', '2026-09-29T04:00:00.000Z'),
+      true,
+    )
+  },
+)

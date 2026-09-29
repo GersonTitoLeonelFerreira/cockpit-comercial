@@ -402,6 +402,9 @@ export type CommercialTemporalContext = {
 
   reactivation: {
     mode: CommercialReactivationMode
+    // false quando o cliente pediu para não receber mais contato: nenhuma
+    // mensagem nova é permitida, nem de encerramento.
+    contact_allowed: boolean
     requalify_before_continuing: boolean
     outbound_unanswered_turns: number
     last_unanswered_action_types:
@@ -644,15 +647,84 @@ function calendarDaysBetween(
   )
 }
 
+const WEEKDAY_TOKENS = [
+  'domingo',
+  'segunda',
+  'terca',
+  'quarta',
+  'quinta',
+  'sexta',
+  'sabado',
+] as const
+
+// Fim da janela que o cliente indicou dentro da semana, no calendário
+// comercial: um dia da semana vale até o fim da próxima ocorrência desse
+// dia ("segunda" dita na sexta = até o fim da segunda seguinte); "fim de
+// semana" até o fim do domingo; "esta semana" até o fim da semana-calendário
+// em que foi dita — nunca sete dias corridos.
+function weekWindowEnd(
+  text: string,
+  demonstratedAt: number,
+): number {
+  const normalized =
+    normalizeText(text)
+
+  const said =
+    zonedParts(demonstratedAt)
+
+  const weekday =
+    normalized.match(
+      /\b(domingo|segunda|terca|quarta|quinta|sexta|sabado)\b/,
+    )?.[1]
+
+  const endOfDayIn = (
+    daysAhead: number,
+  ): number =>
+    zonedInstant(
+      said.year,
+      said.month,
+      said.day + daysAhead + 1,
+      0,
+    )
+
+  if (
+    /\b(fim|final) de semana\b/.test(
+      normalized,
+    )
+  ) {
+    return endOfDayIn(
+      (7 - said.weekday) % 7,
+    )
+  }
+
+  if (weekday) {
+    const target =
+      WEEKDAY_TOKENS.indexOf(
+        weekday as typeof WEEKDAY_TOKENS[number],
+      )
+
+    return endOfDayIn(
+      (target - said.weekday + 7) % 7,
+    )
+  }
+
+  // Semana-calendário de segunda a domingo.
+  return endOfDayIn(
+    (7 - said.weekday) % 7,
+  )
+}
+
 function timeWindowExpired({
   reference,
   demonstratedAt,
   evaluatedAt,
+  text,
 }: {
   reference:
     SellerExecutionTimeReference
   demonstratedAt: number
   evaluatedAt: number
+  text: string
 }): boolean {
   if (!reference) {
     return false
@@ -670,7 +742,13 @@ function timeWindowExpired({
     case 'next_day':
       return days >= 2
     case 'this_week':
-      return days >= 7
+      return (
+        evaluatedAt >=
+        weekWindowEnd(
+          text,
+          demonstratedAt,
+        )
+      )
   }
 }
 
@@ -889,7 +967,24 @@ function deferralPlan(
 
     label = 'no fim do mês'
   } else if (
-    /\b(depois das ferias|depois das festas|ano que vem|proximo ano)\b/.test(
+    /\b(ano que vem|proximo ano)\b/.test(
+      normalized,
+    )
+  ) {
+    resumeAt =
+      zonedInstant(
+        today.year + 1,
+        1,
+        5,
+        9,
+      )
+
+    until =
+      resumeAt + 14 * DAY_MS
+
+    label = 'no ano seguinte'
+  } else if (
+    /\b(depois das ferias|depois das festas)\b/.test(
       normalized,
     )
   ) {
@@ -1477,6 +1572,7 @@ function momentumLabel({
   stage,
   responsible,
   agreedPause,
+  contactOptOut,
 }: {
   state: CommercialMomentumState
   stage: CommercialMomentumStage
@@ -1484,7 +1580,12 @@ function momentumLabel({
     CommercialTemporalResponsible
   agreedPause:
     CommercialAgreedPause | null
+  contactOptOut: boolean
 }): string {
+  if (contactOptOut) {
+    return 'Cliente pediu para não ser mais contatado'
+  }
+
   if (
     agreedPause &&
     responsible === 'agreed_pause'
@@ -1934,6 +2035,13 @@ export function buildCommercialTemporalContext({
     latestKindSignal?.kind ===
       'disengaged'
 
+  const contactOptOut =
+    closed &&
+    Boolean(
+      latestKindSignal
+        ?.no_contact_requested,
+    )
+
   const unansweredTurns =
     lastCustomer
       ? trace.turns.filter(
@@ -2155,6 +2263,21 @@ export function buildCommercialTemporalContext({
           demonstratedAt:
             intentDemonstratedAt,
           evaluatedAt,
+          text:
+            (() => {
+              const message =
+                customerMessages.find(
+                  item =>
+                    item.message.id ===
+                      intentSignal.message_id,
+                )
+
+              return message
+                ? messageText(
+                    message.message,
+                  )
+                : ''
+            })(),
         })
       : false
 
@@ -2931,7 +3054,9 @@ export function buildCommercialTemporalContext({
   if (state === 'closed') {
     mode = 'respect_closure'
     reactivationReasons.push(
-      'customer_closed_opportunity',
+      contactOptOut
+        ? 'customer_requested_no_contact'
+        : 'customer_closed_opportunity',
     )
   } else if (
     state === 'active'
@@ -3173,6 +3298,12 @@ export function buildCommercialTemporalContext({
       temporalSituations.push(
         'closed_by_customer',
       )
+
+      if (contactOptOut) {
+        temporalSignals.push(
+          'customer_opted_out_of_contact',
+        )
+      }
       break
     default:
       break
@@ -3302,6 +3433,12 @@ export function buildCommercialTemporalContext({
   // Narrativa seller-facing (determinística, sem jargão interno)
   // -------------------------------------------------------------------
   const factLines: string[] = []
+
+  if (contactOptOut) {
+    factLines.push(
+      'O cliente pediu para não receber mais contato: nenhuma nova mensagem deve ser enviada, nem de agradecimento.',
+    )
+  }
 
   const conversationAge =
     since(first?.at ?? null)
@@ -3592,6 +3729,8 @@ export function buildCommercialTemporalContext({
 
     reactivation: {
       mode,
+      contact_allowed:
+        !contactOptOut,
       requalify_before_continuing:
         requalify,
       outbound_unanswered_turns:
@@ -3630,6 +3769,7 @@ export function buildCommercialTemporalContext({
           stage,
           responsible,
           agreedPause,
+          contactOptOut,
         }),
       intent_label:
         intent

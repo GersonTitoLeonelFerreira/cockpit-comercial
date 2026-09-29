@@ -260,6 +260,22 @@ function createCompanionMessageController({
       : null
   }
 
+  // Opt-out do cliente ("não quero mais receber mensagens"): nenhuma
+  // mensagem é permitida, nem de encerramento.
+  function isCustomerContactOptOut(
+    analysisViewModel,
+  ) {
+    const diagnosis =
+      analysisViewModel?.coaching_diagnosis
+
+    return Boolean(
+      diagnosis &&
+      diagnosis.status !== 'silent' &&
+      diagnosis.temporal
+        ?.contact_allowed === false
+    )
+  }
+
   function isCanonicalNoMessageState(
     analysisViewModel,
   ) {
@@ -269,10 +285,15 @@ function createCompanionMessageController({
     return Boolean(
       diagnosis &&
       diagnosis.status !== 'silent' &&
-      diagnosis
-        .chosen_technique
-        ?.id ===
-        'technique.commitment_wait'
+      (
+        diagnosis
+          .chosen_technique
+          ?.id ===
+          'technique.commitment_wait' ||
+        isCustomerContactOptOut(
+          analysisViewModel,
+        )
+      )
     )
   }
 
@@ -522,7 +543,11 @@ function createCompanionMessageController({
     // para nunca competir em altura com o card do objetivo.
     const resultHtml =
       canonicalNoMessage
-        ? '<div class="yolen-message-status">A Yolen recomenda aguardar a resposta do cliente. Não há uma mensagem necessária agora.</div>'
+        ? isCustomerContactOptOut(
+            analysisViewModel,
+          )
+          ? '<div class="yolen-message-status">O cliente pediu para não receber mais contato. Não envie nenhuma nova mensagem.</div>'
+          : '<div class="yolen-message-status">A Yolen recomenda aguardar a resposta do cliente. Não há uma mensagem necessária agora.</div>'
         : state.status === 'ready' && state.message
         ? [
             '<div class="yolen-message-result-card">',

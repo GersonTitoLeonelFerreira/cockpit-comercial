@@ -106,6 +106,9 @@ export type SellerExecutionCustomerSignal = {
   // Só eles autorizam recuperação emocional numa retomada — nunca um
   // interesse neutro ("quero saber sobre X").
   expressed_enthusiasm: boolean
+  // O cliente pediu para não receber mais contato (opt-out): nenhuma nova
+  // mensagem é permitida, nem de encerramento.
+  no_contact_requested: boolean
 }
 
 // Turno do vendedor: sequência contígua de mensagens humanas outgoing sem
@@ -290,6 +293,31 @@ const EXTERNAL_RESOLUTION_PATTERNS: readonly RegExp[] = [
   /\bja (comprei|contratei|resolvi|fechei)\b\s*$/,
 ]
 
+// Pedido explícito para NÃO receber mais contato (opt-out). Diferente de um
+// encerramento comum ("já comprei em outro lugar"): depois dele nenhuma nova
+// mensagem é permitida — nem agradecimento nem "porta aberta".
+const CONTACT_OPT_OUT_PATTERNS: readonly RegExp[] = [
+  /\bpode (me )?tirar\b/,
+  /\b(me )?(tira|tire|tirem|remove|remova|removam|exclui|exclua|excluam)\b.{0,25}\b(lista|contatos?|numero|cadastro|grupo|envios?|base)\b/,
+  /\bdescadastr\w*/,
+  /\b(sair|me tirar|me remover) d[aeo]s? (lista|grupo|contatos|envios)\b/,
+  /\b(nao|para de|pare de|parem de|chega de) (me )?(mande|mandar|mandem|envie|enviar|enviem)\b.{0,20}\b(mais|mensage\w*|msg|nada)\b/,
+  /\b(para|pare|parem|chega) de (me )?(mandar|enviar|chamar|ligar|contatar|procurar|incomodar|perturbar)\b/,
+  /\bnao (me )?(chame|chamem|ligue|liguem|contate|contatem|procure|procurem|incomode|incomodem|perturbe)\b.{0,15}\bmais\b/,
+  /\bnao (quero|desejo) (mais )?(receber (mais )?(mensage\w*|msg|contatos?|ligac\w*|propaganda\w*|promoc\w*|ofertas?|nada)|ser (contatad[oa]|chamad[oa]|procurad[oa])|(nenhum )?contato)\b/,
+  /\bnao entr[ea]m? mais em contato\b/,
+  /^\s*(stop|sair|parar|cancelar inscricao|descadastrar)\s*[.!]*\s*$/,
+]
+
+export function requestsNoContact(
+  text: string,
+): boolean {
+  return matchesAny(
+    normalizeText(text),
+    CONTACT_OPT_OUT_PATTERNS,
+  )
+}
+
 // Núcleos de negação de continuidade. O ESCOPO é o que vem depois.
 const REJECTION_CORE =
   /\b(nao (quero|preciso|vou (querer|precisar)) mais|nao tenho (mais )?interesse|perdi o interesse|nao faz mais sentido|desisti|pode (cancelar|me tirar|tirar meu)|nao (quero|preciso) mais nada)\b(.*)$/
@@ -327,9 +355,26 @@ export function assessCustomerOpportunityStance(
   stance: CustomerOpportunityStance
   continuation_text: string | null
   negated_scope: 'option' | 'process' | null
+  // Rejeição que também proíbe novo contato (opt-out).
+  no_contact: boolean
 } {
   const normalized =
     normalizeText(text)
+
+  if (
+    matchesAny(
+      normalized,
+      CONTACT_OPT_OUT_PATTERNS,
+    )
+  ) {
+    return {
+      stance:
+        'rejects_opportunity',
+      continuation_text: null,
+      negated_scope: null,
+      no_contact: true,
+    }
+  }
 
   // "Desisti de cancelar" é o oposto de desistir da oportunidade.
   const sanitized =
@@ -422,6 +467,7 @@ export function assessCustomerOpportunityStance(
         continuation.join(' '),
       negated_scope:
         negatedScope,
+      no_contact: false,
     }
   }
 
@@ -431,6 +477,7 @@ export function assessCustomerOpportunityStance(
         'rejects_opportunity',
       continuation_text: null,
       negated_scope: null,
+      no_contact: false,
     }
   }
 
@@ -442,13 +489,28 @@ export function assessCustomerOpportunityStance(
     continuation_text: null,
     negated_scope:
       negatedScope,
+    no_contact: false,
   }
 }
 
 // Adiamento explícito com horizonte ("mês que vem", "te aviso", "vou
 // pensar"). Não é objeção nem encerramento: muda a expectativa de tempo de
 // resposta e, portanto, a leitura de silêncio.
+const DEFERRAL_HORIZON =
+  '(amanha|depois de amanha|daqui a|daqui|em \\d+ (dias?|semanas?|mes|meses)|em (dois|duas|tres|quatro|cinco|seis|sete|dez|quinze) (dias|semanas|meses)|(semana|mes|ano) que vem|proxim[oa] (semana|mes|ano)|segunda|terca|quarta|quinta|sexta|sabado|domingo|mais tarde|outro dia|depois|mais (pra|para) frente|(inicio|comeco|fim|final) do mes|depois d[ao]s? \\w+)'
+
+// Pedido para o VENDEDOR retomar o contato num momento indicado ("me chama
+// amanhã", "me liga daqui a 10 dias", "me procura ano que vem"): é um
+// adiamento combinado, mesmo quando menciona o próximo passo.
+const SELLER_CONTACT_DEFERRAL =
+  new RegExp(
+    `\\b(me (chama|chame|procura|procure|liga|ligue|contata|contate|aciona|cobra|cobre|lembra|lembre)|me (manda|mande) (uma )?(mensagem|msg)|fala comigo|pode me chamar|entra em contato|entre em contato|retoma comigo|retome comigo)\\b.{0,30}\\b${DEFERRAL_HORIZON}\\b`,
+  )
+
 const DEFERRAL_PATTERNS: readonly RegExp[] = [
+  SELLER_CONTACT_DEFERRAL,
+  /\b(ano que vem|proximo ano)\b/,
+  /\b(falamos|conversamos|decido|te respondo|retomamos|voltamos a falar|a gente se fala|a gente conversa)\b.{0,30}\b(amanha|daqui a|em \d+ dias|semana que vem|mes que vem|ano que vem|proxim[oa] (semana|mes|ano))\b/,
   /\bvou pensar\b/,
   /\b(te|lhe) (aviso|falo|retorno|chamo)\b/,
   /\b(depois|mais tarde) (te|eu) (aviso|falo|retorno|chamo|vejo)\b/,
@@ -492,7 +554,7 @@ export function detectCustomerTimeReference(
   }
 
   if (
-    /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo|essa semana|esta semana|fim de semana|final de semana)\b/.test(
+    /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo|essa semana|esta semana|nesta semana|nessa semana|fim de semana|final de semana)\b/.test(
       normalized,
     )
   ) {
@@ -641,6 +703,23 @@ function inferCustomerIntent(
     return {
       kind: 'close',
       confidence: 'high',
+      evidence_message_id:
+        message.id,
+    }
+  }
+
+  // Pedido explícito para o vendedor retomar num momento indicado vale
+  // antes das palavras de agenda ("me chama amanhã pra agendar" é prazo
+  // combinado, não pedido de horário agora). Intenção explícita de
+  // fechamento (acima) continua vencendo.
+  if (
+    SELLER_CONTACT_DEFERRAL.test(
+      text,
+    )
+  ) {
+    return {
+      kind: 'deferral',
+      confidence: 'medium',
       evidence_message_id:
         message.id,
     }
@@ -2455,6 +2534,12 @@ export function buildSellerExecutionTrace({
             timeReference,
           expressed_enthusiasm:
             enthusiasm,
+          no_contact_requested:
+            inferredCustomerIntent.kind ===
+              'disengaged' &&
+            requestsNoContact(
+              latestCustomerText,
+            ),
         })
       }
 

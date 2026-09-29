@@ -88,6 +88,10 @@ export type CommercialMessageStrategy = {
     CommercialMessageTemporalFrame | null
   reactivation_tactics?: string[]
 
+  // false = o cliente pediu para não receber mais contato (opt-out):
+  // nenhuma mensagem pode ser gerada, nem de encerramento.
+  outbound_allowed?: boolean
+
   evidence_message_ids: string[]
   memory_ids: string[]
 }
@@ -613,7 +617,10 @@ function buildTemporalFrame({
       'respect_closure'
   ) {
     guidance.push(
-      'O cliente encerrou: agradeça e respeite a decisão; nenhuma oferta, desconto ou urgência.',
+      temporal.reactivation
+        .contact_allowed
+        ? 'O cliente encerrou: agradeça e respeite a decisão; nenhuma oferta, desconto ou urgência.'
+        : 'O cliente pediu para não receber mais contato: não existe mensagem a gerar.',
     )
   }
 
@@ -924,12 +931,20 @@ export function buildCommercialMessageStrategy({
       ),
     ])
 
+  const outboundAllowed =
+    temporal?.reactivation
+      .contact_allowed ??
+    true
+
   return {
     contract_version:
       COMMERCIAL_MESSAGE_STRATEGY_VERSION,
+    outbound_allowed:
+      outboundAllowed,
     objective:
       reasoning.status ===
-        'silent'
+        'silent' ||
+      !outboundAllowed
         ? null
         : reasoning.objective_now,
     relationship_bridge:
@@ -958,10 +973,12 @@ export function buildCommercialMessageStrategy({
         ?.title ??
       null,
     desired_microcommitment:
-      desiredMicrocommitment({
-        reasoning,
-        coaching,
-      }),
+      outboundAllowed
+        ? desiredMicrocommitment({
+            reasoning,
+            coaching,
+          })
+        : null,
     facts_allowed:
       unique(
         factsAllowed,
@@ -973,10 +990,12 @@ export function buildCommercialMessageStrategy({
     blocked_action_types:
       blockedActionTypes,
     required_action_type:
-      requiredActionForTechnique(
-        coaching.chosen_technique
-          ?.id,
-      ),
+      outboundAllowed
+        ? requiredActionForTechnique(
+            coaching.chosen_technique
+              ?.id,
+          )
+        : null,
     tone:
       diagnostic_input
         .commercial_context

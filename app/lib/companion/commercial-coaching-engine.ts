@@ -123,6 +123,8 @@ export type CommercialCoachingTemporalView = {
   intent_label: string | null
   reactivation_mode:
     CommercialReactivationMode
+  // false = o cliente pediu para não ser mais contatado (sem mensagem).
+  contact_allowed: boolean
   requalify_before_continuing: boolean
   // Intensidade progressiva (quantitativa) da lacuna e da intenção.
   progression: {
@@ -1685,6 +1687,9 @@ function temporalView(
         .intent_label,
     reactivation_mode:
       temporal.reactivation.mode,
+    contact_allowed:
+      temporal.reactivation
+        .contact_allowed,
     requalify_before_continuing:
       temporal.reactivation
         .requalify_before_continuing,
@@ -1786,7 +1791,10 @@ function buildSynthesis({
     const momentum =
       temporal.momentum.state ===
         'closed'
-        ? 'Hoje o cliente já encerrou esta oportunidade.'
+        ? temporal.reactivation
+            .contact_allowed
+          ? 'Hoje o cliente já encerrou esta oportunidade.'
+          : 'O cliente pediu para não ser mais contatado: nenhuma nova mensagem, nem de encerramento.'
         : temporal.reactivation
             .requalify_before_continuing
           ? `Hoje: ${temporal.narrative.momentum_label.toLowerCase()} — o interesse atual precisa ser reconfirmado antes de retomar o passo antigo.`

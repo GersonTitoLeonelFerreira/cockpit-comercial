@@ -67,6 +67,12 @@ const STATEFUL_DIAGNOSTIC_CONTEXT_BRIDGE_MESSAGES =
 const STATEFUL_DIAGNOSTIC_INTENT_ANCHORS =
   3
 
+// Falas do cliente que podem ficar entre a âncora e a resposta do vendedor
+// (mesma rajada: "Quero contratar" + "Como faço?"). Além disso a âncora
+// entra sozinha — nunca pareada com uma resposta a outra fala.
+const ANCHOR_MAX_INTERVENING_CUSTOMER_MESSAGES =
+  2
+
 const ANCHOR_INTENT_KINDS =
   new Set([
     'scheduling',
@@ -1806,30 +1812,70 @@ export function selectStatefulDiagnosticMessages(
       candidate,
     )
 
-    const reply =
-      orderedByActivity
-        .slice(index + 1)
-        .map(
-          item =>
-            item.message,
-        )
-        .find(
-          message =>
-            message.direction ===
-              'outgoing',
-        )
+    // A âncora só leva junto a resposta do vendedor quando o trecho entre
+    // as duas é CONTÍGUO e curto: a rajada do próprio cliente e a primeira
+    // resposta a ela. Pular uma fala intermediária do cliente faria o trace
+    // julgar como resposta ao pedido âncora algo que respondia a outra fala
+    // (ex.: "Quero contratar" → [cliente: "Rua Central, 10"] → vendedor).
+    const exchange:
+      NormalizedLedgerMessage[] = []
+
+    let reply:
+      NormalizedLedgerMessage | null =
+        null
+
+    for (
+      let next = index + 1;
+      next < orderedByActivity.length &&
+      exchange.length <=
+        ANCHOR_MAX_INTERVENING_CUSTOMER_MESSAGES;
+      next += 1
+    ) {
+      const message =
+        orderedByActivity[next]
+          .message
+
+      if (message.is_deleted) {
+        continue
+      }
+
+      if (
+        message.direction ===
+          'outgoing'
+      ) {
+        reply = message
+        break
+      }
+
+      exchange.push(message)
+    }
+
+    const block =
+      reply &&
+      exchange.length <=
+        ANCHOR_MAX_INTERVENING_CUSTOMER_MESSAGES
+        ? [
+            ...exchange,
+            reply,
+          ].filter(
+            message =>
+              !alreadySelected.has(
+                message.id,
+              ) &&
+              !anchorMessages.includes(
+                message,
+              ),
+          )
+        : []
 
     if (
-      reply &&
-      !alreadySelected.has(
-        reply.id,
-      ) &&
-      !anchorMessages.includes(
-        reply,
-      )
+      block.length > 0 &&
+      anchorMessages.length +
+        block.length <=
+        anchorCapacity
     ) {
       anchorMessages.push(
-        reply,
+        ...block,
       )
     }
   }

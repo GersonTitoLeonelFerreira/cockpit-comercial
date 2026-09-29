@@ -41,7 +41,7 @@ test(
     // rastreável do pacote: versão + commit no painel).
     assert.equal(
       manifest.version,
-      '1.5.1',
+      '1.5.2',
     )
 
     assert.equal(

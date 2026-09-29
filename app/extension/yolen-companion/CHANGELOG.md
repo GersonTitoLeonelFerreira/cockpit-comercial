@@ -9,6 +9,16 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 A versão da extensão (`manifest.json` → `version`) permanece `1.0.0` até que
 uma fase futura de release decida um esquema de versionamento próprio.
 
+## [1.5.2] — Opt-out do cliente respeitado na MENSAGEM
+
+### Alterado
+
+- `src/companion-message-controller.js`: pedido explícito do cliente para
+  não receber mais contato (`coaching_diagnosis.temporal.contact_allowed ===
+  false`) vira estado canônico sem mensagem — sem presets, sem geração e com
+  aviso próprio ("O cliente pediu para não receber mais contato"). O servidor
+  também devolve `status: 'no_message'` nesse caso, sem chamar o redator.
+
 ## [1.5.1] — Fechamento da revisão do especialista comercial + verificador canônico do staging
 
 ### Alterado

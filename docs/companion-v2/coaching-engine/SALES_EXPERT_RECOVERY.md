@@ -108,6 +108,33 @@ negar a própria oportunidade/conversa ("não tenho mais interesse", "não
 quero mais falar sobre isso") ou resolver por outro caminho ("já fechei com
 outra") encerra.
 
+**Opt-out ≠ encerramento comum.** Pedido explícito para não receber mais
+contato ("pode me tirar da lista", "não quero mais receber mensagens",
+"para de me mandar mensagem", "stop") marca o sinal com
+`no_contact_requested`; o contexto temporal expõe
+`reactivation.contact_allowed = false`, o Reasoning troca o objetivo por
+"não enviar nenhuma mensagem", a Message Strategy sai com
+`outbound_allowed = false` (sem objetivo nem microcompromisso),
+`composeSellerMessage` devolve `no_message` sem chamar o redator e a
+extensão bloqueia a geração. Um encerramento comum ainda permite um
+agradecimento respeitoso.
+
+**Adiamento com horizonte explícito.** "Me chama amanhã", "me liga daqui a
+10 dias", "me procura ano que vem" (pedido para o vendedor retomar num
+momento indicado) são adiamentos combinados — inclusive quando mencionam o
+próximo passo ("me chama amanhã pra agendar"); intenção explícita de
+fechamento na mesma frase continua vencendo.
+
+**Janela "esta semana".** Termina no calendário comercial: "esta semana"
+até o fim do domingo da semana em que foi dita; um dia da semana ("segunda")
+até o fim da próxima ocorrência desse dia; "fim de semana" até o fim do
+domingo.
+
+**Âncoras da janela multi-dia.** A âncora só é pareada com a resposta do
+vendedor quando o trecho entre as duas é contíguo e curto (a rajada do
+próprio cliente); o trecho entra completo. Caso contrário a âncora entra
+sozinha — nunca pareada com a resposta a outra fala.
+
 O reasoning é avaliado no instante atual do vendedor (`evaluated_at`) e
 carrega `temporal_context`; coaching e message strategy consomem o MESMO
 objeto.

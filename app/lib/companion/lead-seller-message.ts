@@ -61,6 +61,14 @@ export type SellerMessageGenerationResult =
       message: null
       error: string
     }
+  | {
+      // Silêncio canônico: a estratégia proíbe mensagem (opt-out do
+      // cliente). Não é erro — a extensão não insere nem copia nada.
+      status: 'no_message'
+      message: null
+      error: null
+      reason: string
+    }
 
 const PROMPT_VERSION =
   'lead-seller-message-v2-context-quality'
@@ -1426,6 +1434,19 @@ export async function composeSellerMessage({
   recipientName?: string | null
   provider: StatefulCopilotProvider
 }): Promise<SellerMessageGenerationResult> {
+  // Opt-out do cliente vale antes de qualquer outra checagem: nenhuma
+  // intenção do vendedor autoriza nova mensagem depois de "não quero mais
+  // receber contato".
+  if (messageStrategy?.outbound_allowed === false) {
+    return {
+      status: 'no_message',
+      message: null,
+      error: null,
+      reason:
+        'O cliente pediu para não receber mais contato; nenhuma mensagem deve ser enviada.',
+    }
+  }
+
   const summary = clean(workingSummary)
   const intent = clean(sellerIntent)
   const canonicalRecipientName =

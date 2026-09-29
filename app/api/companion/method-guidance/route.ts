@@ -637,32 +637,35 @@ export async function POST(request: Request) {
       // INSERT + queue publish são pós-resposta: nada do enqueue pode
       // acrescentar latência ao retorno legacy. Todos os valores
       // necessários já estão congelados/capturados neste ponto.
-      after(async () => {
-        try {
-          await enqueueMessageIntelligenceShadowRunV1({
-            admin,
-            company_id: identity.company_id,
-            seller_user_id: token.sub,
-            cycle_id: identity.cycle_id,
-            conversation_key:
-              identity.conversation_key,
-            seller_intent: sellerIntent,
-            reference_time:
-              shadowReferenceTime,
-            legacy_generation_status:
-              generation.status,
-            legacy_message:
-              generation.message,
-          })
-        } catch (shadowError) {
-          console.warn(
-            '[METHOD_GUIDANCE_API] message intelligence shadow enqueue failed',
-            shadowError instanceof Error
-              ? shadowError.name
-              : 'unknown',
-          )
-        }
-      })
+      // Silêncio canônico (opt-out do cliente) não gera nada a comparar.
+      if (generation.status !== 'no_message') {
+        after(async () => {
+          try {
+            await enqueueMessageIntelligenceShadowRunV1({
+              admin,
+              company_id: identity.company_id,
+              seller_user_id: token.sub,
+              cycle_id: identity.cycle_id,
+              conversation_key:
+                identity.conversation_key,
+              seller_intent: sellerIntent,
+              reference_time:
+                shadowReferenceTime,
+              legacy_generation_status:
+                generation.status,
+              legacy_message:
+                generation.message,
+            })
+          } catch (shadowError) {
+            console.warn(
+              '[METHOD_GUIDANCE_API] message intelligence shadow enqueue failed',
+              shadowError instanceof Error
+                ? shadowError.name
+                : 'unknown',
+            )
+          }
+        })
+      }
 
       return NextResponse.json(
         {

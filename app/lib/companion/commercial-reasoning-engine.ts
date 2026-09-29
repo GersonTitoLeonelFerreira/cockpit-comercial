@@ -972,7 +972,10 @@ function temporalSituation(
     }
 
     case 'respect_closure':
-      return 'O cliente declarou que encerrou ou resolveu por outro caminho; não há próximo passo comercial a forçar.'
+      return temporal.reactivation
+        .contact_allowed
+        ? 'O cliente declarou que encerrou ou resolveu por outro caminho; não há próximo passo comercial a forçar.'
+        : 'O cliente pediu explicitamente para não receber mais contato; nenhuma nova mensagem pode ser enviada.'
 
     default:
       return null
@@ -1052,6 +1055,14 @@ function inferObjectiveNow({
       .requalify_before_continuing
   ) {
     return 'Responder agora ao pedido que ficou sem resposta, reconhecendo a demora em uma frase, e reconfirmar se ele ainda faz sentido antes de retomar o compromisso original — sem presumir a data ou o momento antigo.'
+  }
+
+  if (
+    temporal &&
+    !temporal.reactivation
+      .contact_allowed
+  ) {
+    return 'Não enviar nenhuma mensagem: registrar e respeitar o pedido do cliente de não receber mais contato.'
   }
 
   if (
@@ -2094,6 +2105,15 @@ export function buildCommercialReasoning({
             'Não forçar ação comercial enquanto a relevância da sessão não estiver confirmada.',
           ]
         : unique([
+            // Opt-out do cliente é a restrição de maior precedência.
+            ...(
+              temporalContext.reactivation
+                .contact_allowed
+                ? []
+                : [
+                    'Não enviar nenhuma nova mensagem — nem agradecimento nem "porta aberta": o cliente pediu para não ser mais contatado.',
+                  ]
+            ),
             ...techniqueSelection
               .restrictions,
             ...sequenceMethodAssessment
