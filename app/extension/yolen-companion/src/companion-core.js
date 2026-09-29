@@ -8804,13 +8804,16 @@ function createCompanionCore(ctx) {
       const nextUserId =
         result.payload.user?.id || null
 
-      if (
+      const sessionUserChanged =
         lastSessionUserId !== null &&
         nextUserId !== lastSessionUserId
-      ) {
+
+      if (sessionUserChanged) {
         coreApiComposition.clearLeadResolutionCache()
         // Mesmo dentro da mesma empresa, vendedor diferente é outra
         // fronteira de ownership para intenção, copy e CoachingDiagnosis.
+        // O reload do lead mais abaixo também usa este mesmo sinal para
+        // reconstruir syncContext()/ANÁLISE sob o novo usuário.
         messageController.clear()
       }
 
@@ -8937,22 +8940,30 @@ function createCompanionCore(ctx) {
           )
         }
       } else if (
-        (companyChanged || !wasConnected) &&
+        (
+          companyChanged ||
+          sessionUserChanged ||
+          !wasConnected
+        ) &&
         !state.isSelfConversation &&
         hasCurrentContactEvidence()
       ) {
-        // A resolução da empresa anterior foi invalidada acima e qualquer
-        // resolve em voo pertence à boundary antiga: resolve de novo sob
-        // a boundary da empresa nova.
+        // A resolução anterior foi invalidada acima por troca de empresa,
+        // troca de usuário ou recuperação de sessão. Recarrega o lead para
+        // reconstruir summary/MENSAGEM/ANÁLISE sob a ownership atual.
         resolveCurrentLead()
       } else if (
-        (companyChanged || !wasConnected) &&
+        (
+          companyChanged ||
+          sessionUserChanged ||
+          !wasConnected
+        ) &&
         !state.isSelfConversation &&
         state.conversationKey
       ) {
-        // Sessão recuperada (ou nova empresa) numa conversa cuja evidência
-        // ainda não foi adquirida: a aquisição só roda conectada, então é
-        // aqui que ela começa.
+        // Sessão recuperada, nova empresa ou novo usuário numa conversa
+        // cuja evidência ainda não foi adquirida: a aquisição só roda
+        // conectada, então é aqui que ela começa.
         runAutomaticContactLookup(
           state.conversationKey,
         )
