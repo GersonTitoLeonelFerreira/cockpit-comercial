@@ -961,3 +961,77 @@ test('toda técnica selecionável recebe explicação simples para o vendedor', 
     )
   }
 })
+
+
+test('ANÁLISE mantém próximo passo visível quando não existe técnica aplicável', () => {
+  const viewModel =
+    analysisViewModelFromReading(
+      buildReading(),
+    )
+
+  viewModel.coaching_diagnosis = {
+    status: 'ready',
+    client_context_confidence: 'high',
+    seller_execution_confidence: 'high',
+    current_commercial_goal:
+      'Responder ao pedido atual do cliente.',
+    client_intent_now: null,
+    seller_last_valid_move: null,
+    seller_strength: null,
+    seller_mistake: null,
+    additional_findings: [],
+    sequence_break: {
+      happened: false,
+      what_changed: null,
+      why_it_hurts: null,
+      evidence_message_ids: [],
+    },
+    method_state: {
+      configured: true,
+      current_stage_name: 'Contato',
+      recommended_stage_name: 'Contato',
+      recommended_stage_reason: null,
+      adherence: 'on_method',
+      deviation_detected: false,
+      recovery_objective: null,
+      recovery_move: null,
+    },
+    chosen_technique: null,
+    next_action:
+      'Responder diretamente ao pedido do cliente.',
+    do_not_do: [],
+    evidence_message_ids: [],
+    memory_ids: [],
+  }
+
+  const html =
+    view.renderAnalysisViewModel(
+      viewModel,
+    )
+
+  const nextStepIndex =
+    html.indexOf(
+      'Próximo passo',
+    )
+  const reasoningIndex =
+    html.indexOf(
+      '<summary>Ver raciocínio</summary>',
+    )
+
+  assert.notEqual(
+    nextStepIndex,
+    -1,
+  )
+  assert.notEqual(
+    reasoningIndex,
+    -1,
+  )
+  assert.ok(
+    nextStepIndex <
+      reasoningIndex,
+  )
+  assert.match(
+    html,
+    /Responder diretamente ao pedido do cliente\./,
+  )
+})
