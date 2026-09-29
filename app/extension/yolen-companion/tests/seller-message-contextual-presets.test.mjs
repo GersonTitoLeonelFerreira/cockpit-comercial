@@ -573,3 +573,42 @@ test('commitment_wait vira estado canônico sem mensagem e bloqueia fallback leg
     /A decisão comercial atual é aguardar/,
   )
 })
+
+
+test('wait mode remonta o composer quando o novo template remove a textarea preservada', () => {
+  const start =
+    sellerRuntime.indexOf(
+      'function applyComposerHtml(',
+    )
+  const end =
+    sellerRuntime.indexOf(
+      'function serializeNodes(',
+      start,
+    )
+  const block =
+    sellerRuntime.slice(
+      start,
+      end,
+    )
+
+  assert.notEqual(
+    start,
+    -1,
+  )
+  assert.match(
+    block,
+    /const field = box\.querySelector[\s\S]*INTENT_FIELD_SELECTOR/,
+  )
+  assert.match(
+    block,
+    /const template =\s*document\.createElement\('template'\)/,
+  )
+  assert.match(
+    block,
+    /if \(!nextKept\) \{[\s\S]*box\.innerHTML = html[\s\S]*return/,
+  )
+  assert.match(
+    block,
+    /box\.__yolenComposerConversationKey =\s*conversationKey/,
+  )
+})
