@@ -182,3 +182,39 @@ test('geração em voo é descartada quando CoachingDiagnosis muda', () => {
     /=== coachingSignatureAtStart/,
   )
 })
+
+
+test('primeira sincronização canônica invalida geração legada já iniciada ou concluída', () => {
+  const start =
+    sellerRuntime.indexOf(
+      'function syncAnalysisViewModel(',
+    )
+  const end =
+    sellerRuntime.indexOf(
+      "document.addEventListener(\n    'input'",
+      start,
+    )
+  const block =
+    sellerRuntime.slice(
+      start,
+      end,
+    )
+
+  assert.notEqual(start, -1)
+  assert.match(
+    block,
+    /const coachingChanged =\s*!previous \|\|/,
+  )
+  assert.match(
+    block,
+    /previous\.signature !==\s*signature/,
+  )
+  assert.match(
+    block,
+    /status: 'idle'/,
+  )
+  assert.match(
+    block,
+    /message: null/,
+  )
+})
