@@ -516,6 +516,27 @@ function mistakeFromTrace(
   return null
 }
 
+function readingImprovementFindingKind(
+  kind:
+    CommercialReadingImprovementPoint['kind'] | null,
+): CommercialCoachingFindingKind | null {
+  switch (kind) {
+    case 'unanswered_question':
+      return 'response_relevance'
+    case 'premature_price':
+    case 'premature_presentation':
+      return 'context_relevance'
+    case 'interrogation':
+      return 'question_quality'
+    case 'repetition':
+      return 'follow_up'
+    case 'pressure':
+      return 'pressure'
+    default:
+      return null
+  }
+}
+
 function primaryDeterministicMistakeSignal(
   trace:
     ReturnType<
@@ -557,6 +578,7 @@ function primaryDeterministicMistakeSignal(
 function buildAdditionalCoachingFindings({
   trace,
   primaryMistake,
+  primaryReadingImprovement,
 }: {
   trace:
     ReturnType<
@@ -564,6 +586,8 @@ function buildAdditionalCoachingFindings({
     >
   primaryMistake:
     CommercialCoachingEvidence | null
+  primaryReadingImprovement:
+    CommercialReadingImprovementPoint | null
 }): CommercialCoachingFinding[] {
   const findings:
     CommercialCoachingFinding[] = []
@@ -585,6 +609,19 @@ function buildAdditionalCoachingFindings({
       trace,
     )
 
+  const primaryReadingFindingKind =
+    readingImprovementFindingKind(
+      primaryReadingImprovement
+        ?.kind ?? null,
+    )
+
+  const primaryReadingEvidence =
+    new Set(
+      primaryReadingImprovement
+        ?.evidence_message_ids ??
+      [],
+    )
+
   const addFinding = (
     finding:
       CommercialCoachingFinding,
@@ -594,6 +631,20 @@ function buildAdditionalCoachingFindings({
         finding.kind,
       )
     ) {
+      return
+    }
+
+    const overlapsPrimaryReading =
+      primaryReadingFindingKind ===
+        finding.kind &&
+      finding.evidence_message_ids
+        .some(
+          id =>
+            primaryReadingEvidence
+              .has(id),
+        )
+
+    if (overlapsPrimaryReading) {
       return
     }
 
@@ -1282,17 +1333,20 @@ export function buildCommercialCoachingDiagnosis({
   const deterministicMistake =
     mistakeFromTrace(trace)
 
+  const primaryReadingImprovement =
+    firstReadingImprovement({
+      reading,
+      waitingForCustomer:
+        sequenceMethod.sequence
+          .waiting_for_customer,
+      customerFactAfterAction:
+        sequenceMethod.sequence
+          .customer_fact_after_action,
+    })
+
   const readingMistake =
     improvementFromReading(
-      firstReadingImprovement({
-        reading,
-        waitingForCustomer:
-          sequenceMethod.sequence
-            .waiting_for_customer,
-        customerFactAfterAction:
-          sequenceMethod.sequence
-            .customer_fact_after_action,
-      }),
+      primaryReadingImprovement,
     )
 
   const mistake =
@@ -1420,6 +1474,11 @@ export function buildCommercialCoachingDiagnosis({
         trace,
         primaryMistake:
           mistake,
+        primaryReadingImprovement:
+          deterministicMistake
+            ? null
+            : primaryReadingImprovement ??
+              null,
       }),
     sequence_break: {
       happened:
