@@ -510,7 +510,7 @@
               ${renderLabeledCopy('Em termos simples', techniqueSimpleExplanation(technique))}
               ${renderLabeledCopy('Como aplicar agora', diagnosis.next_action)}
             </article>
-          ` : ''}
+          ` : renderLabeledCopy('Próximo passo', diagnosis.next_action)}
 
           <details
             class="yolen-seller-secondary-details"
