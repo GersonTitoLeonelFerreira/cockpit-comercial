@@ -118,3 +118,35 @@ test('ANÁLISE canônica alimenta MENSAGEM sem criar uma segunda decisão comerc
     /get messageController\(\)[\s\S]*return messageController/,
   )
 })
+
+
+test('clear escopado invalida a copy mas preserva CoachingDiagnosis canônico da conversa', () => {
+  const start =
+    sellerRuntime.indexOf(
+      'function clearContext(payload)',
+    )
+  const end =
+    sellerRuntime.indexOf(
+      'function getState(context)',
+      start,
+    )
+  const block =
+    sellerRuntime.slice(
+      start,
+      end,
+    )
+
+  assert.notEqual(start, -1)
+  assert.match(
+    block,
+    /stateByConversation\.delete\(requestKey\)/,
+  )
+  assert.doesNotMatch(
+    block,
+    /analysisViewModelByConversation\.delete\(requestKey\)/,
+  )
+  assert.match(
+    block,
+    /analysisViewModelByConversation\.clear\(\)/,
+  )
+})
