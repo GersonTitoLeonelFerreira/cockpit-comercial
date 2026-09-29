@@ -516,6 +516,44 @@ function mistakeFromTrace(
   return null
 }
 
+function primaryDeterministicMistakeSignal(
+  trace:
+    ReturnType<
+      typeof buildSellerExecutionTrace
+    >,
+):
+  | 'late_discovery_after_close_intent'
+  | 'sequence_break'
+  | 'premature_product_offer'
+  | 'duplicate_followup'
+  | null {
+  const reversed = [
+    ...trace.events,
+  ].reverse()
+
+  for (
+    const signal of [
+      'late_discovery_after_close_intent',
+      'sequence_break',
+      'premature_product_offer',
+      'duplicate_followup',
+    ] as const
+  ) {
+    if (
+      reversed.some(
+        event =>
+          event.signals.includes(
+            signal,
+          ),
+      )
+    ) {
+      return signal
+    }
+  }
+
+  return null
+}
+
 function buildAdditionalCoachingFindings({
   trace,
   primaryMistake,
@@ -541,6 +579,11 @@ function buildAdditionalCoachingFindings({
           `${primaryMistake.summary} ${primaryMistake.why_it_matters}`,
         )
       : ''
+
+  const primarySignal =
+    primaryDeterministicMistakeSignal(
+      trace,
+    )
 
   const addFinding = (
     finding:
@@ -722,7 +765,11 @@ function buildAdditionalCoachingFindings({
         ),
     )
 
-  if (duplicate) {
+  if (
+    duplicate &&
+    primarySignal !==
+      'duplicate_followup'
+  ) {
     addFinding({
       kind:
         'follow_up',
@@ -749,7 +796,11 @@ function buildAdditionalCoachingFindings({
         ),
     )
 
-  if (lateDiscovery) {
+  if (
+    lateDiscovery &&
+    primarySignal !==
+      'late_discovery_after_close_intent'
+  ) {
     addFinding({
       kind:
         'discovery_timing',
