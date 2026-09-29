@@ -925,3 +925,95 @@ test(
     )
   },
 )
+
+
+test(
+  'especialista separa múltiplos aprendizados sem repetir apenas a quebra de sequência',
+  () => {
+    const diagnosis =
+      buildCommercialCoachingDiagnosis({
+        reading:
+          reading(),
+        reasoning:
+          reasoning({
+            objective:
+              'Retomar a intenção de experimentar antes de voltar ao agendamento.',
+          }),
+        diagnostic_input:
+          input([
+            {
+              direction:
+                'incoming',
+              text:
+                'Podemos fazer uma aula experimental hoje?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Olá',
+            },
+            {
+              direction:
+                'incoming',
+              text:
+                'Não fiz ainda',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Qual dia e horário fica melhor para você?',
+            },
+            {
+              direction:
+                'outgoing',
+              text:
+                'Temos um plano promocional com valor especial para matrícula.',
+            },
+          ]),
+      })
+
+    assert.equal(
+      diagnosis.sequence_break.happened,
+      true,
+    )
+
+    const kinds =
+      diagnosis.additional_findings
+        .map(
+          finding =>
+            finding.kind,
+        )
+
+    assert.ok(
+      kinds.includes(
+        'response_relevance',
+      ),
+    )
+    assert.ok(
+      kinds.includes(
+        'question_quality',
+      ),
+    )
+    assert.ok(
+      kinds.includes(
+        'context_relevance',
+      ),
+    )
+
+    assert.equal(
+      new Set(kinds).size,
+      kinds.length,
+    )
+
+    assert.ok(
+      diagnosis.additional_findings
+        .every(
+          finding =>
+            finding.evidence_message_ids
+              .length > 0,
+        ),
+    )
+  },
+)
