@@ -110,7 +110,8 @@ outra") encerra.
 
 **Opt-out ≠ encerramento comum.** Pedido explícito para não receber mais
 contato ("pode me tirar da lista", "não quero mais receber mensagens",
-"para de me mandar mensagem", "stop") marca o sinal com
+"para de me mandar mensagem", "stop"; "tirar" só com alvo de contato —
+"pode tirar uma dúvida?" continua pedido ativo) marca o sinal com
 `no_contact_requested`; o contexto temporal expõe
 `reactivation.contact_allowed = false`, o Reasoning troca o objetivo por
 "não enviar nenhuma mensagem", a Message Strategy sai com
@@ -123,12 +124,17 @@ agradecimento respeitoso.
 10 dias", "me procura ano que vem" (pedido para o vendedor retomar num
 momento indicado) são adiamentos combinados — inclusive quando mencionam o
 próximo passo ("me chama amanhã pra agendar"); intenção explícita de
-fechamento na mesma frase continua vencendo.
+fechamento na mesma frase continua vencendo. Todo horizonte aceito vira data
+real no calendário comercial: N dias/semanas/meses, dia da semana (no
+próprio dia = semana seguinte; "sexta da semana que vem" = sexta da próxima
+semana-calendário), depois de amanhã, mais tarde/daqui a pouco (mesmo dia),
+início/fim do mês, semana/mês/ano que vem. Só o genuinamente vago ("outro
+dia", "depois") usa o horizonte curto padrão.
 
 **Janela "esta semana".** Termina no calendário comercial: "esta semana"
 até o fim do domingo da semana em que foi dita; um dia da semana ("segunda")
-até o fim da próxima ocorrência desse dia; "fim de semana" até o fim do
-domingo.
+até o fim da próxima ocorrência desse dia ("próxima sexta"/"sexta que vem"
+dita numa sexta = a sexta seguinte); "fim de semana" até o fim do domingo.
 
 **Âncoras da janela multi-dia.** A âncora só é pareada com a resposta do
 vendedor quando o trecho entre as duas é contíguo e curto (a rajada do

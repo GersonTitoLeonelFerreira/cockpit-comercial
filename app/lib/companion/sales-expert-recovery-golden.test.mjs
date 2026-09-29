@@ -2752,3 +2752,120 @@ test(
     )
   },
 )
+
+test(
+  'OPT-OUT exige alvo de contato: "pode tirar uma dúvida?" é pedido ativo, "pode me tirar da lista" é opt-out',
+  () => {
+    const start =
+      '2026-09-24T13:00:00.000Z'
+
+    const run = text =>
+      runCase({
+        turns: [
+          ['in', start, 'Quero saber sobre o plano anual.'],
+          ['out', shift(start, 5 * MINUTE), 'Claro! O anual tem acompanhamento mensal incluído.'],
+          ['in', shift(start, 20 * MINUTE), text],
+        ],
+        evaluated_at:
+          shift(start, 30 * MINUTE),
+      })
+
+    for (const text of [
+      'Pode tirar uma dúvida?',
+      'Pode me tirar uma dúvida sobre o plano?',
+      'Me tira uma dúvida sobre o número da conta?',
+    ]) {
+      const {
+        temporal,
+        strategy,
+      } = run(text)
+
+      assert.notEqual(temporal.momentum.state, 'closed', text)
+      assert.equal(temporal.reactivation.contact_allowed, true, text)
+      assert.equal(temporal.reactivation.mode, 'respond_now', text)
+      assert.equal(strategy.outbound_allowed, true, text)
+    }
+
+    for (const text of [
+      'Pode me tirar da lista.',
+      'Me tira desse grupo.',
+      'Pode tirar meu número.',
+      'Pode me tirar.',
+    ]) {
+      const {
+        temporal,
+        strategy,
+      } = run(text)
+
+      assert.equal(temporal.reactivation.contact_allowed, false, text)
+      assert.equal(strategy.outbound_allowed, false, text)
+    }
+  },
+)
+
+test(
+  'ADIAMENTO: todo horizonte aceito vira data real (semanas, meses, dia da semana, depois de amanhã, mais tarde)',
+  () => {
+    // Quarta-feira, 16/09/2026, 10h20 em São Paulo.
+    const requestedAt =
+      '2026-09-16T13:20:00.000Z'
+
+    const cases = [
+      ['Me chama em dois meses.', '2026-11-16T12:00:00.000Z'],
+      ['Me chama em 2 semanas.', '2026-09-30T13:20:00.000Z'],
+      ['Me chama em uma semana.', '2026-09-23T13:20:00.000Z'],
+      ['Me chama sexta.', '2026-09-18T12:00:00.000Z'],
+      ['Me chama na sexta da semana que vem.', '2026-09-25T12:00:00.000Z'],
+      // Dia da semana dito no próprio dia = o da semana seguinte.
+      ['Me chama quarta.', '2026-09-23T12:00:00.000Z'],
+      ['Me chama depois de amanhã.', '2026-09-18T12:00:00.000Z'],
+      ['Me chama mais tarde.', '2026-09-16T16:20:00.000Z'],
+      ['Me chama no início do mês.', '2026-10-01T12:00:00.000Z'],
+    ]
+
+    for (const [text, resumeAt] of cases) {
+      const { temporal } =
+        runCase({
+          turns: [
+            ['in', '2026-09-16T13:00:00.000Z', 'Quero conhecer os planos.'],
+            ['out', '2026-09-16T13:05:00.000Z', 'Claro! Quer que eu te explique?'],
+            ['in', requestedAt, text],
+            ['out', '2026-09-16T13:25:00.000Z', 'Combinado!'],
+          ],
+          evaluated_at:
+            '2026-09-16T13:30:00.000Z',
+        })
+
+      assert.equal(
+        temporal.progression.agreed_pause
+          ?.resume_at,
+        resumeAt,
+        text,
+      )
+    }
+  },
+)
+
+test(
+  'JANELA: "próxima sexta" dita numa sexta é a sexta seguinte, não o próprio dia',
+  () => {
+    // Sexta-feira, 25/09/2026, 9h em São Paulo.
+    const friday =
+      '2026-09-25T12:00:00.000Z'
+
+    const expiredAt = evaluatedAt =>
+      runCase({
+        turns: [
+          ['in', friday, 'Consigo agendar para a próxima sexta?'],
+          ['out', shift(friday, 5 * MINUTE), 'Consegue sim! Prefere manhã ou tarde?'],
+        ],
+        evaluated_at:
+          evaluatedAt,
+      }).temporal.intent
+        .time_window_expired
+
+    assert.equal(expiredAt('2026-09-26T12:00:00.000Z'), false)
+    assert.equal(expiredAt('2026-10-02T20:00:00.000Z'), false)
+    assert.equal(expiredAt('2026-10-03T04:00:00.000Z'), true)
+  },
+)

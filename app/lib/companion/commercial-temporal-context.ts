@@ -672,10 +672,21 @@ function weekWindowEnd(
   const said =
     zonedParts(demonstratedAt)
 
-  const weekday =
+  const weekdayMatch =
     normalized.match(
-      /\b(domingo|segunda|terca|quarta|quinta|sexta|sabado)\b/,
-    )?.[1]
+      /\b(proxim[oa] )?(domingo|segunda|terca|quarta|quinta|sexta|sabado)(?:-feira| feira)?( que vem)?\b/,
+    )
+
+  const weekday =
+    weekdayMatch?.[2]
+
+  // "Próxima sexta" / "sexta que vem" dita numa sexta é a sexta seguinte,
+  // não o próprio dia.
+  const nextOccurrenceModifier =
+    Boolean(
+      weekdayMatch?.[1] ||
+      weekdayMatch?.[3],
+    )
 
   const endOfDayIn = (
     daysAhead: number,
@@ -703,8 +714,14 @@ function weekWindowEnd(
         weekday as typeof WEEKDAY_TOKENS[number],
       )
 
+    const offset =
+      (target - said.weekday + 7) % 7
+
     return endOfDayIn(
-      (target - said.weekday + 7) % 7,
+      offset === 0 &&
+        nextOccurrenceModifier
+        ? 7
+        : offset,
     )
   }
 
@@ -857,6 +874,8 @@ const SELLER_CONTACT_REQUEST =
   /\b(me (chama|chame|procura|procure|liga|ligue|contata|contate|aciona|cobra|cobre|lembra|lembre)|me (manda|mande) (uma )?(mensagem|msg)|fala comigo|pode me chamar|entra em contato|entre em contato|retoma comigo|retome comigo)\b/
 
 const NUMBER_WORDS: Record<string, number> = {
+  um: 1,
+  uma: 1,
   dois: 2,
   duas: 2,
   tres: 3,
@@ -864,8 +883,30 @@ const NUMBER_WORDS: Record<string, number> = {
   cinco: 5,
   seis: 6,
   sete: 7,
+  oito: 8,
+  nove: 9,
   dez: 10,
+  onze: 11,
+  doze: 12,
   quinze: 15,
+  vinte: 20,
+  trinta: 30,
+}
+
+const DEFERRAL_DURATION =
+  /\b(?:daqui a|daqui|em|dentro de) (\d{1,2}|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|quinze|vinte|trinta) (dia|dias|semana|semanas|mes|meses)\b/
+
+const DEFERRAL_WEEKDAY =
+  /\b(proxim[oa] )?(segunda|terca|quarta|quinta|sexta|sabado|domingo)(?:-feira| feira)?( que vem)?\b/
+
+const WEEKDAY_LABELS: Record<string, string> = {
+  domingo: 'no domingo',
+  segunda: 'na segunda-feira',
+  terca: 'na terça-feira',
+  quarta: 'na quarta-feira',
+  quinta: 'na quinta-feira',
+  sexta: 'na sexta-feira',
+  sabado: 'no sábado',
 }
 
 type DeferralPlan = {
@@ -897,24 +938,123 @@ function deferralPlan(
   let until: number
   let label: string
 
-  const inDays =
+  // Todo horizonte que o trace aceita como adiamento vira uma data real:
+  // durações (dias/semanas/meses), dia da semana, "depois de amanhã",
+  // "mais tarde", início/fim do mês, semana/mês/ano que vem. Só o que é
+  // genuinamente vago ("outro dia", "depois") usa o horizonte curto padrão.
+  const duration =
     normalized.match(
-      /\b(?:daqui a|daqui|em) (\d{1,2}|dois|duas|tres|quatro|cinco|seis|sete|dez|quinze) dias\b/,
+      DEFERRAL_DURATION,
     )
 
-  if (
+  const weekday =
+    normalized.match(
+      DEFERRAL_WEEKDAY,
+    )
+
+  const nextWeek =
     /\b(semana que vem|proxima semana)\b/.test(
       normalized,
     )
-  ) {
-    const daysToMonday =
-      ((8 - today.weekday) % 7) || 7
+
+  const daysToNextMonday =
+    ((8 - today.weekday) % 7) || 7
+
+  const endOfDayAfter = (
+    daysAhead: number,
+  ): number =>
+    zonedInstant(
+      today.year,
+      today.month,
+      today.day + daysAhead + 1,
+      0,
+    )
+
+  if (duration) {
+    const amount =
+      NUMBER_WORDS[duration[1]] ??
+      Number(duration[1])
+
+    const unit =
+      duration[2]
+
+    if (unit.startsWith('mes')) {
+      resumeAt =
+        zonedInstant(
+          today.year,
+          today.month + amount,
+          today.day,
+          9,
+        )
+
+      until =
+        resumeAt + 3 * DAY_MS
+
+      label =
+        amount === 1
+          ? 'em um mês'
+          : `em ${amount} meses`
+    } else if (
+      unit.startsWith('semana')
+    ) {
+      resumeAt =
+        requestedAt +
+        amount * 7 * DAY_MS
+
+      until =
+        resumeAt + 2 * DAY_MS
+
+      label =
+        amount === 1
+          ? 'em uma semana'
+          : `em ${amount} semanas`
+    } else {
+      resumeAt =
+        requestedAt +
+        amount * DAY_MS
+
+      until =
+        resumeAt + DAY_MS
+
+      label =
+        amount === 1
+          ? 'em um dia'
+          : `em ${amount} dias`
+    }
+  } else if (weekday) {
+    const target =
+      WEEKDAY_TOKENS.indexOf(
+        weekday[2] as typeof WEEKDAY_TOKENS[number],
+      )
+
+    // "Sexta da semana que vem" é a sexta da PRÓXIMA semana-calendário;
+    // um dia da semana dito no próprio dia é o da semana seguinte.
+    const offset =
+      nextWeek
+        ? daysToNextMonday +
+          ((target - 1 + 7) % 7)
+        : ((target - today.weekday + 7) % 7) || 7
 
     resumeAt =
       zonedInstant(
         today.year,
         today.month,
-        today.day + daysToMonday,
+        today.day + offset,
+        9,
+      )
+
+    until =
+      endOfDayAfter(offset)
+
+    label =
+      WEEKDAY_LABELS[weekday[2]] ??
+      'no dia combinado'
+  } else if (nextWeek) {
+    resumeAt =
+      zonedInstant(
+        today.year,
+        today.month,
+        today.day + daysToNextMonday,
         9,
       )
 
@@ -922,13 +1062,13 @@ function deferralPlan(
       zonedInstant(
         today.year,
         today.month,
-        today.day + daysToMonday + 5,
+        today.day + daysToNextMonday + 5,
         0,
       )
 
     label = 'na semana seguinte'
   } else if (
-    /\b(mes que vem|proximo mes)\b/.test(
+    /\b(mes que vem|proximo mes|(inicio|comeco) do (proximo )?mes)\b/.test(
       normalized,
     )
   ) {
@@ -1005,18 +1145,23 @@ function deferralPlan(
     until = resumeAt
 
     label = 'mais para frente'
-  } else if (inDays) {
-    const days =
-      NUMBER_WORDS[inDays[1]] ??
-      Number(inDays[1])
-
+  } else if (
+    /\bdepois de amanha\b/.test(
+      normalized,
+    )
+  ) {
     resumeAt =
-      requestedAt + days * DAY_MS
+      zonedInstant(
+        today.year,
+        today.month,
+        today.day + 2,
+        9,
+      )
 
     until =
-      resumeAt + DAY_MS
+      endOfDayAfter(2)
 
-    label = `em ${days} dias`
+    label = 'depois de amanhã'
   } else if (
     /\bamanha\b/.test(
       normalized,
@@ -1031,14 +1176,32 @@ function deferralPlan(
       )
 
     until =
-      zonedInstant(
-        today.year,
-        today.month,
-        today.day + 2,
-        0,
-      )
+      endOfDayAfter(1)
 
     label = 'no dia seguinte'
+  } else if (
+    /\b(daqui a pouco|daqui a pouquinho|mais tarde|depois do almoco|depois do trabalho|depois do expediente|no fim do dia|no final do dia|(hoje )?a tarde|(hoje )?a noite)\b/.test(
+      normalized,
+    )
+  ) {
+    // Ainda hoje: horas, não dias.
+    resumeAt =
+      requestedAt +
+      (
+        /\bdaqui a pouc/.test(
+          normalized,
+        )
+          ? 60 * 60 * 1000
+          : 3 * 60 * 60 * 1000
+      )
+
+    until =
+      Math.max(
+        endOfDayAfter(0),
+        resumeAt + 60 * 60 * 1000,
+      )
+
+    label = 'mais tarde, no mesmo dia'
   } else {
     resumeAt =
       requestedAt + 3 * DAY_MS

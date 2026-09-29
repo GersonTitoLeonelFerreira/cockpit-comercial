@@ -297,8 +297,11 @@ const EXTERNAL_RESOLUTION_PATTERNS: readonly RegExp[] = [
 // encerramento comum ("já comprei em outro lugar"): depois dele nenhuma nova
 // mensagem é permitida — nem agradecimento nem "porta aberta".
 const CONTACT_OPT_OUT_PATTERNS: readonly RegExp[] = [
-  /\bpode (me )?tirar\b/,
-  /\b(me )?(tira|tire|tirem|remove|remova|removam|exclui|exclua|excluam)\b.{0,25}\b(lista|contatos?|numero|cadastro|grupo|envios?|base)\b/,
+  // "Pode (me) tirar" só é opt-out com alvo de contato ou sozinho no fim da
+  // frase — "pode tirar uma dúvida?" é pedido ativo, nunca opt-out.
+  /\bpode (me )?tirar\b(?=\s*((d[aoe]s?|desse|dessa|deste|desta) (sua |essa |dessa )?(lista|grupo|contatos?|cadastro|base|envios?|mailing)\b|(o )?meu (numero|contato|cadastro|nome|telefone)\b|daqui\b|[.!]*\s*$))/,
+  /\b(tira|tire|tirem|remove|remova|removam|exclui|exclua|excluam)\b\s+(me |o meu |meu |o )?(numero |contato |cadastro |nome |telefone )?(d[aoe]s?|desse|dessa|deste|desta)\s+(sua |essa |dessa )?(lista|grupo|contatos|cadastro|base|envios?|mailing)\b/,
+  /\b(tira|tire|tirem|remove|remova|removam|exclui|exclua|excluam)\b\s+(o )?meu (numero|contato|cadastro|telefone)\b/,
   /\bdescadastr\w*/,
   /\b(sair|me tirar|me remover) d[aeo]s? (lista|grupo|contatos|envios)\b/,
   /\b(nao|para de|pare de|parem de|chega de) (me )?(mande|mandar|mandem|envie|enviar|enviem)\b.{0,20}\b(mais|mensage\w*|msg|nada)\b/,
@@ -320,7 +323,7 @@ export function requestsNoContact(
 
 // Núcleos de negação de continuidade. O ESCOPO é o que vem depois.
 const REJECTION_CORE =
-  /\b(nao (quero|preciso|vou (querer|precisar)) mais|nao tenho (mais )?interesse|perdi o interesse|nao faz mais sentido|desisti|pode (cancelar|me tirar|tirar meu)|nao (quero|preciso) mais nada)\b(.*)$/
+  /\b(nao (quero|preciso|vou (querer|precisar)) mais|nao tenho (mais )?interesse|perdi o interesse|nao faz mais sentido|desisti|pode cancelar|nao (quero|preciso) mais nada)\b(.*)$/
 
 // Verbos de processo: negar "esperar", "pensar", "parcelar" muda COMO a
 // venda acontece, não SE ela acontece.
@@ -497,7 +500,7 @@ export function assessCustomerOpportunityStance(
 // pensar"). Não é objeção nem encerramento: muda a expectativa de tempo de
 // resposta e, portanto, a leitura de silêncio.
 const DEFERRAL_HORIZON =
-  '(amanha|depois de amanha|daqui a|daqui|em \\d+ (dias?|semanas?|mes|meses)|em (dois|duas|tres|quatro|cinco|seis|sete|dez|quinze) (dias|semanas|meses)|(semana|mes|ano) que vem|proxim[oa] (semana|mes|ano)|segunda|terca|quarta|quinta|sexta|sabado|domingo|mais tarde|outro dia|depois|mais (pra|para) frente|(inicio|comeco|fim|final) do mes|depois d[ao]s? \\w+)'
+  '(amanha|depois de amanha|daqui a|daqui|(em|dentro de) (\\d{1,2}|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|quinze|vinte|trinta) (dia|dias|semana|semanas|mes|meses)|(semana|mes|ano) que vem|proxim[oa] (semana|mes|ano)|segunda|terca|quarta|quinta|sexta|sabado|domingo|mais tarde|outro dia|depois|mais (pra|para) frente|(inicio|comeco|fim|final) do mes|depois d[ao]s? \\w+)'
 
 // Pedido para o VENDEDOR retomar o contato num momento indicado ("me chama
 // amanhã", "me liga daqui a 10 dias", "me procura ano que vem"): é um
