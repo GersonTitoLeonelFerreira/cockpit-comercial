@@ -621,6 +621,17 @@ function createCompanionMessageController({
         INTENT_FIELD_SELECTOR,
       )
 
+    if (!nextKept) {
+      // O estado canônico de espera remove deliberadamente o campo de
+      // intenção. Nesse caso não existe nó equivalente para preservar:
+      // remonte o composer inteiro para exibir a UI no-message sem manter
+      // o textarea antigo nem dereferenciar nextKept=null.
+      box.innerHTML = html
+      box.__yolenComposerConversationKey =
+        conversationKey
+      return
+    }
+
     while (kept !== box) {
       replaceChangedSiblings(
         kept,
