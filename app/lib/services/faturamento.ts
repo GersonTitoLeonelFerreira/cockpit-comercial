@@ -306,7 +306,12 @@ export async function upsertRevenueOverride(
   )
 
   if (error) throw error
-  return data?.success === true
+
+  if (data?.success !== true) {
+    throw new Error('O banco não confirmou a atualização do faturamento.')
+  }
+
+  return true
 }
 
 // ============================================================================
