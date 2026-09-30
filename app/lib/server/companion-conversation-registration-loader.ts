@@ -371,6 +371,11 @@ export async function loadCanonicalMessages({
 
   const messages: CanonicalConversationMessage[] = []
 
+  // Ordem de gravação no ledger de cada mensagem (id da linha): desempata o
+  // mesmo minuto sem mudar o formato da mensagem.
+  const ledgerIdByMessage =
+    new Map<CanonicalConversationMessage, string>()
+
   for (const row of messageRows) {
     if (
       row.company_id !== companyId ||
@@ -402,7 +407,7 @@ export async function loadCanonicalMessages({
           ? row.text_content
           : null
 
-    messages.push({
+    const message: CanonicalConversationMessage = {
       message_key: row.message_key,
       version: row.version,
       direction: row.direction,
@@ -410,9 +415,15 @@ export async function loadCanonicalMessages({
       content_type: row.content_type,
       text,
       is_deleted: isDeleted,
-    })
+    }
+
+    messages.push(message)
+    ledgerIdByMessage.set(message, String(row.id ?? ''))
   }
 
+  // O horário do WhatsApp só tem minuto: dentro do mesmo minuto vale a ordem
+  // de gravação no ledger (a captura grava na ordem da conversa), nunca o
+  // message_key.
   messages.sort((left, right) => {
     const leftTime = Date.parse(left.occurred_at)
     const rightTime = Date.parse(right.occurred_at)
@@ -421,7 +432,11 @@ export async function loadCanonicalMessages({
       return leftTime - rightTime
     }
 
-    return left.message_key.localeCompare(right.message_key)
+    return (ledgerIdByMessage.get(left) ?? '').localeCompare(
+      ledgerIdByMessage.get(right) ?? '',
+      'en',
+      { numeric: true },
+    )
   })
 
   return messages

@@ -37,6 +37,7 @@ import {
 
 import {
   computeMessageActivityTimestamps,
+  findContentOriginVersion,
 } from './message-activity-time'
 
 const LEDGER_PAGE_SIZE =
@@ -1123,6 +1124,17 @@ export type NormalizedLedgerMessage = {
   audio_transcription: string | null
   is_deleted: boolean
   deletion_reason: 'explicit_deletion' | 'dom_disappearance' | null
+
+  // Só quando a versão atual corrigiu metadados (direção, autoria, tipo) sem
+  // mudar o conteúdo: versão e observação da versão em que o conteúdo mudou
+  // pela última vez. É o que agrupa a sessão (message-activity-time.ts).
+  content_version?: number
+  content_observed_at?: string
+
+  // Só quando a versão atual não é a primeira: id da primeira versão, que é
+  // a ordem em que a mensagem entrou no ledger. Desempata o mesmo minuto
+  // (a captura grava na ordem da conversa).
+  ledger_order_id?: string
 }
 
 const VALID_LEDGER_AUTHOR_KINDS: NormalizedLedgerAuthorKind[] = [
@@ -1448,6 +1460,70 @@ export async function loadLedgerRows({
   return rows
 }
 
+// Versão atual que só corrigiu metadados carrega a origem do conteúdo, e
+// versão atual que não é a primeira carrega o id da primeira (ordem de
+// entrada no ledger); as demais seguem exatamente como vieram do ledger.
+function withContentOrigin(
+  message: NormalizedLedgerMessage,
+  versions: NormalizedLedgerMessage[],
+): NormalizedLedgerMessage {
+  const origin =
+    findContentOriginVersion(
+      versions,
+    )
+
+  const firstVersion =
+    versions.reduce<NormalizedLedgerMessage | null>(
+      (first, candidate) =>
+        !first ||
+        candidate.version <
+          first.version
+          ? candidate
+          : first,
+      null,
+    )
+
+  const metadataOnlyCorrection =
+    Boolean(origin) &&
+    origin?.version !==
+      message.version
+
+  const laterVersion =
+    Boolean(firstVersion) &&
+    firstVersion?.id !==
+      message.id
+
+  if (
+    !metadataOnlyCorrection &&
+    !laterVersion
+  ) {
+    return message
+  }
+
+  return {
+    ...message,
+
+    ...(origin &&
+    metadataOnlyCorrection
+      ? {
+          content_version:
+            origin.version,
+
+          content_observed_at:
+            origin.observed_at,
+        }
+      : {}),
+
+    ...(firstVersion &&
+    laterVersion
+      ? {
+          ledger_order_id:
+            firstVersion.id,
+        }
+      : {}),
+  }
+}
+
 export function buildCanonicalLedger({
   rows,
   companyId,
@@ -1489,7 +1565,27 @@ export function buildCanonicalLedger({
       NormalizedLedgerMessage
     >()
 
+  const versionsByMessageKey =
+    new Map<
+      string,
+      NormalizedLedgerMessage[]
+    >()
+
   for (const message of normalizedRows) {
+    const versions =
+      versionsByMessageKey.get(
+        message.message_key,
+      )
+
+    if (versions) {
+      versions.push(message)
+    } else {
+      versionsByMessageKey.set(
+        message.message_key,
+        [message],
+      )
+    }
+
     if (knownIdSet.has(message.id)) {
       fail({
         code:
@@ -1561,7 +1657,15 @@ export function buildCanonicalLedger({
   const canonicalMessages =
     [
       ...latestByMessageKey.values(),
-    ]
+    ].map(
+      message =>
+        withContentOrigin(
+          message,
+          versionsByMessageKey.get(
+            message.message_key,
+          ) ?? [],
+        ),
+    )
 
   if (
     canonicalMessages.length >

@@ -217,6 +217,9 @@ function createCompanionCore(ctx) {
   let pendingCaptureMutationIds =
     new Set()
   let messageLedgerRequiresRebase = false
+  // Leitura do DOM em que cada mensagem foi vista por último (ver
+  // compareLedgerMessagesInConversationOrder).
+  let messageLedgerReadSequence = 0
   let messageLedgerMutationRevision = 0
   // FASE 16.6 — mesmo padrão de agoraDecisionStateRequestSequence acima,
   // para o ANÁLISE seller-facing view model.
@@ -1616,6 +1619,11 @@ function createCompanionCore(ctx) {
       return false
     }
 
+    messageLedgerReadSequence += 1
+
+    const readSequence =
+      messageLedgerReadSequence
+
     let detectedMessageMutation =
       false
 
@@ -1720,15 +1728,19 @@ function createCompanionCore(ctx) {
         }
 
         const messageToStore =
-          currentMessage &&
-          !messageWasDeleted &&
-          !messageChanged
-            ? {
-                ...message,
-                observedAt:
-                  currentMessage.observedAt,
-              }
-            : message
+          withLedgerReadPosition(
+            currentMessage &&
+            !messageWasDeleted &&
+            !messageChanged
+              ? {
+                  ...message,
+                  observedAt:
+                    currentMessage.observedAt,
+                }
+              : message,
+            entry,
+            readSequence,
+          )
 
         conversationMessageLedger.set(
           message.id,
@@ -1752,19 +1764,9 @@ function createCompanionCore(ctx) {
     const sortedMessages =
       Array.from(
         conversationMessageLedger.values(),
-      ).sort((a, b) => {
-        if (
-          a.timestampMs !==
-          b.timestampMs
-        ) {
-          return (
-            a.timestampMs -
-            b.timestampMs
-          )
-        }
-
-        return a.id.localeCompare(b.id)
-      })
+      ).sort(
+        compareLedgerMessagesInConversationOrder,
+      )
 
     if (
       sortedMessages.length >
@@ -1794,21 +1796,9 @@ function createCompanionCore(ctx) {
         Array.from(
           deletedMessageSnapshots.values(),
         )
-          .sort((first, second) => {
-            if (
-              first.timestampMs !==
-              second.timestampMs
-            ) {
-              return (
-                first.timestampMs -
-                second.timestampMs
-              )
-            }
-
-            return first.id.localeCompare(
-              second.id,
-            )
-          })
+          .sort(
+            compareLedgerMessagesInConversationOrder,
+          )
           .slice(
             -MAX_MESSAGE_LEDGER_SIZE,
           )
@@ -1845,23 +1835,68 @@ function createCompanionCore(ctx) {
     return detectedMessageMutation
   }
 
+  // Posição da mensagem na última leitura do DOM em que apareceu. Não entra
+  // na comparação de conteúdo (areCapturedMessagesEqual), então nunca gera
+  // mutação.
+  function withLedgerReadPosition(
+    message,
+    entry,
+    readSequence,
+  ) {
+    if (!Number.isInteger(entry?.domOrder)) {
+      return message
+    }
+
+    return {
+      ...message,
+      ledgerReadSequence:
+        readSequence,
+      ledgerReadOrder:
+        entry.domOrder,
+    }
+  }
+
+  // Ordem da conversa: pelo horário e, dentro do mesmo minuto (o WhatsApp só
+  // mostra minuto), pela posição no DOM quando as duas mensagens foram vistas
+  // na mesma leitura. Sem essa prova, mantém a ordem em que entraram no
+  // ledger (sort estável) — nunca a ordem alfabética do id, que punha toda
+  // mensagem recebida (3A…) antes das enviadas pelo WhatsApp Web (3EB0…).
+  function compareLedgerMessagesInConversationOrder(
+    left,
+    right,
+  ) {
+    if (
+      left.timestampMs !==
+      right.timestampMs
+    ) {
+      return (
+        left.timestampMs -
+        right.timestampMs
+      )
+    }
+
+    if (
+      Number.isInteger(left.ledgerReadSequence) &&
+      left.ledgerReadSequence ===
+        right.ledgerReadSequence
+    ) {
+      return (
+        left.ledgerReadOrder -
+        right.ledgerReadOrder
+      )
+    }
+
+    return 0
+  }
+
   function getSortedLedgerMessages() {
     synchronizeConversationMessageLedger()
 
     return Array.from(
       conversationMessageLedger.values(),
-    ).sort((a, b) => {
-      if (
-        a.timestampMs !== b.timestampMs
-      ) {
-        return (
-          a.timestampMs -
-          b.timestampMs
-        )
-      }
-
-      return a.id.localeCompare(b.id)
-    })
+    ).sort(
+      compareLedgerMessagesInConversationOrder,
+    )
   }
 
   // Assinatura do snapshot de mensagens do ledger canônico (FASE 5):

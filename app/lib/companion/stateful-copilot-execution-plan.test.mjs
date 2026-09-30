@@ -2298,6 +2298,9 @@ test(
 
         new_or_changed_message_ids:
           [],
+
+        new_content_message_ids:
+          [],
       },
     )
 
@@ -2396,6 +2399,10 @@ test(
           false,
 
         new_or_changed_message_ids: [
+          'm3',
+        ],
+
+        new_content_message_ids: [
           'm3',
         ],
       },
@@ -2524,6 +2531,10 @@ test(
           false,
 
         new_or_changed_message_ids: [
+          'm0',
+        ],
+
+        new_content_message_ids: [
           'm0',
         ],
       },

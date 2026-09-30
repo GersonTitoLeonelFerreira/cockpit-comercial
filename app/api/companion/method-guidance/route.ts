@@ -309,6 +309,19 @@ async function loadLegacyCurrentInteractionAtReferenceTime({
       referenceTime,
     })
 
+  // Mesmo minuto: ordem em que a mensagem entrou no ledger (id da primeira
+  // versão), que a captura grava na ordem da conversa — nunca o message_key.
+  const ledgerOrderById =
+    new Map(
+      canonicalMessages.map(
+        message => [
+          message.id,
+          message.ledger_order_id ??
+            message.id,
+        ] as const,
+      ),
+    )
+
   const legacyMessages =
     canonicalMessages
       .map(
@@ -335,8 +348,26 @@ async function loadLegacyCurrentInteractionAtReferenceTime({
           return leftTime - rightTime
         }
 
-        return left.message_key.localeCompare(
-          right.message_key,
+        const leftOrder =
+          ledgerOrderById.get(
+            left.id ?? '',
+          ) ??
+          left.id ??
+          ''
+
+        const rightOrder =
+          ledgerOrderById.get(
+            right.id ?? '',
+          ) ??
+          right.id ??
+          ''
+
+        return leftOrder.localeCompare(
+          rightOrder,
+          'en',
+          {
+            numeric: true,
+          },
         )
       })
 

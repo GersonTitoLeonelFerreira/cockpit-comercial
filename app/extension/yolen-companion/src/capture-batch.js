@@ -355,24 +355,16 @@
             ? deletedMessages
             : []
 
+        // Sort estável por horário: dentro do mesmo minuto vale a ordem em
+        // que as mensagens chegam (a ordem da conversa no ledger do Core),
+        // nunca a ordem alfabética do id.
         const combinedMessages = [
           ...safeActiveMessages,
           ...safeDeletedMessages,
         ].sort((first, second) => {
-          if (
-            first.timestampMs !==
+          return (
+            first.timestampMs -
             second.timestampMs
-          ) {
-            return (
-              first.timestampMs -
-              second.timestampMs
-            )
-          }
-
-          return String(
-            first.id || '',
-          ).localeCompare(
-            String(second.id || ''),
           )
         })
 
@@ -506,6 +498,9 @@
           )
         }
 
+        // Sort estável por horário: dentro do mesmo minuto a captura envia na
+        // ordem da conversa (a ordem recebida do Core, que segue o DOM). O
+        // ledger grava nessa ordem e o backend desempata o minuto pelo id.
         return Array.from(
           messagesByKey.values(),
         ).sort((first, second) => {
@@ -518,9 +513,7 @@
             )
           }
 
-          return first.message_key.localeCompare(
-            second.message_key,
-          )
+          return 0
         })
       }
 

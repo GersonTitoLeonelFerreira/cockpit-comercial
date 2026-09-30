@@ -727,3 +727,48 @@ test('buildCaptureIngestionPlanFromMessages exige cycleId e conversationKey', ()
     }),
   )
 })
+
+// Mesmo minuto: o WhatsApp só mostra minuto, e as chaves recebidas (3A…)
+// vêm antes das enviadas pelo WhatsApp Web (3EB0…) em ordem alfabética. A
+// captura precisa enviar na ordem da conversa que recebeu do Core (DOM),
+// porque o ledger grava nessa ordem e o backend desempata pelo id.
+test('mesmo minuto: janela e plano de captura seguem a ordem da conversa, não a do id', () => {
+  const sameMinute = Date.parse('2026-09-29T20:39:00.000Z')
+
+  const conversationOrder = [
+    activeMessage({ id: '3EB0SELLER_C', timestampMs: sameMinute, direction: 'outgoing', text: 'v1' }),
+    activeMessage({ id: '3EB0SELLER_A', timestampMs: sameMinute, direction: 'outgoing', text: 'v2' }),
+    activeMessage({ id: '3ACUSTOMER_B', timestampMs: sameMinute, direction: 'incoming', text: 'c1' }),
+    activeMessage({ id: '3EB0SELLER_B', timestampMs: sameMinute, direction: 'outgoing', text: 'v3' }),
+    activeMessage({ id: '3ACUSTOMER_A', timestampMs: sameMinute, direction: 'incoming', text: 'c2' }),
+  ]
+
+  const expectedKeys =
+    conversationOrder.map((message) => message.id)
+
+  const window =
+    selectCaptureWindow({
+      activeMessages: conversationOrder,
+      deletedMessages: [],
+    })
+
+  assert.deepEqual(
+    window.activeMessages.map((message) => message.id),
+    expectedKeys,
+  )
+
+  const plan =
+    buildCaptureIngestionPlan({
+      cycleId: '30000000-0000-4000-8000-000000000001',
+      conversationKey: 'phone:5511900000000',
+      activeMessages: window.activeMessages,
+      deletedMessages: window.deletedMessages,
+      transcriptionsByKey: {},
+      baseVersionsByMessageKey: {},
+    })
+
+  assert.deepEqual(
+    plan.messages.map((message) => message.message_key),
+    expectedKeys,
+  )
+})

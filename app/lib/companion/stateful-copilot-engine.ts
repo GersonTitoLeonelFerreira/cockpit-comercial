@@ -237,9 +237,10 @@ export type StatefulCopilotEngineGuardExhaustedResult =
 // Reanálise sem mensagem nova ou alterada desde o estado anterior: a leitura
 // atual continua valendo e nenhuma versão nova do estado é criada.
 // - no_new_or_changed_messages: nada mudou; o modelo nem é chamado.
-// - reanalysis_without_new_evidence_not_actionable: releitura pedida pelo
-//   vendedor, sem mensagem nova, voltou sem relevância comercial acionável.
-//   Sem evidência nova, isso nunca rebaixa a leitura atual.
+// - reanalysis_without_new_evidence_not_actionable: releitura sem conteúdo
+//   novo (pedida pelo vendedor ou só correção de metadados) voltou sem
+//   relevância comercial acionável. Sem evidência nova, isso nunca rebaixa
+//   a leitura atual.
 export type StatefulCopilotEngineUnchangedResult =
   StatefulCopilotEngineBaseResult & {
     mode: 'unchanged'
@@ -635,9 +636,10 @@ export async function runStatefulCopilotEngine({
     )
   }
 
-  // Releitura sem mensagem nova ou alterada (só acontece quando o vendedor
-  // pede): a conversa é a mesma que sustentou a leitura atual, então uma
-  // resposta sem relevância comercial acionável nunca a rebaixa.
+  // Releitura sem conteúdo novo (pedida pelo vendedor, ou só correção de
+  // metadados como a direção de um anexo): a conversa é a mesma que
+  // sustentou a leitura atual, então uma resposta sem relevância comercial
+  // acionável nunca a rebaixa.
   const previousStateForGuard =
     input
       .state_context
@@ -647,7 +649,7 @@ export async function runStatefulCopilotEngine({
     previousStateForGuard !== null &&
     plan
       .analysis_selection
-      .new_or_changed_message_ids
+      .new_content_message_ids
       .length === 0 &&
     !isCommerciallyOpen(
       orchestration.output,

@@ -115,9 +115,11 @@ export type StatefulCopilotExecutionPlanOptions = {
 
 // Quais mensagens o modelo lê nesta rodada e por quê.
 // - first_read: não há estado anterior; lê a sessão atual inteira.
-// - incremental: só as mensagens da sessão atual que mudaram desde o estado.
+// - incremental: só as mensagens da sessão atual que mudaram desde o estado
+//   (há conteúdo novo dentro da sessão).
 // - full_session: releitura da sessão atual inteira (pedida pelo vendedor,
-//   ou mudança só fora da sessão atual, como histórico recuperado).
+//   correção só de metadados, ou mudança só fora da sessão atual, como
+//   histórico recuperado).
 export type StatefulCopilotAnalysisSelection = {
   kind:
     | 'first_read'
@@ -126,9 +128,14 @@ export type StatefulCopilotAnalysisSelection = {
 
   forced: boolean
 
-  // Mensagens novas ou alteradas (nova versão) desde o estado anterior.
-  // Vazio com estado anterior = nada mudou na conversa.
+  // Mensagens com versão nova desde o estado anterior (conteúdo novo ou só
+  // correção de metadados). Vazio com estado anterior = nada mudou.
   new_or_changed_message_ids: string[]
+
+  // Só as que trazem conteúdo novo (mensagem nova, edição, exclusão,
+  // transcrição). Correção de metadados dispara releitura, mas não é
+  // evidência nova para trocar a relevância comercial.
+  new_content_message_ids: string[]
 }
 
 export type StatefulCopilotExecutionPlan =
@@ -686,12 +693,16 @@ type AnalysisMessageSelection =
     })
 
 // Uma mensagem mudou desde o estado anterior quando foi observada (primeira
-// versão ou versão nova: edição, transcrição) ou aconteceu depois dele. É o
-// mesmo corte que o filtro incremental sempre usou, agora aplicado ao ledger
-// ativo inteiro: histórico recuperado fora da sessão atual também é novo.
+// versão ou versão nova: edição, transcrição, correção de metadados) ou
+// aconteceu depois dele. É o mesmo corte que o filtro incremental sempre
+// usou, agora aplicado ao ledger ativo inteiro: histórico recuperado fora da
+// sessão atual também é novo. Com contentOnly, a observação que conta é a
+// da versão em que o conteúdo mudou pela última vez, então uma correção só
+// de metadados fica de fora.
 function selectNewOrChangedMessageIds(
   input: StatefulCopilotInput,
   previousStateUpdatedAt: number,
+  contentOnly = false,
 ): string[] {
   const activeIds =
     new Set(
@@ -711,7 +722,14 @@ function selectNewOrChangedMessageIds(
           message.id,
         ) &&
         getMessageActivityTimestamp(
-          message,
+          contentOnly &&
+            message.content_observed_at
+            ? {
+                ...message,
+                observed_at:
+                  message.content_observed_at,
+              }
+            : message,
         ) >
           previousStateUpdatedAt,
     )
@@ -743,6 +761,8 @@ function selectAnalysisMessages(
       forced,
       new_or_changed_message_ids:
         [...currentSessionIds],
+      new_content_message_ids:
+        [...currentSessionIds],
       message_ids:
         selectCitableMessageIds(
           input,
@@ -770,9 +790,23 @@ function selectAnalysisMessages(
     }
   }
 
+  const newContentIds =
+    selectNewOrChangedMessageIds(
+      input,
+      Date.parse(
+        previousState.updated_at,
+      ),
+      true,
+    )
+
   const newOrChanged =
     new Set(
       newOrChangedIds,
+    )
+
+  const newContent =
+    new Set(
+      newContentIds,
     )
 
   const incrementalIds =
@@ -783,12 +817,18 @@ function selectAnalysisMessages(
         ),
     )
 
-  // Nunca manda só a última mensagem da sessão: sem o que mudou dentro da
-  // sessão atual (releitura pedida pelo vendedor ou mudança só em histórico
+  // Nunca manda só a última mensagem da sessão nem só uma correção de
+  // metadados: sem conteúdo novo dentro da sessão atual (releitura pedida
+  // pelo vendedor, correção só de metadados ou mudança só em histórico
   // recuperado), a releitura é da sessão atual inteira, como na primeira.
   const fullSession =
     forced ||
-    incrementalIds.length === 0
+    !incrementalIds.some(
+      messageId =>
+        newContent.has(
+          messageId,
+        ),
+    )
 
   return {
     unchanged: false,
@@ -799,6 +839,8 @@ function selectAnalysisMessages(
     forced,
     new_or_changed_message_ids:
       newOrChangedIds,
+    new_content_message_ids:
+      newContentIds,
     message_ids:
       selectCitableMessageIds(
         input,
@@ -1495,6 +1537,8 @@ function buildModelInput(
       analysisMessageIds,
     )
 
+  // A origem do conteúdo só agrupa a sessão; o modelo recebe a mensagem
+  // exatamente como antes.
   const currentMessages =
     input
       .diagnostic_input
@@ -1505,6 +1549,18 @@ function buildModelInput(
           currentMessageIds.has(
             message.id,
           ),
+      )
+      .map(
+        message => {
+          const promptMessage = {
+            ...message,
+          }
+
+          delete promptMessage.content_version
+          delete promptMessage.content_observed_at
+
+          return promptMessage
+        },
       )
 
   const contextBridgeMessages =
@@ -1890,6 +1946,11 @@ export function buildStatefulCopilotExecutionPlan(
       new_or_changed_message_ids: [
         ...selection
           .new_or_changed_message_ids,
+      ],
+
+      new_content_message_ids: [
+        ...selection
+          .new_content_message_ids,
       ],
     },
   }

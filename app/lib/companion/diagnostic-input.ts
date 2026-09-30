@@ -92,6 +92,12 @@ export type DiagnosticInputMessage = {
   content_type: 'text' | 'audio'
   text_content: string | null
   audio_transcription: string | null
+
+  // Só quando a versão atual corrigiu metadados sem mudar o conteúdo: versão
+  // e observação da versão em que o conteúdo mudou pela última vez (agrupa a
+  // sessão; ver message-activity-time.ts). Nunca vai ao modelo.
+  content_version?: number
+  content_observed_at?: string
 }
 
 export type DiagnosticExcludedMessage = {
@@ -284,6 +290,12 @@ type NormalizedCanonicalMessage = {
   audio_transcription: string | null
   is_deleted: boolean
   deletion_reason: 'explicit_deletion' | 'dom_disappearance' | null
+  content_origin: {
+    version: number
+    observed_at: string
+  } | null
+  // id da primeira versão (ordem de entrada no ledger); só ordena.
+  ledger_order_id: string
 }
 
 export class CompanionDiagnosticInputError
@@ -733,6 +745,54 @@ function normalizeCanonicalMessage(
     )
   }
 
+  const version =
+    normalizePositiveInteger(
+      record.version,
+      `${path}.version`,
+    )
+
+  // Origem do conteúdo (versão que só corrigiu metadados): anterior à versão
+  // atual e observada até a observação dela; qualquer outra coisa é recusada.
+  let contentOrigin:
+    NormalizedCanonicalMessage['content_origin'] =
+      null
+
+  if (
+    record.content_version !== undefined ||
+    record.content_observed_at !== undefined
+  ) {
+    const contentVersion =
+      normalizePositiveInteger(
+        record.content_version,
+        `${path}.content_version`,
+      )
+
+    const contentObservedAt =
+      normalizeDate(
+        record.content_observed_at,
+        `${path}.content_observed_at`,
+      )
+
+    if (
+      contentVersion >= version ||
+      contentObservedAt.timestamp >
+        observedAt.timestamp
+    ) {
+      fail(
+        'INVALID_MESSAGE_CONTENT_ORIGIN',
+        `${path}.content_version`,
+        'A origem do conteúdo precisa ser uma versão anterior da mesma mensagem.',
+      )
+    }
+
+    contentOrigin = {
+      version:
+        contentVersion,
+      observed_at:
+        contentObservedAt.iso,
+    }
+  }
+
   return {
     id: normalizeMessageId(
       record.id,
@@ -745,11 +805,7 @@ function normalizeCanonicalMessage(
         `${path}.message_key`,
       ),
 
-    version:
-      normalizePositiveInteger(
-        record.version,
-        `${path}.version`,
-      ),
+    version,
 
     direction:
       normalizeEnum(
@@ -788,6 +844,20 @@ function normalizeCanonicalMessage(
 
     deletion_reason:
       deletionReason,
+
+    content_origin:
+      contentOrigin,
+
+    ledger_order_id:
+      record.ledger_order_id === undefined
+        ? normalizeMessageId(
+            record.id,
+            `${path}.id`,
+          )
+        : normalizeMessageId(
+            record.ledger_order_id,
+            `${path}.ledger_order_id`,
+          ),
   }
 }
 
@@ -852,6 +922,10 @@ function normalizeCanonicalMessages(
     )
   }
 
+  // O horário do WhatsApp só tem minuto. Dentro do mesmo minuto vale a ordem
+  // em que a mensagem entrou no ledger (a captura grava na ordem da
+  // conversa), nunca o message_key: as chaves recebidas (3A…) vinham sempre
+  // antes das enviadas pelo WhatsApp Web (3EB0…).
   return messages.sort((a, b) => {
     if (
       a.occurred_at_timestamp !==
@@ -863,13 +937,17 @@ function normalizeCanonicalMessages(
       )
     }
 
-    const keyComparison =
-      a.message_key.localeCompare(
-        b.message_key,
+    const ledgerOrderComparison =
+      a.ledger_order_id.localeCompare(
+        b.ledger_order_id,
+        'en',
+        {
+          numeric: true,
+        },
       )
 
-    if (keyComparison !== 0) {
-      return keyComparison
+    if (ledgerOrderComparison !== 0) {
+      return ledgerOrderComparison
     }
 
     return a.id.localeCompare(
@@ -2379,6 +2457,14 @@ export function buildCompanionDiagnosticInput({
           message.text_content,
         audio_transcription:
           message.audio_transcription,
+        ...(message.content_origin
+          ? {
+              content_version:
+                message.content_origin.version,
+              content_observed_at:
+                message.content_origin.observed_at,
+            }
+          : {}),
       }),
     )
 

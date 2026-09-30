@@ -1846,3 +1846,96 @@ test(
     )
   },
 )
+
+test(
+  'correção só de metadados (direção do anexo) relê a sessão, mas uma resposta uncertain nunca rebaixa a leitura',
+  async () => {
+    const previousState =
+      await buildFirstState()
+
+    // A mesma mensagem m1 ganha uma versão 2 (direção corrigida) observada
+    // depois da leitura; o conteúdo é o mesmo da versão 1.
+    const corrected =
+      buildDiagnosticInput()
+
+    const message =
+      corrected.conversation.messages[0]
+
+    message.version = 2
+    message.observed_at =
+      '2026-08-06T18:00:00-03:00'
+    message.content_version = 1
+    message.content_observed_at =
+      '2026-08-06T15:00:00-03:00'
+    corrected.reference_time =
+      '2026-08-06T18:00:00-03:00'
+
+    const calls = []
+
+    const result =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          corrected,
+
+        previous_state:
+          previousState,
+
+        known_message_ids: [
+          'm1',
+        ],
+
+        provider:
+          createProvider(
+            [
+              buildOutput({
+                previousStateVersion:
+                  1,
+
+                commercialRelevance:
+                  'uncertain',
+              }),
+            ],
+            calls,
+          ),
+
+        create_memory_id:
+          createMemoryId,
+      })
+
+    // Releu (a correção conta como mudança), sem conteúdo novo.
+    assert.equal(
+      calls.length,
+      1,
+    )
+
+    assert.equal(
+      result.mode,
+      'unchanged',
+    )
+
+    assert.equal(
+      result.reason,
+      'reanalysis_without_new_evidence_not_actionable',
+    )
+
+    assert.deepEqual(
+      result
+        .plan
+        .analysis_selection,
+      {
+        kind:
+          'full_session',
+
+        forced:
+          false,
+
+        new_or_changed_message_ids: [
+          'm1',
+        ],
+
+        new_content_message_ids:
+          [],
+      },
+    )
+  },
+)

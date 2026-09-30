@@ -1793,6 +1793,7 @@ function createWhatsAppAdapter({
           entries.push({
             messageId,
             deleted: true,
+            node,
             buildDeletedSnapshot: () => {
               const previousMessage =
                 getPreviousMessage(
@@ -1813,6 +1814,7 @@ function createWhatsAppAdapter({
         entries.push({
           messageId,
           deleted: false,
+          node,
           message:
             buildReliableMessageFromNode(
               node,
@@ -1862,11 +1864,62 @@ function createWhatsAppAdapter({
         entries.push({
           messageId,
           deleted: false,
+          node: bubble,
           message,
         })
       })
 
-    return entries
+    return orderEntriesByDocumentPosition(
+      entries,
+    )
+  }
+
+  // Ordem real da conversa na tela: o horário do WhatsApp só tem minuto, então
+  // dentro do mesmo minuto quem decide é a posição no DOM. As bolhas só de
+  // anexo são lidas depois das de texto e voltam para o lugar delas aqui.
+  // Cada entrada sai com domOrder (posição nesta leitura) e sem o nó.
+  function orderEntriesByDocumentPosition(
+    entries,
+  ) {
+    const DOCUMENT_POSITION_PRECEDING = 2
+    const DOCUMENT_POSITION_FOLLOWING = 4
+
+    return [...entries]
+      .sort((left, right) => {
+        if (
+          left.node === right.node ||
+          typeof left.node
+            ?.compareDocumentPosition !==
+            'function'
+        ) {
+          return 0
+        }
+
+        const position =
+          left.node.compareDocumentPosition(
+            right.node,
+          )
+
+        if (position & DOCUMENT_POSITION_FOLLOWING) {
+          return -1
+        }
+
+        if (position & DOCUMENT_POSITION_PRECEDING) {
+          return 1
+        }
+
+        return 0
+      })
+      .map((positioned, index) => {
+        const entry = {
+          ...positioned,
+          domOrder: index,
+        }
+
+        delete entry.node
+
+        return entry
+      })
   }
 
   function parseDateFromPrePlainText(value) {

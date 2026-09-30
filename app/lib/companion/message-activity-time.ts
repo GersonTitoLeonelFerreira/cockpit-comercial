@@ -14,6 +14,13 @@
 // hora em que aconteceu. Versões novas de uma mensagem já conhecida (edição,
 // exclusão, transcrição incorporada) continuam valendo pela hora em que
 // foram observadas, porque a mudança aconteceu agora.
+//
+// Versão que só corrige metadados (direção, autoria, tipo) sem mudar o
+// conteúdo (texto, transcrição, exclusão) não é atividade nova da conversa:
+// vale a versão em que o conteúdo mudou pela última vez (content_version /
+// content_observed_at, calculados a partir das versões do ledger). Caso
+// real: o PDF da vendedora gravado como incoming ganha uma versão outgoing
+// na captura seguinte; sem isso, ele sozinho viraria a "sessão atual".
 
 export const BACKFILL_OBSERVATION_TOLERANCE_MS =
   30 * 60 * 1000
@@ -23,6 +30,64 @@ export type ActivityTimedMessage = {
   version: number
   occurred_at: string
   observed_at: string
+
+  // Presentes só quando a versão atual não mudou o conteúdo: versão e hora
+  // de observação da versão em que o conteúdo mudou pela última vez.
+  content_version?: number
+  content_observed_at?: string
+}
+
+export type LedgerContentVersion = {
+  version: number
+  observed_at: string
+  text_content: string | null
+  audio_transcription: string | null
+  is_deleted: boolean
+}
+
+function sameContent(
+  left: LedgerContentVersion,
+  right: LedgerContentVersion,
+): boolean {
+  return (
+    left.text_content === right.text_content &&
+    left.audio_transcription === right.audio_transcription &&
+    left.is_deleted === right.is_deleted
+  )
+}
+
+// Versão em que o conteúdo da versão atual apareceu pela primeira vez:
+// anda para trás enquanto as versões anteriores têm o mesmo conteúdo.
+export function findContentOriginVersion<
+  T extends LedgerContentVersion,
+>(
+  versions: readonly T[],
+): T | null {
+  if (versions.length === 0) {
+    return null
+  }
+
+  const ordered =
+    [...versions].sort(
+      (left, right) =>
+        right.version - left.version,
+    )
+
+  let origin = ordered[0]
+
+  for (
+    let index = 1;
+    index < ordered.length;
+    index += 1
+  ) {
+    if (!sameContent(ordered[index], origin)) {
+      break
+    }
+
+    origin = ordered[index]
+  }
+
+  return origin
 }
 
 type ParsedEntry = {
@@ -73,9 +138,14 @@ export function computeMessageActivityTimestamps(
   const entries: ParsedEntry[] =
     messages.map((message) => ({
       id: message.id,
-      version: message.version,
+      version:
+        message.content_version ??
+        message.version,
       occurred: Date.parse(message.occurred_at),
-      observed: Date.parse(message.observed_at),
+      observed: Date.parse(
+        message.content_observed_at ??
+          message.observed_at,
+      ),
     }))
 
   const result =

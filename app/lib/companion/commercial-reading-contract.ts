@@ -3712,6 +3712,28 @@ function neutralizeNonActionableReading(
       ? 'Conversa sem evidência comercial relevante para este ciclo.'
       : 'Momento atual sem relevância comercial confirmada.'
 
+  // `customer` sobrevive à neutralização (abaixo), então as memórias e
+  // mensagens que ele cita continuam declaradas globalmente. Sem isso a
+  // própria leitura neutralizada falhava na releitura (MISSING_GLOBAL_MEMORY)
+  // e era descartada, esvaziando a aba CLIENTE.
+  const customerMemoryIds =
+    new Set<string>()
+
+  collectModelReferenceIds(
+    reading.customer,
+    'memory_ids',
+    customerMemoryIds,
+  )
+
+  const customerEvidenceIds =
+    new Set<string>()
+
+  collectModelReferenceIds(
+    reading.customer,
+    'evidence_message_ids',
+    customerEvidenceIds,
+  )
+
   /*
    * Regra de produto (Fase 12A): CLIENTE = memória comercial persistente,
    * AGORA/ANÁLISE = leitura do ciclo atual. Um ciclo atual non_commercial
@@ -3857,11 +3879,16 @@ function neutralizeNonActionableReading(
       },
     },
 
-    evidence_message_ids:
-      currentEvidence,
+    evidence_message_ids: [
+      ...new Set([
+        ...currentEvidence,
+        ...customerEvidenceIds,
+      ]),
+    ],
 
-    memory_ids:
-      [],
+    memory_ids: [
+      ...customerMemoryIds,
+    ],
   }
 }
 
