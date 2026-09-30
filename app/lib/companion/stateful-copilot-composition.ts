@@ -21,10 +21,14 @@ import {
   type StatefulCopilotIntegratedServiceResult,
 } from './stateful-copilot-integrated-service'
 
-import {
+import type {
   createStatefulCopilotOpenAIProvider,
-  type StatefulCopilotOpenAIProviderOptions,
+  StatefulCopilotOpenAIProviderOptions,
 } from './stateful-copilot-openai-provider'
+
+import {
+  createCompanionAIProvider,
+} from './companion-ai-provider'
 
 import {
   createStatefulCopilotSupabaseReader,
@@ -361,9 +365,10 @@ export function createStatefulCopilotComposition({
     dependencies.create_writer ??
     createStatefulCopilotSupabaseWriter
 
+  // OpenAI ou Claude, conforme COMPANION_AI_PROVIDER (padrão: OpenAI).
   const createProvider =
     dependencies.create_provider ??
-    createStatefulCopilotOpenAIProvider
+    createCompanionAIProvider
 
   const runService =
     dependencies.run_service ??

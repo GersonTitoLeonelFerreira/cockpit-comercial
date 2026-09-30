@@ -19,6 +19,10 @@ import type {
   StatefulCopilotOpenAIReasoningEffort,
 } from '../companion/stateful-copilot-openai-provider'
 
+import {
+  resolveCompanionAIProviderName,
+} from '../companion/companion-ai-provider'
+
 const STATEFUL_SUPABASE_CLIENT_OPTIONS = {
   auth: {
     persistSession:
@@ -272,18 +276,43 @@ export function createStatefulCopilotServerComposition(
         'SUPABASE_SERVICE_ROLE_KEY',
     })
 
+  // A chave obrigatória é a do motor ligado: com o Claude, falta de
+  // ANTHROPIC_API_KEY falha aqui (e não a da OpenAI).
+  const aiProvider =
+    resolveCompanionAIProviderName()
+
   const openAiApiKey =
+    aiProvider === 'openai'
+      ? resolveRequiredText({
+          explicitValue:
+            options.openai_api_key,
+
+          environmentValue:
+            process.env
+              .OPENAI_API_KEY,
+
+          configurationKey:
+            'OPENAI_API_KEY',
+        })
+      : normalizeOptionalText(
+          options.openai_api_key ??
+          process.env
+            .OPENAI_API_KEY,
+        )
+
+  if (aiProvider === 'anthropic') {
     resolveRequiredText({
       explicitValue:
-        options.openai_api_key,
+        undefined,
 
       environmentValue:
         process.env
-          .OPENAI_API_KEY,
+          .ANTHROPIC_API_KEY,
 
       configurationKey:
-        'OPENAI_API_KEY',
+        'ANTHROPIC_API_KEY',
     })
+  }
 
   const isCompanionValidationPreview =
     process.env.VERCEL_ENV === 'preview' &&

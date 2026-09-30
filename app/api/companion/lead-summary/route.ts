@@ -20,8 +20,8 @@ import {
 import { verifyCompanionRequestToken } from '../../../lib/server/companion-token'
 
 import {
-  createStatefulCopilotOpenAIProvider,
-} from '../../../lib/companion/stateful-copilot-openai-provider'
+  createCompanionAIProvider,
+} from '../../../lib/companion/companion-ai-provider'
 
 type LeadSummaryBody = {
   cycle_id?: unknown
@@ -479,7 +479,7 @@ async function composeWorkingSummary({
     return null
   }
 
-  const provider = createStatefulCopilotOpenAIProvider({
+  const provider = createCompanionAIProvider({
     timeout_ms: 45_000,
     max_output_tokens: 1800,
   })

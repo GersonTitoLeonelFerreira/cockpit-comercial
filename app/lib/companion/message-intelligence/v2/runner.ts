@@ -6,7 +6,7 @@
 //     -> Message Context Source Loader (mesmo loader device-independent)
 //     -> Context Assembler (mesmo MessageContextSnapshotV1 canônico)
 //     -> Execution Plan (prompt + payload estruturado + normalization context)
-//     -> Provider OpenAI existente (createStatefulCopilotOpenAIProvider)
+//     -> Provider existente (createCompanionAIProvider: OpenAI ou Claude)
 //     -> Executor (validação determinística, 1 repair no máximo)
 //     -> Semantic Critic (quando há mensagem a avaliar): pass finaliza,
 //        repair consome o ÚNICO orçamento de regeneração compartilhado com
@@ -36,10 +36,13 @@ import type {
   MessageContextSnapshotV1,
 } from '../context-snapshot'
 
-import {
-  createStatefulCopilotOpenAIProvider,
-  type StatefulCopilotOpenAIProviderOptions,
+import type {
+  StatefulCopilotOpenAIProviderOptions,
 } from '../../stateful-copilot-openai-provider'
+
+import {
+  createCompanionAIProvider,
+} from '../../companion-ai-provider'
 
 import {
   StatefulCopilotExecutionError,
@@ -440,7 +443,7 @@ export async function runMessageIntelligenceV2({
     })
 
   const provider: StatefulCopilotProvider =
-    createStatefulCopilotOpenAIProvider({
+    createCompanionAIProvider({
       model: modelConfig.model,
       timeout_ms:
         provider_options.timeout_ms ??
@@ -456,7 +459,7 @@ export async function runMessageIntelligenceV2({
   // mesma resolução de modelo da geração primária), com um teto de
   // tokens menor: a saída do critic é pequena por contrato.
   const criticProvider: StatefulCopilotProvider =
-    createStatefulCopilotOpenAIProvider({
+    createCompanionAIProvider({
       model: modelConfig.model,
       timeout_ms:
         provider_options.timeout_ms ??

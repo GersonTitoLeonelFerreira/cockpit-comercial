@@ -31,8 +31,8 @@ import {
 } from '../../../lib/server/canonical-fact-registry-loader'
 
 import {
-  createStatefulCopilotOpenAIProvider,
-} from '../../../lib/companion/stateful-copilot-openai-provider'
+  createCompanionAIProvider,
+} from '../../../lib/companion/companion-ai-provider'
 
 import {
   CompanionConversationRegistrationError,
@@ -579,7 +579,7 @@ export async function POST(request: Request) {
 
     const method = methodResult.method
 
-    const provider = createStatefulCopilotOpenAIProvider({
+    const provider = createCompanionAIProvider({
       timeout_ms: 45_000,
       max_output_tokens: 900,
     })
