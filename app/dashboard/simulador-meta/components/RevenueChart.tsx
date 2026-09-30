@@ -2,6 +2,12 @@
 
 import React, { useMemo, useState } from 'react'
 import { RevenueDayPoint } from '@/app/types/simulator'
+import {
+  getBusinessDateKey,
+  isExecutionDay,
+  type ExecutionDayOverrides,
+  type WorkDays,
+} from '@/app/lib/services/executionDayMath'
 
 const CHART_UI = {
   surface: '#0d0f14',
@@ -46,23 +52,6 @@ function formatDateShort(v: string) {
   if (parts.length !== 3) return '—'
 
   return `${parts[2]}/${parts[1]}`
-}
-
-function getBusinessDaysSet(start: Date, end: Date) {
-  const set = new Set<string>()
-  const d = new Date(start)
-  d.setHours(0, 0, 0, 0)
-
-  const e = new Date(end)
-  e.setHours(0, 0, 0, 0)
-
-  while (d <= e) {
-    const dow = d.getDay()
-    if (dow !== 0 && dow !== 6) set.add(d.toISOString().slice(0, 10))
-    d.setDate(d.getDate() + 1)
-  }
-
-  return set
 }
 
 function niceGridValues(maxVal: number, steps: number): number[] {
@@ -217,12 +206,16 @@ export function RevenueChart({
   goal,
   startDate,
   endDate,
+  workDays,
+  executionDayOverrides,
 }: {
   title: string
   series: RevenueDayPoint[]
   goal: number
   startDate: string
   endDate: string
+  workDays: WorkDays
+  executionDayOverrides?: ExecutionDayOverrides
 }) {
 
   const W = 860
@@ -240,7 +233,7 @@ export function RevenueChart({
     tooltipTop: number
   } | null>(null)
 
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const today = useMemo(() => getBusinessDateKey(), [])
   const safeSeries = useMemo(() => (Array.isArray(series) ? series : []), [series])
   const goalSafe = Math.max(0, Number(goal) || 0)
 
@@ -293,8 +286,6 @@ export function RevenueChart({
       map.set(p.date, Number(p.value || 0))
     }
 
-    const businessSet = getBusinessDaysSet(start, end)
-
     const pts: {
       date: string
       daily: number
@@ -316,7 +307,7 @@ export function RevenueChart({
 
       acc += daily
 
-      const isBusiness = businessSet.has(key)
+      const isBusiness = isExecutionDay(d, workDays, executionDayOverrides)
       const isFuture = key > today
 
       maxD = Math.max(maxD, daily)
@@ -363,7 +354,7 @@ export function RevenueChart({
       todayIndex: tIdx,
       hasValidRange: true,
     }
-  }, [safeSeries, goalSafe, startDate, endDate, today])
+  }, [safeSeries, goalSafe, startDate, endDate, today, workDays, executionDayOverrides])
 
   const innerW = W - padL - padR
   const innerH = H - padT - padB
@@ -530,7 +521,7 @@ export function RevenueChart({
               maxWidth: 760,
             }}
           >
-            Evolução diária e acumulada do resultado real contra a meta distribuída pelos dias úteis.
+            Evolução diária e acumulada do resultado real contra a meta distribuída pelos dias de execução.
           </div>
         </div>
 
@@ -568,7 +559,7 @@ export function RevenueChart({
         <MetricBlock
           label="Meta do período"
           value={goalSafe > 0 ? formatBRL(goalSafe) : '—'}
-          helper={goalSafe > 0 ? `${businessCount} dias úteis no ciclo` : 'Defina uma meta para comparar'}
+          helper={goalSafe > 0 ? `${businessCount} dias de execução no ciclo` : 'Defina uma meta para comparar'}
         />
 
         <MetricBlock
@@ -910,7 +901,11 @@ export function RevenueChart({
                     fontWeight: 800,
                   }}
                 >
-                  {hoverData.isFuture ? 'Futuro' : hoverData.isBusiness ? 'Dia útil' : 'Fim de sem.'}
+                  {hoverData.isFuture
+                    ? 'Futuro'
+                    : hoverData.isBusiness
+                      ? 'Dia de execução'
+                      : 'Fora do calendário'}
                 </span>
               </div>
 
@@ -972,7 +967,7 @@ export function RevenueChart({
               lineHeight: 1.45,
             }}
           >
-            Leitura: as barras mostram o resultado diário. A linha azul mostra o acumulado real. A linha tracejada mostra a meta acumulada distribuída pelos dias úteis.
+            Leitura: as barras mostram o resultado diário. A linha azul mostra o acumulado real. A linha tracejada mostra a meta acumulada distribuída pelos dias de execução.
           </div>
         </>
       )}

@@ -242,32 +242,43 @@ export async function GET(req: Request) {
       })
     }
 
-    let groupIdQuery = admin
-      .from('v_pipeline_items')
-      .select('group_id')
-      .eq('company_id', activeCompanyId)
-      .not('group_id', 'is', null)
+    const groupIdRows: Array<{ group_id: string | null }> = []
 
-    if (scope === 'company') {
-      groupIdQuery = groupIdQuery
-        .not('owner_id', 'is', null)
-        .in('owner_id', companyScopeOwnerIds ?? [])
-    } else {
-      groupIdQuery = groupIdQuery.eq('owner_id', effectiveOwnerId)
-    }
+    for (let from = 0; ; from += 1000) {
+      let groupIdQuery = admin
+        .from('v_pipeline_items')
+        .select('id, group_id')
+        .eq('company_id', activeCompanyId)
+        .not('group_id', 'is', null)
+        .order('id', { ascending: true })
+        .range(from, from + 999)
 
-    const { data: groupIdRows, error: groupIdError } = await groupIdQuery
+      if (scope === 'company') {
+        groupIdQuery = groupIdQuery
+          .not('owner_id', 'is', null)
+          .in('owner_id', companyScopeOwnerIds ?? [])
+      } else {
+        groupIdQuery = groupIdQuery.eq('owner_id', effectiveOwnerId)
+      }
 
-    if (groupIdError) {
-      return NextResponse.json(
-        { ok: false, error: groupIdError.message },
-        { status: 400 },
-      )
+      const { data, error: groupIdError } = await groupIdQuery
+
+      if (groupIdError) {
+        return NextResponse.json(
+          { ok: false, error: groupIdError.message },
+          { status: 400 },
+        )
+      }
+
+      const page = (data ?? []) as Array<{ group_id: string | null }>
+      groupIdRows.push(...page)
+
+      if (page.length < 1000) break
     }
 
     const groupIds = Array.from(
       new Set(
-        ((groupIdRows ?? []) as Array<{ group_id: string | null }>)
+        groupIdRows
           .map((row) => row.group_id)
           .filter((id): id is string => Boolean(id)),
       ),

@@ -1,4 +1,6 @@
 import { supabaseBrowser } from '../supabaseBrowser'
+import { getBusinessDateKey, shiftDateKey } from './executionDayMath'
+import { getOfficialRevenueDays } from './reportingRevenue'
 import type {
   ActiveCompetency,
   GroupConversionRow,
@@ -20,9 +22,9 @@ function toLocalDateKey(date: Date): string {
 }
 
 function getCurrentMonthCompetency(): ActiveCompetency {
-  const today = new Date()
-  const year = today.getFullYear()
-  const monthIndex = today.getMonth()
+  const todayKey = getBusinessDateKey()
+  const year = Number(todayKey.slice(0, 4))
+  const monthIndex = Number(todayKey.slice(5, 7)) - 1
 
   const monthStart = new Date(year, monthIndex, 1)
   const monthEnd = new Date(year, monthIndex + 1, 0)
@@ -248,11 +250,8 @@ export async function getHistoricalTicket(params: {
     }
   }
 
-  const today = new Date()
-  const d90ago = new Date(today)
-  d90ago.setDate(d90ago.getDate() - 90)
-  const fallbackStart = d90ago.toISOString().split('T')[0]
-  const fallbackEnd = today.toISOString().split('T')[0]
+  const fallbackEnd = getBusinessDateKey()
+  const fallbackStart = shiftDateKey(fallbackEnd, -89)
   const fallbackResult = await queryTicket(supabase, params.companyId, params.ownerId, fallbackStart, fallbackEnd)
 
   if (fallbackResult.sample_size >= MIN_SAMPLE_SIZE) {
@@ -302,34 +301,37 @@ async function queryTicket(
   dateStart: string,
   dateEnd: string,
 ): Promise<{ ticket_medio: number; sample_size: number; total_won: number }> {
-  let query = supabase
-    .from('sales_cycles')
-    .select('won_total, owner_user_id, won_owner_user_id, won_at, revenue_seller_ref_date')
-    .eq('company_id', companyId)
-    .eq('status', 'ganho')
-    .gt('won_total', 0)
-
-  if (ownerId) {
-    query = query.or(`won_owner_user_id.eq.${ownerId},owner_user_id.eq.${ownerId}`)
-  }
-
-  const { data, error } = await query
-
-  if (error) {
-    console.warn('Erro ao buscar ticket histórico:', error.message)
-    return { ticket_medio: 0, sample_size: 0, total_won: 0 }
-  }
-
-  const start = new Date(`${dateStart}T00:00:00`)
-  const end = new Date(`${dateEnd}T23:59:59`)
-
-  const rows = (data ?? []) as Array<{
-    won_total: number
+  const rows: Array<{
+    id: string
     owner_user_id: string | null
     won_owner_user_id: string | null
     won_at: string | null
+    closed_at: string | null
     revenue_seller_ref_date: string | null
-  }>
+  }> = []
+
+  for (let from = 0; ; from += 1000) {
+    let query = supabase
+      .from('sales_cycles')
+      .select('id, owner_user_id, won_owner_user_id, won_at, closed_at, revenue_seller_ref_date')
+      .eq('company_id', companyId)
+      .eq('status', 'ganho')
+      .order('id', { ascending: true })
+      .range(from, from + 999)
+
+    if (ownerId) {
+      query = query.or(`won_owner_user_id.eq.${ownerId},owner_user_id.eq.${ownerId}`)
+    }
+
+    const { data, error } = await query
+
+    if (error) throw new Error(`Erro ao buscar ticket histórico: ${error.message}`)
+
+    const page = (data ?? []) as typeof rows
+    rows.push(...page)
+
+    if (page.length < 1000) break
+  }
 
   const validRows = rows.filter((row) => {
     const revenueOwnerId = row.won_owner_user_id ?? row.owner_user_id
@@ -338,19 +340,24 @@ async function queryTicket(
       return false
     }
 
-    const refDateText = row.revenue_seller_ref_date ?? row.won_at
+    const refDateText = row.revenue_seller_ref_date ?? row.won_at ?? row.closed_at
 
-    if (!refDateText) {
-      return false
-    }
+    if (!refDateText) return false
 
-    const refDate = new Date(`${refDateText.split('T')[0]}T12:00:00`)
+    const refDate = refDateText.split('T')[0]
 
-    return refDate >= start && refDate <= end && Number(row.won_total) > 0
+    return refDate >= dateStart && refDate <= dateEnd
   })
 
   const sample_size = validRows.length
-  const total_won = validRows.reduce((acc, row) => acc + Number(row.won_total || 0), 0)
+  const revenueDays = await getOfficialRevenueDays({
+    companyId,
+    ownerId,
+    dateStart,
+    dateEnd,
+    includeExtras: false,
+  })
+  const total_won = revenueDays.reduce((total, day) => total + day.value, 0)
   const ticket_medio = sample_size > 0 ? Math.round(total_won / sample_size) : 0
 
   return { ticket_medio, sample_size, total_won }

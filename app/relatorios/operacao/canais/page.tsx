@@ -11,6 +11,7 @@ import {
   extractChannelFromEvent,
 } from '@/app/config/channelNormalization'
 import * as faturamentoService from '@/app/lib/services/faturamento'
+import { getBusinessDateKey, shiftDateKey } from '@/app/lib/services/executionDayMath'
 
 type SellerOption = {
   id: string
@@ -75,13 +76,11 @@ const inputStyle: React.CSSProperties = {
 }
 
 function getThirtyDaysAgo() {
-  const date = new Date()
-  date.setDate(date.getDate() - 30)
-  return date.toISOString().slice(0, 10)
+  return shiftDateKey(getBusinessDateKey(), -30)
 }
 
 function getTodayDate() {
-  return new Date().toISOString().slice(0, 10)
+  return getBusinessDateKey()
 }
 
 function addDays(dateString: string, days: number) {

@@ -3,6 +3,13 @@ import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import ReportNavDropdown from '@/app/relatorios/components/ReportNavDropdown'
+import {
+  getDefaultWorkDays,
+  getBusinessDateKey,
+  normalizeExecutionDayOverrides,
+  normalizeWorkDays,
+} from '@/app/lib/services/executionDayMath'
+import { buildRevenuePacing } from '@/app/lib/services/revenuePacing'
 
 export const dynamic = 'force-dynamic'
 
@@ -197,72 +204,6 @@ function getHistoricalStageLabel(value: unknown) {
   return labels[status] || status || '—'
 }
 
-function isDefaultBusinessDay(date: Date) {
-  const weekday = date.getDay()
-
-  return weekday >= 1 && weekday <= 5
-}
-
-function countBusinessDaysInRange(start: string, end: string) {
-  const startDate = parseDateKey(start)
-  const endDate = parseDateKey(end)
-
-  if (!startDate || !endDate || endDate < startDate) return 0
-
-  let count = 0
-  const current = new Date(startDate)
-
-  while (current <= endDate) {
-    if (isDefaultBusinessDay(current)) count += 1
-    current.setDate(current.getDate() + 1)
-  }
-
-  return count
-}
-
-function countBusinessDaysUntilToday(start: string, end: string) {
-  const startDate = parseDateKey(start)
-  const endDate = parseDateKey(end)
-
-  if (!startDate || !endDate || endDate < startDate) return 0
-
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  const lastDate = today < endDate ? today : endDate
-  if (lastDate < startDate) return 0
-
-  let count = 0
-  const current = new Date(startDate)
-
-  while (current <= lastDate) {
-    if (isDefaultBusinessDay(current)) count += 1
-    current.setDate(current.getDate() + 1)
-  }
-
-  return count
-}
-
-function countRemainingBusinessDays(end: string) {
-  const endDate = parseDateKey(end)
-  if (!endDate) return 0
-
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  if (endDate < today) return 0
-
-  let count = 0
-  const current = new Date(today)
-
-  while (current <= endDate) {
-    if (isDefaultBusinessDay(current)) count += 1
-    current.setDate(current.getDate() + 1)
-  }
-
-  return count
-}
-
 // ==============================================================================
 // Types
 // ==============================================================================
@@ -307,7 +248,6 @@ type SlaRiskRow = {
 type FunnelStatusRow = {
   status: string
   stage_entered_at: string | null
-  won_total: number
   revenue_seller_ref_date: string | null
   won_at: string | null
   closed_at: string | null
@@ -408,10 +348,12 @@ export default async function RelatoriosGeraisPage() {
 
     // --- Competência atual ---
     const activeCompetencyErrMessage: string | null = null
+    const businessToday = getBusinessDateKey()
+    const businessMonthStart = `${businessToday.slice(0, 7)}-01`
     const activeCompetency = {
-      month: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-      month_start: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-      month_end: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)),
+      month: businessMonthStart,
+      month_start: businessMonthStart,
+      month_end: getMonthEndInclusiveFromStart(businessMonthStart),
     }
   
     const periodStart = getPeriodStartFromCompetency(activeCompetency)
@@ -501,16 +443,33 @@ export default async function RelatoriosGeraisPage() {
     .filter((row: SlaRiskRow) => Boolean(row.owner_user_id))
 
   // --- Base de vendas para ticket real ---
-  const { data: cycleStatusData, error: cycleStatusErr } = await supabase
-    .from('sales_cycles')
-    .select('status, stage_entered_at, won_total, revenue_seller_ref_date, won_at, closed_at')
-    .eq('company_id', companyId)
+  const cycleStatusData: Record<string, unknown>[] = []
+  let cycleStatusErr: { message: string } | null = null
+
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('sales_cycles')
+      .select('status, stage_entered_at, revenue_seller_ref_date, won_at, closed_at')
+      .eq('company_id', companyId)
+      .in('status', ['ganho', 'perdido'])
+      .order('id', { ascending: true })
+      .range(from, from + 999)
+
+    if (error) {
+      cycleStatusErr = error
+      break
+    }
+
+    const page = (data ?? []) as Record<string, unknown>[]
+    cycleStatusData.push(...page)
+
+    if (page.length < 1000) break
+  }
 
   const cycleStatusRows: FunnelStatusRow[] = (cycleStatusData ?? []).map(
     (r: Record<string, unknown>) => ({
       status: normalizeFunnelStatus(r.status),
       stage_entered_at: typeof r.stage_entered_at === 'string' ? r.stage_entered_at : null,
-      won_total: Number(r.won_total ?? 0),
       revenue_seller_ref_date:
         typeof r.revenue_seller_ref_date === 'string' ? r.revenue_seller_ref_date : null,
       won_at: typeof r.won_at === 'string' ? r.won_at : null,
@@ -519,14 +478,31 @@ export default async function RelatoriosGeraisPage() {
   )
 
   // --- Saúde atual do funil dos atendimentos ---
-  const { data: pipelineStatusData, error: pipelineStatusErr } = await supabase
-    .from('v_pipeline_items')
-    .select('status')
-    .eq('company_id', companyId)
-    .not('owner_id', 'is', null)
-    .neq('status', 'ganho')
-    .neq('status', 'perdido')
-    .neq('status', 'cancelado')
+  const pipelineStatusData: Record<string, unknown>[] = []
+  let pipelineStatusErr: { message: string } | null = null
+
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('v_pipeline_items')
+      .select('status')
+      .eq('company_id', companyId)
+      .not('owner_id', 'is', null)
+      .neq('status', 'ganho')
+      .neq('status', 'perdido')
+      .neq('status', 'cancelado')
+      .order('id', { ascending: true })
+      .range(from, from + 999)
+
+    if (error) {
+      pipelineStatusErr = error
+      break
+    }
+
+    const page = (data ?? []) as Record<string, unknown>[]
+    pipelineStatusData.push(...page)
+
+    if (page.length < 1000) break
+  }
 
   const pipelineStatusRows: PipelineStatusRow[] = (pipelineStatusData ?? []).map(
     (r: Record<string, unknown>) => ({
@@ -553,6 +529,47 @@ export default async function RelatoriosGeraisPage() {
       })
     : { data: null, error: null }
 
+  const { data: executionCalendarRaw, error: executionCalendarErr } = hasActivePeriod
+    ? await supabase
+        .from('execution_day_calendars')
+        .select('work_days, execution_day_overrides')
+        .eq('company_id', companyId)
+        .eq('period_start', periodStart)
+        .eq('period_end', periodEnd)
+        .maybeSingle()
+    : { data: null, error: null }
+
+  const sellerRevenueRows: Array<{
+    seller_id: string
+    ref_date: string
+    real_value: number | string | null
+  }> = []
+  let sellerRevenueErr: { message: string } | null = null
+
+  if (hasActivePeriod) {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase
+        .from('v_revenue_daily_seller')
+        .select('seller_id, ref_date, real_value')
+        .eq('company_id', companyId)
+        .gte('ref_date', periodStart)
+        .lte('ref_date', periodEnd)
+        .order('ref_date', { ascending: true })
+        .order('seller_id', { ascending: true })
+        .range(from, from + 999)
+
+      if (error) {
+        sellerRevenueErr = error
+        break
+      }
+
+      const page = (data ?? []) as typeof sellerRevenueRows
+      sellerRevenueRows.push(...page)
+
+      if (page.length < 1000) break
+    }
+  }
+
     const { data: cycleMetricsRaw, error: cycleMetricsErr } = await supabase.rpc(
       'rpc_get_sales_cycle_metrics_v1_for_company',
       {
@@ -575,7 +592,6 @@ export default async function RelatoriosGeraisPage() {
 
   const productWonCycles = cycleStatusRows.filter((cycle) => {
     if (cycle.status !== 'ganho') return false
-    if (Number(cycle.won_total || 0) <= 0) return false
 
     const refDate =
       toDateKey(cycle.revenue_seller_ref_date) ||
@@ -587,9 +603,9 @@ export default async function RelatoriosGeraisPage() {
     return refDate >= periodStart && refDate <= periodEnd
   })
 
-  const productSalesRevenue = productWonCycles.reduce(
-    (total, cycle) => total + Number(cycle.won_total || 0),
-    0
+  const productSalesRevenue = (sellerRevenueRows ?? []).reduce(
+    (total, row) => total + Number(row.real_value || 0),
+    0,
   )
 
   const ticketReal =
@@ -599,20 +615,33 @@ export default async function RelatoriosGeraisPage() {
 
   const taxaReal = workedCount > 0 ? currentWins / workedCount : 0
 
-  // O relatório mantém a leitura padrão Planejada do Simulador apenas como contexto.
-  // Enquanto a escolha Planejada/Real não for persistida no banco, a referência usa 20%.
+  // A escolha temporária Planejada/Real do Simulador não é persistida no banco.
+  // Por isso, este contexto usa uma referência declarada de 20%, sem apresentá-la como configuração salva.
   const taxaConversao = 0.2
 
-  const diasUteisTot = hasActivePeriod ? countBusinessDaysInRange(periodStart, periodEnd) : 22
-  const diasUteisPass = hasActivePeriod ? countBusinessDaysUntilToday(periodStart, periodEnd) : 0
-  const diasUteisRest = hasActivePeriod ? countRemainingBusinessDays(periodEnd) : 0
-
-  const faturDiario = diasUteisPass > 0 ? faturReal / diasUteisPass : 0
-  const projecao = faturDiario * diasUteisTot
-  const gap = Math.max(0, metaVal - faturReal)
+  const workDays = executionCalendarRaw
+    ? normalizeWorkDays(executionCalendarRaw.work_days)
+    : getDefaultWorkDays()
+  const executionDayOverrides = executionCalendarRaw
+    ? normalizeExecutionDayOverrides(executionCalendarRaw.execution_day_overrides)
+    : {}
+  const pacing = buildRevenuePacing({
+    totalReal: faturReal,
+    goal: metaVal,
+    periodStart,
+    periodEnd,
+    workDays,
+    executionDayOverrides,
+  })
+  const diasUteisTot = pacing.totalExecutionDays
+  const diasUteisPass = pacing.elapsedExecutionDays
+  const diasUteisRest = pacing.remainingExecutionDays
+  const faturDiario = pacing.averagePerElapsedExecutionDay
+  const projecao = pacing.projection
+  const gap = pacing.gap
   const progressPct = metaVal > 0 ? (faturReal / metaVal) * 100 : 0
   const projecaoPct = metaVal > 0 ? (projecao / metaVal) * 100 : 0
-  const faturNecessarioDia = diasUteisRest > 0 ? gap / diasUteisRest : gap
+  const faturNecessarioDia = pacing.requiredPerRemainingExecutionDay
 
   const vendasNecessarias = ticketParaCalc > 0 ? Math.ceil(metaVal / ticketParaCalc) : 0
   const vendasRestantes = ticketParaCalc > 0 ? Math.ceil(gap / ticketParaCalc) : 0
@@ -628,6 +657,8 @@ export default async function RelatoriosGeraisPage() {
     activeCompetencyErrMessage ||
     revenueGoalErr?.message ||
     revenueSummaryErr?.message ||
+    executionCalendarErr?.message ||
+    sellerRevenueErr?.message ||
     cycleMetricsErr?.message ||
     cycleStatusErr?.message ||
     pipelineStatusErr?.message ||
@@ -1235,7 +1266,7 @@ export default async function RelatoriosGeraisPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginTop: 20 }}>
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                  Faturamento / dia útil
+                  Faturamento / dia de execução
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 11, color: DS.textSecondary }}>Necessário p/ meta</span>
@@ -1266,7 +1297,7 @@ export default async function RelatoriosGeraisPage() {
                   Taxa usada no plano
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Planejada/manual</span>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Referência padrão</span>
                   <b style={{ fontSize: 13, color: DS.textPrimary }}>{(taxaConversao * 100).toFixed(0)}%</b>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -1310,7 +1341,7 @@ export default async function RelatoriosGeraisPage() {
               <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.7 }}>
                 <b style={{ color: statusColor }}>Resumo:</b>{' '}
                 Faltam <b style={{ color: DS.textPrimary }}>{toBRL(gap)}</b> para a meta em{' '}
-                <b style={{ color: DS.textPrimary }}>{diasUteisRest} dias úteis</b>.{' '}
+                <b style={{ color: DS.textPrimary }}>{diasUteisRest} dias de execução</b>.{' '}
                 {diasUteisRest > 0 ? (
                   <>
                     Precisa faturar <b style={{ color: DS.textPrimary }}>{toBRL(faturNecessarioDia)}/dia</b>{' '}
@@ -1326,7 +1357,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
 
             <div style={{ marginTop: 10, fontSize: 10, color: DS.textMuted }}>
-              Dados calculados com o mesmo período e a mesma meta financeira do Simulador. Período usado: {formatDateBR(periodStart)} até {formatDateBR(periodEnd)}. Ticket usado no plano: {toBRL(ticketParaCalc)}.
+              Dados financeiros calculados com o mesmo período, calendário operacional, meta e faturamento oficial do Simulador. Período usado: {formatDateBR(periodStart)} até {formatDateBR(periodEnd)}. Ticket usado no plano: {toBRL(ticketParaCalc)}. A taxa de 20% é apenas uma referência padrão, pois a escolha temporária de conversão do Simulador não é salva.
               {workedCount < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
             </div>
           </div>

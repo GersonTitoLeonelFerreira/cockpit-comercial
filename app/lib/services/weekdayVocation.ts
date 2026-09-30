@@ -15,7 +15,7 @@
 //   - Não há forçar vocação artificial quando a base é insuficiente
 // ==============================================================================
 
-import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { getVocationSignalData } from '@/app/lib/services/vocationData'
 import type {
   WeekdayVocationFilters,
   WeekdayVocationRow,
@@ -202,7 +202,12 @@ function buildLeituraResumida(
 export async function getWeekdayVocation(
   filters: WeekdayVocationFilters
 ): Promise<WeekdayVocationSummary> {
-  const supabase = supabaseBrowser()
+  const { workedRows, wonRows, stageEventRows } = await getVocationSignalData({
+    companyId: filters.companyId,
+    ownerId: filters.ownerId,
+    dateStart: filters.dateStart,
+    dateEnd: filters.dateEnd,
+  })
 
   // Counts per weekday for each vocation type
   const countsByType: Record<VocationType, number[]> = {
@@ -212,30 +217,12 @@ export async function getWeekdayVocation(
     fechamento: Array(7).fill(0),
   }
 
-  const dateStartIso = filters.dateStart + 'T00:00:00.000Z'
-  const dateEndIso = filters.dateEnd + 'T23:59:59.999Z'
-
   // ==========================================================================
   // 1. Prospecção — sales_cycles.first_worked_at
   // ==========================================================================
   {
-    let q = supabase
-      .from('sales_cycles')
-      .select('first_worked_at')
-      .eq('company_id', filters.companyId)
-      .not('first_worked_at', 'is', null)
-      .gte('first_worked_at', dateStartIso)
-      .lte('first_worked_at', dateEndIso)
-
-    if (filters.ownerId) {
-      q = q.eq('owner_user_id', filters.ownerId)
-    }
-
-    const { data } = await q
-
-    for (const row of data ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.first_worked_at as string | null
+    for (const row of workedRows) {
+      const ts = row.first_worked_at
       if (!ts) continue
       const wd = weekdayInBusinessTZ(ts)
       countsByType.prospeccao[wd] += 1
@@ -246,25 +233,8 @@ export async function getWeekdayVocation(
   // 2. Fechamento — sales_cycles.won_at
   // ==========================================================================
   {
-    let q = supabase
-      .from('sales_cycles')
-      .select('won_at')
-      .eq('company_id', filters.companyId)
-      .eq('status', 'ganho')
-      .not('won_at', 'is', null)
-      .gt('won_total', 0)
-      .gte('won_at', dateStartIso)
-      .lte('won_at', dateEndIso)
-
-    if (filters.ownerId) {
-      q = q.eq('won_owner_user_id', filters.ownerId)
-    }
-
-    const { data } = await q
-
-    for (const row of data ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.won_at as string | null
+    for (const row of wonRows) {
+      const ts = row.won_at
       if (!ts) continue
       const wd = weekdayInBusinessTZ(ts)
       countsByType.fechamento[wd] += 1
@@ -273,44 +243,30 @@ export async function getWeekdayVocation(
 
   // ==========================================================================
   // 3. Follow-up e Negociação — cycle_events
-  //    Não quebra se a tabela não existir ou não tiver company_id
+  //    Usa occurred_at e pagina toda a base do período.
   // ==========================================================================
   let has_cycle_events = false
 
-  try {
-    const { data: eventsData, error: eventsError } = await supabase
-      .from('cycle_events')
-      .select('created_at, event_type, metadata')
-      .eq('company_id', filters.companyId)
-      .eq('event_type', 'stage_changed')
-      .gte('created_at', dateStartIso)
-      .lte('created_at', dateEndIso)
+  if (stageEventRows.length > 0) {
+    has_cycle_events = true
 
-    if (!eventsError && eventsData && eventsData.length > 0) {
-      has_cycle_events = true
+    for (const row of stageEventRows) {
+      const ts = row.occurred_at
+      if (!ts) continue
 
-      for (const row of eventsData) {
-        const r = row as Record<string, unknown>
-        const ts = r.created_at as string | null
-        if (!ts) continue
+      const meta = row.metadata
+      const toStatus = meta?.to_status as string | undefined
 
-        const meta = r.metadata as Record<string, unknown> | null
-        const toStatus = meta?.to_status as string | undefined
+      if (!toStatus) continue
 
-        if (!toStatus) continue
+      const wd = weekdayInBusinessTZ(ts)
 
-        const wd = weekdayInBusinessTZ(ts)
-
-        if (toStatus === 'contato' || toStatus === 'respondeu') {
-          countsByType.followup[wd] += 1
-        } else if (toStatus === 'negociacao') {
-          countsByType.negociacao[wd] += 1
-        }
+      if (toStatus === 'contato' || toStatus === 'respondeu') {
+        countsByType.followup[wd] += 1
+      } else if (toStatus === 'negociacao') {
+        countsByType.negociacao[wd] += 1
       }
     }
-  } catch {
-    // cycle_events may not exist in all installations — gracefully degrade
-    has_cycle_events = false
   }
 
   // ==========================================================================

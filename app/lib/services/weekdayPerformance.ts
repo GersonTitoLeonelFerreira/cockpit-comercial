@@ -4,8 +4,9 @@
 // Fonte oficial:
 // - Ações comerciais: cycle_events classificados como activity
 // - Avanços: cycle_events classificados como stage_move
-// - Vendas e faturamento: sales_cycles.status = ganho
-// - Data financeira: revenue_seller_ref_date -> won_at -> closed_at
+// - Vendas: sales_cycles.status = ganho
+// - Faturamento: v_revenue_daily_seller + v_revenue_daily_extra
+// - Data financeira oficial: ref_date
 // - Perdas: sales_cycles.lost_at
 //
 // Não existe taxa de ganho nesta página.
@@ -15,6 +16,7 @@
 
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { classifyEvent } from '@/app/config/eventClassification'
+import { getOfficialRevenueDays } from '@/app/lib/services/reportingRevenue'
 import type {
   WeekdayIndex,
   WeekdayPerformanceFilters,
@@ -63,7 +65,6 @@ type RawCycle = {
   owner_user_id: string | null
   won_owner_user_id: string | null
   lost_owner_user_id: string | null
-  won_total: number | string | null
   won_at: string | null
   closed_at: string | null
   lost_at: string | null
@@ -85,13 +86,8 @@ type WeekdayAccumulator = {
   ganhos: number
   perdidos: number
   faturamento: number
+  faturamento_vendas: number
   sample_dates: Set<string>
-}
-
-function toNumber(value: number | string | null | undefined): number {
-  const parsed = Number(value ?? 0)
-
-  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function isDateKey(value: string | null | undefined): value is string {
@@ -224,11 +220,11 @@ async function fetchAllCycles(companyId: string): Promise<RawCycle[]> {
     const { data, error } = await supabase
       .from('sales_cycles')
       .select(
-        'id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, won_total, won_at, closed_at, lost_at, revenue_seller_ref_date',
+        'id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, won_at, closed_at, lost_at, revenue_seller_ref_date',
       )
       .eq('company_id', companyId)
       .in('status', ['ganho', 'perdido'])
-      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
     if (error) {
@@ -270,6 +266,7 @@ async function fetchAllEvents(
       .gte('occurred_at', `${dateStart}T00:00:00-03:00`)
       .lt('occurred_at', `${nextDay}T00:00:00-03:00`)
       .order('occurred_at', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
     if (ownerId) {
@@ -364,7 +361,7 @@ function buildDiagnostico(
 export async function getWeekdayPerformance(
   filters: WeekdayPerformanceFilters,
 ): Promise<WeekdayPerformanceSummary> {
-  const [cycles, events] = await Promise.all([
+  const [cycles, events, revenueDays] = await Promise.all([
     fetchAllCycles(filters.companyId),
     fetchAllEvents(
       filters.companyId,
@@ -372,6 +369,12 @@ export async function getWeekdayPerformance(
       filters.dateEnd,
       filters.ownerId,
     ),
+    getOfficialRevenueDays({
+      companyId: filters.companyId,
+      ownerId: filters.ownerId,
+      dateStart: filters.dateStart,
+      dateEnd: filters.dateEnd,
+    }),
   ])
 
   const accumulators: WeekdayAccumulator[] = Array.from(
@@ -384,6 +387,7 @@ export async function getWeekdayPerformance(
       ganhos: 0,
       perdidos: 0,
       faturamento: 0,
+      faturamento_vendas: 0,
       sample_dates: new Set<string>(),
     }),
   )
@@ -423,7 +427,6 @@ export async function getWeekdayPerformance(
         const accumulator = accumulators[weekday]
 
         accumulator.ganhos += 1
-        accumulator.faturamento += toNumber(cycle.won_total)
         accumulator.sample_dates.add(saleDate)
       }
     }
@@ -446,6 +449,17 @@ export async function getWeekdayPerformance(
     }
   }
 
+  for (const revenueDay of revenueDays) {
+    const weekday = weekdayFromDateKey(revenueDay.date)
+    const accumulator = accumulators[weekday]
+
+    accumulator.faturamento += revenueDay.value
+    if (revenueDay.sourceKind === 'seller') {
+      accumulator.faturamento_vendas += revenueDay.value
+    }
+    accumulator.sample_dates.add(revenueDay.date)
+  }
+
   const rows: WeekdayPerformanceRow[] = accumulators.map(
     (accumulator, index) => {
       const weekday = index as WeekdayIndex
@@ -461,7 +475,7 @@ export async function getWeekdayPerformance(
         faturamento: accumulator.faturamento,
         ticket_medio:
           accumulator.ganhos > 0
-            ? accumulator.faturamento / accumulator.ganhos
+            ? accumulator.faturamento_vendas / accumulator.ganhos
             : 0,
         semanas_com_dados: new Set(
           Array.from(accumulator.sample_dates).map((dateKey) =>
@@ -510,9 +524,11 @@ export async function getWeekdayPerformance(
       ? [...rowsComGanhos].sort((a, b) => b.ganhos - a.ganhos)[0]
       : null
 
+  const rowsComFaturamento = rows.filter((row) => row.faturamento > 0)
+
   const melhorDiaFaturamento =
-    rowsComGanhos.length > 0
-      ? [...rowsComGanhos].sort(
+    rowsComFaturamento.length > 0
+      ? [...rowsComFaturamento].sort(
           (a, b) => b.faturamento - a.faturamento,
         )[0]
       : null

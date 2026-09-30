@@ -4,6 +4,7 @@ import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { getMonthWeekPerformance } from '@/app/lib/services/monthWeekPerformance'
 import * as faturamentoService from '@/app/lib/services/faturamento'
+import { getBusinessDateKey } from '@/app/lib/services/executionDayMath'
 import type {
   MonthWeekPerformanceRow,
   MonthWeekPerformanceSummary,
@@ -76,13 +77,11 @@ function toBRL(value: number): string {
 }
 
 function getFirstDayOfCurrentYear(): string {
-  return `${new Date().getFullYear()}-01-01`
+  return `${getBusinessDateKey().slice(0, 4)}-01-01`
 }
 
 function getTodayDate(): string {
-  const now = new Date()
-
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return getBusinessDateKey()
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -1285,7 +1284,7 @@ export default function SemanaMesRelatorioPg() {
                   {' '}
                   cycle_events
                 </strong>
-                . Vendas, perdas e faturamento vêm de
+                . Vendas e perdas vêm de
                 <strong style={{ color: DS.textPrimary }}>
                   {' '}
                   sales_cycles
@@ -1301,7 +1300,8 @@ export default function SemanaMesRelatorioPg() {
                   marginTop: 6,
                 }}
               >
-                Receita usa a data financeira oficial:
+                O faturamento vem da mesma base conciliada da Gestão de Faturamento,
+                agrupado pela data financeira oficial:
                 <strong style={{ color: DS.textPrimary }}>
                   {' '}
                   revenue_seller_ref_date → won_at → closed_at

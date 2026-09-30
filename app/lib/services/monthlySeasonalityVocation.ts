@@ -3,7 +3,7 @@
 //
 // Classifica cada mês do ano segundo sua vocação operacional predominante:
 //   - Prospecção:  sales_cycles.first_worked_at
-//   - Fechamento:  sales_cycles.won_at (status='ganho', won_total > 0)
+//   - Fechamento:  sales_cycles.won_at (status='ganho')
 //   - Follow-up:   cycle_events com event_type='stage_changed' e
 //                  metadata.to_status IN ('contato','respondeu')
 //   - Negociação:  cycle_events com event_type='stage_changed' e
@@ -15,7 +15,8 @@
 //   - Meses sem atividade são incluídos (12 linhas sempre) com zeros
 // ==============================================================================
 
-import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { getVocationSignalData } from '@/app/lib/services/vocationData'
+import { getBusinessDateKey } from '@/app/lib/services/executionDayMath'
 import type {
   MonthlySeasonalityFilters,
   MonthlyVocationalRow,
@@ -76,8 +77,7 @@ const SOURCE_DESCRIPTIONS: Record<MonthlyVocationType, string> = {
  * Extrai o número do mês (1–12) de um timestamp ISO.
  */
 function getMonth(ts: string): MonthIndex {
-  const d = new Date(ts)
-  return (d.getUTCMonth() + 1) as MonthIndex
+  return Number(getBusinessDateKey(new Date(ts)).slice(5, 7)) as MonthIndex
 }
 
 /**
@@ -206,7 +206,12 @@ function buildLeituraResumida(
 export async function getMonthlySeasonalityVocation(
   filters: MonthlySeasonalityFilters
 ): Promise<MonthlyVocationalSummary> {
-  const supabase = supabaseBrowser()
+  const { workedRows, wonRows, stageEventRows } = await getVocationSignalData({
+    companyId: filters.companyId,
+    ownerId: filters.ownerId,
+    dateStart: filters.dateStart,
+    dateEnd: filters.dateEnd,
+  })
 
   // Contagens por mês (índice 1-12) para cada tipo de vocação
   const countsByType: Record<MonthlyVocationType, number[]> = {
@@ -216,30 +221,12 @@ export async function getMonthlySeasonalityVocation(
     fechamento: Array(13).fill(0),
   }
 
-  const dateStartIso = filters.dateStart + 'T00:00:00.000Z'
-  const dateEndIso = filters.dateEnd + 'T23:59:59.999Z'
-
   // ==========================================================================
   // 1. Prospecção — sales_cycles.first_worked_at
   // ==========================================================================
   {
-    let q = supabase
-      .from('sales_cycles')
-      .select('first_worked_at')
-      .eq('company_id', filters.companyId)
-      .not('first_worked_at', 'is', null)
-      .gte('first_worked_at', dateStartIso)
-      .lte('first_worked_at', dateEndIso)
-
-    if (filters.ownerId) {
-      q = q.eq('owner_user_id', filters.ownerId)
-    }
-
-    const { data } = await q
-
-    for (const row of data ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.first_worked_at as string | null
+    for (const row of workedRows) {
+      const ts = row.first_worked_at
       if (!ts) continue
       const mo = getMonth(ts)
       countsByType.prospeccao[mo] += 1
@@ -250,25 +237,8 @@ export async function getMonthlySeasonalityVocation(
   // 2. Fechamento — sales_cycles.won_at
   // ==========================================================================
   {
-    let q = supabase
-      .from('sales_cycles')
-      .select('won_at')
-      .eq('company_id', filters.companyId)
-      .eq('status', 'ganho')
-      .not('won_at', 'is', null)
-      .gt('won_total', 0)
-      .gte('won_at', dateStartIso)
-      .lte('won_at', dateEndIso)
-
-    if (filters.ownerId) {
-      q = q.eq('won_owner_user_id', filters.ownerId)
-    }
-
-    const { data } = await q
-
-    for (const row of data ?? []) {
-      const r = row as Record<string, unknown>
-      const ts = r.won_at as string | null
+    for (const row of wonRows) {
+      const ts = row.won_at
       if (!ts) continue
       const mo = getMonth(ts)
       countsByType.fechamento[mo] += 1
@@ -285,44 +255,25 @@ export async function getMonthlySeasonalityVocation(
   // ==========================================================================
   let has_cycle_events = false
 
-  try {
-    let eventsQuery = supabase
-      .from('cycle_events')
-      .select('created_at, event_type, metadata')
-      .eq('company_id', filters.companyId)
-      .eq('event_type', 'stage_changed')
-      .gte('created_at', dateStartIso)
-      .lte('created_at', dateEndIso)
+  if (stageEventRows.length > 0) {
+    has_cycle_events = true
 
-    if (filters.ownerId) {
-      eventsQuery = eventsQuery.eq('created_by', filters.ownerId)
-    }
+    for (const row of stageEventRows) {
+      const ts = row.occurred_at
+      if (!ts) continue
 
-    const { data: eventsData, error: eventsError } = await eventsQuery
+      const meta = row.metadata
+      const toStatus = meta?.to_status as string | undefined
+      if (!toStatus) continue
 
-    if (!eventsError && eventsData && eventsData.length > 0) {
-      has_cycle_events = true
+      const mo = getMonth(ts)
 
-      for (const row of eventsData) {
-        const r = row as Record<string, unknown>
-        const ts = r.created_at as string | null
-        if (!ts) continue
-
-        const meta = r.metadata as Record<string, unknown> | null
-        const toStatus = meta?.to_status as string | undefined
-        if (!toStatus) continue
-
-        const mo = getMonth(ts)
-
-        if (toStatus === 'contato' || toStatus === 'respondeu') {
-          countsByType.followup[mo] += 1
-        } else if (toStatus === 'negociacao') {
-          countsByType.negociacao[mo] += 1
-        }
+      if (toStatus === 'contato' || toStatus === 'respondeu') {
+        countsByType.followup[mo] += 1
+      } else if (toStatus === 'negociacao') {
+        countsByType.negociacao[mo] += 1
       }
     }
-  } catch {
-    has_cycle_events = false
   }
 
   // ==========================================================================

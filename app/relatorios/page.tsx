@@ -298,7 +298,7 @@ desc: 'Leitura rápida do cenário comercial de hoje.',
       {
         icon: <IconTrendingUp />,
         title: 'Performance por Produto',
-        desc: 'Ticket médio, conversão e faturamento por produto',
+        desc: 'Volume de vendas, ticket médio e faturamento por produto',
         href: '/dashboard/relatorios/produto',
       },
     ],

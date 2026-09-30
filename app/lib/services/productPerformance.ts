@@ -3,7 +3,7 @@
 //
 // Fonte oficial:
 // - sales_cycles.status = ganho
-// - Receita por revenue_seller_ref_date -> won_at -> closed_at
+// - Faturamento por v_revenue_daily_seller, conciliado por vendedor/data
 // - Responsável da venda por won_owner_user_id
 // - Produto por sales_cycles.product_id
 //
@@ -13,6 +13,8 @@
 // ==============================================================================
 
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { getOfficialRevenueDays } from '@/app/lib/services/reportingRevenue'
+import { allocateOfficialSellerRevenueToCycles } from '@/app/lib/services/revenueAllocation'
 import type {
   ProductPerformanceFilters,
   ProductPerformanceRow,
@@ -23,6 +25,7 @@ type WonCycleRow = {
   id: string
   product_id: string | null
   won_total: number | string | null
+  owner_user_id: string | null
   won_owner_user_id: string | null
   won_at: string | null
   closed_at: string | null
@@ -109,11 +112,11 @@ async function fetchAllWonCycles(companyId: string): Promise<WonCycleRow[]> {
     const { data, error } = await supabase
       .from('sales_cycles')
       .select(
-        'id, product_id, won_total, won_owner_user_id, won_at, closed_at, revenue_seller_ref_date',
+        'id, product_id, won_total, owner_user_id, won_owner_user_id, won_at, closed_at, revenue_seller_ref_date',
       )
       .eq('company_id', companyId)
       .eq('status', 'ganho')
-      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
     if (error) {
@@ -139,12 +142,18 @@ export async function getProductPerformance(
 ): Promise<ProductPerformanceSummary> {
   const supabase = supabaseBrowser()
 
-  const [wonCycles, productsResponse] = await Promise.all([
+  const [wonCycles, productsResponse, officialRevenueDays] = await Promise.all([
     fetchAllWonCycles(filters.companyId),
     supabase
       .from('products')
       .select('id, name, category')
       .eq('company_id', filters.companyId),
+    getOfficialRevenueDays({
+      companyId: filters.companyId,
+      ownerId: filters.ownerId,
+      dateStart: filters.dateStart,
+      dateEnd: filters.dateEnd,
+    }),
   ])
 
   if (productsResponse.error) {
@@ -160,41 +169,77 @@ export async function getProductPerformance(
     ]),
   )
 
+  const eligibleCycles = wonCycles.flatMap((cycle) => {
+    const revenueDate = getRevenueReferenceDate(cycle)
+    const sellerId = cycle.won_owner_user_id ?? cycle.owner_user_id
+
+    if (
+      !revenueDate ||
+      !sellerId ||
+      !isInRange(revenueDate, filters.dateStart, filters.dateEnd) ||
+      (filters.ownerId && sellerId !== filters.ownerId)
+    ) {
+      return []
+    }
+
+    return [{ cycle, revenueDate, sellerId }]
+  })
+
+  const allocatedRevenue = allocateOfficialSellerRevenueToCycles(
+    eligibleCycles.map(({ cycle, revenueDate, sellerId }) => ({
+      id: cycle.id,
+      sellerId,
+      date: revenueDate,
+      rawValue: toNumber(cycle.won_total),
+    })),
+    officialRevenueDays,
+  )
+
   const grouped = new Map<
     string,
     {
       productId: string | null
       totalGanhos: number
       totalFaturamento: number
+      faturamentoParaTicket: number
     }
   >()
 
-  for (const cycle of wonCycles) {
-    const revenueDate = getRevenueReferenceDate(cycle)
-
-    if (!isInRange(revenueDate, filters.dateStart, filters.dateEnd)) {
-      continue
-    }
-
-    if (
-      filters.ownerId &&
-      cycle.won_owner_user_id !== filters.ownerId
-    ) {
-      continue
-    }
-
+  for (const { cycle } of eligibleCycles) {
     const key = cycle.product_id ?? '__unlinked__'
 
     const current = grouped.get(key) ?? {
       productId: cycle.product_id,
       totalGanhos: 0,
       totalFaturamento: 0,
+      faturamentoParaTicket: 0,
     }
 
     current.totalGanhos += 1
-    current.totalFaturamento += toNumber(cycle.won_total)
+    const cycleRevenue = allocatedRevenue.get(cycle.id) ?? 0
+    current.totalFaturamento += cycleRevenue
+    current.faturamentoParaTicket += cycleRevenue
 
     grouped.set(key, current)
+  }
+
+  const officialRevenueTotal = officialRevenueDays.reduce((sum, day) => sum + day.value, 0)
+  const allocatedRevenueTotal = Array.from(grouped.values()).reduce(
+    (sum, item) => sum + item.totalFaturamento,
+    0,
+  )
+  const unallocatedRevenue = officialRevenueTotal - allocatedRevenueTotal
+
+  if (Math.abs(unallocatedRevenue) >= 0.005) {
+    const unlinked = grouped.get('__unlinked__') ?? {
+      productId: null,
+      totalGanhos: 0,
+      totalFaturamento: 0,
+      faturamentoParaTicket: 0,
+    }
+
+    unlinked.totalFaturamento += unallocatedRevenue
+    grouped.set('__unlinked__', unlinked)
   }
 
   const totalGanhos = Array.from(grouped.values()).reduce(
@@ -204,6 +249,10 @@ export async function getProductPerformance(
 
   const totalFaturamento = Array.from(grouped.values()).reduce(
     (sum, item) => sum + item.totalFaturamento,
+    0,
+  )
+  const faturamentoParaTicket = Array.from(grouped.values()).reduce(
+    (sum, item) => sum + item.faturamentoParaTicket,
     0,
   )
 
@@ -225,7 +274,7 @@ export async function getProductPerformance(
         total_faturamento: item.totalFaturamento,
         ticket_medio:
           item.totalGanhos > 0
-            ? item.totalFaturamento / item.totalGanhos
+            ? item.faturamentoParaTicket / item.totalGanhos
             : 0,
         pct_faturamento:
           totalFaturamento > 0
@@ -262,7 +311,7 @@ export async function getProductPerformance(
       total_faturamento: totalFaturamento,
       ticket_medio_geral:
         totalGanhos > 0
-          ? totalFaturamento / totalGanhos
+          ? faturamentoParaTicket / totalGanhos
           : 0,
     },
     melhor_ticket: melhorTicket,

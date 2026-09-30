@@ -8,6 +8,7 @@ import {
   extractActionFromEvent,
 } from '@/app/config/stageActions'
 import * as faturamentoService from '@/app/lib/services/faturamento'
+import { getBusinessDateKey, shiftDateKey } from '@/app/lib/services/executionDayMath'
 
 type SellerOption = {
   id: string
@@ -61,13 +62,11 @@ const SUBNAV = [
 ]
 
 function getThirtyDaysAgo() {
-  const date = new Date()
-  date.setDate(date.getDate() - 30)
-  return date.toISOString().slice(0, 10)
+  return shiftDateKey(getBusinessDateKey(), -30)
 }
 
 function getTodayDate() {
-  return new Date().toISOString().slice(0, 10)
+  return getBusinessDateKey()
 }
 
 function formatPercent(value: number) {

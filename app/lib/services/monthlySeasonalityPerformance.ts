@@ -4,8 +4,9 @@
 // Fonte oficial:
 // - Ações comerciais: cycle_events classificados como activity
 // - Avanços: cycle_events classificados como stage_move
-// - Vendas e faturamento: sales_cycles com status ganho
-// - Data financeira: revenue_seller_ref_date -> won_at -> closed_at
+// - Vendas: sales_cycles com status ganho
+// - Faturamento: v_revenue_daily_seller + v_revenue_daily_extra
+// - Data financeira oficial: ref_date
 // - Perdas: sales_cycles.lost_at
 //
 // A leitura consolida o mesmo mês em anos diferentes.
@@ -14,6 +15,7 @@
 
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { classifyEvent } from '@/app/config/eventClassification'
+import { getOfficialRevenueDays } from '@/app/lib/services/reportingRevenue'
 import type {
   MonthlySeasonalityFilters,
   MonthlySeasonalityRow,
@@ -80,7 +82,6 @@ type RawCycle = {
   owner_user_id: string | null
   won_owner_user_id: string | null
   lost_owner_user_id: string | null
-  won_total: number | string | null
   won_at: string | null
   closed_at: string | null
   lost_at: string | null
@@ -102,13 +103,8 @@ type MonthAccumulator = {
   ganhos: number
   perdidos: number
   faturamento: number
+  faturamento_vendas: number
   sample_years: Set<string>
-}
-
-function toNumber(value: number | string | null | undefined): number {
-  const parsed = Number(value ?? 0)
-
-  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function isDateKey(value: string | null | undefined): value is string {
@@ -246,11 +242,11 @@ async function fetchAllCycles(companyId: string): Promise<RawCycle[]> {
     const { data, error } = await supabase
       .from('sales_cycles')
       .select(
-        'id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, won_total, won_at, closed_at, lost_at, revenue_seller_ref_date',
+        'id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, won_at, closed_at, lost_at, revenue_seller_ref_date',
       )
       .eq('company_id', companyId)
       .in('status', ['ganho', 'perdido'])
-      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
     if (error) {
@@ -292,6 +288,7 @@ async function fetchAllEvents(
       .gte('occurred_at', `${dateStart}T00:00:00-03:00`)
       .lt('occurred_at', `${nextDay}T00:00:00-03:00`)
       .order('occurred_at', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
     if (ownerId) {
@@ -441,7 +438,7 @@ function buildLeituraResumida(
 export async function getMonthlySeasonalityPerformance(
   filters: MonthlySeasonalityFilters,
 ): Promise<MonthlySeasonalitySummary> {
-  const [cycles, events] = await Promise.all([
+  const [cycles, events, revenueDays] = await Promise.all([
     fetchAllCycles(filters.companyId),
     fetchAllEvents(
       filters.companyId,
@@ -449,6 +446,12 @@ export async function getMonthlySeasonalityPerformance(
       filters.dateEnd,
       filters.ownerId,
     ),
+    getOfficialRevenueDays({
+      companyId: filters.companyId,
+      ownerId: filters.ownerId,
+      dateStart: filters.dateStart,
+      dateEnd: filters.dateEnd,
+    }),
   ])
 
   const indexes: MonthIndex[] = [
@@ -474,6 +477,7 @@ export async function getMonthlySeasonalityPerformance(
         ganhos: 0,
         perdidos: 0,
         faturamento: 0,
+        faturamento_vendas: 0,
         sample_years: new Set<string>(),
       }
 
@@ -524,7 +528,6 @@ export async function getMonthlySeasonalityPerformance(
         const accumulator = accumulators[month]
 
         accumulator.ganhos += 1
-        accumulator.faturamento += toNumber(cycle.won_total)
         accumulator.sample_years.add(getYear(saleDate))
       }
     }
@@ -547,11 +550,22 @@ export async function getMonthlySeasonalityPerformance(
     }
   }
 
+  for (const revenueDay of revenueDays) {
+    const month = getMonth(revenueDay.date)
+    const accumulator = accumulators[month]
+
+    accumulator.faturamento += revenueDay.value
+    if (revenueDay.sourceKind === 'seller') {
+      accumulator.faturamento_vendas += revenueDay.value
+    }
+    accumulator.sample_years.add(getYear(revenueDay.date))
+  }
+
   const rows: MonthlySeasonalityRow[] = indexes.map((month) => {
     const accumulator = accumulators[month]
     const ticketMedio =
       accumulator.ganhos > 0
-        ? accumulator.faturamento / accumulator.ganhos
+        ? accumulator.faturamento_vendas / accumulator.ganhos
         : 0
 
     return {
@@ -615,9 +629,11 @@ export async function getMonthlySeasonalityPerformance(
       ? [...rowsComGanhos].sort((a, b) => b.ganhos - a.ganhos)[0]
       : null
 
+  const rowsComFaturamento = rows.filter((row) => row.faturamento > 0)
+
   const melhorMesFaturamento =
-    rowsComGanhos.length > 0
-      ? [...rowsComGanhos].sort(
+    rowsComFaturamento.length > 0
+      ? [...rowsComFaturamento].sort(
           (a, b) => b.faturamento - a.faturamento,
         )[0]
       : null
