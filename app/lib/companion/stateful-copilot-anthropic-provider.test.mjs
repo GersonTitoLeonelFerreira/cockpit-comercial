@@ -36,7 +36,10 @@ import {
   DEFAULT_COMPANION_ANTHROPIC_MODEL,
   StatefulCopilotAnthropicProviderError,
   canonicalizeEnumCasing,
+  completeGlobalEvidence,
+  conformToSchema,
   createStatefulCopilotAnthropicProvider,
+  emptySchemaConformanceStats,
   extractJsonText,
   prepareSchemaForAnthropic,
   resetAnthropicGrammarRejectionCache,
@@ -927,6 +930,149 @@ test('o executor do diagnóstico aceita a resposta do Claude sem mudar nada no p
         .schema.properties,
     ),
   )
+})
+
+test('conformidade: completa listas e nulos, tira extras, filtra enums, corta máximo e IDs repetidos', () => {
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      memory_ids: { type: 'array', items: { type: 'string' }, maxItems: 0 },
+      evidence_message_ids: { type: 'array', items: { type: 'string' } },
+      status: { anyOf: [{ enum: ['aberto', 'fechado'] }, { type: 'null' }] },
+      papel: { enum: ['buyer', 'provider'] },
+      memorias_ativas: { type: 'array', items: { enum: ['mem-1', 'mem-2'] } },
+      pergunta: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+      obj: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { lista: { type: 'array', items: { type: 'string' } } },
+        required: ['lista'],
+      },
+    },
+    required: ['memory_ids', 'evidence_message_ids', 'status', 'papel', 'memorias_ativas', 'pergunta', 'obj'],
+  }
+
+  const stats = emptySchemaConformanceStats()
+
+  const output =
+    conformToSchema(
+      {
+        memory_ids: ['m1'],
+        evidence_message_ids: ['m1', 'm1', 'm2'],
+        status: 'desconhecido',
+        papel: 'Buyer',
+        memorias_ativas: ['mem-1', 'm3', 'MEM-2'],
+        obj: { lista: null, extra: 1 },
+        campo_extra: 'x',
+      },
+      schema,
+      stats,
+    )
+
+  assert.deepEqual(output, {
+    memory_ids: [],
+    evidence_message_ids: ['m1', 'm2'],
+    status: null,
+    papel: 'buyer',
+    memorias_ativas: ['mem-1', 'mem-2'],
+    obj: { lista: [] },
+    pergunta: null,
+  })
+
+  assert.deepEqual(stats, {
+    filled_missing: 2,
+    removed_extra_keys: 2,
+    removed_invalid_items: 1,
+    truncated_arrays: 1,
+    removed_duplicates: 1,
+    nulled_invalid_values: 1,
+    global_evidence_added: 0,
+  })
+
+  // Texto livre e campos obrigatórios que não são lista nem nulo ficam como vieram.
+  assert.deepEqual(
+    conformToSchema(
+      { texto: 'Qualquer Coisa' },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: { texto: { type: 'string' }, obrigatorio: { type: 'string' } },
+        required: ['texto', 'obrigatorio'],
+      },
+    ),
+    { texto: 'Qualquer Coisa' },
+  )
+})
+
+test('diagnóstico: a lista global de evidências recebe as evidências citadas', () => {
+  const stats = emptySchemaConformanceStats()
+
+  const output =
+    completeGlobalEvidence(
+      {
+        evidence_message_ids: ['m2'],
+        interpretation: {
+          what_changed: { evidence_message_ids: ['m3'] },
+          what_remains_valid: [{ evidence_message_ids: ['m1', 'm2'] }],
+        },
+      },
+      stats,
+    )
+
+  assert.deepEqual(output.evidence_message_ids, ['m2', 'm3', 'm1'])
+  assert.equal(stats.global_evidence_added, 2)
+
+  // Sem lista global, nada muda.
+  assert.deepEqual(completeGlobalEvidence({ a: 1 }), { a: 1 })
+})
+
+test('resposta com os desvios vistos no teste real passa no contrato do diagnóstico', async () => {
+  resetAnthropicGrammarRejectionCache()
+
+  // Desvios reais do modo com schema no prompt: memória com ID de mensagem,
+  // lista de memória omitida, evidência citada que faltou na lista global e
+  // campo fora do schema.
+  const broken = validDiagnosticOutput({ role: 'Buyer' })
+  delete broken.interpretation.current_moment.memory_ids
+  broken.strategy.memory_ids = ['m2']
+  broken.evidence_message_ids = ['m2']
+  broken.observacao_extra = 'fora do schema'
+
+  const events = []
+
+  const { impl } = fakeFetch([
+    jsonResponse(400, {
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: 'The compiled grammar is too large, which would cause performance issues. Simplify your tool schemas or reduce the number of strict tools.',
+      },
+    }),
+    jsonResponse(200, claudeMessage({ text: JSON.stringify(broken) })),
+  ])
+
+  const result =
+    await executeStatefulCopilotModelAttempt({
+      plan: diagnosticPlan(),
+      provider: provider({
+        fetch_impl: impl,
+        log: (event, fields) => events.push({ event, fields }),
+      }),
+    })
+
+  assert.deepEqual(result.output, validDiagnosticOutput())
+  assert.equal(result.execution.provider, 'anthropic')
+
+  const succeeded = events.find((entry) => entry.event === 'provider_call_succeeded')
+
+  assert.equal(succeeded.fields.output_mode, 'prompt')
+  assert.equal(succeeded.fields.conformance.truncated_arrays, 1)
+  assert.equal(succeeded.fields.conformance.filled_missing, 1)
+  assert.equal(succeeded.fields.conformance.removed_extra_keys, 1)
+  assert.equal(succeeded.fields.conformance.global_evidence_added, 1)
+
+  resetAnthropicGrammarRejectionCache()
 })
 
 // ---------------------------------------------------------------------------

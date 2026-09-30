@@ -808,6 +808,420 @@ export function canonicalizeEnumCasing(
 }
 
 // ---------------------------------------------------------------------------
+// Conformidade com o schema original
+// ---------------------------------------------------------------------------
+//
+// Quando o schema vai no prompt (a API recusou a gramática), nada obriga o
+// Claude a seguir as restrições que a gramática garantiria. Os desvios
+// observados em produção de teste foram estruturais: lista obrigatória
+// omitida ou nula, ID de mensagem em lista de memória que precisa ficar
+// vazia, ID repetido. Este passo aplica o schema ORIGINAL (com maxItems e
+// enums) à resposta, fazendo só o que a gramática teria feito: completa
+// listas e nulos obrigatórios, tira chaves fora do schema, tira itens fora
+// do enum, corta listas acima do máximo e remove IDs repetidos. Texto e
+// decisões do modelo não mudam. O normalizador do contrato continua
+// validando tudo depois.
+
+export type SchemaConformanceStats = {
+  filled_missing: number
+  removed_extra_keys: number
+  removed_invalid_items: number
+  truncated_arrays: number
+  removed_duplicates: number
+  nulled_invalid_values: number
+  global_evidence_added: number
+}
+
+export function emptySchemaConformanceStats(): SchemaConformanceStats {
+  return {
+    filled_missing: 0,
+    removed_extra_keys: 0,
+    removed_invalid_items: 0,
+    truncated_arrays: 0,
+    removed_duplicates: 0,
+    nulled_invalid_values: 0,
+    global_evidence_added: 0,
+  }
+}
+
+function schemaAllowsNull(
+  schema: unknown,
+): boolean {
+  if (!isRecord(schema)) {
+    return false
+  }
+
+  if (schema.type === 'null') {
+    return true
+  }
+
+  if (Array.isArray(schema.type) && schema.type.includes('null')) {
+    return true
+  }
+
+  if (Array.isArray(schema.enum) && schema.enum.includes(null)) {
+    return true
+  }
+
+  return (
+    Array.isArray(schema.anyOf) &&
+    schema.anyOf.some(schemaAllowsNull)
+  )
+}
+
+function isArraySchema(
+  schema: unknown,
+): boolean {
+  return (
+    isRecord(schema) &&
+    (
+      schema.type === 'array' ||
+      (Array.isArray(schema.type) && schema.type.includes('array')) ||
+      isRecord(schema.items)
+    )
+  )
+}
+
+function schemaChoices(
+  schema: unknown,
+): readonly unknown[] | null {
+  if (!isRecord(schema)) {
+    return null
+  }
+
+  if (Array.isArray(schema.enum)) {
+    return schema.enum
+  }
+
+  if ('const' in schema) {
+    return [schema.const]
+  }
+
+  return null
+}
+
+// Enum de um item de lista, direto ou dentro de anyOf (ex.: enum | null).
+function itemChoices(
+  schema: unknown,
+): readonly unknown[] | null {
+  const direct =
+    schemaChoices(schema)
+
+  if (direct) {
+    return direct
+  }
+
+  if (isRecord(schema) && Array.isArray(schema.anyOf)) {
+    const collected: unknown[] = []
+
+    for (const branch of schema.anyOf) {
+      const choices =
+        schemaChoices(branch)
+
+      if (choices) {
+        collected.push(...choices)
+      } else if (!(isRecord(branch) && branch.type === 'null')) {
+        return null
+      }
+    }
+
+    return collected.length > 0
+      ? collected
+      : null
+  }
+
+  return null
+}
+
+function matchChoice(
+  value: unknown,
+  choices: readonly unknown[],
+): { matched: boolean; value: unknown } {
+  if (choices.includes(value)) {
+    return { matched: true, value }
+  }
+
+  if (typeof value === 'string') {
+    const canonical =
+      matchStringChoice(value, choices)
+
+    if (canonical !== null) {
+      return { matched: true, value: canonical }
+    }
+  }
+
+  return { matched: false, value }
+}
+
+function missingValueFor(
+  schema: unknown,
+): { fill: boolean; value: unknown } {
+  if (isArraySchema(schema) && !schemaAllowsNull(schema)) {
+    return { fill: true, value: [] }
+  }
+
+  if (schemaAllowsNull(schema)) {
+    return { fill: true, value: null }
+  }
+
+  if (isArraySchema(schema)) {
+    return { fill: true, value: [] }
+  }
+
+  return { fill: false, value: undefined }
+}
+
+function conformNode(
+  value: unknown,
+  schema: unknown,
+  stats: SchemaConformanceStats,
+  key: string | null,
+): unknown {
+  if (!isRecord(schema)) {
+    return value
+  }
+
+  if (Array.isArray(schema.anyOf)) {
+    if (value === null && schemaAllowsNull(schema)) {
+      return null
+    }
+
+    const branches =
+      schema.anyOf.filter(isRecord)
+
+    if (Array.isArray(value)) {
+      const arrayBranch =
+        branches.find(isArraySchema)
+
+      return arrayBranch
+        ? conformNode(value, arrayBranch, stats, key)
+        : value
+    }
+
+    if (isRecord(value)) {
+      const objectBranch =
+        chooseObjectBranch(value, branches)
+
+      return objectBranch
+        ? conformNode(value, objectBranch, stats, key)
+        : value
+    }
+
+    if (value === undefined || value === null) {
+      return value
+    }
+
+    const choiceBranches =
+      branches.filter((branch) => schemaChoices(branch) !== null)
+
+    for (const branch of choiceBranches) {
+      const match =
+        matchChoice(value, schemaChoices(branch) ?? [])
+
+      if (match.matched) {
+        return match.value
+      }
+    }
+
+    const freeBranch =
+      branches.find(
+        (branch) =>
+          schemaChoices(branch) === null &&
+          branch.type !== 'null',
+      )
+
+    if (freeBranch) {
+      return conformNode(value, freeBranch, stats, key)
+    }
+
+    // Valor fora de todos os enums de um campo que aceita nulo: a gramática
+    // nunca deixaria sair; nulo é o valor seguro.
+    if (choiceBranches.length > 0 && schemaAllowsNull(schema)) {
+      stats.nulled_invalid_values += 1
+      return null
+    }
+
+    return value
+  }
+
+  const choices =
+    schemaChoices(schema)
+
+  if (choices) {
+    return matchChoice(value, choices).value
+  }
+
+  if (isArraySchema(schema)) {
+    if (value === null && !schemaAllowsNull(schema)) {
+      stats.filled_missing += 1
+      return []
+    }
+
+    if (!Array.isArray(value)) {
+      return value
+    }
+
+    let items =
+      value.map((item) =>
+        conformNode(item, schema.items, stats, key),
+      )
+
+    const allowed =
+      itemChoices(schema.items)
+
+    if (allowed) {
+      const before =
+        items.length
+
+      items =
+        items.filter((item) => allowed.includes(item))
+
+      stats.removed_invalid_items += before - items.length
+    }
+
+    const isIdList =
+      (key !== null && key.endsWith('_ids')) ||
+      allowed !== null
+
+    if (
+      isIdList &&
+      items.every((item) => typeof item === 'string')
+    ) {
+      const unique =
+        [...new Set(items)]
+
+      stats.removed_duplicates += items.length - unique.length
+      items = unique
+    }
+
+    if (
+      typeof schema.maxItems === 'number' &&
+      schema.maxItems >= 0 &&
+      items.length > schema.maxItems
+    ) {
+      items = items.slice(0, schema.maxItems)
+      stats.truncated_arrays += 1
+    }
+
+    return items
+  }
+
+  if (isRecord(value) && isRecord(schema.properties)) {
+    const properties =
+      schema.properties
+
+    const output: JsonRecord = {}
+
+    for (const [childKey, childValue] of Object.entries(value)) {
+      if (childKey in properties) {
+        output[childKey] =
+          conformNode(childValue, properties[childKey], stats, childKey)
+      } else if (schema.additionalProperties === false) {
+        stats.removed_extra_keys += 1
+      } else {
+        output[childKey] = childValue
+      }
+    }
+
+    const required =
+      Array.isArray(schema.required)
+        ? schema.required.filter(
+            (entry): entry is string => typeof entry === 'string',
+          )
+        : []
+
+    for (const requiredKey of required) {
+      if (output[requiredKey] !== undefined) {
+        continue
+      }
+
+      const missing =
+        missingValueFor(properties[requiredKey])
+
+      if (missing.fill) {
+        output[requiredKey] = missing.value
+        stats.filled_missing += 1
+      }
+    }
+
+    return output
+  }
+
+  return value
+}
+
+export function conformToSchema(
+  value: unknown,
+  schema: unknown,
+  stats: SchemaConformanceStats = emptySchemaConformanceStats(),
+): unknown {
+  return conformNode(value, schema, stats, null)
+}
+
+// Diagnóstico: a lista global de evidências é, por contrato, a união das
+// evidências citadas nos demais campos. O Claude às vezes deixa de repetir
+// alguma; este passo completa a lista global com as que foram citadas.
+export function completeGlobalEvidence(
+  output: unknown,
+  stats: SchemaConformanceStats = emptySchemaConformanceStats(),
+): unknown {
+  if (!isRecord(output) || !Array.isArray(output.evidence_message_ids)) {
+    return output
+  }
+
+  const globalIds =
+    output.evidence_message_ids.filter(
+      (id): id is string => typeof id === 'string',
+    )
+
+  const seen =
+    new Set(globalIds)
+
+  const visit = (
+    node: unknown,
+  ) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit)
+      return
+    }
+
+    if (!isRecord(node)) {
+      return
+    }
+
+    for (const [childKey, childValue] of Object.entries(node)) {
+      if (
+        childKey === 'evidence_message_ids' &&
+        Array.isArray(childValue)
+      ) {
+        for (const id of childValue) {
+          if (typeof id === 'string' && !seen.has(id)) {
+            seen.add(id)
+            globalIds.push(id)
+            stats.global_evidence_added += 1
+          }
+        }
+
+        continue
+      }
+
+      visit(childValue)
+    }
+  }
+
+  for (const [childKey, childValue] of Object.entries(output)) {
+    if (childKey !== 'evidence_message_ids') {
+      visit(childValue)
+    }
+  }
+
+  return {
+    ...output,
+    evidence_message_ids: globalIds,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Texto de saída
 // ---------------------------------------------------------------------------
 
@@ -855,28 +1269,40 @@ export function extractJsonText(
 
 function finalizeContent({
   text,
-  schema,
+  originalSchema,
+  stage,
+  stats,
 }: {
   text: string
-  schema: JsonRecord | null
+  originalSchema: JsonRecord | null
+  stage: CompanionAnthropicStage
+  stats: SchemaConformanceStats
 }): string {
   const jsonText =
     extractJsonText(text)
 
-  if (!schema) {
+  if (!originalSchema) {
     return jsonText
   }
 
+  let parsed: unknown
+
   try {
-    return JSON.stringify(
-      canonicalizeEnumCasing(
-        JSON.parse(jsonText),
-        schema,
-      ),
-    )
+    parsed = JSON.parse(jsonText)
   } catch {
+    // Devolve o texto como veio; o executor acusa JSON inválido.
     return jsonText
   }
+
+  let conformed =
+    conformToSchema(parsed, originalSchema, stats)
+
+  if (stage === 'diagnostic') {
+    conformed =
+      completeGlobalEvidence(conformed, stats)
+  }
+
+  return JSON.stringify(conformed)
 }
 
 export function buildSchemaInstruction(
@@ -886,6 +1312,8 @@ export function buildSchemaInstruction(
     '## Formato obrigatório da resposta',
     'Responda somente com um único objeto JSON válido, sem nenhum texto antes ou depois e sem blocos de código.',
     'O objeto precisa seguir exatamente o JSON Schema abaixo: todos os campos listados em "required" aparecem, nenhum campo extra é permitido e os valores de "enum" são copiados exatamente como estão escritos.',
+    'Nunca omita um campo: quando não houver nada a informar, use [] para listas e null para campos que aceitam nulo.',
+    'Campos de memória (memory_ids, memory_id) só aceitam os IDs de memória listados no schema; IDs de mensagem nunca entram neles.',
     '<json_schema>',
     JSON.stringify(schema),
     '</json_schema>',
@@ -1619,10 +2047,17 @@ export function createStatefulCopilotAnthropicProvider(
         })
       }
 
+      const conformance =
+        emptySchemaConformanceStats()
+
       const content =
         finalizeContent({
           text: parsed.text,
-          schema: preparation?.schema ?? null,
+          // O schema ORIGINAL (com maxItems e enums), não a versão
+          // simplificada enviada à API.
+          originalSchema: requestSchema,
+          stage,
+          stats: conformance,
         })
 
       log('provider_call_succeeded', {
@@ -1635,6 +2070,7 @@ export function createStatefulCopilotAnthropicProvider(
         cache_creation_input_tokens: parsed.cache_creation_input_tokens,
         max_tokens: maxTokens,
         request_id: requestId,
+        conformance,
       })
 
       return {
