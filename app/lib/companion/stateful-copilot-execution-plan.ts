@@ -49,6 +49,10 @@ import type {
   StatefulCommercialState,
 } from './stateful-commercial-state'
 
+import {
+  computeMessageActivityTimestamps,
+} from './message-activity-time'
+
 export const STATEFUL_COPILOT_PROMPT_VERSION =
   'phase-5.2-stateful-prompt-v24' as const
 
@@ -467,6 +471,16 @@ function ensureInputInvariants(
 function selectCurrentSessionMessageIds(
   input: StatefulCopilotInput,
 ): string[] {
+  // Histórico recuperado depois (rolagem, recarga após login) vale pela
+  // hora em que aconteceu, não pela hora da captura.
+  const activityById =
+    computeMessageActivityTimestamps(
+      input
+        .diagnostic_input
+        .conversation
+        .messages,
+    )
+
   const orderedByActivity =
     input
       .diagnostic_input
@@ -477,6 +491,9 @@ function selectCurrentSessionMessageIds(
           message.id,
 
         activity_timestamp:
+          activityById.get(
+            message.id,
+          ) ??
           Math.max(
             Date.parse(
               message.occurred_at,

@@ -35,6 +35,10 @@ import {
   type DurableMemorySeed,
 } from './durable-memory-seed'
 
+import {
+  computeMessageActivityTimestamps,
+} from './message-activity-time'
+
 const LEDGER_PAGE_SIZE =
   500
 
@@ -1632,11 +1636,21 @@ export function selectStatefulDiagnosticMessages(
     return []
   }
 
+  // Histórico recuperado depois (rolagem, recarga após login) vale pela
+  // hora em que aconteceu, não pela hora da captura.
+  const activityById =
+    computeMessageActivityTimestamps(
+      canonicalMessages,
+    )
+
   const orderedByActivity =
     canonicalMessages
       .map((message) => ({
         message,
         activity_timestamp:
+          activityById.get(
+            message.id,
+          ) ??
           Math.max(
             Date.parse(
               message.occurred_at,
