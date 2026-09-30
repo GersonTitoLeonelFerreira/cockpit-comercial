@@ -965,6 +965,28 @@
     return companionEnvironment
   }
 
+  // R9 — recuperação de job órfão (queued sem entrega viva / running com
+  // worker morto). O servidor decide (CAS); se o job não estiver órfão,
+  // devolve o estado atual sem republicar nada.
+  async function recoverAnalysisJob(payload) {
+    const analysisJobId =
+      typeof payload?.analysis_job_id === 'string'
+        ? payload.analysis_job_id
+        : null
+
+    if (!analysisJobId) {
+      return null
+    }
+
+    return sendToBackground(
+      'RETRY_ANALYSIS_JOB',
+      {
+        analysis_job_id:
+          analysisJobId,
+      },
+    )
+  }
+
   // Commit do backend deste canal (homolog confere com o do pacote).
   async function getBackendBuildIdentity() {
     return sendToBackground('GET_BACKEND_BUILD_IDENTITY', null)
@@ -987,6 +1009,7 @@
     analyzeConversation,
     applySuggestion,
     getAnalysisJobStatus,
+    recoverAnalysisJob,
     loadClientContext,
     loadDecisionState,
     loadAnalysisViewModel,

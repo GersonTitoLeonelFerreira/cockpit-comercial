@@ -21,6 +21,7 @@ import type {
 } from './companion-token'
 
 import {
+  classifyStatefulCopilotBackgroundJobStaleness,
   isStatefulCopilotBackgroundJobStatus,
   type StatefulCopilotBackgroundJobStatus,
 } from './stateful-copilot-background-job'
@@ -609,6 +610,11 @@ export type CompanionAnalysisJobStatusResult = {
   }
   result: CompanionDeepSellerResult | null
   result_generated_at: string | null
+  // R9 — ciclo de vida observável: última transição do job (claim,
+  // requeue, retry, recuperação) e se ele é um órfão (queued sem entrega
+  // viva / running com lease vencido) que pode ser recuperado.
+  updated_at: string | null
+  stale: boolean
 }
 
 function normalizeJobTimestamp(
@@ -786,7 +792,7 @@ export async function loadCompanionAnalysisJobStatus({
         'companion_background_analysis_jobs',
       )
       .select(
-        'analysis_job_id, status, company_id, cycle_id, conversation_key, message_watermark, candidate_state_version, failure_code, attempt_count, requested_at, started_at, completed_at',
+        'analysis_job_id, status, company_id, cycle_id, conversation_key, message_watermark, candidate_state_version, failure_code, attempt_count, requested_at, started_at, completed_at, updated_at',
       )
       .eq(
         'analysis_job_id',
@@ -882,6 +888,19 @@ export async function loadCompanionAnalysisJobStatus({
         job.completed_at,
     })
 
+  const updatedAt =
+    typeof job.updated_at === 'string'
+      ? job.updated_at
+      : null
+
+  const stale =
+    classifyStatefulCopilotBackgroundJobStaleness({
+      status: job.status,
+      updated_at: updatedAt,
+      started_at: job.started_at,
+      now_ms: Date.now(),
+    }) !== 'fresh'
+
   if (job.status !== 'succeeded') {
     return {
       analysis_job_id: analysisJobId,
@@ -895,6 +914,8 @@ export async function loadCompanionAnalysisJobStatus({
       ...timingSnapshot,
       result: null,
       result_generated_at: null,
+      updated_at: updatedAt,
+      stale,
     }
   }
 
@@ -1018,5 +1039,9 @@ export async function loadCompanionAnalysisJobStatus({
       })(),
     result_generated_at:
       event.generated_at,
+    updated_at:
+      updatedAt,
+    stale:
+      false,
   }
 }

@@ -1011,18 +1011,27 @@ export async function loadCommercialConfig({
   }
 }
 
+export type PreloadedCommercialConfig =
+  Awaited<ReturnType<typeof loadCommercialConfig>> & {
+    company_id: string
+  }
+
 export async function loadCompanionDiagnosticSnapshot({
   admin,
   company_id,
   cycle_id,
   conversation_key,
   reference_time,
+  preloaded_commercial_config = null,
 }: {
   admin: SupabaseClient
   company_id: unknown
   cycle_id: unknown
   conversation_key: unknown
   reference_time: unknown
+  // Configuração publicada já lida na MESMA requisição (contexto canônico
+  // do firewall R8), da mesma empresa: evita repetir 1+5 consultas.
+  preloaded_commercial_config?: PreloadedCommercialConfig | null
 }): Promise<
   CompanionDiagnosticSnapshot
 > {
@@ -1210,10 +1219,14 @@ export async function loadCompanionDiagnosticSnapshot({
   const {
     bundle,
     products,
-  } = await loadCommercialConfig({
-    admin,
-    companyId,
-  })
+  } =
+    preloaded_commercial_config &&
+    preloaded_commercial_config.company_id === companyId
+      ? preloaded_commercial_config
+      : await loadCommercialConfig({
+          admin,
+          companyId,
+        })
 
   const input =
     buildCompanionDiagnosticInput({

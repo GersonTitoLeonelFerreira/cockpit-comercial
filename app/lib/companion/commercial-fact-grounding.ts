@@ -1003,13 +1003,43 @@ function refOf(source: FactEvidenceSource): FactSourceRef {
   }
 }
 
+// Derivados por fonte calculados uma única vez (a mesma fonte é consultada
+// por todas as afirmações de todos os itens: sem cache era N×M).
+const SOURCE_STEMS = new WeakMap<FactEvidenceSource, Set<string>>()
+const SOURCE_RELATIONS = new WeakMap<FactEvidenceSource, ReturnType<typeof relationMentions>>()
+const REGISTRY_CUSTOMER_STEMS = new WeakMap<FactEvidenceRegistry, Set<string>>()
+const SOURCE_MONEY = new WeakMap<FactEvidenceSource, number[]>()
+const SOURCE_PERCENT = new WeakMap<FactEvidenceSource, number[]>()
+
+function sourceStems(source: FactEvidenceSource): Set<string> {
+  let stems = SOURCE_STEMS.get(source)
+
+  if (!stems) {
+    stems = tokenStems(source.comparable)
+    SOURCE_STEMS.set(source, stems)
+  }
+
+  return stems
+}
+
+function sourceRelations(source: FactEvidenceSource): ReturnType<typeof relationMentions> {
+  let relations = SOURCE_RELATIONS.get(source)
+
+  if (!relations) {
+    relations = relationMentions(source.comparable)
+    SOURCE_RELATIONS.set(source, relations)
+  }
+
+  return relations
+}
+
 function tokenStems(comparable: string): Set<string> {
   return new Set(comparable.split(' ').filter(Boolean).map(stemOf))
 }
 
 function coversTerms(sources: readonly FactEvidenceSource[], terms: readonly string[]): FactEvidenceSource[] {
   return sources.filter((source) => {
-    const stems = tokenStems(source.comparable)
+    const stems = sourceStems(source)
     return terms.every((term) => stems.has(stemOf(term)))
   })
 }
@@ -1064,7 +1094,7 @@ function ground(
         const supported = customerSources.filter(
           (source) =>
             FIRST_PERSON_GROUP.test(source.comparable) ||
-            relationMentions(source.comparable).length > 0,
+            sourceRelations(source).length > 0,
         )
 
         return supported.length > 0
@@ -1073,7 +1103,7 @@ function ground(
       }
 
       const supported = customerSources.filter((source) =>
-        relationMentions(source.comparable).some(
+        sourceRelations(source).some(
           (mention) =>
             mention.group === claim.value &&
             !(mention.previous && SECOND_PERSON_POSSESSIVES.has(mention.previous)),
@@ -1087,9 +1117,20 @@ function ground(
 
     case 'price':
     case 'percentage': {
+      const cache = claim.kind === 'price' ? SOURCE_MONEY : SOURCE_PERCENT
       const parse = claim.kind === 'price' ? moneyValues : percentValues
+      const valuesOf = (source: FactEvidenceSource) => {
+        let values = cache.get(source)
+
+        if (!values) {
+          values = parse(source.text)
+          cache.set(source, values)
+        }
+
+        return values
+      }
       const matches = (source: FactEvidenceSource) =>
-        parse(source.text).some((value) => Math.abs(value - (claim.numeric ?? Number.NaN)) < 0.005)
+        valuesOf(source).some((value) => Math.abs(value - (claim.numeric ?? Number.NaN)) < 0.005)
 
       const company = sourcesOfTypes(registry, COMPANY_TYPES).filter(matches)
 
@@ -1122,7 +1163,7 @@ function ground(
         (pattern ? pattern.test(source.comparable) : claim.kind === 'urgency'
           ? URGENCY.test(source.comparable)
           : true) &&
-        terms.every((term) => tokenStems(source.comparable).has(stemOf(term)))
+        terms.every((term) => sourceStems(source).has(stemOf(term)))
 
       const company = sourcesOfTypes(registry, COMPANY_TYPES).filter(matchesSource)
 
@@ -1176,24 +1217,41 @@ function ground(
     case 'customer_statement': {
       const terms = claim.terms ?? []
       const customer = sourcesOfTypes(registry, CUSTOMER_TYPES)
-      const identity = registry.sources.filter((source) => source.identity)
-      const known = new Set<string>()
+      let known = REGISTRY_CUSTOMER_STEMS.get(registry)
 
-      for (const source of [...customer, ...identity]) {
-        for (const stem of tokenStems(source.comparable)) {
-          known.add(stem)
+      if (!known) {
+        known = new Set<string>()
+
+        for (const source of [...customer, ...registry.sources.filter((entry) => entry.identity)]) {
+          for (const stem of sourceStems(source)) {
+            known.add(stem)
+          }
+        }
+
+        REGISTRY_CUSTOMER_STEMS.set(registry, known)
+      }
+
+      const knownStems = known
+
+      const covered = terms.filter((term) => knownStems.has(stemOf(term)))
+      const ratio = terms.length === 0 ? 1 : covered.length / terms.length
+      const coveredStems = covered.map(stemOf)
+      const supporting: FactEvidenceSource[] = []
+
+      // Só as 3 primeiras fontes entram no trace: para ao achá-las.
+      for (const source of customer) {
+        if (supporting.length >= 3) {
+          break
+        }
+
+        if (coveredStems.some((stem) => sourceStems(source).has(stem))) {
+          supporting.push(source)
         }
       }
 
-      const covered = terms.filter((term) => known.has(stemOf(term)))
-      const ratio = terms.length === 0 ? 1 : covered.length / terms.length
-      const supporting = customer.filter((source) =>
-        covered.some((term) => tokenStems(source.comparable).has(stemOf(term))),
-      )
-
       return ratio >= 0.6
         ? done('verified', supporting)
-        : done('unsupported', supporting, `customer_did_not_say: ${terms.filter((term) => !known.has(stemOf(term))).join(', ')}`)
+        : done('unsupported', supporting, `customer_did_not_say: ${terms.filter((term) => !knownStems.has(stemOf(term))).join(', ')}`)
     }
 
     case 'profile_inference':
@@ -1519,7 +1577,7 @@ export function groundDerivedItem(
     // Citação válida, mas nada do que o item afirma aparece no que o
     // cliente disse: é interpretação ("valoriza flexibilidade"), não fato.
     const itemTerms = item.texts.flatMap((text) => specificTokens(comparableText(text)))
-    const citedStems = new Set(customer.flatMap((source) => [...tokenStems(source.comparable)]))
+    const citedStems = new Set(customer.flatMap((source) => [...sourceStems(source)]))
 
     if (itemTerms.length > 0 && !itemTerms.some((term) => citedStems.has(stemOf(term)))) {
       return { status: 'derived', blocked, reason: 'interpretation_of_customer_words' }

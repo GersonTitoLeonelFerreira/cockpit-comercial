@@ -423,6 +423,41 @@ para todas as superfícies):
   pacote HML. Mostra claim → fontes → status, afirmações removidas e
   evidências excluídas. Nunca aparece em produção.
 
+### Pipeline de análise para qualquer conversa (R9)
+
+**Sintoma live.** Lorena concluía, e Júlia (e outros contatos) ficava em "A análise está na fila da Yolen…" / "Analisando…".
+
+**Causa comprovada** com dados de `companion_background_analysis_jobs`, `companion_runtime_path_diagnostics` e os erros agrupados da rota da fila:
+
+- **Não é a fila do Preview.** O Preview publica e consome: `consumer_start` aparece com `vercel_env=preview` e o sha do preview.
+- **A 1ª análise costuma falhar a validação do contrato.** Em conversas sem leitura anterior, 43% dos jobs em 14 dias (9/21) falharam a 1ª entrega e 4 falharam de vez; com leitura anterior, 5% (3/58).
+  - Os erros são `INVALID_MODEL_OUTPUT`/`INVALID_COMMUNICATION_OUTPUT`, com `CUSTOMER_EVIDENCE_REQUIRED`, `MISSING_GLOBAL_EVIDENCE` etc.
+  - A 2ª tentativa in-process do motor repetia o mesmo prompt às cegas: o reparo só existia para o Commercial Truth Guard.
+- **Cada nova tentativa esperava 3 minutos.** O consumer usava `handleCallback` sem diretiva `retry`, então a nova entrega só vinha quando a visibilidade de 180 s expirava.
+  - Júlia teve 5 entregas: 22:36:18 → 22:40:19 → 22:43:24 → 22:46:29 → 22:49:35 (13 min).
+- **A extensão desistia antes.** Ela para de acompanhar em 240 s.
+- **Lorena "funcionava" por ter leitura anterior.** A reanálise dela passou na 1ª entrega (23 s).
+- **Órfãos.** Um worker morto deixava o job `running` para sempre (ex.: desde 14/09). Pelo índice `one_running_per_conversation`, isso bloqueava todo job novo daquela conversa. Um job `queued` sem entrega viva era reaproveitado para sempre (23505), e o "Tentar novamente" só reabria `failed`.
+
+**Correção** (sem timeout maior e sem caso especial por conversa):
+
+- **Reparo de contrato.** A 2ª tentativa in-process recebe `contract_error_code` + `contract_error_path` e como corrigir: citar a evidência real exigida ou retirar o item, nunca inventar.
+- **Diretiva de retry da fila.** Esperas de 3/10/20/30 s; disputa pela conversa, 15 s; mensagem inválida recebe ack.
+- **Worker.**
+  - Um `running` com lease vencido (o dono morreu: `maxDuration` 180 s < lease 210 s) é encerrado (`BACKGROUND_WORKER_LEASE_EXPIRED`) e o claim é refeito.
+  - Uma disputa que chega à última entrega vira `failed` recuperável (`BACKGROUND_CONVERSATION_BUSY`), nunca `queued` eterno.
+- **Recuperação de órfão** (`recoverStaleCompanionAnalysisJob`).
+  - É órfão um job `queued` sem sinal de execução por 5 min, ou `running` com lease vencido.
+  - A recuperação reabre o job (CAS em status + `updated_at`, mesma identidade e `requested_at`) e publica uma entrega nova, uma única vez.
+  - É acionada pela rota de análise ao reaproveitar o job, pelo "Tentar novamente" e pelo polling quando o status vem com `stale: true`.
+  - Nunca há dois workers no mesmo job: o claim é CAS em `queued` e existe um único `running` por conversa.
+- **Status.** Expõe `updated_at` e `stale`.
+- **HML.** O painel "Analysis debug" mostra job, conversa, watermark, status, `queued_for`, `worker_started`, entregas, `poll_attempt`, órfão/recuperação e `failure_code`. Nunca aparece em PROD.
+- **Performance.**
+  - O firewall R8 reaproveita a configuração comercial já lida (o snapshot do raciocínio não relê 1+5 consultas).
+  - A observação do ledger é 1 consulta em lote.
+  - Os derivados por fonte ficam em cache. O gate da leitura caiu de 444 ms para ~75 ms com 1000 mensagens e 150 itens (~34 ms com 150 mensagens).
+
 ## 3. Evidência
 
 - `sales-expert-recovery-golden.test.mjs` + `docs/companion-v2/corpus/sales-expert-recovery-golden.json`:
@@ -459,3 +494,8 @@ para todas as superfícies):
 
   Também `companion-client-intelligence-ui.test.mjs` (sabemos/inferimos/falta)
   e `message-controller-contract.test.mjs` (aviso; trace só no HML).
+- R9:
+  - `analysis-job-lifecycle.test.mjs`: diretiva da fila, órfãos, worker morto liberado, disputa terminal, corpus A–I até estado terminal em ≤ 5 entregas e ≤ 63 s de espera;
+  - `companion-analysis-job-retry.test.mjs`: órfão `queued`/`running` reaberto uma vez, vencedor único;
+  - `stateful-copilot-orchestrator.test.mjs`: o reparo de contrato chega à 2ª tentativa;
+  - `analysis-multi-conversation-sequence.test.mjs`: Lorena → Júlia → C → voltas, sem vazamento, e diagnóstico só no HML.

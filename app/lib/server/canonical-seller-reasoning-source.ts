@@ -122,6 +122,8 @@ export async function loadCanonicalSellerReasoningBundle({
         context.conversation_key,
       reference_time:
         context.ledger_reference_time,
+      preloaded_commercial_config:
+        context.commercial_config ?? null,
     })
 
   if (

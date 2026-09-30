@@ -19,6 +19,107 @@ export const STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS =
 export const STATEFUL_COPILOT_BACKGROUND_RUNNING_LEASE_MS =
   210_000
 
+// Redelivery de falha retryable. Sem diretiva explícita a Vercel Queue só
+// reentrega quando a visibilidade (180 s) expira — cada nova tentativa de
+// uma primeira análise custava 3+ minutos e a extensão desistia antes
+// (R9). A espera cresce, mas cabe inteira na janela de acompanhamento.
+export const STATEFUL_COPILOT_BACKGROUND_RETRY_BACKOFF_SECONDS =
+  [3, 10, 20, 30] as const
+
+// Outra entrega/job da mesma conversa está rodando: espera ela terminar.
+export const STATEFUL_COPILOT_BACKGROUND_CONTENTION_RETRY_SECONDS =
+  15
+
+// Um job `queued` sem nenhum sinal de execução (claim, requeue ou retry
+// atualizam updated_at) além disto não tem mais entrega viva: pode ser
+// reaberto e republicado com segurança (CAS em updated_at).
+export const STATEFUL_COPILOT_BACKGROUND_QUEUED_STALE_MS =
+  5 * 60_000
+
+const CONTENTION_RETRY_CODES: ReadonlySet<string> = new Set([
+  'BACKGROUND_JOB_ALREADY_RUNNING',
+  'BACKGROUND_CONVERSATION_BUSY',
+])
+
+export type StatefulCopilotBackgroundRetryDirective =
+  | { afterSeconds: number }
+  | { acknowledge: true }
+
+// Diretiva da fila para uma entrega que lançou erro. Erro não retryable
+// (mensagem inválida) nunca vai dar certo: ack. Depois do teto de entregas
+// (+ margem), o job fica com a recuperação do produtor (stale).
+export function resolveStatefulCopilotBackgroundRetryDirective({
+  retryable,
+  code,
+  delivery_count,
+}: {
+  retryable: boolean
+  code: string | null
+  delivery_count: number
+}): StatefulCopilotBackgroundRetryDirective {
+  if (
+    !retryable ||
+    !Number.isSafeInteger(delivery_count) ||
+    delivery_count < 1 ||
+    delivery_count >= STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS + 2
+  ) {
+    return { acknowledge: true }
+  }
+
+  if (code && CONTENTION_RETRY_CODES.has(code)) {
+    return { afterSeconds: STATEFUL_COPILOT_BACKGROUND_CONTENTION_RETRY_SECONDS }
+  }
+
+  const backoff = STATEFUL_COPILOT_BACKGROUND_RETRY_BACKOFF_SECONDS
+
+  return {
+    afterSeconds: backoff[Math.min(delivery_count - 1, backoff.length - 1)],
+  }
+}
+
+export type StatefulCopilotBackgroundJobStaleness =
+  | 'fresh'
+  | 'stale_queued'
+  | 'stale_running'
+
+// Órfão determinístico: `queued` sem sinal de execução há mais que o limite
+// ou `running` com lease vencido (o worker tem maxDuration 180 s < lease
+// 210 s, então o dono já morreu).
+export function classifyStatefulCopilotBackgroundJobStaleness({
+  status,
+  updated_at,
+  started_at,
+  now_ms,
+}: {
+  status: unknown
+  updated_at: unknown
+  started_at: unknown
+  now_ms: number
+}): StatefulCopilotBackgroundJobStaleness {
+  const parse = (value: unknown) =>
+    typeof value === 'string' ? Date.parse(value) : Number.NaN
+
+  if (status === 'queued') {
+    const updatedAt = parse(updated_at)
+
+    return Number.isFinite(updatedAt) &&
+      now_ms - updatedAt >= STATEFUL_COPILOT_BACKGROUND_QUEUED_STALE_MS
+      ? 'stale_queued'
+      : 'fresh'
+  }
+
+  if (status === 'running') {
+    const startedAt = parse(started_at)
+
+    return Number.isFinite(startedAt) &&
+      now_ms - startedAt >= STATEFUL_COPILOT_BACKGROUND_RUNNING_LEASE_MS
+      ? 'stale_running'
+      : 'fresh'
+  }
+
+  return 'fresh'
+}
+
 export const STATEFUL_COPILOT_BACKGROUND_JOB_STATUSES = [
   'queued',
   'running',

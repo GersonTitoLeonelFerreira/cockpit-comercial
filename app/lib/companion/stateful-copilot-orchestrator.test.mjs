@@ -966,3 +966,59 @@ test(
     assert.equal(attemptCalls, 2)
   },
 )
+
+// R9 — a 2ª tentativa in-process de uma falha de contrato precisa saber O QUE
+// foi rejeitado. Repetir o mesmo prompt às cegas repetia a violação e cada
+// repetição custava uma nova entrega da fila (1ª análise de lead novo).
+test(
+  'falha de contrato: a segunda tentativa recebe código, caminho e como corrigir',
+  async () => {
+    const prompts = []
+
+    const result =
+      await executeStatefulCopilotPlan({
+        plan:
+          buildModelPlan(),
+
+        provider:
+          async () => {
+            throw new Error(
+              'Provedor real não utilizado.',
+            )
+          },
+
+        dependencies: {
+          execute_attempt:
+            async ({ plan }) => {
+              prompts.push(plan.request.system_prompt)
+
+              if (prompts.length === 1) {
+                throw new StatefulCopilotExecutionError({
+                  code: 'INVALID_MODEL_OUTPUT',
+                  message: 'contrato',
+                  status_code: 502,
+                  retryable: true,
+                  details: {
+                    contract_error_code: 'CUSTOMER_EVIDENCE_REQUIRED',
+                    contract_error_path: 'output.state_patch.facts_to_add[2].evidence_message_ids',
+                  },
+                })
+              }
+
+              return buildAttemptResult()
+            },
+        },
+      })
+
+    assert.equal(result.execution.attempts, 2)
+    assert.equal(prompts.length, 2)
+    assert.doesNotMatch(prompts[0], /REPARO OBRIGATÓRIO DO CONTRATO/)
+    assert.match(prompts[1], /REPARO OBRIGATÓRIO DO CONTRATO/)
+    assert.match(prompts[1], /contract_error_code=CUSTOMER_EVIDENCE_REQUIRED/)
+    assert.match(prompts[1], /facts_to_add\[2\]\.evidence_message_ids/)
+    assert.match(prompts[1], /ENVIADA PELO CLIENTE/)
+    assert.match(prompts[1], /remova o item/)
+    // O reparo não autoriza inventar evidência nem muda o resto do prompt.
+    assert.ok(prompts[1].startsWith(prompts[0]))
+  },
+)

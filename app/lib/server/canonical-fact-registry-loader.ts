@@ -20,6 +20,7 @@ import {
 
 import {
   loadCommercialConfig,
+  type PreloadedCommercialConfig,
 } from './companion-diagnostic-snapshot'
 
 import {
@@ -157,15 +158,20 @@ export async function loadCompanyFactItems({
   cycleId,
   conversationKey,
   referenceTime,
+  onConfigLoaded,
 }: {
   admin: SupabaseClient
   companyId: string
   cycleId: string
   conversationKey: string
   referenceTime: string
+  // Entrega a configuração lida para reuso na mesma requisição.
+  onConfigLoaded?: (config: PreloadedCommercialConfig) => void
 }): Promise<FactEvidenceCompanyItem[]> {
   try {
-    const { bundle, products } = await loadCommercialConfig({ admin, companyId })
+    const config = await loadCommercialConfig({ admin, companyId })
+    onConfigLoaded?.({ ...config, company_id: companyId })
+    const { bundle, products } = config
 
     if (!bundle) {
       return []

@@ -14,6 +14,7 @@ import {
   processStatefulCopilotBackgroundMessage,
 } from '@/app/lib/server/stateful-copilot-background-worker'
 import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
+import { recoverStaleCompanionAnalysisJob } from '@/app/lib/server/companion-analysis-job-retry'
 import type {
   AISalesContext,
   AISalesRecentEvent,
@@ -870,7 +871,7 @@ export async function POST(request: Request) {
         error: existingBackgroundJobError,
       } = await admin
         .from('companion_background_analysis_jobs')
-        .select('analysis_job_id, status, message_watermark')
+        .select('analysis_job_id, status, message_watermark, requested_at, updated_at, started_at')
         .eq('analysis_job_id', backgroundJob.analysis_job_id)
         .eq('company_id', backgroundJob.company_id)
         .eq('cycle_id', backgroundJob.cycle_id)
@@ -883,9 +884,44 @@ export async function POST(request: Request) {
         existingBackgroundJob &&
         isStatefulCopilotBackgroundJobStatus(existingBackgroundJob.status)
       ) {
+        let existingStatus = existingBackgroundJob.status
+
+        // R9: reaproveitar um job órfão (queued sem entrega viva, running
+        // com worker morto) deixava a conversa presa para sempre no mesmo
+        // watermark. Ele é reaberto e republicado uma única vez (CAS).
+        if (
+          (existingStatus === 'queued' || existingStatus === 'running') &&
+          typeof existingBackgroundJob.requested_at === 'string' &&
+          typeof existingBackgroundJob.updated_at === 'string'
+        ) {
+          const recovery = await recoverStaleCompanionAnalysisJob({
+            admin,
+            job: {
+              analysis_job_id: String(existingBackgroundJob.analysis_job_id),
+              company_id: backgroundJob.company_id,
+              cycle_id: backgroundJob.cycle_id,
+              conversation_key: backgroundJob.conversation_key,
+              message_watermark: String(existingBackgroundJob.message_watermark),
+              status: existingStatus,
+              requested_at: existingBackgroundJob.requested_at,
+              updated_at: existingBackgroundJob.updated_at,
+              started_at:
+                typeof existingBackgroundJob.started_at === 'string'
+                  ? existingBackgroundJob.started_at
+                  : null,
+            },
+            device_key: deviceKey,
+            publish: send,
+          }).catch(() => null)
+
+          if (recovery && isStatefulCopilotBackgroundJobStatus(recovery.status)) {
+            existingStatus = recovery.status
+          }
+        }
+
         deepAnalysis = {
           analysis_job_id: String(existingBackgroundJob.analysis_job_id),
-          status: existingBackgroundJob.status,
+          status: existingStatus,
           message_watermark: String(existingBackgroundJob.message_watermark),
         }
       }

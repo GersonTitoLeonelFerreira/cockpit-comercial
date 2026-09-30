@@ -35,6 +35,10 @@ function fixtures() {
       role: 'member',
       is_active: true,
     }],
+    profiles: [{
+      id: IDS.user,
+      is_active_global: true,
+    }],
     cycles: [{
       id: IDS.cycle,
       company_id: IDS.company,
@@ -102,6 +106,7 @@ function createAdmin(data, hooks = {}) {
 
     tableRows() {
       if (this.table === 'company_memberships') return data.memberships
+      if (this.table === 'profiles') return data.profiles ?? []
       if (this.table === 'sales_cycles') return data.cycles
       if (this.table === 'companion_background_analysis_jobs') return data.jobs
       if (this.table === 'companion_commercial_state_events') return data.events
@@ -350,10 +355,16 @@ test('refresh manual reabre succeeded quando allow_succeeded=true', async () => 
   assert.equal(published.length, 1)
 })
 
-test('succeeded/superseded/queued/running nunca são reabertos', async () => {
+test('succeeded/superseded e queued/running VIVOS nunca são reabertos', async () => {
   for (const status of ['succeeded', 'superseded', 'queued', 'running']) {
     const data = fixtures()
     data.jobs[0].status = status
+    // queued/running com sinal de execução recente: há entrega viva.
+    if (status === 'queued' || status === 'running') {
+      const now = new Date().toISOString()
+      data.jobs[0].updated_at = now
+      data.jobs[0].started_at = status === 'running' ? now : null
+    }
     if (status === 'succeeded') {
       data.jobs[0].candidate_state_version = 1
       data.events.push({
@@ -391,4 +402,61 @@ test('succeeded/superseded/queued/running nunca são reabertos', async () => {
     assert.equal(result.status, status)
     assert.equal(publishes, 0)
   }
+})
+
+// R9 — job órfão: `queued` sem sinal de execução além do limite ou
+// `running` com lease vencido. "Tentar novamente" precisa recuperar de
+// verdade (reabrir + republicar), uma única vez, sem trocar a identidade.
+for (const scenario of [
+  { status: 'queued', updated_at: '2026-08-23T10:00:00.000Z', started_at: null },
+  { status: 'running', updated_at: '2026-08-23T10:00:01.000Z', started_at: '2026-08-23T10:00:01.000Z' },
+]) {
+  test(`órfão ${scenario.status}: retry reabre e publica uma única entrega nova`, async () => {
+    const data = fixtures()
+    Object.assign(data.jobs[0], {
+      status: scenario.status,
+      updated_at: scenario.updated_at,
+      started_at: scenario.started_at,
+      completed_at: null,
+      failure_code: null,
+    })
+
+    const published = []
+    const result = await retryCompanionAnalysisJob(
+      retryArgs(data, async (topic, message, options) => {
+        published.push({ topic, message, options })
+      }),
+    )
+
+    assert.equal(result.status, 'queued')
+    assert.equal(published.length, 1)
+    assert.equal(published[0].message.analysis_job_id, JOB_ID)
+    assert.equal(published[0].message.requested_at, '2026-08-23T10:00:00.000Z')
+    assert.match(published[0].options.idempotencyKey, new RegExp(`^${JOB_ID}:recover:`))
+    assert.equal(data.jobs[0].status, 'queued')
+    assert.equal(data.jobs[0].started_at, null)
+    assert.equal(data.jobs[0].attempt_count, 0)
+  })
+}
+
+test('órfão: dois retries concorrentes têm um único vencedor e uma publicação', async () => {
+  const data = fixtures()
+  Object.assign(data.jobs[0], {
+    status: 'queued',
+    updated_at: '2026-08-23T10:00:00.000Z',
+    started_at: null,
+    completed_at: null,
+  })
+
+  let publishes = 0
+  const publish = async () => { publishes += 1 }
+
+  const [first, second] = await Promise.all([
+    retryCompanionAnalysisJob(retryArgs(data, publish)),
+    retryCompanionAnalysisJob(retryArgs(data, publish)),
+  ])
+
+  assert.equal(publishes, 1)
+  assert.equal(first.status, 'queued')
+  assert.equal(second.status, 'queued')
 })

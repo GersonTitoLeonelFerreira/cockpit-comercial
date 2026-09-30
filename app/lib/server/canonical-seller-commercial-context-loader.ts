@@ -47,6 +47,10 @@ import {
   loadLedgerObservation,
 } from './canonical-fact-registry-loader'
 
+import type {
+  PreloadedCommercialConfig,
+} from './companion-diagnostic-snapshot'
+
 const MAX_SNAPSHOT_ATTEMPTS = 2
 
 type JsonRecord =
@@ -90,6 +94,10 @@ export type CanonicalSellerCommercialContext = {
   // chegar a qualquer superfície.
   fact_registry: FactEvidenceRegistry
   fact_provenance: FactProvenanceReport
+
+  // Configuração comercial publicada já lida nesta requisição (reuso pelo
+  // Diagnostic Snapshot do raciocínio — sem N+1 de configuração).
+  commercial_config?: PreloadedCommercialConfig | null
 }
 
 export class CanonicalSellerStateReadError
@@ -450,6 +458,8 @@ export async function loadCanonicalSellerCommercialContext({
     // UMA política factual para AGORA, ANÁLISE, CLIENTE e MENSAGEM: a
     // leitura e a memória persistidas passam pelo mesmo gate antes de
     // qualquer superfície (e do Commercial Reasoning) consumi-las.
+    let commercialConfig: PreloadedCommercialConfig | null = null
+
     const [
       observation,
       companyItems,
@@ -466,6 +476,9 @@ export async function loadCanonicalSellerCommercialContext({
         cycleId,
         conversationKey,
         referenceTime,
+        onConfigLoaded: (config) => {
+          commercialConfig = config
+        },
       }),
     ])
 
@@ -565,6 +578,8 @@ export async function loadCanonicalSellerCommercialContext({
         factRegistry,
       fact_provenance:
         factProvenance,
+      commercial_config:
+        commercialConfig,
     }
   }
 

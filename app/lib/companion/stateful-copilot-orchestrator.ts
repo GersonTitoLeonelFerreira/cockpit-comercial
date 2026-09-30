@@ -376,6 +376,55 @@ function reconcileAttemptResult({
   }
 }
 
+// Orientação por invariante do contrato: diz ao modelo COMO corrigir o
+// item rejeitado, sem nunca autorizar inventar evidência. A regra é sempre
+// a mesma: citar a evidência real exigida ou retirar o item.
+const CONTRACT_REPAIR_GUIDANCE: Readonly<Record<string, string>> = {
+  CUSTOMER_EVIDENCE_REQUIRED:
+    'O item precisa citar ao menos uma mensagem ENVIADA PELO CLIENTE em evidence_message_ids. Se nenhuma mensagem do cliente sustenta o item, remova o item.',
+  SELLER_EVIDENCE_REQUIRED:
+    'O item precisa citar ao menos uma mensagem ENVIADA PELO VENDEDOR em evidence_message_ids. Se nenhuma mensagem do vendedor sustenta o item, remova o item.',
+  MISSING_GLOBAL_EVIDENCE:
+    'evidence_message_ids do nível raiz não pode ficar vazio: liste os ids das mensagens da conversa que sustentam a leitura.',
+  EMPTY_CONTEXTUAL_GROUNDING:
+    'O item precisa de evidência (evidence_message_ids ou memory_ids válidos). Se não houver, remova o item.',
+  GROUNDING_REQUIRED:
+    'O item precisa citar evidência válida da conversa. Se não houver, remova o item.',
+  AUDIO_EVIDENCE_NOT_TRANSCRIBED:
+    'Não cite como evidência áudio sem transcrição; use apenas mensagens com texto ou transcrição disponível.',
+}
+
+function buildContractRepairInstruction(
+  error: StatefulCopilotExecutionError,
+): string | null {
+  if (error.code !== 'INVALID_MODEL_OUTPUT') {
+    return null
+  }
+
+  const code =
+    typeof error.details?.contract_error_code === 'string'
+      ? error.details.contract_error_code
+      : null
+
+  const path =
+    typeof error.details?.contract_error_path === 'string'
+      ? error.details.contract_error_path
+      : null
+
+  if (!code && !path) {
+    return null
+  }
+
+  return [
+    'REPARO OBRIGATÓRIO DO CONTRATO: a resposta anterior foi rejeitada pela validação.',
+    `contract_error_code=${code ?? 'desconhecido'}.`,
+    `contract_error_path=${path ?? 'desconhecido'}.`,
+    (code && CONTRACT_REPAIR_GUIDANCE[code]) ||
+      'Corrija o campo indicado usando apenas ids de mensagens e memórias que existem no contexto; nunca invente evidência.',
+    'Mantenha o restante da leitura e retorne novamente o contrato completo.',
+  ].join('\n')
+}
+
 function buildRepairPlan({
   plan,
   error,
@@ -383,10 +432,32 @@ function buildRepairPlan({
   plan: StatefulCopilotExecutionPlan
   error: unknown
 }): StatefulCopilotExecutionPlan {
-  if (
-    plan.mode !== 'model' ||
-    !(error instanceof CommercialTruthGuardError)
-  ) {
+  if (plan.mode !== 'model') {
+    return plan
+  }
+
+  // Falha de contrato: a segunda tentativa precisa saber o que foi
+  // rejeitado — repetir o mesmo prompt às cegas tende a repetir a mesma
+  // violação (e cada repetição cega custava uma nova entrega da fila).
+  if (error instanceof StatefulCopilotExecutionError) {
+    const contractInstruction =
+      buildContractRepairInstruction(error)
+
+    return contractInstruction
+      ? {
+          ...plan,
+          request: {
+            ...plan.request,
+            system_prompt: [
+              plan.request.system_prompt,
+              contractInstruction,
+            ].join('\n'),
+          },
+        }
+      : plan
+  }
+
+  if (!(error instanceof CommercialTruthGuardError)) {
     return plan
   }
 

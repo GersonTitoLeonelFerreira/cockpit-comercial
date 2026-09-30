@@ -688,6 +688,7 @@ function createCompanionCore(ctx) {
     deepAnalysisResult: null,
     deepAnalysisTimings: null,
     deepAnalysisNotice: null,
+    deepAnalysisDebug: null,
     // CLIENTE precisa continuar mostrando a última inteligência comercial
     // válida enquanto uma nova tentativa de análise (automática ou manual)
     // está em voo ou termina em erro — ver getLastKnownClientCommercialReading.
@@ -3614,6 +3615,7 @@ function createCompanionCore(ctx) {
       deepAnalysisResult: null,
       deepAnalysisTimings: null,
       deepAnalysisNotice: null,
+      deepAnalysisDebug: null,
       lastKnownCommercialReading: null,
       lastKnownCommercialReadingContext: null,
       suggestionApplyLoading: false,
@@ -6650,6 +6652,59 @@ function createCompanionCore(ctx) {
     return clean || null
   }
 
+  // R9 — diagnóstico técnico da fila/job SOMENTE no pacote HML: separa
+  // "a IA está pensando" (running, worker iniciou) de "o job nem saiu da
+  // fila" (queued, sem worker). Nunca aparece em PROD.
+  function getAnalysisDebugHtml() {
+    const debug =
+      state.deepAnalysisDebug
+
+    if (
+      globalThis.YolenCompanionEnvironment?.channel !== 'homolog' ||
+      !debug ||
+      typeof debug !== 'object'
+    ) {
+      return ''
+    }
+
+    const now = Date.now()
+    const seconds = (value) => {
+      const parsed = typeof value === 'string' ? Date.parse(value) : Number.NaN
+      return Number.isFinite(parsed)
+        ? `${Math.max(0, Math.round((now - parsed) / 1000))}s`
+        : '—'
+    }
+    const short = (value) =>
+      typeof value === 'string' && value
+        ? value.length > 14 ? `${value.slice(0, 12)}…` : value
+        : '—'
+
+    const rows = [
+      ['job', short(debug.analysis_job_id)],
+      ['conversation', debug.conversation_key || '—'],
+      ['watermark', short(debug.message_watermark)],
+      ['status', debug.status || '—'],
+      [
+        debug.status === 'queued' ? 'queued_for' : 'since_update',
+        seconds(debug.updated_at || debug.requested_at),
+      ],
+      ['worker_started', debug.started_at ? 'true' : 'false'],
+      ['worker_started_at', debug.started_at || '—'],
+      ['delivery_attempts', debug.attempt_count ?? '—'],
+      ['poll_attempt', debug.poll_attempt ?? '—'],
+      ['stale', debug.stale ? 'true' : 'false'],
+      ['recovery_requested', debug.recovery_requested ? 'true' : 'false'],
+      ['failure_code', debug.failure_code || '—'],
+    ]
+
+    return `
+      <details class="yolen-analysis-debug" data-yolen-analysis-debug>
+        <summary>Analysis debug (HML)</summary>
+        <div>${rows.map(([label, value]) => `${escapeHtml(label)}: ${escapeHtml(String(value))}`).join('<br>')}</div>
+      </details>
+    `
+  }
+
   // Estado do job de análise como linha discreta (mesmos textos e
   // atributos dos cards de estado abaixo), usada quando já existe uma
   // leitura persistida válida na tela.
@@ -6667,6 +6722,7 @@ function createCompanionCore(ctx) {
           ${getInlineSpinnerHtml()}
           ${escapeHtml(loadingCopy)}
         </div>
+        ${getAnalysisDebugHtml()}
       `
     }
 
@@ -6675,6 +6731,7 @@ function createCompanionCore(ctx) {
         <div class="yolen-seller-empty-state" data-yolen-analysis-pending role="status" aria-live="polite">
           ${escapeHtml(state.deepAnalysisNotice)}
         </div>
+        ${getAnalysisDebugHtml()}
       `
     }
 
@@ -6683,6 +6740,7 @@ function createCompanionCore(ctx) {
         <div class="yolen-seller-empty-state" data-yolen-analysis-error role="alert">
           ${escapeHtml(state.conversationAnalysisError)}
         </div>
+        ${getAnalysisDebugHtml()}
       `
     }
 
@@ -6761,6 +6819,7 @@ function createCompanionCore(ctx) {
             ${getInlineSpinnerHtml()}
             ${escapeHtml(loadingCopy)}
           </div>
+          ${getAnalysisDebugHtml()}
 
           <div class="yolen-inline-actions yolen-decision-actions">
             ${getAnalysisActionButton()}
@@ -6776,6 +6835,7 @@ function createCompanionCore(ctx) {
           <div class="yolen-seller-empty-state" data-yolen-analysis-pending role="status" aria-live="polite">
             ${escapeHtml(state.deepAnalysisNotice)}
           </div>
+          ${getAnalysisDebugHtml()}
 
           <div class="yolen-inline-actions yolen-decision-actions">
             ${getAnalysisActionButton()}
@@ -6791,6 +6851,7 @@ function createCompanionCore(ctx) {
           <div class="yolen-seller-empty-state" data-yolen-analysis-error role="alert">
             ${escapeHtml(state.conversationAnalysisError)}
           </div>
+          ${getAnalysisDebugHtml()}
           ${
             canAnalyzeCurrentConversation()
               ? `
@@ -9152,6 +9213,7 @@ function createCompanionCore(ctx) {
               deepAnalysisResult: null,
               deepAnalysisTimings: null,
               deepAnalysisNotice: null,
+              deepAnalysisDebug: null,
               lastKnownCommercialReading: null,
               lastKnownCommercialReadingContext: null,
               // FASE 16.5 (achado do Codex, PR #283, rodada 3): sem isto,
