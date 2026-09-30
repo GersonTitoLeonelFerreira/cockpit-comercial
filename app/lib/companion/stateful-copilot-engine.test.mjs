@@ -1480,8 +1480,10 @@ test(
       commitments: [],
       signals: [],
       uncertainties: [],
-      created_at: '2026-08-06T15:00:00-03:00',
-      updated_at: '2026-08-06T15:00:00-03:00',
+      // Estado de uma rodada anterior: a mensagem m1 (15h) chegou depois
+      // dele, então esta é uma rodada seguinte com conteúdo novo.
+      created_at: '2026-08-06T14:00:00-03:00',
+      updated_at: '2026-08-06T14:00:00-03:00',
     }
 
     const seed = {
@@ -1531,6 +1533,316 @@ test(
       result.candidate_state.facts.length,
       0,
       'seed não deve ser aplicado quando o ciclo já possui um estado anterior',
+    )
+  },
+)
+
+// Reanálise sem mensagem nova nunca rebaixa a leitura (caso real da Júlia
+// no HML: a 2ª análise, sem mensagem nova, trocou commercial por uncertain).
+
+async function buildFirstState() {
+  const result =
+    await runStatefulCopilotEngine({
+      diagnostic_input:
+        buildDiagnosticInput(),
+
+      previous_state:
+        null,
+
+      known_message_ids: [
+        'm1',
+      ],
+
+      provider:
+        createProvider(
+          [
+            buildOutput({
+              addFact:
+                true,
+            }),
+            buildCommunicationOutput(),
+          ],
+          [],
+        ),
+
+      create_memory_id:
+        createMemoryId,
+    })
+
+  assert.equal(
+    result.mode,
+    'model',
+  )
+
+  return result.candidate_state
+}
+
+test(
+  'reanálise sem mensagem nova não chama o modelo e mantém a leitura atual',
+  async () => {
+    const previousState =
+      await buildFirstState()
+
+    const calls = []
+
+    const result =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          buildDiagnosticInput(),
+
+        previous_state:
+          previousState,
+
+        known_message_ids: [
+          'm1',
+        ],
+
+        provider:
+          createProvider(
+            [],
+            calls,
+          ),
+
+        create_memory_id:
+          createMemoryId,
+      })
+
+    assert.equal(
+      calls.length,
+      0,
+    )
+
+    assert.equal(
+      result.mode,
+      'unchanged',
+    )
+
+    assert.equal(
+      result.reason,
+      'no_new_or_changed_messages',
+    )
+
+    assert.equal(
+      result.current_state_version,
+      1,
+    )
+
+    assert.equal(
+      result.candidate_state,
+      null,
+    )
+
+    assert.equal(
+      result.output,
+      null,
+    )
+  },
+)
+
+for (const relevance of [
+  'uncertain',
+  'non_commercial',
+]) {
+  test(
+    `reanálise pedida sem mensagem nova que volta ${relevance} nunca rebaixa a leitura comercial`,
+    async () => {
+      const previousState =
+        await buildFirstState()
+
+      const calls = []
+
+      const result =
+        await runStatefulCopilotEngine({
+          diagnostic_input:
+            buildDiagnosticInput(),
+
+          previous_state:
+            previousState,
+
+          known_message_ids: [
+            'm1',
+          ],
+
+          force_reanalysis:
+            true,
+
+          provider:
+            createProvider(
+              [
+                buildOutput({
+                  previousStateVersion:
+                    1,
+
+                  commercialRelevance:
+                    relevance,
+                }),
+              ],
+              calls,
+            ),
+
+          create_memory_id:
+            createMemoryId,
+        })
+
+      // Releu a sessão (1 chamada de diagnóstico), mas não chegou à
+      // comunicação nem criou versão nova.
+      assert.equal(
+        calls.length,
+        1,
+      )
+
+      assert.equal(
+        result.mode,
+        'unchanged',
+      )
+
+      assert.equal(
+        result.reason,
+        'reanalysis_without_new_evidence_not_actionable',
+      )
+
+      assert.equal(
+        result.current_state_version,
+        1,
+      )
+
+      assert.equal(
+        result.candidate_state,
+        null,
+      )
+    },
+  )
+}
+
+test(
+  'reanálise pedida sem mensagem nova que confirma a leitura comercial cria a versão seguinte',
+  async () => {
+    const previousState =
+      await buildFirstState()
+
+    const calls = []
+
+    const result =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          buildDiagnosticInput(),
+
+        previous_state:
+          previousState,
+
+        known_message_ids: [
+          'm1',
+        ],
+
+        force_reanalysis:
+          true,
+
+        provider:
+          createProvider(
+            [
+              buildOutput({
+                previousStateVersion:
+                  1,
+              }),
+              buildCommunicationOutput(),
+            ],
+            calls,
+          ),
+
+        create_memory_id:
+          createMemoryId,
+      })
+
+    assert.equal(
+      calls.length,
+      2,
+    )
+
+    assert.equal(
+      result.mode,
+      'model',
+    )
+
+    assert.equal(
+      result
+        .candidate_state
+        .version,
+      2,
+    )
+  },
+)
+
+test(
+  'mensagem nova continua sendo analisada e pode mudar a relevância',
+  async () => {
+    const previousState =
+      await buildFirstState()
+
+    const calls = []
+
+    const result =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          buildDiagnosticInput({
+            messageId:
+              'm2',
+
+            messageText:
+              'Obrigada, por enquanto não.',
+
+            referenceTime:
+              '2026-08-06T16:00:00-03:00',
+          }),
+
+        previous_state:
+          previousState,
+
+        known_message_ids: [
+          'm1',
+          'm2',
+        ],
+
+        provider:
+          createProvider(
+            [
+              buildOutput({
+                previousStateVersion:
+                  1,
+
+                messageId:
+                  'm2',
+
+                commercialRelevance:
+                  'uncertain',
+              }),
+              buildCommunicationOutput(
+                'm2',
+              ),
+            ],
+            calls,
+          ),
+
+        create_memory_id:
+          createMemoryId,
+      })
+
+    assert.equal(
+      result.mode,
+      'model',
+    )
+
+    assert.equal(
+      result
+        .output
+        .commercial_relevance,
+      'uncertain',
+    )
+
+    assert.equal(
+      result
+        .candidate_state
+        .version,
+      2,
     )
   },
 )

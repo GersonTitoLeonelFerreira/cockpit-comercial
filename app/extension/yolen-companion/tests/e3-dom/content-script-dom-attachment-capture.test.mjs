@@ -16,10 +16,27 @@ function buildDocumentMessageHtml({
   siblingCard = false,
   distantSiblingCard = false,
   attachmentOnlyCard = false,
+  // DOM real do WhatsApp Web: o data-id fica num wrapper e a classe de
+  // direção (.message-out/.message-in) num filho dele.
+  attachmentOnlyNestedDirection = null,
 } = {}) {
   const captionHtml = caption
     ? `<span data-testid="selectable-text" class="selectable-text copyable-text"><span>${caption}</span></span>`
     : ''
+
+  if (attachmentOnlyNestedDirection) {
+    return `
+      <div data-id="${id}">
+        <div class="message-${attachmentOnlyNestedDirection}">
+          <div class="document-card">
+            <span>${FILE_NAME}</span>
+            <span>1 página • PDF • 221 kB</span>
+          </div>
+          <span class="message-time">10:31</span>
+        </div>
+      </div>
+    `
+  }
 
   if (attachmentOnlyCard) {
     return `
@@ -312,3 +329,58 @@ test('content-script preserva legenda quando cartão e legenda são irmãos do n
     `Segue a grade atualizada.\n[Arquivo: ${FILE_NAME}]`,
   )
 })
+
+// Caso real (Júlia, HML): o PDF enviado pela vendedora foi gravado como
+// incoming. Na bolha só de anexo o nó lido é o próprio [data-id], e a classe
+// de direção fica num filho dele — não num ancestral. Sem essa classe, a
+// geometria da linha inteira (largura total da conversa) dizia "incoming".
+for (const direction of ['out', 'in']) {
+  test(`bolha só de anexo com a classe de direção num filho do data-id é capturada como ${direction === 'out' ? 'outgoing' : 'incoming'}`, async () => {
+    const id = `msg-pdf-nested-${direction}`
+
+    const messagesHtml = [
+      `
+        <div class="message-in" data-id="msg-before-nested-${direction}">
+          <div data-pre-plain-text="[10:22, 12/09/2026] Cliente: ">
+            <span data-testid="selectable-text">me manda a grade das aulas coletivas pf?</span>
+          </div>
+        </div>
+      `,
+      buildDocumentMessageHtml({
+        id,
+        attachmentOnlyNestedDirection: direction,
+      }),
+      `
+        <div class="message-in" data-id="msg-after-nested-${direction}">
+          <div data-pre-plain-text="[14:40, 12/09/2026] Cliente: ">
+            <span data-testid="selectable-text">Obrigada!</span>
+          </div>
+        </div>
+      `,
+    ].join('')
+
+    const { calls } = loadContentScript({
+      initialHtml: buildWhatsAppPageHtml({
+        headerTitle: HEADER_TITLE,
+        messagesHtml,
+      }),
+    })
+
+    const captured = await waitFor(() => {
+      const message = findCapturedMessage(calls, id)
+
+      return message?.text_content === `[Arquivo: ${FILE_NAME}]`
+        ? message
+        : false
+    })
+
+    assert.equal(
+      captured.direction,
+      direction === 'out' ? 'outgoing' : 'incoming',
+    )
+    assert.equal(
+      captured.author_kind,
+      direction === 'out' ? 'human_agent' : 'customer',
+    )
+  })
+}

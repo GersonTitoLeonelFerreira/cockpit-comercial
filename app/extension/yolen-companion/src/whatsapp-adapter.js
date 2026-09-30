@@ -3157,20 +3157,56 @@ function createWhatsAppAdapter({
         ? main.getBoundingClientRect()
         : null
 
+    const ancestorOutgoing =
+      Boolean(
+        node.closest(
+          '.message-out',
+        ),
+      )
+
+    const ancestorIncoming =
+      Boolean(
+        node.closest(
+          '.message-in',
+        ),
+      )
+
+    // Bolha só de anexo: o nó lido é o próprio [data-id], e o WhatsApp põe
+    // a classe de direção num filho dele, não num ancestral. Sem classe nos
+    // ancestrais, vale a classe da própria bolha — nunca a geometria da
+    // linha inteira, que ocupa a largura da conversa e lê como "incoming".
+    const bubbleOutgoing =
+      !ancestorOutgoing &&
+      !ancestorIncoming &&
+      Boolean(
+        node.querySelector?.(
+          '.message-out',
+        ),
+      )
+
+    const bubbleIncoming =
+      !ancestorOutgoing &&
+      !ancestorIncoming &&
+      Boolean(
+        node.querySelector?.(
+          '.message-in',
+        ),
+      )
+
     const direction =
       messageMutationTools
         .inferCapturedMessageDirection({
           hasOutgoingClass:
-            Boolean(
-              node.closest(
-                '.message-out',
-              ),
+            ancestorOutgoing ||
+            (
+              bubbleOutgoing &&
+              !bubbleIncoming
             ),
           hasIncomingClass:
-            Boolean(
-              node.closest(
-                '.message-in',
-              ),
+            ancestorIncoming ||
+            (
+              bubbleIncoming &&
+              !bubbleOutgoing
             ),
           dataId:
             dataIdElement

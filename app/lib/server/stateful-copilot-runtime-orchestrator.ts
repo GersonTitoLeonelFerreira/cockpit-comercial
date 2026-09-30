@@ -281,12 +281,47 @@ export type StatefulCopilotRuntimeFallbackResult<
       | 'stateful_runtime_failed'
   }
 
+// Reanálise sem mensagem nova ou alterada: a leitura atual continua valendo
+// (stateful_execution.candidate_state_version é a versão atual) e nada foi
+// gravado. É um desfecho de sucesso, não uma falha.
+export type StatefulCopilotRuntimeUnchangedResult =
+  StatefulCopilotRuntimeCommonResult & {
+    mode:
+      'active_unchanged'
+
+    response_source:
+      'stateful'
+
+    stateful_executed:
+      true
+
+    response:
+      null
+
+    unchanged_reason:
+      Extract<
+        StatefulCopilotIntegratedServiceResult[
+          'engine_result'
+        ],
+        {
+          mode: 'unchanged'
+        }
+      >['reason']
+
+    stateful_execution:
+      StatefulCopilotRuntimeExecutionSummary
+
+    stateful_failure:
+      null
+  }
+
 export type StatefulCopilotServerRuntimeResult<
   TV1Response,
 > =
   | StatefulCopilotRuntimeV1Result<TV1Response>
   | StatefulCopilotRuntimeShadowResult<TV1Response>
   | StatefulCopilotRuntimeActiveResult
+  | StatefulCopilotRuntimeUnchangedResult
   | StatefulCopilotRuntimeFallbackResult<TV1Response>
 
 export type RunStatefulCopilotServerRuntimeArgs<
@@ -306,6 +341,9 @@ export type RunStatefulCopilotServerRuntimeArgs<
 
   reference_time:
     unknown
+
+  // "Atualizar análise" pedido pelo vendedor: relê a sessão atual inteira.
+  force_reanalysis?: boolean
 
   v1_response:
     TV1Response
@@ -772,7 +810,10 @@ function buildExecutionSummary({
         ? engineResult
             .candidate_state
             .version
-        : null,
+        : engineResult.mode === 'unchanged'
+          ? engineResult
+              .current_state_version
+          : null,
 
     output_contract_version:
       engineResult.mode === 'model'
@@ -1115,6 +1156,72 @@ function buildActiveResult({
   }
 }
 
+function buildUnchangedResult({
+  activation,
+  context,
+  result,
+}: {
+  activation:
+    StatefulCopilotActivationDecision
+
+  context:
+    StatefulCopilotRealContext
+
+  result:
+    StatefulCopilotIntegratedServiceResult
+}): StatefulCopilotRuntimeUnchangedResult {
+  if (
+    result.engine_result.mode !==
+    'unchanged'
+  ) {
+    fail({
+      code:
+        'STATEFUL_RUNTIME_OUTPUT_UNAVAILABLE',
+
+      message:
+        'O resultado sem mudança precisa vir de uma reanálise sem mensagem nova.',
+
+      statusCode:
+        500,
+
+      retryable:
+        false,
+    })
+  }
+
+  return {
+    ...buildCommonResult(
+      activation,
+    ),
+
+    mode:
+      'active_unchanged',
+
+    response_source:
+      'stateful',
+
+    stateful_executed:
+      true,
+
+    response:
+      null,
+
+    unchanged_reason:
+      result
+        .engine_result
+        .reason,
+
+    stateful_execution:
+      buildExecutionSummary({
+        context,
+        result,
+      }),
+
+    stateful_failure:
+      null,
+  }
+}
+
 function buildFallbackResult<
   TV1Response,
 >({
@@ -1274,6 +1381,7 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
     conversation_key,
     device_key,
     reference_time,
+    force_reanalysis = false,
     v1_response,
   }: RunStatefulCopilotServerRuntimeArgs<TV1Response>): Promise<
     StatefulCopilotServerRuntimeResult<TV1Response>
@@ -1430,6 +1538,8 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
 
           durable_memory_seed:
             context.durable_memory_seed,
+
+          force_reanalysis,
         })
     } catch (error) {
       return buildFallbackResult({
@@ -1463,6 +1573,26 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
 
         response:
           v1_response,
+
+        context,
+
+        result:
+          integratedResult,
+      })
+    }
+
+    if (
+      integratedResult
+        .engine_result
+        .mode ===
+        'unchanged' &&
+      integratedResult
+        .persistence_result
+        .persisted ===
+        false
+    ) {
+      return buildUnchangedResult({
+        activation,
 
         context,
 

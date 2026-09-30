@@ -1677,3 +1677,167 @@ test(
     )
   },
 )
+
+// Reanálise sem mensagem nova: sucesso que aponta para a versão atual do
+// estado, sem gravar nada e sem cair no fallback de falha.
+test(
+  'active devolve active_unchanged com a versão atual quando a reanálise não tem mensagem nova',
+  async () => {
+    const {
+      orchestrator,
+      calls,
+    } =
+      createHarness({
+        mode:
+          'active',
+
+        engineVersion:
+          'v2',
+
+        integratedResult: {
+          engine_result: {
+            mode:
+              'unchanged',
+
+            reason:
+              'no_new_or_changed_messages',
+
+            current_state_version:
+              3,
+
+            output:
+              null,
+
+            candidate_state:
+              null,
+          },
+
+          persistence_result: {
+            mode:
+              'skipped',
+
+            persisted:
+              false,
+          },
+        },
+      })
+
+    const result =
+      await orchestrator(
+        buildRunArgs(),
+      )
+
+    assert.equal(
+      result.mode,
+      'active_unchanged',
+    )
+
+    assert.equal(
+      result.response_source,
+      'stateful',
+    )
+
+    assert.equal(
+      result.unchanged_reason,
+      'no_new_or_changed_messages',
+    )
+
+    assert.equal(
+      result.stateful_failure,
+      null,
+    )
+
+    assert.equal(
+      result.stateful_execution.engine_mode,
+      'unchanged',
+    )
+
+    assert.equal(
+      result.stateful_execution.candidate_state_version,
+      3,
+    )
+
+    assert.equal(
+      result.stateful_execution.persisted,
+      false,
+    )
+
+    assert.equal(
+      calls.writer,
+      0,
+    )
+  },
+)
+
+test(
+  'force_reanalysis chega ao serviço integrado só quando pedido',
+  async () => {
+    const received = []
+
+    const orchestrator =
+      createStatefulCopilotServerRuntimeOrchestrator({
+        configured_mode:
+          'active',
+
+        configured_company_ids:
+          companyId,
+
+        configured_engine_version:
+          'v2',
+
+        dependencies: {
+          create_context_loader() {
+            return async () =>
+              buildContext()
+          },
+
+          create_composition() {
+            return {
+              writer:
+                async () => ({
+                  status:
+                    'persisted',
+                }),
+
+              provider:
+                async () => ({
+                  output:
+                    statefulOutput,
+                }),
+
+              create_memory_id:
+                () =>
+                  'stateful-memory-test',
+            }
+          },
+
+          async run_service(args) {
+            received.push(
+              args.force_reanalysis,
+            )
+
+            return buildIntegratedResult()
+          },
+        },
+      })
+
+    await orchestrator(
+      buildRunArgs(),
+    )
+
+    await orchestrator({
+      ...buildRunArgs(),
+
+      force_reanalysis:
+        true,
+    })
+
+    assert.deepEqual(
+      received,
+      [
+        false,
+        true,
+      ],
+    )
+  },
+)

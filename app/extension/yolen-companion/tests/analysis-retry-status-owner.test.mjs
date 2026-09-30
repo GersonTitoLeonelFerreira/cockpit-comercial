@@ -595,3 +595,28 @@ test('nenhum runtime do manifest WhatsApp reatribui a API de análise', () => {
     )
   }
 })
+
+test('pedido de releitura vai ao backend na análise; análise automática não leva a marca', async () => {
+  const runtime = loadApi({
+    onAnalyze: () => analysisResponse('queued'),
+  })
+
+  await runtime.api.analyzeConversation({
+    conversation_key: CONVERSATION_KEY,
+    message_snapshot_hash: WATERMARK,
+  })
+
+  await runtime.api.analyzeConversation({
+    conversation_key: CONVERSATION_KEY,
+    message_snapshot_hash: WATERMARK,
+    force_reanalysis: true,
+  })
+
+  const analyzeCalls = runtime.calls.filter(
+    (call) => call.action === 'ANALYZE_CONVERSATION',
+  )
+
+  assert.equal(analyzeCalls.length, 2)
+  assert.equal('force_reanalysis' in analyzeCalls[0].payload, false)
+  assert.equal(analyzeCalls[1].payload.force_reanalysis, true)
+})

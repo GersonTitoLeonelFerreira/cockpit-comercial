@@ -595,3 +595,104 @@ test(
     )
   },
 )
+
+function buildUnchangedResult(currentVersion) {
+  const active =
+    buildActiveResult()
+
+  return {
+    ...active,
+    mode: 'active_unchanged',
+    response: null,
+    commercial_reading: undefined,
+    unchanged_reason: 'no_new_or_changed_messages',
+    stateful_execution: {
+      ...active.stateful_execution,
+      engine_mode: 'unchanged',
+      persistence_mode: 'skipped',
+      persisted: false,
+      candidate_state_version: currentVersion,
+      output_contract_version: null,
+      communication_contract_version: null,
+      communication_intervention_needed: null,
+      communication_message_present: null,
+      communication_attempts: null,
+      communication_recovered_after_retry: null,
+    },
+  }
+}
+
+test(
+  'reanálise sem mensagem nova termina succeeded apontando para a versão atual, na primeira entrega',
+  async () => {
+    const message = buildMessage()
+    const rows = [seedQueuedRow(message)]
+    const admin = createFakeAdmin(rows)
+
+    let runtimeCalls = 0
+
+    await processStatefulCopilotBackgroundMessage(
+      message,
+      { delivery_count: 1 },
+      {
+        create_admin_client: () => admin,
+        run_runtime: async () => {
+          runtimeCalls += 1
+          return buildUnchangedResult(4)
+        },
+      },
+    )
+
+    assert.equal(runtimeCalls, 1)
+    assert.equal(rows[0].status, 'succeeded')
+    assert.equal(rows[0].candidate_state_version, 4)
+    assert.equal(rows[0].runtime_mode, 'active_unchanged')
+    assert.equal(rows[0].failure_code, null)
+    assert.equal(rows[0].communication_attempts, null)
+  },
+)
+
+test(
+  'force_reanalysis da mensagem da fila chega ao runtime; sem a marca, não',
+  async () => {
+    const received = []
+
+    for (const force of [false, true]) {
+      const base = buildMessage()
+
+      const message =
+        buildStatefulCopilotBackgroundJobMessage({
+          descriptor: {
+            job_version: base.job_version,
+            analysis_job_id: base.analysis_job_id,
+            execution_scope: base.execution_scope,
+            company_id: base.company_id,
+            cycle_id: base.cycle_id,
+            conversation_key: base.conversation_key,
+            message_watermark: base.message_watermark,
+            requested_at: base.requested_at,
+          },
+          device_key: base.device_key,
+          force_reanalysis: force,
+        })
+
+      const rows = [seedQueuedRow(message)]
+
+      await processStatefulCopilotBackgroundMessage(
+        message,
+        { delivery_count: 1 },
+        {
+          create_admin_client: () => createFakeAdmin(rows),
+          run_runtime: async (args) => {
+            received.push(args.force_reanalysis)
+            return buildActiveResult()
+          },
+        },
+      )
+
+      assert.equal(rows[0].status, 'succeeded')
+    }
+
+    assert.deepEqual(received, [false, true])
+  },
+)

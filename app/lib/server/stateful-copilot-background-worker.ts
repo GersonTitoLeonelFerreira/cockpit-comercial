@@ -953,6 +953,9 @@ export async function processStatefulCopilotBackgroundMessage(
         reference_time:
           job.requested_at,
 
+        force_reanalysis:
+          job.force_reanalysis === true,
+
         v1_response:
           undefined,
       })
@@ -1190,9 +1193,14 @@ export async function processStatefulCopilotBackgroundMessage(
       return
     }
 
+    // 'active_unchanged': reanálise sem mensagem nova. O job termina como
+    // succeeded apontando para a versão atual do estado, que continua sendo
+    // a leitura exibida; nada novo foi gravado.
     if (
       statefulResult.mode ===
-      'active'
+        'active' ||
+      statefulResult.mode ===
+        'active_unchanged'
     ) {
       const {
         error:
@@ -1287,6 +1295,18 @@ export async function processStatefulCopilotBackgroundMessage(
         JSON.stringify({
           event:
             'background_analysis_succeeded',
+
+          unchanged_reason:
+            statefulResult.mode ===
+              'active_unchanged'
+              ? statefulResult
+                  .unchanged_reason
+              : null,
+
+          candidate_state_version:
+            statefulResult
+              .stateful_execution
+              .candidate_state_version,
 
           company_id:
             job.company_id,

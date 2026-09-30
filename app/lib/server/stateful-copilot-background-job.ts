@@ -166,6 +166,11 @@ export type StatefulCopilotBackgroundJobMessage =
   StatefulCopilotBackgroundJobDescriptor & {
     device_key:
       string
+
+    // Só presente (true) quando o vendedor pediu "Atualizar análise" num job
+    // já concluído: a releitura é da sessão atual inteira.
+    force_reanalysis?:
+      true
   }
 
 function isRecord(
@@ -446,12 +451,16 @@ export function buildStatefulCopilotBackgroundJobDescriptor({
 export function buildStatefulCopilotBackgroundJobMessage({
   descriptor,
   device_key,
+  force_reanalysis = false,
 }: {
   descriptor:
     StatefulCopilotBackgroundJobDescriptor
 
   device_key:
     unknown
+
+  force_reanalysis?:
+    boolean
 }): StatefulCopilotBackgroundJobMessage {
   return Object.freeze({
     ...descriptor,
@@ -462,6 +471,13 @@ export function buildStatefulCopilotBackgroundJobMessage({
         'device_key',
         100,
       ),
+
+    ...(force_reanalysis === true
+      ? {
+          force_reanalysis:
+            true as const,
+        }
+      : {}),
   })
 }
 
@@ -524,6 +540,10 @@ export function parseStatefulCopilotBackgroundJobMessage(
 
     device_key:
       value.device_key,
+
+    force_reanalysis:
+      value.force_reanalysis ===
+      true,
   })
 }
 

@@ -460,3 +460,63 @@ test('órfão: dois retries concorrentes têm um único vencedor e uma publicaç
   assert.equal(first.status, 'queued')
   assert.equal(second.status, 'queued')
 })
+
+test('"Atualizar análise" (succeeded reaberto) publica com force_reanalysis; "Tentar novamente" (failed) não', async () => {
+  const refreshed = fixtures()
+
+  refreshed.jobs[0].status = 'succeeded'
+  refreshed.jobs[0].candidate_state_version = 1
+
+  refreshed.events.push({
+    company_id: IDS.company,
+    cycle_id: IDS.cycle,
+    conversation_key: CONVERSATION,
+    candidate_state_version: 1,
+    output_contract_version: 'phase-5.2-stateful-copilot-v4',
+    generated_at: '2026-08-23T10:01:00.000Z',
+    normalized_output: {
+      contract_version: 'phase-5.2-stateful-copilot-v4',
+      commercial_role: 'buyer',
+      commercial_relevance: 'commercial',
+      interpretation: { current_moment: { summary: 'ok' } },
+      strategy: {
+        next_move: 'seguir',
+        recommended_question: null,
+        suggested_message: null,
+      },
+      communication: {
+        contract_version: 'phase-5.2-communication-v5',
+        commercial_reading: { contract_version: 'commercial-reading-v1' },
+      },
+    },
+  })
+
+  const refreshPublished = []
+
+  await retryCompanionAnalysisJob({
+    ...retryArgs(
+      refreshed,
+      async (...args) => {
+        refreshPublished.push(args)
+      },
+    ),
+    allow_succeeded: true,
+  })
+
+  assert.equal(refreshPublished.length, 1)
+  assert.equal(refreshPublished[0][1].force_reanalysis, true)
+
+  const failedPublished = []
+
+  await retryCompanionAnalysisJob(
+    retryArgs(
+      fixtures(),
+      async (...args) => {
+        failedPublished.push(args)
+      },
+    ),
+  )
+
+  assert.equal(failedPublished.length, 1)
+  assert.equal('force_reanalysis' in failedPublished[0][1], false)
+})

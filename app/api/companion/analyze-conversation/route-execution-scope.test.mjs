@@ -245,3 +245,28 @@ test('linha de outro escopo nunca é reaproveitada, mesmo que apareça na busca'
   assert.equal(hml.body.ok, false)
   assert.equal(queueCalls.length, 0)
 })
+
+test('"Atualizar análise" que cria job novo publica force_reanalysis na fila; sem o pedido, não', async () => {
+  for (const force of [false, true]) {
+    queueCalls.length = 0
+    useAdmin([
+      ...sourceSteps(),
+      insertStep('companion_background_analysis_jobs_homolog', { analysis_job_id: 'placeholder', status: 'queued', message_watermark: WATERMARK }),
+    ])
+
+    const base = request()
+    const body = await base.json()
+
+    const response = await withVercelEnv('preview', () =>
+      POST(new Request(base.url, {
+        method: 'POST',
+        headers: base.headers,
+        body: JSON.stringify(force ? { ...body, force_reanalysis: true } : body),
+      })),
+    )
+
+    assert.equal(response.status, 200)
+    assert.equal(queueCalls.length, 1)
+    assert.equal(queueCalls[0].message.force_reanalysis === true, force)
+  }
+})

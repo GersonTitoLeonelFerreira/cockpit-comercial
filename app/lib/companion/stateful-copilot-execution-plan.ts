@@ -79,7 +79,7 @@ type AnalysisPreconditionStatus =
 // canonical-decision-state-source.ts (DECISION_STATE_SESSION_GAP_MS) —
 // mas usada aqui para uma semântica DIFERENTE: agrupar por burst de
 // atividade QUAIS mensagens entram no prompt de análise incremental
-// (selectCurrentSessionMessageIds/selectAnalysisMessageIds), não para
+// (selectCurrentSessionMessageIds/selectAnalysisMessages), não para
 // classificar se a sessão atual está "ativa" (isso é responsabilidade
 // exclusiva de Decision State/AGORA). Auditado na FASE 16.4 (mandato
 // §4): as quatro constantes precisam continuar de acordo sobre o VALOR
@@ -107,6 +107,30 @@ export type StatefulCopilotModelRequest = {
     StatefulCopilotNormalizationContext
 }
 
+export type StatefulCopilotExecutionPlanOptions = {
+  // "Atualizar análise" pedido pelo vendedor: relê a sessão atual inteira,
+  // como na primeira leitura, mesmo sem mensagem nova.
+  force_reanalysis?: boolean
+}
+
+// Quais mensagens o modelo lê nesta rodada e por quê.
+// - first_read: não há estado anterior; lê a sessão atual inteira.
+// - incremental: só as mensagens da sessão atual que mudaram desde o estado.
+// - full_session: releitura da sessão atual inteira (pedida pelo vendedor,
+//   ou mudança só fora da sessão atual, como histórico recuperado).
+export type StatefulCopilotAnalysisSelection = {
+  kind:
+    | 'first_read'
+    | 'incremental'
+    | 'full_session'
+
+  forced: boolean
+
+  // Mensagens novas ou alteradas (nova versão) desde o estado anterior.
+  // Vazio com estado anterior = nada mudou na conversa.
+  new_or_changed_message_ids: string[]
+}
+
 export type StatefulCopilotExecutionPlan =
   | {
       mode: 'blocked'
@@ -120,10 +144,23 @@ export type StatefulCopilotExecutionPlan =
         StatefulCopilotNormalizationContext
     }
   | {
+      // Reanálise sem mensagem nova ou alterada desde o estado anterior:
+      // não há o que ler, o modelo não é chamado e a leitura atual continua.
+      mode: 'unchanged'
+
+      reason:
+        'no_new_or_changed_messages'
+
+      previous_state_version: number
+    }
+  | {
       mode: 'model'
 
       request:
         StatefulCopilotModelRequest
+
+      analysis_selection:
+        StatefulCopilotAnalysisSelection
     }
 
 type MemoryContext = {
@@ -609,8 +646,9 @@ function isCitableAnalysisMessage(
   )
 }
 
-function selectAnalysisMessageIds(
+function selectCitableMessageIds(
   input: StatefulCopilotInput,
+  messageIds: string[],
 ): string[] {
   const citableIds =
     new Set(
@@ -627,9 +665,7 @@ function selectAnalysisMessageIds(
         ),
     )
 
-  return selectSessionAnalysisMessageIds(
-    input,
-  ).filter(
+  return messageIds.filter(
     messageId =>
       citableIds.has(
         messageId,
@@ -637,9 +673,61 @@ function selectAnalysisMessageIds(
   )
 }
 
-function selectSessionAnalysisMessageIds(
+type AnalysisMessageSelection =
+  | {
+      unchanged: true
+
+      previous_state_version: number
+    }
+  | (StatefulCopilotAnalysisSelection & {
+      unchanged: false
+
+      message_ids: string[]
+    })
+
+// Uma mensagem mudou desde o estado anterior quando foi observada (primeira
+// versão ou versão nova: edição, transcrição) ou aconteceu depois dele. É o
+// mesmo corte que o filtro incremental sempre usou, agora aplicado ao ledger
+// ativo inteiro: histórico recuperado fora da sessão atual também é novo.
+function selectNewOrChangedMessageIds(
   input: StatefulCopilotInput,
+  previousStateUpdatedAt: number,
 ): string[] {
+  const activeIds =
+    new Set(
+      input
+        .diagnostic_input
+        .conversation
+        .active_message_ids,
+    )
+
+  return input
+    .diagnostic_input
+    .conversation
+    .messages
+    .filter(
+      message =>
+        activeIds.has(
+          message.id,
+        ) &&
+        getMessageActivityTimestamp(
+          message,
+        ) >
+          previousStateUpdatedAt,
+    )
+    .map(
+      message =>
+        message.id,
+    )
+}
+
+function selectAnalysisMessages(
+  input: StatefulCopilotInput,
+  options: StatefulCopilotExecutionPlanOptions,
+): AnalysisMessageSelection {
+  const forced =
+    options.force_reanalysis === true
+
   const currentSessionIds =
     selectCurrentSessionMessageIds(
       input,
@@ -649,56 +737,76 @@ function selectSessionAnalysisMessageIds(
     input.state_context.previous_state
 
   if (!previousState) {
-    return currentSessionIds
+    return {
+      unchanged: false,
+      kind: 'first_read',
+      forced,
+      new_or_changed_message_ids:
+        [...currentSessionIds],
+      message_ids:
+        selectCitableMessageIds(
+          input,
+          currentSessionIds,
+        ),
+    }
   }
 
-  const previousStateUpdatedAt =
-    Date.parse(
-      previousState.updated_at,
+  const newOrChangedIds =
+    selectNewOrChangedMessageIds(
+      input,
+      Date.parse(
+        previousState.updated_at,
+      ),
     )
 
-  const messagesById =
-    new Map(
-      input
-        .diagnostic_input
-        .conversation
-        .messages
-        .map(
-          message => [
-            message.id,
-            message,
-          ] as const,
-        ),
+  if (
+    newOrChangedIds.length === 0 &&
+    !forced
+  ) {
+    return {
+      unchanged: true,
+      previous_state_version:
+        previousState.version,
+    }
+  }
+
+  const newOrChanged =
+    new Set(
+      newOrChangedIds,
     )
 
   const incrementalIds =
     currentSessionIds.filter(
-      messageId => {
-        const message =
-          messagesById.get(
-            messageId,
-          )
-
-        if (!message) {
-          return false
-        }
-
-        return (
-          getMessageActivityTimestamp(
-            message,
-          ) >
-          previousStateUpdatedAt
-        )
-      },
+      messageId =>
+        newOrChanged.has(
+          messageId,
+        ),
     )
 
-  if (incrementalIds.length > 0) {
-    return incrementalIds
-  }
+  // Nunca manda só a última mensagem da sessão: sem o que mudou dentro da
+  // sessão atual (releitura pedida pelo vendedor ou mudança só em histórico
+  // recuperado), a releitura é da sessão atual inteira, como na primeira.
+  const fullSession =
+    forced ||
+    incrementalIds.length === 0
 
-  // Mantém reprocessamentos idempotentes executáveis sem
-  // voltar a enviar a sessão inteira ao modelo.
-  return currentSessionIds.slice(-1)
+  return {
+    unchanged: false,
+    kind:
+      fullSession
+        ? 'full_session'
+        : 'incremental',
+    forced,
+    new_or_changed_message_ids:
+      newOrChangedIds,
+    message_ids:
+      selectCitableMessageIds(
+        input,
+        fullSession
+          ? currentSessionIds
+          : incrementalIds,
+      ),
+  }
 }
 
 const NEGOTIATION_SIGNAL_PATTERNS = [
@@ -729,12 +837,11 @@ function normalizeCommercialSearchText(
 
 function hasCurrentNegotiationEvidence(
   input: StatefulCopilotInput,
+  analysisMessageIds: string[],
 ): boolean {
   const currentMessageIds =
     new Set(
-      selectAnalysisMessageIds(
-        input,
-      ),
+      analysisMessageIds,
     )
 
   return input
@@ -789,11 +896,10 @@ function hasCurrentNegotiationEvidence(
 function buildNormalizationContext(
   input: StatefulCopilotInput,
   memoryContext: MemoryContext,
+  analysisMessageIds: string[],
 ): StatefulCopilotNormalizationContext {
   const availableMessageIds =
-    selectAnalysisMessageIds(
-      input,
-    )
+    [...analysisMessageIds]
 
   const availableMessageIdSet =
     new Set(
@@ -911,6 +1017,7 @@ function buildNormalizationContext(
     negotiation_evidence_detected:
       hasCurrentNegotiationEvidence(
         input,
+        availableMessageIds,
       ),
 
     available_memory_ids: [
@@ -1381,12 +1488,11 @@ function buildDiagnosticCommercialContextForModel(
 
 function buildModelInput(
   input: StatefulCopilotInput,
+  analysisMessageIds: string[],
 ) {
   const currentMessageIds =
     new Set(
-      selectAnalysisMessageIds(
-        input,
-      ),
+      analysisMessageIds,
     )
 
   const currentMessages =
@@ -1657,6 +1763,8 @@ function buildUserPrompt(
       input:
         buildModelInput(
           input,
+          normalizationContext
+            .available_message_ids,
         ),
     },
   )
@@ -1664,6 +1772,7 @@ function buildUserPrompt(
 
 export function buildStatefulCopilotExecutionPlan(
   input: StatefulCopilotInput,
+  options: StatefulCopilotExecutionPlanOptions = {},
 ): StatefulCopilotExecutionPlan {
   ensureInputInvariants(input)
 
@@ -1674,10 +1783,19 @@ export function buildStatefulCopilotExecutionPlan(
         .previous_state,
     )
 
+  const selection =
+    selectAnalysisMessages(
+      input,
+      options,
+    )
+
   const normalizationContext =
     buildNormalizationContext(
       input,
       memoryContext,
+      selection.unchanged
+        ? []
+        : selection.message_ids,
     )
 
   const analysisStatus =
@@ -1707,6 +1825,20 @@ export function buildStatefulCopilotExecutionPlan(
 
       normalization_context:
         normalizationContext,
+    }
+  }
+
+  if (selection.unchanged) {
+    return {
+      mode:
+        'unchanged',
+
+      reason:
+        'no_new_or_changed_messages',
+
+      previous_state_version:
+        selection
+          .previous_state_version,
     }
   }
 
@@ -1746,6 +1878,19 @@ export function buildStatefulCopilotExecutionPlan(
 
       normalization_context:
         normalizationContext,
+    },
+
+    analysis_selection: {
+      kind:
+        selection.kind,
+
+      forced:
+        selection.forced,
+
+      new_or_changed_message_ids: [
+        ...selection
+          .new_or_changed_message_ids,
+      ],
     },
   }
 }

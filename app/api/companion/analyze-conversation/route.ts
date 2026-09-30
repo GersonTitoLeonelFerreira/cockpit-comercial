@@ -45,6 +45,7 @@ type AnalyzeCompanionBody = {
   messages?: unknown
   source?: unknown
   message_snapshot_hash?: unknown
+  force_reanalysis?: unknown
 }
 
 type CompanionMessageDirection =
@@ -516,6 +517,11 @@ export async function POST(request: Request) {
         body.message_snapshot_hash,
       )?.slice(0, 200) ?? null
 
+    // "Analisar agora"/"Atualizar análise": o job novo relê a sessão atual
+    // inteira. Job já existente segue o caminho de retry da extensão.
+    const forceReanalysis =
+      body.force_reanalysis === true
+
     if (!cycleId) {
       return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
@@ -977,6 +983,7 @@ export async function POST(request: Request) {
         buildStatefulCopilotBackgroundJobMessage({
           descriptor: backgroundJob,
           device_key: deviceKey,
+          force_reanalysis: forceReanalysis,
         })
 
       const useLocalInlineWorker =

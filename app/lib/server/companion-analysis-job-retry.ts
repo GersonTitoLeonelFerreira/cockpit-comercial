@@ -655,6 +655,11 @@ export async function retryCompanionAnalysisJob({
       descriptor,
       device_key:
         deviceKey,
+      // Reabrir um job concluído é o "Atualizar análise" do vendedor:
+      // a releitura é da sessão atual inteira, nunca só a última mensagem.
+      force_reanalysis:
+        requeueFromStatus ===
+        'succeeded',
     })
 
   await recordCompanionRuntimePathDiagnostic({

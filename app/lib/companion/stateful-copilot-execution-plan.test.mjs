@@ -2215,3 +2215,329 @@ test(
     )
   },
 )
+
+// Reanálise sem mensagem nova (caso real da Júlia no HML): com o estado
+// anterior mais novo que toda a conversa, o plano antigo mandava ao modelo só
+// a última mensagem da sessão; o modelo respondia "uncertain" e a leitura boa
+// era rebaixada. Agora: sem mudança não há plano de modelo, e a releitura
+// pedida pelo vendedor é da sessão atual inteira.
+
+function buildReanalysisInput({
+  stateUpdatedAt,
+}) {
+  const input =
+    buildInput({
+      continuation:
+        true,
+    })
+
+  input
+    .state_context
+    .previous_state
+    .updated_at =
+      stateUpdatedAt
+
+  return input
+}
+
+test(
+  'reanálise sem mensagem nova ou alterada não cria plano de modelo e mantém a versão atual',
+  () => {
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        buildReanalysisInput({
+          stateUpdatedAt:
+            '2026-08-05T22:20:00-03:00',
+        }),
+      )
+
+    assert.deepEqual(
+      plan,
+      {
+        mode:
+          'unchanged',
+
+        reason:
+          'no_new_or_changed_messages',
+
+        previous_state_version:
+          2,
+      },
+    )
+  },
+)
+
+test(
+  'reanálise pedida pelo vendedor sem mensagem nova relê a sessão atual inteira, nunca só a última mensagem',
+  () => {
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        buildReanalysisInput({
+          stateUpdatedAt:
+            '2026-08-05T22:20:00-03:00',
+        }),
+        {
+          force_reanalysis:
+            true,
+        },
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.deepEqual(
+      plan.analysis_selection,
+      {
+        kind:
+          'full_session',
+
+        forced:
+          true,
+
+        new_or_changed_message_ids:
+          [],
+      },
+    )
+
+    assert.deepEqual(
+      plan
+        .request
+        .normalization_context
+        .available_message_ids,
+      [
+        'm2',
+        'm3',
+      ],
+    )
+
+    const payload =
+      JSON.parse(
+        plan.request.user_prompt,
+      )
+
+    assert.deepEqual(
+      payload
+        .required_analyzed_message_ids,
+      [
+        'm2',
+        'm3',
+      ],
+    )
+  },
+)
+
+test(
+  'primeira análise continua lendo a sessão atual inteira, forçada ou não',
+  () => {
+    for (const options of [
+      undefined,
+      {
+        force_reanalysis:
+          true,
+      },
+    ]) {
+      const plan =
+        buildStatefulCopilotExecutionPlan(
+          buildInput(),
+          options,
+        )
+
+      assert.equal(
+        plan.mode,
+        'model',
+      )
+
+      assert.equal(
+        plan
+          .analysis_selection
+          .kind,
+        'first_read',
+      )
+
+      assert.deepEqual(
+        plan
+          .request
+          .normalization_context
+          .available_message_ids,
+        [
+          'm2',
+          'm3',
+        ],
+      )
+    }
+  },
+)
+
+test(
+  'mensagem nova depois do estado continua sendo analisada de forma incremental',
+  () => {
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        buildReanalysisInput({
+          stateUpdatedAt:
+            '2026-08-05T22:12:00-03:00',
+        }),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.deepEqual(
+      plan.analysis_selection,
+      {
+        kind:
+          'incremental',
+
+        forced:
+          false,
+
+        new_or_changed_message_ids: [
+          'm3',
+        ],
+      },
+    )
+
+    assert.deepEqual(
+      plan
+        .request
+        .normalization_context
+        .available_message_ids,
+      [
+        'm3',
+      ],
+    )
+  },
+)
+
+test(
+  'versão nova de mensagem já analisada (edição/transcrição) conta como mudança',
+  () => {
+    const input =
+      buildReanalysisInput({
+        stateUpdatedAt:
+          '2026-08-05T22:20:00-03:00',
+      })
+
+    const edited =
+      input
+        .diagnostic_input
+        .conversation
+        .messages
+        .find(
+          message =>
+            message.id ===
+            'm2',
+        )
+
+    edited.version = 2
+    edited.observed_at =
+      '2026-08-05T22:30:00-03:00'
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.deepEqual(
+      plan
+        .analysis_selection
+        .new_or_changed_message_ids,
+      [
+        'm2',
+      ],
+    )
+
+    assert.deepEqual(
+      plan
+        .request
+        .normalization_context
+        .available_message_ids,
+      [
+        'm2',
+      ],
+    )
+  },
+)
+
+test(
+  'mudança só em histórico recuperado fora da sessão atual relê a sessão inteira, nunca só a última mensagem',
+  () => {
+    const input =
+      buildReanalysisInput({
+        stateUpdatedAt:
+          '2026-08-05T22:20:00-03:00',
+      })
+
+    const conversation =
+      input
+        .diagnostic_input
+        .conversation
+
+    // Mensagem de dias atrás que só apareceu agora (rolagem para cima), bem
+    // depois das mensagens que aconteceram depois dela: histórico recuperado.
+    conversation.messages.unshift({
+      ...conversation.messages[1],
+      id:
+        'm0',
+      message_key:
+        'message-0',
+      sequence:
+        0,
+      occurred_at:
+        '2026-08-01T10:00:00-03:00',
+      observed_at:
+        '2026-08-05T22:50:00-03:00',
+      text_content:
+        'Mensagem antiga recuperada pela rolagem.',
+    })
+
+    conversation.active_message_ids.unshift(
+      'm0',
+    )
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.deepEqual(
+      plan.analysis_selection,
+      {
+        kind:
+          'full_session',
+
+        forced:
+          false,
+
+        new_or_changed_message_ids: [
+          'm0',
+        ],
+      },
+    )
+
+    assert.deepEqual(
+      plan
+        .request
+        .normalization_context
+        .available_message_ids,
+      [
+        'm2',
+        'm3',
+      ],
+    )
+  },
+)

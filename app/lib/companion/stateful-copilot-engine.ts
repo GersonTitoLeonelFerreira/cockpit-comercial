@@ -74,6 +74,14 @@ type StatefulCopilotModelPlan =
     }
   >
 
+type StatefulCopilotUnchangedPlan =
+  Extract<
+    StatefulCopilotExecutionPlan,
+    {
+      mode: 'unchanged'
+    }
+  >
+
 type StatefulCopilotInputBuilder =
   typeof buildStatefulCopilotInput
 
@@ -134,6 +142,9 @@ export type RunStatefulCopilotEngineArgs = {
   // null) — ver applyDurableMemorySeedToFreshState.
   durable_memory_seed?:
     DurableMemorySeed | null
+
+  // "Atualizar análise" pedido pelo vendedor: relê a sessão atual inteira.
+  force_reanalysis?: boolean
 
   dependencies?:
     StatefulCopilotEngineDependencies
@@ -223,10 +234,48 @@ export type StatefulCopilotEngineGuardExhaustedResult =
       StatefulCopilotGuardExhaustedResult['execution']
   }
 
+// Reanálise sem mensagem nova ou alterada desde o estado anterior: a leitura
+// atual continua valendo e nenhuma versão nova do estado é criada.
+// - no_new_or_changed_messages: nada mudou; o modelo nem é chamado.
+// - reanalysis_without_new_evidence_not_actionable: releitura pedida pelo
+//   vendedor, sem mensagem nova, voltou sem relevância comercial acionável.
+//   Sem evidência nova, isso nunca rebaixa a leitura atual.
+export type StatefulCopilotEngineUnchangedResult =
+  StatefulCopilotEngineBaseResult & {
+    mode: 'unchanged'
+
+    reason:
+      | 'no_new_or_changed_messages'
+      | 'reanalysis_without_new_evidence_not_actionable'
+
+    plan:
+      | StatefulCopilotUnchangedPlan
+      | StatefulCopilotModelPlan
+
+    // Versão do estado que continua valendo (a atual).
+    current_state_version: number
+
+    output: null
+
+    communication_output: null
+
+    communication_execution: null
+
+    candidate_state: null
+
+    limitations:
+      string[]
+
+    execution:
+      | StatefulCopilotModelResult['execution']
+      | null
+  }
+
 export type StatefulCopilotEngineResult =
   | StatefulCopilotEngineBlockedResult
   | StatefulCopilotEngineModelResult
   | StatefulCopilotEngineGuardExhaustedResult
+  | StatefulCopilotEngineUnchangedResult
 
 export class StatefulCopilotEngineError
   extends Error {
@@ -365,6 +414,18 @@ export function preservePreviousCommercialStateWhenClosed({
   }
 }
 
+function isCommerciallyOpen(
+  output: StatefulCopilotOutput,
+): boolean {
+  return (
+    output.commercial_role ===
+      'buyer' &&
+    isCommerciallyActionable(
+      output.commercial_relevance,
+    )
+  )
+}
+
 export async function runStatefulCopilotEngine({
   diagnostic_input,
   previous_state,
@@ -372,6 +433,7 @@ export async function runStatefulCopilotEngine({
   provider,
   create_memory_id,
   durable_memory_seed = null,
+  force_reanalysis = false,
   dependencies = {},
 }: RunStatefulCopilotEngineArgs): Promise<StatefulCopilotEngineResult> {
   const buildInput =
@@ -408,7 +470,54 @@ export async function runStatefulCopilotEngine({
   const plan =
     buildPlan(
       input,
+      {
+        force_reanalysis,
+      },
     )
+
+  if (
+    plan.mode ===
+    'unchanged'
+  ) {
+    return {
+      mode:
+        'unchanged',
+
+      reason:
+        plan.reason,
+
+      input,
+
+      plan,
+
+      current_state_version:
+        plan.previous_state_version,
+
+      output:
+        null,
+
+      communication_output:
+        null,
+
+      communication_execution:
+        null,
+
+      previous_state:
+        input
+          .state_context
+          .previous_state,
+
+      candidate_state:
+        null,
+
+      limitations: [
+        plan.reason,
+      ],
+
+      execution:
+        null,
+    }
+  }
 
   const orchestration =
     await executePlan({
@@ -524,6 +633,62 @@ export async function runStatefulCopilotEngine({
       'ENGINE_PLAN_RESULT_MISMATCH',
       'O motor recebeu resultado de modelo para um plano bloqueado.',
     )
+  }
+
+  // Releitura sem mensagem nova ou alterada (só acontece quando o vendedor
+  // pede): a conversa é a mesma que sustentou a leitura atual, então uma
+  // resposta sem relevância comercial acionável nunca a rebaixa.
+  const previousStateForGuard =
+    input
+      .state_context
+      .previous_state
+
+  if (
+    previousStateForGuard !== null &&
+    plan
+      .analysis_selection
+      .new_or_changed_message_ids
+      .length === 0 &&
+    !isCommerciallyOpen(
+      orchestration.output,
+    )
+  ) {
+    return {
+      mode:
+        'unchanged',
+
+      reason:
+        'reanalysis_without_new_evidence_not_actionable',
+
+      input,
+
+      plan,
+
+      current_state_version:
+        previousStateForGuard.version,
+
+      output:
+        null,
+
+      communication_output:
+        null,
+
+      communication_execution:
+        null,
+
+      previous_state:
+        previousStateForGuard,
+
+      candidate_state:
+        null,
+
+      limitations: [
+        'reanalysis_without_new_evidence_not_actionable',
+      ],
+
+      execution:
+        orchestration.execution,
+    }
   }
 
   const preservedCandidateState =

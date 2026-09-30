@@ -101,6 +101,9 @@ export type RunStatefulCopilotIntegratedServiceArgs = {
   durable_memory_seed?:
     DurableMemorySeed | null
 
+  // "Atualizar análise" pedido pelo vendedor: repassado ao motor.
+  force_reanalysis?: boolean
+
   dependencies?:
     StatefulCopilotIntegratedServiceDependencies
 }
@@ -534,9 +537,9 @@ function normalizeCandidateState({
   normalizeState:
     StatefulCommercialStateNormalizer
 }): StatefulCopilotEngineResult {
-  // R1.2: qualquer modo que não seja 'model' (bloqueado ou guard
-  // esgotado) já vem com candidate_state: null do engine — nunca passa
-  // por normalização de candidato.
+  // R1.2: qualquer modo que não seja 'model' (bloqueado, guard esgotado
+  // ou sem mudança) já vem com candidate_state: null do engine — nunca
+  // passa por normalização de candidato.
   if (
     engineResult.mode !==
     'model'
@@ -613,6 +616,7 @@ export async function runStatefulCopilotIntegratedService({
   provider,
   create_memory_id,
   durable_memory_seed = null,
+  force_reanalysis = false,
   dependencies = {},
 }: RunStatefulCopilotIntegratedServiceArgs): Promise<StatefulCopilotIntegratedServiceResult> {
   const runEngine =
@@ -748,6 +752,8 @@ export async function runStatefulCopilotIntegratedService({
       create_memory_id,
 
       durable_memory_seed,
+
+      force_reanalysis,
     })
 
   const engineResult =

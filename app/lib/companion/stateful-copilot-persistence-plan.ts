@@ -592,6 +592,7 @@ export function buildStatefulCopilotPersistencePlan(
   // já depois do reparo) nunca é persistido — mesmo tratamento de
   // should_persist:false que o bloqueio determinístico já recebia,
   // preservando o previous_state em vez de gravar a saída rejeitada.
+  // 'unchanged' (reanálise sem mensagem nova) também não grava nada.
   if (
     result.mode !==
     'model'
@@ -617,6 +618,23 @@ export function buildStatefulCopilotPersistencePlan(
         'ENGINE_PLAN_RESULT_MISMATCH',
         'engine_result.plan.mode',
         'O resultado de guard esgotado precisa ter partido de um plano de modelo.',
+      )
+    }
+
+    // Sem mudança: a leitura atual continua e nada é gravado. Só existe com
+    // estado anterior, e a versão que continua é exatamente a dele.
+    if (
+      result.mode === 'unchanged' &&
+      (
+        result.previous_state === null ||
+        result.current_state_version !==
+          result.previous_state.version
+      )
+    ) {
+      fail(
+        'ENGINE_PLAN_RESULT_MISMATCH',
+        'engine_result.current_state_version',
+        'O resultado sem mudança precisa manter a versão do estado anterior.',
       )
     }
 

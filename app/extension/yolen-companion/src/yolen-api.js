@@ -626,6 +626,12 @@
     delete backendPayload.retry_failed_job
     delete backendPayload.force_reanalysis
 
+    // A releitura pedida vai ao backend: um job novo (snapshot diferente)
+    // relê a sessão atual inteira em vez de só o que mudou.
+    if (forceReanalysis) {
+      backendPayload.force_reanalysis = true
+    }
+
     const conversationKey =
       normalizeConversationKey(
         payload?.conversation_key,

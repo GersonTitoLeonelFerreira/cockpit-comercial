@@ -489,3 +489,61 @@ test(
     )
   },
 )
+
+test(
+  'force_reanalysis só entra na mensagem quando pedido e sobrevive ao parser',
+  () => {
+    const plain =
+      buildStatefulCopilotBackgroundJobMessage({
+        descriptor:
+          buildJob(),
+
+        device_key:
+          'device-a',
+      })
+
+    assert.equal(
+      'force_reanalysis' in plain,
+      false,
+    )
+
+    const forced =
+      buildStatefulCopilotBackgroundJobMessage({
+        descriptor:
+          buildJob(),
+
+        device_key:
+          'device-a',
+
+        force_reanalysis:
+          true,
+      })
+
+    assert.equal(
+      forced.force_reanalysis,
+      true,
+    )
+
+    assert.deepEqual(
+      parseStatefulCopilotBackgroundJobMessage(
+        JSON.parse(
+          JSON.stringify(
+            forced,
+          ),
+        ),
+      ),
+      forced,
+    )
+
+    // Valor que não seja exatamente true nunca vira releitura forçada.
+    assert.equal(
+      'force_reanalysis' in
+        parseStatefulCopilotBackgroundJobMessage({
+          ...plain,
+          force_reanalysis:
+            'true',
+        }),
+      false,
+    )
+  },
+)

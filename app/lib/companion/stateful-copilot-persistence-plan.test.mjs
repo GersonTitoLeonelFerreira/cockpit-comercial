@@ -1224,3 +1224,137 @@ test(
     )
   },
 )
+
+// Reanálise sem mensagem nova: nada é gravado e a versão que continua é
+// exatamente a do estado anterior.
+function buildUnchangedResult({
+  currentStateVersion = 1,
+} = {}) {
+  const previousState =
+    buildState({
+      version:
+        1,
+
+      updatedAt:
+        '2026-08-06T17:00:00-03:00',
+    })
+
+  return {
+    mode:
+      'unchanged',
+
+    reason:
+      'no_new_or_changed_messages',
+
+    input:
+      buildInput({
+        previousState,
+      }),
+
+    previous_state:
+      clone(
+        previousState,
+      ),
+
+    plan: {
+      mode:
+        'unchanged',
+
+      reason:
+        'no_new_or_changed_messages',
+
+      previous_state_version:
+        1,
+    },
+
+    current_state_version:
+      currentStateVersion,
+
+    output:
+      null,
+
+    communication_output:
+      null,
+
+    communication_execution:
+      null,
+
+    candidate_state:
+      null,
+
+    limitations: [
+      'no_new_or_changed_messages',
+    ],
+
+    execution:
+      null,
+  }
+}
+
+test(
+  'reanálise sem mensagem nova não prepara gravação nem versão nova',
+  () => {
+    const result =
+      buildStatefulCopilotPersistencePlan({
+        engine_result:
+          buildUnchangedResult(),
+
+        company_id:
+          'company-1',
+
+        conversation_key:
+          'conversation-1',
+
+        generated_at:
+          '2026-08-06T18:00:01-03:00',
+      })
+
+    assert.equal(
+      result.should_persist,
+      false,
+    )
+
+    assert.equal(
+      result.state_snapshot,
+      null,
+    )
+
+    assert.equal(
+      result.expected_previous_state_version,
+      1,
+    )
+
+    assert.deepEqual(
+      result.limitations,
+      [
+        'no_new_or_changed_messages',
+      ],
+    )
+  },
+)
+
+test(
+  'resultado sem mudança que não mantém a versão do estado anterior é recusado',
+  () => {
+    expectPlanError(
+      () =>
+        buildStatefulCopilotPersistencePlan({
+          engine_result:
+            buildUnchangedResult({
+              currentStateVersion:
+                2,
+            }),
+
+          company_id:
+            'company-1',
+
+          conversation_key:
+            'conversation-1',
+
+          generated_at:
+            '2026-08-06T18:00:01-03:00',
+        }),
+      'ENGINE_PLAN_RESULT_MISMATCH',
+    )
+  },
+)
