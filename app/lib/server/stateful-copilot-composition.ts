@@ -1,5 +1,9 @@
 import 'server-only'
 
+import type {
+  CompanionExecutionScope,
+} from '../companion/companion-execution-scope'
+
 import {
   createClient,
 } from '@supabase/supabase-js'
@@ -65,6 +69,11 @@ export type StatefulCopilotServerCompositionOptions = {
 
   composition_dependencies?:
     StatefulCopilotCompositionFactoryDependencies
+
+  // R10: escopo do armazenamento derivado (estado/RPC). Ausente = escopo
+  // do deployment.
+  execution_scope?:
+    CompanionExecutionScope
 }
 
 export class StatefulCopilotServerConfigurationError
@@ -304,6 +313,10 @@ export function createStatefulCopilotServerComposition(
 
   return createStatefulCopilotComposition({
     client,
+
+    ...(options.execution_scope
+      ? { execution_scope: options.execution_scope }
+      : {}),
 
     openai_options: {
       api_key:

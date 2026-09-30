@@ -336,6 +336,41 @@ test('falha terminal recuperável: erro seller-facing com diagnóstico do códig
   assert.equal(ctx.state.deepAnalysisDebug.failure_code, 'INVALID_MODEL_OUTPUT')
 })
 
+test('R10: job/resultado de outro ambiente encerra o acompanhamento sem aplicar nada', async () => {
+  const server = createServer({
+    [CONVERSATIONS.julia.conversationKey]: { statuses: ['running'] },
+  })
+
+  server.api.getAnalysisJobStatus = async (payload) => {
+    server.calls.status.push(payload.conversation_key)
+    return {
+      ok: false,
+      statusCode: 409,
+      payload: {
+        ok: false,
+        code: 'EXECUTION_SCOPE_MISMATCH',
+        retryable: false,
+        error: 'A análise veio de outro ambiente da Yolen e foi descartada.',
+        execution_scope: 'production',
+        expected_execution_scope: 'homolog',
+      },
+    }
+  }
+
+  const { ctx, controller, advance, openConversation } = createHarness(server)
+
+  openConversation('julia')
+  await controller.analyzeCurrentConversation()
+  await advance(30_000)
+
+  assert.equal(ctx.state.conversationAnalysisLoading, false)
+  assert.equal(ctx.state.deepAnalysisResult, null)
+  assert.match(ctx.state.conversationAnalysisError, /outro ambiente/)
+  assert.equal(ctx.state.deepAnalysisDebug.execution_scope, 'production')
+  assert.equal(ctx.state.deepAnalysisDebug.failure_code, 'EXECUTION_SCOPE_MISMATCH')
+  assert.equal(server.calls.status.length, 1, 'terminal: não fica consultando job de outro ambiente')
+})
+
 // Diagnóstico técnico da fila: só no pacote HML, nunca em PROD.
 const CORE_SOURCE = readFileSync(
   new URL('../src/companion-core.js', import.meta.url),
@@ -375,10 +410,12 @@ test('HML mostra "Analysis debug" (job, status, fila, worker, tentativas, falha)
     stale: false,
     poll_attempt: 6,
     recovery_requested: false,
+    execution_scope: 'homolog',
   }
 
   const html = loadDebugRenderer('homolog', debug)()
   assert.match(html, /Analysis debug \(HML\)/)
+  assert.match(html, /execution_scope: homolog/, 'R10: o HML mostra o escopo do job')
   assert.match(html, /status: queued/)
   assert.match(html, /queued_for: 3[89]s/)
   assert.match(html, /worker_started: false/)

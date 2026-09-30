@@ -147,6 +147,7 @@ function createStore(jobs) {
 function jobMessage({ conversation = 'phone:5544000000001', watermark = 'wm-1', requested_at = '2026-09-30T00:00:00.000Z' } = {}) {
   return buildStatefulCopilotBackgroundJobMessage({
     descriptor: buildStatefulCopilotBackgroundJobDescriptor({
+      execution_scope: 'production',
       company_id: 'company-a',
       cycle_id: 'cycle-a',
       conversation_key: conversation,

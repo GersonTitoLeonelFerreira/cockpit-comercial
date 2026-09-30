@@ -4,6 +4,11 @@ import {
   createHash,
 } from 'crypto'
 
+import {
+  isCompanionExecutionScope,
+  type CompanionExecutionScope,
+} from '@/app/lib/companion/companion-execution-scope'
+
 export const STATEFUL_COPILOT_BACKGROUND_JOB_VERSION =
   'phase12a-background-job-v2' as const
 
@@ -138,6 +143,9 @@ export type StatefulCopilotBackgroundJobDescriptor = {
   analysis_job_id:
     string
 
+  execution_scope:
+    CompanionExecutionScope
+
   company_id:
     string
 
@@ -252,13 +260,58 @@ export function isStatefulCopilotBackgroundJobStatus(
   )
 }
 
+function hashJobIdentity(
+  parts:
+    readonly string[],
+): string {
+  return createHash(
+    'sha256',
+  )
+    .update(
+      JSON.stringify([
+        STATEFUL_COPILOT_BACKGROUND_JOB_VERSION,
+        ...parts,
+      ]),
+    )
+    .digest(
+      'hex',
+    )
+}
+
+function requireExecutionScope(
+  value:
+    unknown,
+): CompanionExecutionScope {
+  if (
+    !isCompanionExecutionScope(
+      value,
+    )
+  ) {
+    throw new Error(
+      'execution_scope é inválido.',
+    )
+  }
+
+  return value
+}
+
+// R10: o escopo de execução faz parte da identidade do job. O mesmo
+// contexto/watermark gera um job de produção e um job de homolog
+// DIFERENTES — nenhum dos dois reaproveita, reabre ou conclui o outro.
+// Ids anteriores ao escopo (hash sem ele) são jobs legados de produção:
+// aceitos só como produção, nunca por homolog.
 export function buildStatefulCopilotBackgroundJobDescriptor({
+  execution_scope,
   company_id,
   cycle_id,
   conversation_key,
   message_watermark,
   requested_at,
+  analysis_job_id,
 }: {
+  execution_scope:
+    unknown
+
   company_id:
     unknown
 
@@ -273,7 +326,17 @@ export function buildStatefulCopilotBackgroundJobDescriptor({
 
   requested_at:
     unknown
+
+  // Id já existente (mensagem da fila, linha do banco) a conferir contra
+  // o escopo do job. Ausente = job novo.
+  analysis_job_id?:
+    unknown
 }): StatefulCopilotBackgroundJobDescriptor {
+  const executionScope =
+    requireExecutionScope(
+      execution_scope,
+    )
+
   const companyId =
     requireText(
       company_id,
@@ -307,22 +370,51 @@ export function buildStatefulCopilotBackgroundJobDescriptor({
       requested_at,
     )
 
-  const analysisJobId =
-    createHash(
-      'sha256',
-    )
-      .update(
-        JSON.stringify([
-          STATEFUL_COPILOT_BACKGROUND_JOB_VERSION,
-          companyId,
-          cycleId,
-          conversationKey,
-          messageWatermark,
-        ]),
+  const scopedJobId =
+    hashJobIdentity([
+      executionScope,
+      companyId,
+      cycleId,
+      conversationKey,
+      messageWatermark,
+    ])
+
+  let analysisJobId =
+    scopedJobId
+
+  if (
+    analysis_job_id !==
+    undefined
+  ) {
+    const legacyProductionJobId =
+      executionScope ===
+        'production'
+        ? hashJobIdentity([
+            companyId,
+            cycleId,
+            conversationKey,
+            messageWatermark,
+          ])
+        : null
+
+    if (
+      analysis_job_id !==
+        scopedJobId &&
+      (
+        legacyProductionJobId ===
+          null ||
+        analysis_job_id !==
+          legacyProductionJobId
       )
-      .digest(
-        'hex',
+    ) {
+      throw new Error(
+        'analysis_job_id não corresponde ao escopo do job.',
       )
+    }
+
+    analysisJobId =
+      analysis_job_id
+  }
 
   return Object.freeze({
     job_version:
@@ -330,6 +422,9 @@ export function buildStatefulCopilotBackgroundJobDescriptor({
 
     analysis_job_id:
       analysisJobId,
+
+    execution_scope:
+      executionScope,
 
     company_id:
       companyId,
@@ -393,8 +488,15 @@ export function parseStatefulCopilotBackgroundJobMessage(
     )
   }
 
+  // Mensagem publicada antes do escopo existir só pode ser de produção.
   const descriptor =
     buildStatefulCopilotBackgroundJobDescriptor({
+      execution_scope:
+        value.execution_scope ===
+        undefined
+          ? 'production'
+          : value.execution_scope,
+
       company_id:
         value.company_id,
 
@@ -409,16 +511,13 @@ export function parseStatefulCopilotBackgroundJobMessage(
 
       requested_at:
         value.requested_at,
-    })
 
-  if (
-    value.analysis_job_id !==
-    descriptor.analysis_job_id
-  ) {
-    throw new Error(
-      'analysis_job_id não corresponde ao escopo do job.',
-    )
-  }
+      analysis_job_id:
+        typeof value.analysis_job_id ===
+        'string'
+          ? value.analysis_job_id
+          : null,
+    })
 
   return buildStatefulCopilotBackgroundJobMessage({
     descriptor,

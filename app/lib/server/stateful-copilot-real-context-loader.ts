@@ -11,6 +11,10 @@ import {
   type StatefulCopilotRealContextSupabaseClient,
 } from '../companion/stateful-copilot-real-context-loader'
 
+import type {
+  CompanionExecutionScope,
+} from '../companion/companion-execution-scope'
+
 const STATEFUL_CONTEXT_SUPABASE_OPTIONS = {
   auth: {
     persistSession:
@@ -44,6 +48,11 @@ export type StatefulCopilotServerRealContextLoaderOptions = {
 
   loader_dependencies?:
     StatefulCopilotRealContextLoaderDependencies
+
+  // R10: estado anterior/semente de memória do próprio escopo. Ausente =
+  // escopo do deployment.
+  execution_scope?:
+    CompanionExecutionScope
 }
 
 export class StatefulCopilotRealContextServerConfigurationError
@@ -245,5 +254,8 @@ export function createStatefulCopilotServerRealContextLoader(
   return createStatefulCopilotRealContextLoader(
     client,
     options.loader_dependencies,
+    options.execution_scope
+      ? { execution_scope: options.execution_scope }
+      : {},
   )
 }

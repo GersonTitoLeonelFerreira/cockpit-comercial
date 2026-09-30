@@ -1,5 +1,10 @@
 import 'server-only'
 
+import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+} from '../companion/companion-execution-scope'
+
 import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
@@ -168,7 +173,10 @@ async function loadPersistedStateReferenceTime({
   } =
     await admin
       .from(
-        'companion_commercial_states',
+        companionDerivedTable(
+          'commercial_states',
+          resolveCompanionExecutionScope(),
+        ),
       )
       .select(
         'company_id, cycle_id, conversation_key, state_updated_at',

@@ -6680,6 +6680,7 @@ function createCompanionCore(ctx) {
         : '—'
 
     const rows = [
+      ['execution_scope', debug.execution_scope || '—'],
       ['job', short(debug.analysis_job_id)],
       ['conversation', debug.conversation_key || '—'],
       ['watermark', short(debug.message_watermark)],

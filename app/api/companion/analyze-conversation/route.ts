@@ -15,6 +15,11 @@ import {
 } from '@/app/lib/server/stateful-copilot-background-worker'
 import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
 import { recoverStaleCompanionAnalysisJob } from '@/app/lib/server/companion-analysis-job-retry'
+import {
+  companionDerivedTable,
+  companionRowExecutionScope,
+  resolveCompanionExecutionScope,
+} from '@/app/lib/companion/companion-execution-scope'
 import type {
   AISalesContext,
   AISalesRecentEvent,
@@ -816,8 +821,15 @@ export async function POST(request: Request) {
           ),
       )
 
+    // R10: o job pertence ao ambiente deste deployment. Produção e homolog
+    // geram jobs distintos para o mesmo contexto/watermark e cada um só
+    // enxerga a própria tabela de jobs.
+    const executionScope = resolveCompanionExecutionScope()
+    const jobsTable = companionDerivedTable('analysis_jobs', executionScope)
+
     const backgroundJob =
       buildStatefulCopilotBackgroundJobDescriptor({
+        execution_scope: executionScope,
         company_id: tokenPayload.company_id,
         cycle_id: cycleId,
         conversation_key: conversationKey,
@@ -836,9 +848,10 @@ export async function POST(request: Request) {
       data: insertedBackgroundJob,
       error: insertBackgroundJobError,
     } = await admin
-      .from('companion_background_analysis_jobs')
+      .from(jobsTable)
       .insert({
         analysis_job_id: backgroundJob.analysis_job_id,
+        execution_scope: backgroundJob.execution_scope,
         company_id: backgroundJob.company_id,
         cycle_id: backgroundJob.cycle_id,
         conversation_key: backgroundJob.conversation_key,
@@ -862,17 +875,20 @@ export async function POST(request: Request) {
         analysis_job_id: String(insertedBackgroundJob.analysis_job_id),
         status: insertedBackgroundJob.status,
         message_watermark: String(insertedBackgroundJob.message_watermark),
+        execution_scope: executionScope,
       }
     } else if (insertBackgroundJobError?.code === '23505') {
-      // Mesma empresa/ciclo/conversa/watermark já tem um job — idempotência:
-      // reaproveita o existente em vez de duplicar trabalho.
+      // Mesma empresa/ciclo/conversa/watermark já tem um job NESTE escopo —
+      // idempotência: reaproveita o existente em vez de duplicar trabalho.
+      // A busca é pelos campos do escopo (não pelo id) para reaproveitar
+      // também o job de produção criado antes do escopo existir (id legado);
+      // a tabela já é a do escopo, então homolog nunca vê job de produção.
       const {
         data: existingBackgroundJob,
         error: existingBackgroundJobError,
       } = await admin
-        .from('companion_background_analysis_jobs')
-        .select('analysis_job_id, status, message_watermark, requested_at, updated_at, started_at')
-        .eq('analysis_job_id', backgroundJob.analysis_job_id)
+        .from(jobsTable)
+        .select('analysis_job_id, status, message_watermark, requested_at, updated_at, started_at, execution_scope')
         .eq('company_id', backgroundJob.company_id)
         .eq('cycle_id', backgroundJob.cycle_id)
         .eq('conversation_key', backgroundJob.conversation_key)
@@ -882,6 +898,7 @@ export async function POST(request: Request) {
       if (
         !existingBackgroundJobError &&
         existingBackgroundJob &&
+        companionRowExecutionScope(existingBackgroundJob) === executionScope &&
         isStatefulCopilotBackgroundJobStatus(existingBackgroundJob.status)
       ) {
         let existingStatus = existingBackgroundJob.status
@@ -896,6 +913,7 @@ export async function POST(request: Request) {
         ) {
           const recovery = await recoverStaleCompanionAnalysisJob({
             admin,
+            execution_scope: executionScope,
             job: {
               analysis_job_id: String(existingBackgroundJob.analysis_job_id),
               company_id: backgroundJob.company_id,
@@ -923,6 +941,7 @@ export async function POST(request: Request) {
           analysis_job_id: String(existingBackgroundJob.analysis_job_id),
           status: existingStatus,
           message_watermark: String(existingBackgroundJob.message_watermark),
+          execution_scope: executionScope,
         }
       }
     } else if (insertBackgroundJobError) {
@@ -930,6 +949,7 @@ export async function POST(request: Request) {
         'YOLEN_COMPANION_BACKGROUND_JOB',
         JSON.stringify({
           event: 'background_job_enqueue_failed',
+          execution_scope: backgroundJob.execution_scope,
           company_id: backgroundJob.company_id,
           cycle_id: backgroundJob.cycle_id,
           analysis_job_id: backgroundJob.analysis_job_id,
@@ -1019,9 +1039,7 @@ export async function POST(request: Request) {
             data: latestLocalJob,
             error: latestLocalJobError,
           } = await admin
-            .from(
-              'companion_background_analysis_jobs',
-            )
+            .from(jobsTable)
             .select('status')
             .eq(
               'analysis_job_id',
@@ -1060,9 +1078,7 @@ export async function POST(request: Request) {
             error:
               localWorkerFailurePersistenceError,
           } = await admin
-            .from(
-              'companion_background_analysis_jobs',
-            )
+            .from(jobsTable)
             .update({
               status: 'failed',
               completed_at: completedAt,
@@ -1168,9 +1184,7 @@ export async function POST(request: Request) {
             error:
               publishFailurePersistenceError,
           } = await admin
-            .from(
-              'companion_background_analysis_jobs',
-            )
+            .from(jobsTable)
             .update({
               status: 'failed',
               completed_at: completedAt,
@@ -1208,6 +1222,7 @@ export async function POST(request: Request) {
             status: 'failed',
             message_watermark:
               backgroundJob.message_watermark,
+            execution_scope: executionScope,
           }
 
           console.warn(

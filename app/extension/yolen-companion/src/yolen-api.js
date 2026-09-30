@@ -22,6 +22,62 @@
   const DEFAULT_BASE_URL =
     companionEnvironment.api_base_url
 
+  // R10 — escopo de execução do backend deste canal. O pacote PROD só
+  // acompanha job/resultado de produção e o HOMOLOG só de homolog; um job
+  // de outro ambiente é descartado, nunca exibido. Resposta sem escopo
+  // (backend anterior ao R10) é legado = produção. dev/e2e não impõem.
+  const EXPECTED_EXECUTION_SCOPE_BY_CHANNEL = Object.freeze({
+    prod: 'production',
+    homolog: 'homolog',
+  })
+
+  const EXECUTION_SCOPE_MISMATCH_CODE =
+    'EXECUTION_SCOPE_MISMATCH'
+
+  function getExpectedExecutionScope() {
+    return (
+      EXPECTED_EXECUTION_SCOPE_BY_CHANNEL[
+        companionEnvironment.channel
+      ] || null
+    )
+  }
+
+  function resolveExecutionScope(value) {
+    return value === undefined || value === null
+      ? 'production'
+      : value
+  }
+
+  function isExecutionScopeAccepted(value) {
+    const expected =
+      getExpectedExecutionScope()
+
+    return (
+      !expected ||
+      resolveExecutionScope(value) === expected
+    )
+  }
+
+  function buildExecutionScopeMismatchResponse(value) {
+    return {
+      ok: false,
+      statusCode: 409,
+      payload: {
+        ok: false,
+        code:
+          EXECUTION_SCOPE_MISMATCH_CODE,
+        retryable:
+          false,
+        error:
+          'A análise veio de outro ambiente da Yolen e foi descartada.',
+        execution_scope:
+          resolveExecutionScope(value),
+        expected_execution_scope:
+          getExpectedExecutionScope(),
+      },
+    }
+  }
+
   const ALLOWED_BASE_URLS =
     companionEnvironment.allowed_base_urls
 
@@ -615,6 +671,17 @@
     let deepAnalysis =
       result?.payload?.data?.deep_analysis
 
+    if (
+      deepAnalysis?.analysis_job_id &&
+      !isExecutionScopeAccepted(
+        deepAnalysis.execution_scope,
+      )
+    ) {
+      return buildExecutionScopeMismatchResponse(
+        deepAnalysis.execution_scope,
+      )
+    }
+
     if (deepAnalysis?.analysis_job_id) {
       const freshness = {
         analysisJobId:
@@ -697,6 +764,9 @@
           retryResult?.payload?.ok &&
           retried?.analysis_job_id ===
             deepAnalysis.analysis_job_id &&
+          isExecutionScopeAccepted(
+            retried.execution_scope,
+          ) &&
           (
             retried.status === 'queued' ||
             retried.status === 'running'
@@ -775,6 +845,19 @@
 
     const data =
       result?.payload?.data
+
+    if (
+      result?.ok &&
+      result?.payload?.ok &&
+      isRecord(data) &&
+      !isExecutionScopeAccepted(
+        data.execution_scope,
+      )
+    ) {
+      return buildExecutionScopeMismatchResponse(
+        data.execution_scope,
+      )
+    }
 
     if (
       result?.ok &&
@@ -995,6 +1078,7 @@
   window.YolenCompanionApi = {
     getBaseUrl,
     getCompanionEnvironment,
+    getExpectedExecutionScope,
     getBackendBuildIdentity,
     getMe,
     setSession,

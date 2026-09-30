@@ -21,6 +21,12 @@ import {
   recordCompanionRuntimePathDiagnostic,
 } from './companion-runtime-path-diagnostics'
 
+import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+  type CompanionExecutionScope,
+} from '@/app/lib/companion/companion-execution-scope'
+
 export class StatefulCopilotBackgroundRetryError
   extends Error {
   constructor(
@@ -134,8 +140,14 @@ function createAdminClient() {
 export function buildStatefulCopilotBackgroundRuntimeOptions(
   companyId:
     string,
+  executionScope:
+    CompanionExecutionScope =
+      resolveCompanionExecutionScope(),
 ) {
   return {
+    execution_scope:
+      executionScope,
+
     configured_mode:
       'active' as const,
 
@@ -158,6 +170,11 @@ export type StatefulCopilotBackgroundWorkerDependencies = {
     ReturnType<
       typeof createStatefulCopilotServerRuntimeOrchestrator
     >
+
+  // Escopo do deployment que consome a fila (padrão: VERCEL_ENV). Teste
+  // injeta para exercitar produção e homolog no mesmo processo.
+  execution_scope?:
+    CompanionExecutionScope
 }
 
 // Encerra (failed) jobs `running` da mesma conversa cujo lease venceu: o
@@ -165,9 +182,12 @@ export type StatefulCopilotBackgroundWorkerDependencies = {
 // started_at: um reclaim concorrente nunca é derrubado por engano.
 async function releaseExpiredRunningJobs({
   admin,
+  jobs_table,
   job,
 }: {
   admin: ReturnType<typeof createAdminClient>
+  // Tabela de jobs do escopo do job: o lease só é liberado dentro dele.
+  jobs_table: string
   job: {
     analysis_job_id: string
     company_id: string
@@ -181,7 +201,7 @@ async function releaseExpiredRunningJobs({
   } =
     await admin
       .from(
-        'companion_background_analysis_jobs',
+        jobs_table,
       )
       .select(
         'analysis_job_id, started_at',
@@ -239,7 +259,7 @@ async function releaseExpiredRunningJobs({
     } =
       await admin
         .from(
-          'companion_background_analysis_jobs',
+          jobs_table,
         )
         .update({
           status:
@@ -338,6 +358,44 @@ export async function processStatefulCopilotBackgroundMessage(
     )
   }
 
+  // R10: um deployment só executa job do próprio escopo. A fila já é por
+  // deployment; isto garante que nem uma mensagem republicada/forjada de
+  // outro ambiente seja processada aqui (ack, nunca reentregue).
+  const deploymentScope =
+    dependencies.execution_scope ??
+    resolveCompanionExecutionScope()
+
+  if (
+    job.execution_scope !==
+    deploymentScope
+  ) {
+    console.warn(
+      'YOLEN_COMPANION_STATEFUL_BACKGROUND',
+      JSON.stringify({
+        event:
+          'background_job_scope_mismatch',
+        company_id:
+          job.company_id,
+        analysis_job_id:
+          job.analysis_job_id,
+        job_execution_scope:
+          job.execution_scope,
+        deployment_execution_scope:
+          deploymentScope,
+      }),
+    )
+
+    throw new StatefulCopilotBackgroundInvalidMessageError(
+      'BACKGROUND_EXECUTION_SCOPE_MISMATCH',
+    )
+  }
+
+  const jobsTable =
+    companionDerivedTable(
+      'analysis_jobs',
+      job.execution_scope,
+    )
+
   /*
    * O endpoint /api/companion/analyze-conversation é V2-only. Portanto o
    * worker que consome esses jobs também precisa ser V2-only por construção,
@@ -351,6 +409,7 @@ export async function processStatefulCopilotBackgroundMessage(
     createStatefulCopilotServerRuntimeOrchestrator(
       buildStatefulCopilotBackgroundRuntimeOptions(
         job.company_id,
+        job.execution_scope,
       ),
     )
 
@@ -378,7 +437,7 @@ export async function processStatefulCopilotBackgroundMessage(
   } =
     await admin
       .from(
-        'companion_background_analysis_jobs',
+        jobsTable,
       )
       .select(
         'analysis_job_id, status, started_at',
@@ -464,7 +523,7 @@ export async function processStatefulCopilotBackgroundMessage(
   } =
     await admin
       .from(
-        'companion_background_analysis_jobs',
+        jobsTable,
       )
       .select(
         'analysis_job_id',
@@ -518,7 +577,7 @@ export async function processStatefulCopilotBackgroundMessage(
     } =
       await admin
         .from(
-          'companion_background_analysis_jobs',
+          jobsTable,
         )
         .update({
           status:
@@ -642,7 +701,7 @@ export async function processStatefulCopilotBackgroundMessage(
   let claimQuery =
     admin
       .from(
-        'companion_background_analysis_jobs',
+        jobsTable,
       )
       .update({
         status:
@@ -745,6 +804,8 @@ export async function processStatefulCopilotBackgroundMessage(
       '23505' &&
     await releaseExpiredRunningJobs({
       admin,
+      jobs_table:
+        jobsTable,
       job,
     })
   ) {
@@ -779,7 +840,7 @@ export async function processStatefulCopilotBackgroundMessage(
 
       await admin
         .from(
-          'companion_background_analysis_jobs',
+          jobsTable,
         )
         .update({
           status:
@@ -918,7 +979,7 @@ export async function processStatefulCopilotBackgroundMessage(
       } =
         await admin
           .from(
-            'companion_background_analysis_jobs',
+            jobsTable,
           )
           .update({
             status:
@@ -1000,7 +1061,7 @@ export async function processStatefulCopilotBackgroundMessage(
     } =
       await admin
         .from(
-          'companion_background_analysis_jobs',
+          jobsTable,
         )
         .select(
           'analysis_job_id',
@@ -1054,7 +1115,7 @@ export async function processStatefulCopilotBackgroundMessage(
       } =
         await admin
           .from(
-            'companion_background_analysis_jobs',
+            jobsTable,
           )
           .update({
             status:
@@ -1139,7 +1200,7 @@ export async function processStatefulCopilotBackgroundMessage(
       } =
         await admin
           .from(
-            'companion_background_analysis_jobs',
+            jobsTable,
           )
           .update({
             status:
@@ -1306,7 +1367,7 @@ export async function processStatefulCopilotBackgroundMessage(
       } =
         await admin
           .from(
-            'companion_background_analysis_jobs',
+            jobsTable,
           )
           .update({
             status:
@@ -1457,7 +1518,7 @@ export async function processStatefulCopilotBackgroundMessage(
       } =
         await admin
           .from(
-            'companion_background_analysis_jobs',
+            jobsTable,
           )
           .update({
             status:
@@ -1616,7 +1677,7 @@ export async function processStatefulCopilotBackgroundMessage(
     } =
       await admin
         .from(
-          'companion_background_analysis_jobs',
+          jobsTable,
         )
         .update({
           status:
@@ -1784,7 +1845,7 @@ export async function processStatefulCopilotBackgroundMessage(
       } =
         await admin
           .from(
-            'companion_background_analysis_jobs',
+            jobsTable,
           )
           .update({
             status:
@@ -1865,7 +1926,7 @@ export async function processStatefulCopilotBackgroundMessage(
 
     await admin
       .from(
-        'companion_background_analysis_jobs',
+        jobsTable,
       )
       .update({
         status:

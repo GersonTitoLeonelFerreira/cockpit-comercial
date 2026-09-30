@@ -1,5 +1,10 @@
 import 'server-only'
 
+import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+} from '../companion/companion-execution-scope'
+
 import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
@@ -677,7 +682,10 @@ async function loadCurrentStateRows({
       fetchPage: (offset, limit) =>
         admin
           .from(
-            'companion_commercial_states',
+            companionDerivedTable(
+              'commercial_states',
+              resolveCompanionExecutionScope(),
+            ),
           )
           .select(
             CYCLE_COMMERCIAL_MEMORY_STATE_FIELDS,
@@ -854,7 +862,10 @@ async function loadHistoricalEventRows({
       fetchPage: (offset, limit) =>
         admin
           .from(
-            'companion_commercial_state_events',
+            companionDerivedTable(
+              'commercial_state_events',
+              resolveCompanionExecutionScope(),
+            ),
           )
           .select(
             CYCLE_COMMERCIAL_MEMORY_EVENT_FIELDS,

@@ -266,6 +266,33 @@ test(
 )
 
 test(
+  'R10: cada escopo persiste só pela própria RPC (homolog nunca escreve o estado de produção)',
+  async () => {
+    for (const [scope, expectedRpc] of [
+      ['homolog', 'rpc_persist_stateful_copilot_state_homolog'],
+      ['production', STATEFUL_COPILOT_PERSISTENCE_RPC_NAME],
+    ]) {
+      const names = []
+
+      const writer =
+        createStatefulCopilotSupabaseWriter({
+          client: {
+            async rpc(functionName) {
+              names.push(functionName)
+              return { data: null, error: { code: 'P0001', message: 'stop' } }
+            },
+          },
+          execution_scope: scope,
+        })
+
+      await writer(buildRequest()).catch(() => null)
+
+      assert.deepEqual(names, [expectedRpc])
+    }
+  },
+)
+
+test(
   'chama somente a RPC stateful e retorna a confirmação do banco',
   async () => {
     const calls = []

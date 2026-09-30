@@ -9,6 +9,12 @@ import type {
 } from '@/app/types/commercial-config'
 
 import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+  type CompanionExecutionScope,
+} from './companion-execution-scope'
+
+import {
   buildCompanionDiagnosticInput,
   type CompanionDiagnosticInput,
 } from './diagnostic-input'
@@ -2472,6 +2478,7 @@ export async function loadDurableMemorySeedForMissingState({
   leadId,
   originCycleId,
   currentCycleCreatedAt,
+  executionScope,
 }: {
   client:
     StatefulCopilotRealContextSupabaseClient
@@ -2479,6 +2486,11 @@ export async function loadDurableMemorySeedForMissingState({
   companyId: string
   cycleId: string
   leadId: string
+
+  // R10: a semente vem do estado do ciclo anterior NO MESMO escopo.
+  // Ausente = escopo do deployment.
+  executionScope?:
+    CompanionExecutionScope
 
   originCycleId:
     string | null
@@ -2632,7 +2644,11 @@ export async function loadDurableMemorySeedForMissingState({
       await readList(
         client
           .from(
-            'companion_commercial_states',
+            companionDerivedTable(
+              'commercial_states',
+              executionScope ??
+                resolveCompanionExecutionScope(),
+            ),
           )
           .select(
             DURABLE_MEMORY_SEED_STATE_FIELDS,
@@ -2970,13 +2986,28 @@ export function createStatefulCopilotRealContextLoader(
     StatefulCopilotRealContextSupabaseClient,
   dependencies:
     StatefulCopilotRealContextLoaderDependencies = {},
+  {
+    execution_scope,
+  }: {
+    // R10: estado anterior e semente só do armazenamento deste escopo.
+    // Ausente = escopo do deployment.
+    execution_scope?:
+      CompanionExecutionScope
+  } = {},
 ): StatefulCopilotRealContextLoader {
+  const executionScope =
+    execution_scope ??
+    resolveCompanionExecutionScope()
+
   const stateReader =
     dependencies.state_reader ??
     createStatefulCopilotSupabaseReader({
       client:
         client as unknown as
           StatefulCopilotSupabaseReadClient,
+
+      execution_scope:
+        executionScope,
     })
 
   return async ({
@@ -3264,6 +3295,8 @@ export function createStatefulCopilotRealContextLoader(
 
             currentCycleCreatedAt:
               canonicalScope.cycle.created_at,
+
+            executionScope,
           })
         : null
 

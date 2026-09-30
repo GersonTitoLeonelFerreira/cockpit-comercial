@@ -632,6 +632,10 @@ function createCompanionAnalysisController(ctx) {
           started_at: data?.started_at ?? null,
           updated_at: data?.updated_at ?? null,
           failure_code: data?.failure_code ?? null,
+          execution_scope:
+            typeof data?.execution_scope === 'string'
+              ? data.execution_scope
+              : ctx.state.deepAnalysisDebug?.execution_scope ?? null,
           stale: data?.stale === true,
           poll_attempt: attempt,
           polling_since_ms: startedAtMs,
@@ -726,6 +730,37 @@ function createCompanionAnalysisController(ctx) {
         response?.ok && response.payload?.ok
           ? response.payload.data
           : null
+
+      // R10: job/resultado de outro ambiente nunca vira estado da tela.
+      // Terminal (não adianta repetir), sem aplicar nada do job.
+      if (
+        !data &&
+        response?.payload?.code === 'EXECUTION_SCOPE_MISMATCH'
+      ) {
+        activeAnalysisAttempt = null
+
+        recordDebug(null, {
+          execution_scope:
+            response.payload.execution_scope ?? null,
+          failure_code: 'EXECUTION_SCOPE_MISMATCH',
+        })
+
+        ctx.state = {
+          ...ctx.state,
+          conversationAnalysisLoading: false,
+          conversationAnalysisError:
+            response.payload.error ||
+            'A análise veio de outro ambiente da Yolen e foi descartada.',
+          automaticAnalysisStatus: null,
+          deepAnalysisStatus: null,
+          deepAnalysisResult: null,
+          deepAnalysisTimings: null,
+          deepAnalysisNotice: null,
+        }
+
+        renderPanel()
+        return
+      }
 
       if (!data || typeof data.status !== 'string') {
         // Falha isolada de rede/servidor num único tick não vira estado de

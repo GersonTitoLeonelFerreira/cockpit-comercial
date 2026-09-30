@@ -7,6 +7,12 @@ import type {
   StatefulCopilotPersistenceWriterRequest,
 } from './stateful-copilot-persistence-executor'
 
+import {
+  companionStatePersistenceRpc,
+  resolveCompanionExecutionScope,
+  type CompanionExecutionScope,
+} from './companion-execution-scope'
+
 export const STATEFUL_COPILOT_PERSISTENCE_RPC_NAME =
   'rpc_persist_stateful_copilot_state' as const
 
@@ -298,10 +304,22 @@ export function buildStatefulCopilotSupabaseRpcParameters(
 
 export function createStatefulCopilotSupabaseWriter({
   client,
+  execution_scope,
 }: {
   client:
     StatefulCopilotSupabaseRpcClient
+
+  // R10: a RPC do escopo grava só no armazenamento derivado dele (padrão:
+  // o do deployment). Homolog nunca escreve o estado que a produção lê.
+  execution_scope?:
+    CompanionExecutionScope
 }): StatefulCopilotPersistenceWriter {
+  const persistenceRpc =
+    companionStatePersistenceRpc(
+      execution_scope ??
+        resolveCompanionExecutionScope(),
+    )
+
   return async (
     request,
   ) => {
@@ -316,7 +334,7 @@ export function createStatefulCopilotSupabaseWriter({
     try {
       result =
         await client.rpc(
-          STATEFUL_COPILOT_PERSISTENCE_RPC_NAME,
+          persistenceRpc,
           parameters,
         )
     } catch (error) {

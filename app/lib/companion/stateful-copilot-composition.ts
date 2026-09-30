@@ -42,6 +42,10 @@ import type {
 } from './stateful-copilot-executor'
 
 import type {
+  CompanionExecutionScope,
+} from './companion-execution-scope'
+
+import type {
   StatefulCopilotPersistenceWriter,
 } from './stateful-copilot-persistence-executor'
 
@@ -131,6 +135,11 @@ export type CreateStatefulCopilotCompositionArgs = {
 
   dependencies?:
     StatefulCopilotCompositionFactoryDependencies
+
+  // R10: reader e writer do armazenamento derivado deste escopo. Ausente =
+  // escopo do deployment (resolvido no reader/writer).
+  execution_scope?:
+    CompanionExecutionScope
 }
 
 export class StatefulCopilotCompositionError
@@ -342,6 +351,7 @@ export function createStatefulCopilotComposition({
   create_memory_id =
     createDeterministicStatefulCommercialMemoryId,
   dependencies = {},
+  execution_scope,
 }: CreateStatefulCopilotCompositionArgs): StatefulCopilotComposition {
   const createReader =
     dependencies.create_reader ??
@@ -359,14 +369,21 @@ export function createStatefulCopilotComposition({
     dependencies.run_service ??
     runStatefulCopilotIntegratedService
 
+  const scopeOption =
+    execution_scope
+      ? { execution_scope }
+      : {}
+
   const reader =
     createReader({
       client,
+      ...scopeOption,
     })
 
   const writer =
     createWriter({
       client,
+      ...scopeOption,
     })
 
   const provider =

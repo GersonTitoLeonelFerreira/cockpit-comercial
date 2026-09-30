@@ -458,6 +458,35 @@ para todas as superfícies):
   - A observação do ledger é 1 consulta em lote.
   - Os derivados por fonte ficam em cache. O gate da leitura caiu de 444 ms para ~75 ms com 1000 mensagens e 150 itens (~34 ms com 150 mensagens).
 
+### Isolamento real entre HOMOLOG e PRODUÇÃO (R10)
+
+**Problema comprovado.** Preview (HML) e produção usam o MESMO banco. As filas da Vercel já são por deployment, mas o job e todos os resultados derivados eram compartilhados:
+
+- Identidade do job era `sha256(versão, empresa, ciclo, conversa, watermark)`: o HML e a produção geravam o MESMO `analysis_job_id` e disputavam o mesmo índice `one_running_per_conversation`.
+- O worker do Preview gravava `companion_commercial_states`/`companion_commercial_state_events` que a produção lê. Os estados atuais de Lorena (v6), Júlia (v1), três contatos de WhatsApp e duas conversas do ManyChat tinham sido produzidos pelo worker do Preview (`consumer_start` com `vercel_env=preview`).
+- A memória do ciclo lê todos os estados do ciclo sem filtro de conversa: qualquer namespacing só na chave da conversa vazaria.
+
+**Escopo explícito** (`companion-execution-scope.ts`): `production` | `homolog`, resolvido do ambiente do deployment (`VERCEL_ENV`), nunca do commit. `preview` é sempre homolog (override não vale na Vercel); `next dev` local é homolog; testes e scripts, produção.
+
+**Armazenamento derivado por escopo** (migration `20260930020000_create_companion_homolog_derived_storage.sql`):
+
+- Produção continua exatamente nas tabelas canônicas (o que a `main` já lê). Elas ganham `execution_scope text not null default 'production'` com CHECK `= 'production'`: todo registro legado é explicitamente produção.
+- O HOMOLOG tem `*_homolog` para jobs, estados, eventos (Reading) e etapa do método, criadas `LIKE ... INCLUDING ALL` (mesmos CHECKs, incluindo `no_auto_write_check`, mesmos índices únicos e o parcial one-running), CHECK `= 'homolog'`, FKs para `sales_cycles`/configuração, RLS negando cliente e os mesmos grants do service role.
+- A RPC `rpc_persist_stateful_copilot_state_homolog` é gerada da RPC canônica (mesma lógica de CAS, idempotência, auditoria e recusa de escrita em CRM/Agenda), gravando só no armazenamento homolog e com locks consultivos em outro espaço de chaves.
+
+**Identidade do job.** `sha256(versão, escopo, empresa, ciclo, conversa, watermark)`: o mesmo contexto gera jobs diferentes por ambiente. O id legado (sem escopo) é aceito só como produção; homolog nunca o reivindica. Mensagem de fila sem escopo é produção; escopo adulterado é recusado.
+
+**Cadeia escopada.**
+
+- A rota de análise insere no armazenamento do escopo e reaproveita por campos do escopo. Isso inclui o job legado de produção, mas nunca uma linha de outro escopo.
+- O worker rejeita (ack, zero banco, zero IA) mensagem de outro escopo. Todas as consultas de job (claim, lease vencido, "job mais novo", supersede, retry, falha) usam a tabela do escopo, e o runtime recebe o escopo para ler o estado anterior e a semente de memória e persistir pela RPC do escopo.
+- Recuperação de órfão e "Tentar novamente" operam só na tabela do escopo, com identidade do escopo.
+- Polling (`analysis-job-status`) lê job e eventos só do escopo e devolve `execution_scope`.
+- Loaders seller-facing (contexto canônico, Reading, memória do ciclo, coaching do método, etapa do método, Message Intelligence) resolvem a tabela pelo escopo do deployment.
+- A extensão confere o escopo com o canal (PROD ↔ `production`, HOMOLOG ↔ `homolog`; sem escopo = legado = produção) e descarta job/resultado de outro ambiente. O "Analysis debug" do HML mostra `execution_scope`.
+
+**Dado-fonte continua compartilhado e só lido** (membership, perfil, ciclo, lead, eventos do ciclo, mensagens, configuração comercial): o HML analisa a conversa real sem mudar nada que a produção mostra depois.
+
 ## 3. Evidência
 
 - `sales-expert-recovery-golden.test.mjs` + `docs/companion-v2/corpus/sales-expert-recovery-golden.json`:
@@ -499,3 +528,8 @@ para todas as superfícies):
   - `companion-analysis-job-retry.test.mjs`: órfão `queued`/`running` reaberto uma vez, vencedor único;
   - `stateful-copilot-orchestrator.test.mjs`: o reparo de contrato chega à 2ª tentativa;
   - `analysis-multi-conversation-sequence.test.mjs`: Lorena → Júlia → C → voltas, sem vazamento, e diagnóstico só no HML.
+- R10:
+  - `execution-scope-isolation.test.mjs`: A (identidade por escopo, legado só produção), B/C (running e "mais novo" não cruzam), D/E (lease e recuperação de órfão no próprio escopo), F (polling), G/H (eventos, estado anterior, etapa do método), J (multiempresa), worker de outro escopo, CRM/Agenda nunca escritos, guarda estrutural sem acesso direto às tabelas derivadas;
+  - `route-execution-scope.test.mjs`: I (HML lê os mesmos dados-fonte e grava só o próprio job) e idempotência por escopo;
+  - `stateful-copilot-supabase-writer.test.mjs`: RPC do escopo;
+  - `tests/execution-scope-channel.test.mjs` e `analysis-multi-conversation-sequence.test.mjs`: canal ↔ escopo, descarte de job de outro ambiente, `execution_scope` no debug HML.

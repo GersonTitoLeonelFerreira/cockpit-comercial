@@ -24,6 +24,12 @@ import {
   recordCompanionRuntimePathDiagnostic,
 } from './companion-runtime-path-diagnostics'
 
+import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+  type CompanionExecutionScope,
+} from '@/app/lib/companion/companion-execution-scope'
+
 export type QueuePublisher = (
   topic: string,
   message: unknown,
@@ -38,6 +44,7 @@ export type CompanionAnalysisJobRetryResult = {
   status:
     'queued' | 'running' | 'succeeded' | 'failed' | 'superseded'
   message_watermark: string
+  execution_scope: CompanionExecutionScope
 }
 
 function isRecord(
@@ -116,6 +123,8 @@ function publicStatus(
       value.status,
     message_watermark:
       value.message_watermark,
+    execution_scope:
+      value.execution_scope,
   }
 }
 
@@ -137,18 +146,22 @@ export type StaleAnalysisJobRow = {
 // updated_at), reabre o job (mesma identidade, mesmo requested_at) e
 // publica uma entrega nova. Dois workers nunca rodam o mesmo job: o claim
 // do worker é CAS em status='queued' e só existe um `running` por conversa.
+// R10: só dentro do escopo — a tabela é a do escopo e a identidade do job
+// precisa ser do escopo (homolog nunca reabre job de produção/legado).
 export async function recoverStaleCompanionAnalysisJob({
   admin,
   job,
   device_key,
   publish,
   now_ms = Date.now(),
+  execution_scope = resolveCompanionExecutionScope(),
 }: {
   admin: SupabaseClient
   job: StaleAnalysisJobRow
   device_key: string
   publish: QueuePublisher
   now_ms?: number
+  execution_scope?: CompanionExecutionScope
 }): Promise<{ recovered: boolean; status: string }> {
   const staleness =
     classifyStatefulCopilotBackgroundJobStaleness({
@@ -162,25 +175,33 @@ export async function recoverStaleCompanionAnalysisJob({
     return { recovered: false, status: job.status }
   }
 
-  const descriptor =
-    buildStatefulCopilotBackgroundJobDescriptor({
-      company_id: job.company_id,
-      cycle_id: job.cycle_id,
-      conversation_key: job.conversation_key,
-      message_watermark: job.message_watermark,
-      requested_at: job.requested_at,
-    })
+  let descriptor:
+    ReturnType<typeof buildStatefulCopilotBackgroundJobDescriptor>
 
-  if (descriptor.analysis_job_id !== job.analysis_job_id) {
+  try {
+    descriptor =
+      buildStatefulCopilotBackgroundJobDescriptor({
+        execution_scope,
+        company_id: job.company_id,
+        cycle_id: job.cycle_id,
+        conversation_key: job.conversation_key,
+        message_watermark: job.message_watermark,
+        requested_at: job.requested_at,
+        analysis_job_id: job.analysis_job_id,
+      })
+  } catch {
     return { recovered: false, status: job.status }
   }
+
+  const jobsTable =
+    companionDerivedTable('analysis_jobs', execution_scope)
 
   const recoveredAt =
     new Date(now_ms).toISOString()
 
   let casQuery =
     admin
-      .from('companion_background_analysis_jobs')
+      .from(jobsTable)
       .update({
         status: 'queued',
         started_at: null,
@@ -242,7 +263,7 @@ export async function recoverStaleCompanionAnalysisJob({
       new Date().toISOString()
 
     await admin
-      .from('companion_background_analysis_jobs')
+      .from(jobsTable)
       .update({
         status: 'failed',
         completed_at: failedAt,
@@ -263,6 +284,7 @@ export async function recoverStaleCompanionAnalysisJob({
     'YOLEN_COMPANION_BACKGROUND_JOB',
     JSON.stringify({
       event: 'background_job_stale_recovered',
+      execution_scope,
       company_id: job.company_id,
       cycle_id: job.cycle_id,
       analysis_job_id: job.analysis_job_id,
@@ -280,6 +302,7 @@ export async function retryCompanionAnalysisJob({
   device_key,
   allow_succeeded = false,
   publish,
+  execution_scope = resolveCompanionExecutionScope(),
 }: {
   admin: SupabaseClient
   token: CompanionTokenPayload
@@ -287,11 +310,16 @@ export async function retryCompanionAnalysisJob({
   device_key: unknown
   allow_succeeded?: boolean
   publish: QueuePublisher
+  // R10: só reabre/republica job do próprio escopo (tabela do escopo).
+  execution_scope?: CompanionExecutionScope
 }): Promise<CompanionAnalysisJobRetryResult> {
   const deviceKey =
     normalizeDeviceKey(
       device_key,
     )
+
+  const jobsTable =
+    companionDerivedTable('analysis_jobs', execution_scope)
 
   /*
    * A leitura canônica faz toda a cadeia de autorização antes de qualquer
@@ -302,6 +330,7 @@ export async function retryCompanionAnalysisJob({
     await loadCompanionAnalysisJobStatus({
       admin,
       token,
+      execution_scope,
       analysis_job_id,
     })
 
@@ -326,7 +355,7 @@ export async function retryCompanionAnalysisJob({
   ) {
     const { data: liveJob } =
       await admin
-        .from('companion_background_analysis_jobs')
+        .from(jobsTable)
         .select(
           'analysis_job_id, company_id, cycle_id, conversation_key, message_watermark, status, requested_at, updated_at, started_at',
         )
@@ -361,6 +390,7 @@ export async function retryCompanionAnalysisJob({
           },
           device_key: deviceKey,
           publish,
+          execution_scope,
         })
 
       if (recovery.recovered) {
@@ -368,6 +398,7 @@ export async function retryCompanionAnalysisJob({
           analysis_job_id: authorized.analysis_job_id,
           status: 'queued',
           message_watermark: authorized.message_watermark,
+          execution_scope,
         }
       }
     }
@@ -390,7 +421,7 @@ export async function retryCompanionAnalysisJob({
   } =
     await admin
       .from(
-        'companion_background_analysis_jobs',
+        jobsTable,
       )
       .select(
         'analysis_job_id, company_id, cycle_id, conversation_key, message_watermark, status, requested_at, updated_at',
@@ -441,6 +472,7 @@ export async function retryCompanionAnalysisJob({
       await loadCompanionAnalysisJobStatus({
         admin,
         token,
+        execution_scope,
         analysis_job_id:
           authorized.analysis_job_id,
       }),
@@ -471,28 +503,39 @@ export async function retryCompanionAnalysisJob({
     })
   }
 
-  const descriptor =
-    buildStatefulCopilotBackgroundJobDescriptor({
-      company_id:
-        companyId,
-      cycle_id:
-        authorized.cycle_id,
-      conversation_key:
-        authorized.conversation_key,
-      message_watermark:
-        authorized.message_watermark,
-      /*
-       * O requested_at original é o corte causal do ledger. Alterá-lo com o
-       * mesmo analysis_job_id faria a identidade do snapshot mentir.
-       */
-      requested_at:
-        failedJob.requested_at,
-    })
+  // A identidade persistida precisa ser a do escopo (ou, só em produção, o
+  // id legado anterior ao escopo).
+  let descriptor:
+    ReturnType<typeof buildStatefulCopilotBackgroundJobDescriptor> |
+      null =
+      null
 
-  if (
-    descriptor.analysis_job_id !==
-      authorized.analysis_job_id
-  ) {
+  try {
+    descriptor =
+      buildStatefulCopilotBackgroundJobDescriptor({
+        execution_scope,
+        company_id:
+          companyId,
+        cycle_id:
+          authorized.cycle_id,
+        conversation_key:
+          authorized.conversation_key,
+        message_watermark:
+          authorized.message_watermark,
+        /*
+         * O requested_at original é o corte causal do ledger. Alterá-lo com o
+         * mesmo analysis_job_id faria a identidade do snapshot mentir.
+         */
+        requested_at:
+          failedJob.requested_at,
+        analysis_job_id:
+          authorized.analysis_job_id,
+      })
+  } catch {
+    descriptor = null
+  }
+
+  if (!descriptor) {
     fail({
       code:
         'DEEP_RESULT_INTEGRITY_ERROR',
@@ -515,7 +558,7 @@ export async function retryCompanionAnalysisJob({
   } =
     await admin
       .from(
-        'companion_background_analysis_jobs',
+        jobsTable,
       )
       .update({
         status:
@@ -600,6 +643,7 @@ export async function retryCompanionAnalysisJob({
       await loadCompanionAnalysisJobStatus({
         admin,
         token,
+        execution_scope,
         analysis_job_id:
           authorized.analysis_job_id,
       }),
@@ -656,8 +700,8 @@ export async function retryCompanionAnalysisJob({
     } =
       await admin
         .from(
-          'companion_background_analysis_jobs',
-        )
+        jobsTable,
+      )
         .update({
           status:
             'failed',
@@ -716,6 +760,7 @@ export async function retryCompanionAnalysisJob({
       await loadCompanionAnalysisJobStatus({
         admin,
         token,
+        execution_scope,
         analysis_job_id:
           authorized.analysis_job_id,
       }),
@@ -729,5 +774,6 @@ export async function retryCompanionAnalysisJob({
       'queued',
     message_watermark:
       authorized.message_watermark,
+    execution_scope,
   }
 }

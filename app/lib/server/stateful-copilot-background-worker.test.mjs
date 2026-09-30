@@ -226,6 +226,7 @@ function buildActiveResult() {
 
 function buildMessage() {
   const descriptor = buildStatefulCopilotBackgroundJobDescriptor({
+    execution_scope: 'production',
     company_id: 'company-a',
     cycle_id: 'cycle-a',
     conversation_key: 'phone:5511999999999',
