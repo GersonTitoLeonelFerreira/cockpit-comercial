@@ -82,6 +82,7 @@ function createRuntimeHarness({
     'Podemos conversar amanhã para alinharmos os próximos detalhes?',
   loadLeadSummaryImpl = null,
   generationResponse = null,
+  environment = null,
 } = {}) {
   const dom = new JSDOM(
     `<!doctype html><html><head></head><body>
@@ -202,6 +203,10 @@ function createRuntimeHarness({
     String,
   }
   sandbox.globalThis = sandbox
+
+  if (environment) {
+    sandbox.YolenCompanionEnvironment = environment
+  }
 
   vm.createContext(sandbox)
   vm.runInContext(adapterSource, sandbox, {
@@ -632,4 +637,52 @@ test('troca A -> B remove imediatamente a mensagem de A enquanto B ainda carrega
     boxB.innerHTML,
     /data-yolen-seller-message-action="insert"/,
   )
+})
+
+// R8 — firewall factual: o aviso ao vendedor (instrução que não virou fato)
+// sempre aparece; o trace factual (claim → fonte → status) só no pacote HML.
+const FACT_GENERATION = {
+  status: 'ready',
+  message: 'Oi, Lorena! Você comentou que queria fazer a aula. Como está esse interesse agora?',
+  error: null,
+  advisories: ['Não usei R$ 79,90 porque não encontrei esse valor confirmado na configuração da empresa.'],
+  fact_trace: {
+    fact_trace: [{ claim: 'Você comentou que queria fazer a aula.', kind: 'customer_statement', value: 'fazer a aula', status: 'verified', sources: ['customer_message:2511'], reason: null }],
+    blocked_claims: [{ claim: 'Você comentou que queria fazer a aula com seu marido.', kind: 'relationship', value: 'conjuge', status: 'unsupported', sources: [], reason: 'relationship_not_declared_by_customer' }],
+    excluded_evidence: [{ source_type: 'customer_message', source_id: '2559', reason: 'absent_from_later_view' }],
+  },
+}
+
+test('R8: aviso de instrução sem fonte aparece junto da mensagem entregue', async () => {
+  const harness = createRuntimeHarness({ generationResponse: FACT_GENERATION })
+  await generateMessage(harness)
+
+  const advisory = harness.document.querySelector('[data-yolen-seller-message-advisory]')
+  assert.ok(advisory)
+  assert.match(advisory.textContent, /Não usei R\$ 79,90/)
+  assert.match(
+    harness.document.querySelector('.yolen-message-result-text').textContent,
+    /Como está esse interesse agora\?/,
+  )
+})
+
+test('R8: trace factual só no pacote HML — PROD nunca o desenha, mesmo se o payload vier com ele', async () => {
+  const prod = createRuntimeHarness({
+    generationResponse: FACT_GENERATION,
+    environment: { channel: 'prod' },
+  })
+  await generateMessage(prod)
+  assert.equal(prod.document.querySelector('[data-yolen-seller-message-fact-trace]'), null)
+
+  const homolog = createRuntimeHarness({
+    generationResponse: FACT_GENERATION,
+    environment: { channel: 'homolog' },
+  })
+  await generateMessage(homolog)
+
+  const trace = homolog.document.querySelector('[data-yolen-seller-message-fact-trace]')
+  assert.ok(trace)
+  assert.match(trace.textContent, /1 afirmações, 1 removidas, 1 evidências excluídas/)
+  assert.match(trace.textContent, /relationship/)
+  assert.match(trace.textContent, /customer_message:2559 · absent_from_later_view/)
 })

@@ -605,6 +605,45 @@ function createCompanionAnalysisController(ctx) {
     let attempt = 0
     let lastObservedJobStatus = null
     let lastObservedTimings = null
+    // R9: um job órfão (servidor marca `stale`) é recuperado uma única vez
+    // por ciclo de acompanhamento — nunca reaproveitado parado.
+    let staleRecoveryRequested = false
+
+    // Diagnóstico técnico compacto da fila/job (renderizado só no HML).
+    const recordDebug = (data, extra = {}) => {
+      ctx.state = {
+        ...ctx.state,
+        deepAnalysisDebug: {
+          analysis_job_id: analysisJobId,
+          conversation_key: conversationKeyAtRequest,
+          message_watermark:
+            typeof data?.message_watermark === 'string'
+              ? data.message_watermark
+              : ctx.state.deepAnalysisDebug?.message_watermark ?? null,
+          status:
+            typeof data?.status === 'string'
+              ? data.status
+              : ctx.state.deepAnalysisDebug?.status ?? null,
+          attempt_count:
+            typeof data?.attempt_count === 'number'
+              ? data.attempt_count
+              : null,
+          requested_at: data?.requested_at ?? null,
+          started_at: data?.started_at ?? null,
+          updated_at: data?.updated_at ?? null,
+          failure_code: data?.failure_code ?? null,
+          execution_scope:
+            typeof data?.execution_scope === 'string'
+              ? data.execution_scope
+              : ctx.state.deepAnalysisDebug?.execution_scope ?? null,
+          stale: data?.stale === true,
+          poll_attempt: attempt,
+          polling_since_ms: startedAtMs,
+          recovery_requested: staleRecoveryRequested,
+          ...extra,
+        },
+      }
+    }
 
     const scheduleNextTick = () => {
       if (!isAnalysisResponseStillCurrent()) {
@@ -692,6 +731,37 @@ function createCompanionAnalysisController(ctx) {
           ? response.payload.data
           : null
 
+      // R10: job/resultado de outro ambiente nunca vira estado da tela.
+      // Terminal (não adianta repetir), sem aplicar nada do job.
+      if (
+        !data &&
+        response?.payload?.code === 'EXECUTION_SCOPE_MISMATCH'
+      ) {
+        activeAnalysisAttempt = null
+
+        recordDebug(null, {
+          execution_scope:
+            response.payload.execution_scope ?? null,
+          failure_code: 'EXECUTION_SCOPE_MISMATCH',
+        })
+
+        ctx.state = {
+          ...ctx.state,
+          conversationAnalysisLoading: false,
+          conversationAnalysisError:
+            response.payload.error ||
+            'A análise veio de outro ambiente da Yolen e foi descartada.',
+          automaticAnalysisStatus: null,
+          deepAnalysisStatus: null,
+          deepAnalysisResult: null,
+          deepAnalysisTimings: null,
+          deepAnalysisNotice: null,
+        }
+
+        renderPanel()
+        return
+      }
+
       if (!data || typeof data.status !== 'string') {
         // Falha isolada de rede/servidor num único tick não vira estado de
         // erro seller-facing — apenas tenta de novo no próximo backoff.
@@ -700,6 +770,28 @@ function createCompanionAnalysisController(ctx) {
       }
 
       if (data.status === 'queued' || data.status === 'running') {
+        if (
+          data.stale === true &&
+          !staleRecoveryRequested &&
+          typeof window.YolenCompanionApi?.recoverAnalysisJob === 'function'
+        ) {
+          staleRecoveryRequested = true
+
+          try {
+            await window.YolenCompanionApi.recoverAnalysisJob({
+              analysis_job_id: analysisJobId,
+            })
+          } catch {
+            // O próximo tick relê o estado real do servidor.
+          }
+
+          if (!isAnalysisResponseStillCurrent()) {
+            return
+          }
+        }
+
+        recordDebug(data)
+
         const statusChanged =
           lastObservedJobStatus !==
             data.status
@@ -730,6 +822,8 @@ function createCompanionAnalysisController(ctx) {
         scheduleNextTick()
         return
       }
+
+      recordDebug(data)
 
       if (data.status === 'succeeded') {
         activeAnalysisAttempt = null
@@ -998,6 +1092,7 @@ function createCompanionAnalysisController(ctx) {
       deepAnalysisResult: null,
       deepAnalysisTimings: null,
       deepAnalysisNotice: null,
+      deepAnalysisDebug: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,

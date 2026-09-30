@@ -1,5 +1,10 @@
 import 'server-only'
 
+import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+} from '../companion/companion-execution-scope'
+
 import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
@@ -19,6 +24,11 @@ import {
   isStatefulCopilotCommitmentStatus,
   isStatefulCopilotConfidence,
 } from '@/app/lib/companion/stateful-copilot-contract'
+
+import {
+  gateCycleMemoryProvenance,
+  type FactEvidenceRegistry,
+} from '@/app/lib/companion/commercial-fact-grounding'
 
 const CYCLE_COMMERCIAL_MEMORY_STATE_FIELDS = [
   'id',
@@ -672,7 +682,10 @@ async function loadCurrentStateRows({
       fetchPage: (offset, limit) =>
         admin
           .from(
-            'companion_commercial_states',
+            companionDerivedTable(
+              'commercial_states',
+              resolveCompanionExecutionScope(),
+            ),
           )
           .select(
             CYCLE_COMMERCIAL_MEMORY_STATE_FIELDS,
@@ -849,7 +862,10 @@ async function loadHistoricalEventRows({
       fetchPage: (offset, limit) =>
         admin
           .from(
-            'companion_commercial_state_events',
+            companionDerivedTable(
+              'commercial_state_events',
+              resolveCompanionExecutionScope(),
+            ),
           )
           .select(
             CYCLE_COMMERCIAL_MEMORY_EVENT_FIELDS,
@@ -1260,11 +1276,18 @@ export async function loadCanonicalCycleCommercialMemory({
   company_id,
   cycle_id,
   reference_time,
+  fact_registry = null,
+  conversation_key = null,
 }: {
   admin: SupabaseClient
   company_id: string
   cycle_id: string
   reference_time: string
+  // Firewall de proveniência (R8): com o registro de evidências da
+  // conversa atual, os itens DESTA conversa passam pelo mesmo gate que a
+  // leitura e o estado — memória nunca lava fato.
+  fact_registry?: FactEvidenceRegistry | null
+  conversation_key?: string | null
 }): Promise<CanonicalCycleCommercialMemory | null> {
   const referenceTime =
     normalizeDateOrNull(reference_time)
@@ -1307,7 +1330,7 @@ export async function loadCanonicalCycleCommercialMemory({
         ...historicalRows,
       ])
 
-    return {
+    const memory: CanonicalCycleCommercialMemory = {
       company_id,
       cycle_id,
       reference_time:
@@ -1315,6 +1338,14 @@ export async function loadCanonicalCycleCommercialMemory({
 
       ...collected,
     }
+
+    return fact_registry && conversation_key
+      ? gateCycleMemoryProvenance(
+        memory,
+        fact_registry,
+        conversation_key,
+      ).memory
+      : memory
   } catch (error) {
     console.error(
       '[CANONICAL_CYCLE_COMMERCIAL_MEMORY] lookup or aggregation failed, continuing without cycle memory',

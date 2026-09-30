@@ -1,11 +1,85 @@
 /* global browser, chrome */
 
 ;(function initYolenCompanionApi() {
-  const DEFAULT_BASE_URL =
-    'https://cockpit-comercial-vocn.vercel.app'
-
   const LOCAL_BASE_URL =
     'http://localhost:3000'
+
+  // Configuração canônica do canal (src/companion-environment.js, carregada
+  // antes deste arquivo; nos pacotes prod/homolog ela é GERADA pelo build).
+  // Só ela decide o backend padrão e as origens de sessão autorizadas.
+  // Fora do manifest (testes que avaliam só este arquivo) vale o canal dev.
+  const companionEnvironment =
+    globalThis.YolenCompanionEnvironment || {
+      channel: 'dev',
+      api_base_url: 'https://cockpit-comercial-vocn.vercel.app',
+      allowed_base_urls: [
+        'https://cockpit-comercial-vocn.vercel.app',
+        LOCAL_BASE_URL,
+      ],
+      backend_match_required: false,
+    }
+
+  const DEFAULT_BASE_URL =
+    companionEnvironment.api_base_url
+
+  // R10 — escopo de execução do backend deste canal. O pacote PROD só
+  // acompanha job/resultado de produção e o HOMOLOG só de homolog; um job
+  // de outro ambiente é descartado, nunca exibido. Resposta sem escopo
+  // (backend anterior ao R10) é legado = produção. dev/e2e não impõem.
+  const EXPECTED_EXECUTION_SCOPE_BY_CHANNEL = Object.freeze({
+    prod: 'production',
+    homolog: 'homolog',
+  })
+
+  const EXECUTION_SCOPE_MISMATCH_CODE =
+    'EXECUTION_SCOPE_MISMATCH'
+
+  function getExpectedExecutionScope() {
+    return (
+      EXPECTED_EXECUTION_SCOPE_BY_CHANNEL[
+        companionEnvironment.channel
+      ] || null
+    )
+  }
+
+  function resolveExecutionScope(value) {
+    return value === undefined || value === null
+      ? 'production'
+      : value
+  }
+
+  function isExecutionScopeAccepted(value) {
+    const expected =
+      getExpectedExecutionScope()
+
+    return (
+      !expected ||
+      resolveExecutionScope(value) === expected
+    )
+  }
+
+  function buildExecutionScopeMismatchResponse(value) {
+    return {
+      ok: false,
+      statusCode: 409,
+      payload: {
+        ok: false,
+        code:
+          EXECUTION_SCOPE_MISMATCH_CODE,
+        retryable:
+          false,
+        error:
+          'A análise veio de outro ambiente da Yolen e foi descartada.',
+        execution_scope:
+          resolveExecutionScope(value),
+        expected_execution_scope:
+          getExpectedExecutionScope(),
+      },
+    }
+  }
+
+  const ALLOWED_BASE_URLS =
+    companionEnvironment.allowed_base_urls
 
   let sessionBaseUrl = null
   let lastLeadLookupContext = null
@@ -38,10 +112,10 @@
     )
   }
 
+  // Só origens do canal deste pacote (HOMOLOG: só o preview configurado).
   function getAllowedSessionBaseUrl(value) {
     if (
-      value === DEFAULT_BASE_URL ||
-      value === LOCAL_BASE_URL
+      ALLOWED_BASE_URLS.includes(value)
     ) {
       return value
     }
@@ -597,6 +671,17 @@
     let deepAnalysis =
       result?.payload?.data?.deep_analysis
 
+    if (
+      deepAnalysis?.analysis_job_id &&
+      !isExecutionScopeAccepted(
+        deepAnalysis.execution_scope,
+      )
+    ) {
+      return buildExecutionScopeMismatchResponse(
+        deepAnalysis.execution_scope,
+      )
+    }
+
     if (deepAnalysis?.analysis_job_id) {
       const freshness = {
         analysisJobId:
@@ -679,6 +764,9 @@
           retryResult?.payload?.ok &&
           retried?.analysis_job_id ===
             deepAnalysis.analysis_job_id &&
+          isExecutionScopeAccepted(
+            retried.execution_scope,
+          ) &&
           (
             retried.status === 'queued' ||
             retried.status === 'running'
@@ -757,6 +845,19 @@
 
     const data =
       result?.payload?.data
+
+    if (
+      result?.ok &&
+      result?.payload?.ok &&
+      isRecord(data) &&
+      !isExecutionScopeAccepted(
+        data.execution_scope,
+      )
+    ) {
+      return buildExecutionScopeMismatchResponse(
+        data.execution_scope,
+      )
+    }
 
     if (
       result?.ok &&
@@ -943,8 +1044,42 @@
     return sendToBackground('SAVE_LEAD_SUMMARY', payload)
   }
 
+  function getCompanionEnvironment() {
+    return companionEnvironment
+  }
+
+  // R9 — recuperação de job órfão (queued sem entrega viva / running com
+  // worker morto). O servidor decide (CAS); se o job não estiver órfão,
+  // devolve o estado atual sem republicar nada.
+  async function recoverAnalysisJob(payload) {
+    const analysisJobId =
+      typeof payload?.analysis_job_id === 'string'
+        ? payload.analysis_job_id
+        : null
+
+    if (!analysisJobId) {
+      return null
+    }
+
+    return sendToBackground(
+      'RETRY_ANALYSIS_JOB',
+      {
+        analysis_job_id:
+          analysisJobId,
+      },
+    )
+  }
+
+  // Commit do backend deste canal (homolog confere com o do pacote).
+  async function getBackendBuildIdentity() {
+    return sendToBackground('GET_BACKEND_BUILD_IDENTITY', null)
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
+    getCompanionEnvironment,
+    getExpectedExecutionScope,
+    getBackendBuildIdentity,
     getMe,
     setSession,
     clearSession,
@@ -958,6 +1093,7 @@
     analyzeConversation,
     applySuggestion,
     getAnalysisJobStatus,
+    recoverAnalysisJob,
     loadClientContext,
     loadDecisionState,
     loadAnalysisViewModel,

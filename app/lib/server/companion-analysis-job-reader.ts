@@ -1,5 +1,17 @@
 import 'server-only'
 
+import {
+  gateCommercialReadingProvenance,
+  gateCustomerFacingText,
+  emptyFactProvenanceReport,
+  sanitizeDerivedText,
+  type FactEvidenceRegistry,
+} from '../companion/commercial-fact-grounding'
+
+import {
+  loadConversationFactRegistry,
+} from './canonical-fact-registry-loader'
+
 import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
@@ -9,6 +21,7 @@ import type {
 } from './companion-token'
 
 import {
+  classifyStatefulCopilotBackgroundJobStaleness,
   isStatefulCopilotBackgroundJobStatus,
   type StatefulCopilotBackgroundJobStatus,
 } from './stateful-copilot-background-job'
@@ -16,6 +29,13 @@ import {
 import {
   verifyActiveCompanionProfile,
 } from '../companion/companion-principal-access'
+
+import {
+  companionDerivedTable,
+  companionRowExecutionScope,
+  resolveCompanionExecutionScope,
+  type CompanionExecutionScope,
+} from '../companion/companion-execution-scope'
 
 import {
   STATEFUL_COPILOT_CONTRACT_VERSION,
@@ -541,6 +561,43 @@ function buildSellerResult(
   }
 }
 
+// Firewall de proveniência (R8): o resultado profundo também chega à
+// extensão (fallback local de CLIENTE/ANÁLISE e mensagem sugerida). Passa
+// pelo MESMO gate das superfícies canônicas antes de sair do servidor.
+export function gateDeepSellerResult(
+  result: CompanionDeepSellerResult,
+  registry: FactEvidenceRegistry,
+): CompanionDeepSellerResult {
+  const report =
+    emptyFactProvenanceReport(registry)
+
+  const reading =
+    gateCommercialReadingProvenance(
+      result.commercial_reading,
+      registry,
+      undefined,
+      report,
+    ).reading
+
+  return {
+    ...result,
+    summary:
+      sanitizeDerivedText(result.summary, registry, {
+        fallback: 'Leitura comercial atualizada.',
+      }).text ?? 'Leitura comercial atualizada.',
+    recommended_next_approach:
+      sanitizeDerivedText(result.recommended_next_approach, registry, {
+        fallback: 'Retomar a conversa a partir do que o cliente disse.',
+      }).text ?? 'Retomar a conversa a partir do que o cliente disse.',
+    commercial_reading:
+      reading,
+    recommended_question:
+      gateCustomerFacingText(result.recommended_question, 'recommended_question', registry, report),
+    suggested_message:
+      gateCustomerFacingText(result.suggested_message, 'suggested_message', registry, report),
+  }
+}
+
 export type CompanionAnalysisJobStatusResult = {
   analysis_job_id: string
   status: StatefulCopilotBackgroundJobStatus
@@ -560,6 +617,13 @@ export type CompanionAnalysisJobStatusResult = {
   }
   result: CompanionDeepSellerResult | null
   result_generated_at: string | null
+  // R9 — ciclo de vida observável: última transição do job (claim,
+  // requeue, retry, recuperação) e se ele é um órfão (queued sem entrega
+  // viva / running com lease vencido) que pode ser recuperado.
+  updated_at: string | null
+  stale: boolean
+  // R10: ambiente dono do job e do resultado (sempre o do chamador).
+  execution_scope: CompanionExecutionScope
 }
 
 function normalizeJobTimestamp(
@@ -690,14 +754,18 @@ function buildJobTimingSnapshot({
   }
 }
 
+// R10: o polling só enxerga job e resultado do próprio escopo. Um id de
+// job de outro ambiente não existe aqui (404), nunca vira resultado.
 export async function loadCompanionAnalysisJobStatus({
   admin,
   token,
   analysis_job_id,
+  execution_scope = resolveCompanionExecutionScope(),
 }: {
   admin: SupabaseClient
   token: CompanionTokenPayload
   analysis_job_id: unknown
+  execution_scope?: CompanionExecutionScope
 }): Promise<CompanionAnalysisJobStatusResult> {
   const companyId =
     normalizeUuid(
@@ -734,10 +802,13 @@ export async function loadCompanionAnalysisJobStatus({
   } =
     await admin
       .from(
-        'companion_background_analysis_jobs',
+        companionDerivedTable(
+          'analysis_jobs',
+          execution_scope,
+        ),
       )
       .select(
-        'analysis_job_id, status, company_id, cycle_id, conversation_key, message_watermark, candidate_state_version, failure_code, attempt_count, requested_at, started_at, completed_at',
+        'analysis_job_id, status, company_id, cycle_id, conversation_key, message_watermark, candidate_state_version, failure_code, attempt_count, requested_at, started_at, completed_at, updated_at, execution_scope',
       )
       .eq(
         'analysis_job_id',
@@ -766,6 +837,7 @@ export async function loadCompanionAnalysisJobStatus({
     !isRecord(job) ||
     job.analysis_job_id !== analysisJobId ||
     job.company_id !== companyId ||
+    companionRowExecutionScope(job) !== execution_scope ||
     !isStatefulCopilotBackgroundJobStatus(
       job.status,
     ) ||
@@ -833,6 +905,19 @@ export async function loadCompanionAnalysisJobStatus({
         job.completed_at,
     })
 
+  const updatedAt =
+    typeof job.updated_at === 'string'
+      ? job.updated_at
+      : null
+
+  const stale =
+    classifyStatefulCopilotBackgroundJobStaleness({
+      status: job.status,
+      updated_at: updatedAt,
+      started_at: job.started_at,
+      now_ms: Date.now(),
+    }) !== 'fresh'
+
   if (job.status !== 'succeeded') {
     return {
       analysis_job_id: analysisJobId,
@@ -846,6 +931,9 @@ export async function loadCompanionAnalysisJobStatus({
       ...timingSnapshot,
       result: null,
       result_generated_at: null,
+      updated_at: updatedAt,
+      stale,
+      execution_scope,
     }
   }
 
@@ -859,10 +947,13 @@ export async function loadCompanionAnalysisJobStatus({
   } =
     await admin
       .from(
-        'companion_commercial_state_events',
+        companionDerivedTable(
+          'commercial_state_events',
+          execution_scope,
+        ),
       )
       .select(
-        'normalized_output, generated_at, company_id, cycle_id, conversation_key, candidate_state_version, output_contract_version',
+        'normalized_output, generated_at, company_id, cycle_id, conversation_key, candidate_state_version, output_contract_version, execution_scope',
       )
       .eq(
         'company_id',
@@ -917,6 +1008,7 @@ export async function loadCompanionAnalysisJobStatus({
     event.candidate_state_version !== candidateStateVersion ||
     event.output_contract_version !==
       STATEFUL_COPILOT_CONTRACT_VERSION ||
+    companionRowExecutionScope(event) !== execution_scope ||
     typeof event.generated_at !== 'string'
   ) {
     failIntegrity()
@@ -933,10 +1025,46 @@ export async function loadCompanionAnalysisJobStatus({
     attempt_count: attemptCount,
     ...timingSnapshot,
     result:
-      buildSellerResult(
-        event.normalized_output,
-      ),
+      await (async () => {
+        const sellerResult =
+          buildSellerResult(
+            event.normalized_output,
+          )
+
+        const registry =
+          await loadConversationFactRegistry({
+            admin,
+            companyId,
+            cycleId,
+            conversationKey,
+            referenceTime:
+              event.generated_at as string,
+          })
+
+        if (!registry) {
+          return sellerResult
+        }
+
+        try {
+          return gateDeepSellerResult(
+            sellerResult,
+            registry,
+          )
+        } catch {
+          // Sem como julgar: nada customer-facing sai sem gate.
+          return {
+            ...sellerResult,
+            recommended_question: null,
+            suggested_message: null,
+          }
+        }
+      })(),
     result_generated_at:
       event.generated_at,
+    updated_at:
+      updatedAt,
+    stale:
+      false,
+    execution_scope,
   }
 }

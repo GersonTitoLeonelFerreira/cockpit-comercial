@@ -104,7 +104,7 @@ test(
     )
     assert.match(
       html,
-      /Próxima ação[\s\S]*Por que essa ação[\s\S]*<summary>Técnica: Diagnóstico de objeção · cuidados<\/summary>/,
+      /Próxima ação[\s\S]*Por que essa ação[\s\S]*<summary>Ver técnica e cuidados<\/summary>[\s\S]*Diagnóstico de objeção/,
     )
     assert.doesNotMatch(
       html,

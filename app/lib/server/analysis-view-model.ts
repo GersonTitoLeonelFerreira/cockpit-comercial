@@ -806,3 +806,41 @@ export function buildAnalysisViewModel(
     provenance,
   }
 }
+
+/**
+ * Pouca certeza sobre o CLIENTE não significa ausência de informação sobre
+ * a EXECUÇÃO do vendedor. Quando a leitura do momento ficou neutra
+ * (relevância incerta) mas o coaching determinístico tem evidência
+ * suficiente da condução (`scope: 'seller_execution_only'`), a ANÁLISE
+ * continua neutra quanto à venda (sem estado/risco/oportunidade inventados)
+ * e troca o aviso para deixar explícito que a leitura abaixo avalia só a
+ * execução observável do vendedor. Conversa realmente pessoal continua com
+ * o aviso neutro original.
+ */
+export function applySellerExecutionCoachingToNeutralView<
+  T extends AnalysisViewModel,
+>(
+  viewModel: T,
+  coaching: {
+    scope: string
+    status: string
+  } | null,
+): T {
+  if (
+    !viewModel.neutral ||
+    !coaching ||
+    coaching.scope !==
+      'seller_execution_only' ||
+    coaching.status === 'silent'
+  ) {
+    return viewModel
+  }
+
+  return {
+    ...viewModel,
+    neutral_headline:
+      'O contexto do cliente ainda é incerto.',
+    neutral_description:
+      'A leitura abaixo avalia apenas a execução observável do vendedor.',
+  }
+}

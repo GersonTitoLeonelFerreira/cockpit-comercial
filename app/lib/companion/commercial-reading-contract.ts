@@ -258,6 +258,10 @@ export type CommercialReadingEvidenceItem = {
   summary: string
   evidence_message_ids: string[]
   memory_ids: string[]
+  // Atribuído pelo firewall de proveniência na leitura (nunca pelo modelo):
+  // 'verified' = sustentado por evidência primária válida; 'derived' =
+  // interpretação/síntese, mostrada como inferência.
+  grounding_status?: 'verified' | 'derived'
 }
 
 export type CommercialReadingConversationSummary = {

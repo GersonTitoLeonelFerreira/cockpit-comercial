@@ -141,6 +141,8 @@ export async function loadAgoraViewModel({
           canonicalContext.current_reading,
         client_context:
           canonicalContext.client_context,
+        fact_registry:
+          canonicalContext.fact_registry ?? null,
       }),
       loadCanonicalSellerReasoning({
         admin,
@@ -165,6 +167,8 @@ export async function loadAgoraViewModel({
           : null,
       fallback_action:
         viewModel.primary?.action ?? null,
+      fact_registry:
+        canonicalContext.fact_registry ?? null,
     })
 
   // Decision State continua definindo prioridade, urgência e provenance.

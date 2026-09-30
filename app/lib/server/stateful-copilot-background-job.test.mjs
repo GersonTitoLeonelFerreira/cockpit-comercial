@@ -17,6 +17,9 @@ function buildJob(
   overrides = {},
 ) {
   return buildStatefulCopilotBackgroundJobDescriptor({
+    execution_scope:
+      'production',
+
     company_id:
       'company-a',
 

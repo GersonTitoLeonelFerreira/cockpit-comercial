@@ -996,10 +996,20 @@ test(
         'question_quality',
       ),
     )
-    assert.ok(
+
+    // A oferta que causou a quebra já é o principal ajuste; repeti-la como
+    // "oferta prematura" em outros aprendizados seria a mesma quebra com
+    // outra redação (recuperação do especialista comercial, §19).
+    assert.equal(
       kinds.includes(
         'context_relevance',
       ),
+      false,
+    )
+    assert.match(
+      diagnosis.seller_mistake
+        ?.summary ?? '',
+      /saiu do objetivo comercial/i,
     )
 
     assert.equal(

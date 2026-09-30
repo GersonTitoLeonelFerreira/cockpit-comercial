@@ -38,137 +38,184 @@
         : []
     }
 
-    function renderReasoningCore(reasoning, mode) {
+    // Helpers de deduplicação semântica da view base (mesma régua na
+    // ANÁLISE e no AGORA).
+    const repeatsContent =
+      typeof base.repeatsContent === 'function'
+        ? base.repeatsContent
+        : () => false
+
+    const splitSentences =
+      typeof base.splitSentences === 'function'
+        ? base.splitSentences
+        : (value) => (text(value) ? [text(value)] : [])
+
+    const novelSentences =
+      typeof base.novelSentences === 'function'
+        ? base.novelSentences
+        : (value) => splitSentences(value)
+
+    // AGORA = 1 decisão → 1 ação → 1 justificativa curta. O loader já pôs
+    // a situação e a próxima ação do raciocínio no card principal; aqui só
+    // se escolhe UM "por quê" que acrescente informação, e a situação perde
+    // a sentença que virou esse "por quê". Momento, raciocínio restante,
+    // técnica e cuidados ficam em progressive disclosure.
+    function planAgoraFirstLevel(viewModel) {
+      const reasoning = viewModel?.reasoning
+
       if (
         !reasoning ||
         reasoning.status === 'unavailable' ||
         reasoning.status === 'silent'
       ) {
+        return null
+      }
+
+      const headline = text(viewModel?.primary?.headline)
+      const action = text(viewModel?.primary?.action)
+      const whyNow = sellerText(text(reasoning.why_now), null)
+      const momentum =
+        reasoning.momentum &&
+        typeof reasoning.momentum === 'object'
+          ? reasoning.momentum
+          : null
+      const temporalFacts =
+        momentum && momentum.state !== 'active'
+          ? items(momentum.facts).map(text).filter(Boolean)
+          : []
+
+      const headlineSentences = splitSentences(headline)
+      const factSentences =
+        temporalFacts.length > 0
+          ? headlineSentences.filter((sentence) => repeatsContent(sentence, temporalFacts))
+          : []
+      const situationSentences = headlineSentences.filter(
+        (sentence) => !factSentences.includes(sentence),
+      )
+
+      let situation = headline
+      let why = null
+      let whySource = null
+
+      if (factSentences.length > 0 && situationSentences.length > 0) {
+        // A própria situação já traz o fato temporal que justifica a ação.
+        situation = situationSentences.join(' ')
+        why = factSentences.join(' ')
+        whySource = 'temporal_facts'
+      } else {
+        // Só o motivo que a situação e a ação ainda não disseram. Se nada
+        // for novo, não há "por quê" no primeiro nível: a situação já
+        // justifica a ação e os fatos ficam nos detalhes.
+        const novelWhy = novelSentences(
+          whyNow,
+          [headline, action],
+          { clauses: true },
+        )
+
+        if (novelWhy.length > 0) {
+          why = novelWhy[0]
+          whySource = 'why_now'
+        }
+      }
+
+      const shown = [situation, action, why].filter(Boolean)
+
+      return {
+        situation,
+        why,
+        whySource,
+        momentum,
+        remainingFacts: temporalFacts.filter((fact) => !repeatsContent(fact, shown)),
+        remainingReasoning: novelSentences(whyNow, shown, { clauses: true }),
+      }
+    }
+
+    function renderAgoraRationale(reasoning, plan) {
+      if (!plan) {
         return ''
       }
 
       const technique = reasoning.technique
-      const whyNow = text(reasoning.why_now)
-      const nextAction = text(reasoning.next_best_action)
       const doNotDo = items(reasoning.do_not_do).slice(0, 2)
-      const knowledge = items(reasoning.company_knowledge).slice(0, 2)
+      const momentum = plan.momentum
+      const momentumLabel =
+        momentum && momentum.state !== 'active'
+          ? text(momentum.label)
+          : null
 
-      if (
-        !technique &&
-        !whyNow &&
-        !nextAction &&
-        doNotDo.length === 0 &&
-        knowledge.length === 0
-      ) {
+      const detailBlocks = [
+        momentumLabel ? `
+          <div class="yolen-seller-detail">
+            <div class="yolen-seller-detail-label">Momento</div>
+            <div class="yolen-seller-detail-copy">${escapeHtml(momentumLabel)}</div>
+          </div>
+        ` : '',
+        plan.remainingFacts.length > 0 ? `
+          <div class="yolen-seller-detail">
+            <div class="yolen-seller-detail-label">Fatos do momento</div>
+            <ul class="yolen-seller-text-list">
+              ${plan.remainingFacts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join('')}
+            </ul>
+          </div>
+        ` : '',
+        plan.remainingReasoning.length > 0 ? `
+          <div class="yolen-seller-detail">
+            <div class="yolen-seller-detail-label">Raciocínio</div>
+            <div class="yolen-seller-detail-copy">${escapeHtml(plan.remainingReasoning.join(' '))}</div>
+          </div>
+        ` : '',
+        technique ? `
+          <div class="yolen-seller-detail">
+            <div class="yolen-seller-detail-label">Técnica aplicável</div>
+            <div class="yolen-seller-detail-copy">${escapeHtml(sellerText(technique.title, 'Técnica comercial'))}</div>
+          </div>
+        ` : '',
+        doNotDo.length > 0 ? `
+          <div class="yolen-seller-detail">
+            <div class="yolen-seller-detail-label">Evite agora</div>
+            <ul class="yolen-seller-text-list">
+              ${doNotDo.map((item) => `<li>${escapeHtml(sellerText(item, 'Cuidado comercial'))}</li>`).join('')}
+            </ul>
+          </div>
+        ` : '',
+      ].filter(Boolean)
+
+      if (!plan.why && detailBlocks.length === 0) {
         return ''
       }
 
-      if (mode === 'agora') {
-        const safeWhyNow =
-          sellerText(
-            whyNow,
-            null,
-          )
-
-        if (
-          !safeWhyNow &&
-          !technique &&
-          doNotDo.length === 0
-        ) {
-          return ''
-        }
-
-        return `
-          <section
-            class="yolen-seller-section yolen-reasoning-section yolen-now-rationale"
-            data-yolen-reasoning="agora"
-          >
-            ${safeWhyNow ? `
-              <div class="yolen-seller-detail yolen-now-rationale-main">
-                <div class="yolen-seller-detail-label">Por que essa ação</div>
-                <div class="yolen-seller-detail-copy">${escapeHtml(safeWhyNow)}</div>
-              </div>
-            ` : ''}
-
-            ${
-              technique || doNotDo.length > 0
-                ? `
-                  <details
-                    class="yolen-seller-secondary-details"
-                    data-yolen-preserve-details="agora-technique"
-                  >
-                    <summary>${
-                      technique
-                        ? `Técnica: ${escapeHtml(sellerText(technique.title, 'Técnica comercial'))}${doNotDo.length > 0 ? ' · cuidados' : ''}`
-                        : 'Ver cuidados'
-                    }</summary>
-
-                    ${technique ? `
-                      <div class="yolen-seller-detail">
-                        <div class="yolen-seller-detail-label">Técnica aplicável</div>
-                        <div class="yolen-seller-detail-copy">${escapeHtml(sellerText(technique.title, 'Técnica comercial'))}</div>
-                      </div>
-                    ` : ''}
-
-                    ${doNotDo.length > 0 ? `
-                      <div class="yolen-seller-detail">
-                        <div class="yolen-seller-detail-label">Evite agora</div>
-                        <ul class="yolen-seller-text-list">
-                          ${doNotDo.map((item) => `<li>${escapeHtml(sellerText(item, 'Cuidado comercial'))}</li>`).join('')}
-                        </ul>
-                      </div>
-                    ` : ''}
-                  </details>
-                `
-                : ''
-            }
-          </section>
-        `
-      }
-
-      const heading =
-        'Leitura comercial da Yolen'
+      const summary =
+        technique && doNotDo.length > 0
+          ? 'Ver técnica e cuidados'
+          : technique
+            ? 'Ver técnica'
+            : doNotDo.length > 0
+              ? 'Ver cuidados'
+              : 'Ver detalhes'
 
       return `
-        <section class="yolen-seller-section yolen-reasoning-section" data-yolen-reasoning="${escapeHtml(mode)}">
-          <div class="yolen-seller-section-heading">
-            <div>
-              <div class="yolen-seller-section-eyebrow">Orientação comercial</div>
-              <h3>${escapeHtml(heading)}</h3>
-            </div>
-          </div>
-          ${technique ? `
-            <article class="yolen-seller-insight yolen-seller-insight--positive">
-              <div class="yolen-seller-insight-type">Técnica aplicável</div>
-              <div class="yolen-seller-insight-title">${escapeHtml(sellerText(technique.title, 'Técnica comercial'))}</div>
-            </article>
-          ` : ''}
-          ${whyNow ? `
-            <div class="yolen-seller-detail">
-              <div class="yolen-seller-detail-label">Por que agora</div>
-              <div class="yolen-seller-detail-copy">${escapeHtml(sellerText(whyNow, 'Há um motivo comercial para tratar este ponto agora.'))}</div>
+        <section
+          class="yolen-seller-section yolen-reasoning-section yolen-now-rationale"
+          data-yolen-reasoning="agora"
+          ${momentumLabel ? `data-yolen-agora-momentum="${escapeHtml(momentum.state || 'unknown')}"` : ''}
+        >
+          ${plan.why ? `
+            <div
+              class="yolen-seller-detail yolen-now-rationale-main"
+              data-yolen-agora-why="${escapeHtml(plan.whySource)}"
+            >
+              <div class="yolen-seller-detail-label">Por que essa ação</div>
+              <div class="yolen-seller-detail-copy">${escapeHtml(plan.why)}</div>
             </div>
           ` : ''}
-          ${nextAction && mode !== 'agora' ? `
-            <div class="yolen-seller-detail">
-              <div class="yolen-seller-detail-label">Melhor próximo movimento</div>
-              <div class="yolen-seller-detail-copy">${escapeHtml(sellerText(nextAction, 'Revise o contexto antes de avançar.'))}</div>
-            </div>
-          ` : ''}
-          ${doNotDo.length > 0 ? `
-            <div class="yolen-seller-detail">
-              <div class="yolen-seller-detail-label">Evite agora</div>
-              <ul class="yolen-seller-text-list">
-                ${doNotDo.map((item) => `<li>${escapeHtml(sellerText(item, 'Cuidado comercial'))}</li>`).join('')}
-              </ul>
-            </div>
-          ` : ''}
-          ${knowledge.length > 0 && mode !== 'agora' ? `
-            <details class="yolen-seller-secondary-details" data-yolen-preserve-details="reasoning-knowledge">
-              <summary>Regras da empresa consideradas</summary>
-              <ul class="yolen-seller-text-list">
-                ${knowledge.map((item) => `<li>${escapeHtml(sellerText(item.title, 'Conhecimento publicado'))}</li>`).join('')}
-              </ul>
+
+          ${detailBlocks.length > 0 ? `
+            <details
+              class="yolen-seller-secondary-details"
+              data-yolen-preserve-details="agora-technique"
+            >
+              <summary>${summary}</summary>
+              ${detailBlocks.join('')}
             </details>
           ` : ''}
         </section>
@@ -249,17 +296,32 @@
       ...base,
 
       renderAgoraViewModelSnapshot(viewModel) {
-        const current = originalAgora(viewModel)
-
         if (!viewModel || viewModel.silent) {
-          return current
+          return originalAgora(viewModel)
         }
+
+        const plan = planAgoraFirstLevel(viewModel)
+
+        const current = originalAgora(
+          plan &&
+          viewModel.primary &&
+          plan.situation &&
+          plan.situation !== text(viewModel.primary.headline)
+            ? {
+                ...viewModel,
+                primary: {
+                  ...viewModel.primary,
+                  headline: plan.situation,
+                },
+              }
+            : viewModel,
+        )
 
         return [
           current,
-          renderReasoningCore(
+          renderAgoraRationale(
             viewModel.reasoning,
-            'agora',
+            plan,
           ),
         ].join('')
       },

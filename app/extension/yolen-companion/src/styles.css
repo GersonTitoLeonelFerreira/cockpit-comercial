@@ -1663,6 +1663,12 @@ html.yolen-companion-collapsed #app {
   background: rgba(120, 53, 15, 0.12);
 }
 
+/* Lacuna da etapa antiga enquanto a requalificação vem primeiro. */
+.yolen-client-rich-item--conditional {
+  border-style: dashed;
+  background: rgba(15, 23, 42, 0.32);
+}
+
 .yolen-client-rich-item--history {
   background: rgba(15, 23, 42, 0.32);
 }
@@ -2258,6 +2264,29 @@ html.yolen-companion-collapsed #app {
   line-height: 1.4;
 }
 
+.yolen-message-advisory {
+  margin-top: 9px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(226, 180, 90, 0.28);
+  background: rgba(226, 180, 90, 0.08);
+  color: #e7c98b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.yolen-message-fact-trace {
+  margin-top: 9px;
+  color: #9fb0c6;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.yolen-message-fact-trace ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
 .yolen-message-status {
   display: flex;
   align-items: center;
@@ -2829,4 +2858,52 @@ html.yolen-companion-collapsed #app {
   line-height: 1.45;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* Identidade do pacote carregado (versão · commit) — rastreabilidade de build. */
+#yolen-companion-panel .yolen-build-badge {
+  margin-top: 1px;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 500;
+  letter-spacing: 0;
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
+/* Canal homolog: extensão × backend visíveis; commit diferente é alerta. */
+#yolen-companion-panel .yolen-build-badge-hml,
+#yolen-companion-panel .yolen-build-badge-backend {
+  opacity: 0.95;
+  font-weight: 650;
+}
+
+#yolen-companion-panel .yolen-build-badge-hml {
+  color: #fbbf24;
+}
+
+#yolen-companion-panel .yolen-build-badge-backend[data-yolen-backend-status="match"] {
+  color: #86efac;
+}
+
+#yolen-companion-panel .yolen-build-mismatch {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: #b91c1c;
+  color: #ffffff;
+  font-size: 10.5px;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.yolen-analysis-debug {
+  margin-top: 8px;
+  color: #9fb0c6;
+  font-size: 10px;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

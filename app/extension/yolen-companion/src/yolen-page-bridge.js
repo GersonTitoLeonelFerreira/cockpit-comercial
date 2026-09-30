@@ -2,11 +2,16 @@
     const MESSAGE_SOURCE = 'YOLEN_COMPANION_PAGE_BRIDGE'
     const REFRESH_INTERVAL_MS = 15000
   
+    // Origens autorizadas pelo canal do pacote, entregues pela bridge do
+    // content script (yolen-bridge.js) no próprio <script>.
+    const ALLOWED_ORIGINS = String(
+      document.currentScript?.dataset?.yolenAllowedOrigins || '',
+    )
+      .split(' ')
+      .filter(Boolean)
+  
     function isYolenPage() {
-      return (
-        window.location.origin === 'http://localhost:3000' ||
-        window.location.origin === 'https://cockpit-comercial-vocn.vercel.app'
-      )
+      return ALLOWED_ORIGINS.includes(window.location.origin)
     }
   
     function isLoginPage() {

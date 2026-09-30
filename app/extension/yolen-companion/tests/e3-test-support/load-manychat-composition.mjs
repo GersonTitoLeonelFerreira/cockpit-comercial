@@ -29,6 +29,8 @@ export const MANYCHAT_BRIDGE_FILES = Object.freeze([
 ])
 
 export const MANYCHAT_MANIFEST_FILES = Object.freeze([
+  'build-identity.js',
+  'companion-environment.js',
   'yolen-api.js',
   'ux8-interaction-consistency-runtime.js',
   'lead-summary-expand-state.js',

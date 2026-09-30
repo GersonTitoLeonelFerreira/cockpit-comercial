@@ -15,6 +15,8 @@ register(
 
 const {
   composeSellerMessage,
+  SELLER_FACING_UNAVAILABLE_MESSAGE,
+  SELLER_FACING_UNSAFE_MESSAGE,
 } = await import('./lead-seller-message.ts')
 
 const method = {
@@ -328,8 +330,14 @@ test('horário realmente diferente continua bloqueado pelo gate', async () => {
   })
 
   assert.equal(result.status, 'error')
-  assert.match(
+  // O vendedor vê só a frase seller-facing; o motivo técnico fica no
+  // diagnóstico interno.
+  assert.equal(
     result.error,
+    SELLER_FACING_UNSAFE_MESSAGE,
+  )
+  assert.match(
+    result.diagnostics.failures.join(' '),
     /horário sem base/i,
   )
 })
@@ -387,8 +395,14 @@ test('rejeita valor numérico inventado fora do resumo, interação e intenção
 
   assert.equal(result.status, 'error')
   assert.equal(result.message, null)
-  assert.match(
+  // O vendedor vê só a frase seller-facing; o motivo técnico fica no
+  // diagnóstico interno.
+  assert.equal(
     result.error,
+    SELLER_FACING_UNSAFE_MESSAGE,
+  )
+  assert.match(
+    result.diagnostics.failures.join(' '),
     /sem base no contexto/i,
   )
 })
@@ -489,7 +503,7 @@ test('regra é multissetorial: aprovação jurídica também mantém vendedor co
   )
 })
 
-test('gate final continua bloqueando fato protegido inventado durante a revisão', async () => {
+test('valor inventado na revisão nunca sai: a afirmação é removida e a mensagem segura é entregue', async () => {
   const result = await composeSellerMessage({
     workingSummary:
       'Existe uma pendência antes do próximo passo.',
@@ -512,11 +526,18 @@ test('gate final continua bloqueando fato protegido inventado durante a revisão
     ]),
   })
 
-  assert.equal(result.status, 'error')
-  assert.equal(result.message, null)
-  assert.match(
-    result.error,
-    /valor, percentual, data ou horário sem base/i,
+  // Segurança factual muda a copy, não a elimina: o R$ 999 sem fonte
+  // oficial sai e o restante (válido) é entregue.
+  assert.equal(result.status, 'ready')
+  assert.equal(
+    result.message,
+    'Posso confirmar se ficou alguma pendência?',
+  )
+  assert.doesNotMatch(result.message, /R\$|999/)
+  assert.ok(
+    result.diagnostics.fact_trace.every(
+      (entry) => entry.status !== 'unsupported',
+    ),
   )
 })
 
@@ -572,6 +593,15 @@ test('papel de terceiro é transmitido ao gerador e ao gate de revisão', async 
   const result = await composeSellerMessage({
     workingSummary:
       'Juliana informou que a irmã Mariana quer fazer uma aula experimental.',
+    // A relação ("irmã") precisa estar na fala real da cliente: o resumo
+    // sozinho não sustenta fato.
+    currentInteraction: [
+      {
+        direction: 'incoming',
+        occurred_at: '2026-09-01T12:00:00.000Z',
+        text: 'Oi! Minha irmã Mariana quer fazer uma aula experimental.',
+      },
+    ],
     sellerIntent:
       'Quero ajudar a encaminhar a aula experimental da irmã dela.',
     method,
@@ -1107,8 +1137,12 @@ test(
       result.message,
       null,
     )
-    assert.match(
+    assert.equal(
       result.error,
+      SELLER_FACING_UNAVAILABLE_MESSAGE,
+    )
+    assert.match(
+      result.diagnostics.failures.join(' '),
       /gate customer-facing/i,
     )
     assert.equal(
@@ -1236,13 +1270,19 @@ test(
       result.message,
       null,
     )
-    assert.match(
+    // A falha final foi o gate indisponível; a rejeição determinística
+    // original continua registrada no diagnóstico interno.
+    assert.equal(
       result.error,
+      SELLER_FACING_UNAVAILABLE_MESSAGE,
+    )
+    assert.match(
+      result.diagnostics.failures.join(' '),
       /critic da estratégia comercial/i,
     )
     assert.doesNotMatch(
       result.error,
-      /falha no gate customer-facing/i,
+      /critic|gate|repeats|technique/i,
     )
     assert.equal(
       calls.length,

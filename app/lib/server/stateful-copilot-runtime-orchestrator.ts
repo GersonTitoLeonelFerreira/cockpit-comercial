@@ -1,5 +1,9 @@
 import 'server-only'
 
+import type {
+  CompanionExecutionScope,
+} from '../companion/companion-execution-scope'
+
 import {
   resolveStatefulCopilotActivationGate,
   type ResolveStatefulCopilotActivationGateArgs,
@@ -353,6 +357,11 @@ export type StatefulCopilotServerRuntimeOptions = {
 
   cycle_deadline_ms?:
     number
+
+  // R10: escopo do job. Estado anterior, semente de memória e persistência
+  // (RPC) ficam no armazenamento derivado deste escopo.
+  execution_scope?:
+    CompanionExecutionScope
 
   dependencies?:
     StatefulCopilotServerRuntimeDependencies
@@ -1217,9 +1226,18 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
       return runtime
     }
 
+    const executionScope =
+      options.execution_scope
+
     const contextLoader =
       createContextLoader(
-        options.context_loader_options,
+        executionScope
+          ? {
+              ...(options.context_loader_options ?? {}),
+              execution_scope:
+                executionScope,
+            }
+          : options.context_loader_options,
       )
 
     const composition =
@@ -1228,7 +1246,13 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
           activation,
 
           compositionOptions:
-            options.composition_options,
+            executionScope
+              ? {
+                  ...(options.composition_options ?? {}),
+                  execution_scope:
+                    executionScope,
+                }
+              : options.composition_options,
         }),
       )
 

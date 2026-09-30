@@ -9,6 +9,69 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 A versão da extensão (`manifest.json` → `version`) permanece `1.0.0` até que
 uma fase futura de release decida um esquema de versionamento próprio.
 
+## [1.5.2] — Opt-out do cliente respeitado na MENSAGEM
+
+### Adicionado — canal HOMOLOG
+
+- `npm run build:companion-extension:homolog` / `npm run
+  verify:companion-firefox-homolog`: pacote de homologação contra o backend
+  de preview de `YOLEN_COMPANION_HOMOLOG_BASE_URL` (origem HTTPS exata,
+  validada; falha fechado), staging próprio em
+  `dist/yolen-companion/<alvo>/homolog/staging/`.
+- `src/companion-environment.js`: configuração canônica do canal (backend
+  e origens autorizadas) lida por background, `yolen-api`, bridges e Core,
+  gerada pelo build por pacote. PROD passa a aceitar só produção.
+- Background ignora sessão da ponte de origem não autorizada (ou diferente
+  da página remetente) e expõe `GET_BACKEND_BUILD_IDENTITY`; o cabeçalho do
+  canal HOMOLOG compara o commit do pacote com o do backend e mostra
+  `BUILD INCOMPATÍVEL` quando diferem.
+
+### Alterado
+
+- `src/companion-message-controller.js`: pedido explícito do cliente para
+  não receber mais contato (`coaching_diagnosis.temporal.contact_allowed ===
+  false`) vira estado canônico sem mensagem — sem presets, sem geração e com
+  aviso próprio ("O cliente pediu para não receber mais contato"). O servidor
+  também devolve `status: 'no_message'` nesse caso, sem chamar o redator.
+
+## [1.5.1] — Fechamento da revisão do especialista comercial + verificador canônico do staging
+
+### Alterado
+
+- `scripts/verify-staged-build.mjs` deixou de pular os arquivos gerados: o
+  conteúdo esperado de TODO arquivo do staging (manifest transformado para o
+  alvo/ambiente, feature flag efetiva do ManyChat, ícones redimensionados,
+  arquivos de runtime e a própria identidade de build) é calculado pelas
+  mesmas funções canônicas que o build usa para escrever o staging
+  (`expectedStagedEntryContent`, `expectedBuildIdentity`) — não há segunda
+  implementação. Arquivos estranhos no staging também tornam o pacote
+  DESATUALIZADO.
+- `build-package.mjs`: `stageTarget` monta o staging a partir dessas funções
+  com raízes injetáveis (fonte, repositório e staging), o que torna o ciclo
+  build → ATUAL → fonte alterada → DESATUALIZADO → rebuild → ATUAL testável
+  numa cópia isolada (`tests/verify-staged-build.test.mjs`).
+- "Alterações locais" da identidade passa a considerar só as fontes que
+  entram no pacote (editar um teste não marca o pacote como sujo).
+
+## [1.5.0] — Recuperação do especialista comercial + identidade rastreável do pacote
+
+### Adicionado
+
+- `src/build-identity.js`: identidade do pacote carregado (versão, commit de
+  origem, indicador de alterações locais, fingerprint do código empacotado e
+  build id), exibida no cabeçalho do painel (`v1.5.0 · <commit>`). O arquivo
+  do repositório se identifica como "fonte"; o `build-package.mjs`
+  substitui o conteúdo DENTRO do staging/zip pela identidade real e
+  determinística (mesmo código + mesmo commit = mesma identidade; o horário
+  do build fica só em `build-identity.json`, fora do zip, preservando a
+  reprodutibilidade).
+- `scripts/verify-staged-build.mjs` (`npm run verify:companion-firefox-prod`):
+  compara o staging que o navegador carrega com o checkout atual (commit,
+  versão, conteúdo de cada arquivo de runtime e fingerprint) e falha quando o
+  pacote está desatualizado — o recarregamento de um dist antigo deixa de
+  depender de memória humana.
+- `build-summary.json` registra `stagingDir` e `buildIdentity` de cada pacote.
+
 ## [Não lançado] — D3: Separação DEV/PROD e Release Candidate de loja
 
 ### Adicionado

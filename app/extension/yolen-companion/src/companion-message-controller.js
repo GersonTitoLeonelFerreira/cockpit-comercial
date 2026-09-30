@@ -203,6 +203,46 @@ function createCompanionMessageController({
     )
   }
 
+  // A decisão canônica muda quando muda o momentum, o frescor da intenção
+  // ou a técnica — não quando "há 18 dias" vira "há 19 dias". Textos com
+  // duração relativa ficam fora da assinatura de revisão do coaching.
+  function stableCoachingSignaturePayload(diagnosis) {
+    if (!diagnosis || typeof diagnosis !== 'object') {
+      return diagnosis
+    }
+
+    const temporal =
+      diagnosis.temporal &&
+      typeof diagnosis.temporal === 'object'
+        ? {
+            momentum_state:
+              diagnosis.temporal.momentum_state ?? null,
+            intent_freshness:
+              diagnosis.temporal.intent_freshness ?? null,
+            reactivation_mode:
+              diagnosis.temporal.reactivation_mode ?? null,
+            requalify_before_continuing:
+              diagnosis.temporal.requalify_before_continuing ?? null,
+          }
+        : null
+
+    const intent =
+      diagnosis.client_intent_now &&
+      typeof diagnosis.client_intent_now === 'object'
+        ? {
+            ...diagnosis.client_intent_now,
+            label: null,
+          }
+        : diagnosis.client_intent_now ?? null
+
+    return {
+      ...diagnosis,
+      client_intent_now: intent,
+      temporal,
+      synthesis: null,
+    }
+  }
+
   function getGuidance(context) {
     return context?.data?.method_guidance || null
   }
@@ -220,6 +260,22 @@ function createCompanionMessageController({
       : null
   }
 
+  // Opt-out do cliente ("não quero mais receber mensagens"): nenhuma
+  // mensagem é permitida, nem de encerramento.
+  function isCustomerContactOptOut(
+    analysisViewModel,
+  ) {
+    const diagnosis =
+      analysisViewModel?.coaching_diagnosis
+
+    return Boolean(
+      diagnosis &&
+      diagnosis.status !== 'silent' &&
+      diagnosis.temporal
+        ?.contact_allowed === false
+    )
+  }
+
   function isCanonicalNoMessageState(
     analysisViewModel,
   ) {
@@ -229,10 +285,15 @@ function createCompanionMessageController({
     return Boolean(
       diagnosis &&
       diagnosis.status !== 'silent' &&
-      diagnosis
-        .chosen_technique
-        ?.id ===
-        'technique.commitment_wait'
+      (
+        diagnosis
+          .chosen_technique
+          ?.id ===
+          'technique.commitment_wait' ||
+        isCustomerContactOptOut(
+          analysisViewModel,
+        )
+      )
     )
   }
 
@@ -375,6 +436,65 @@ function createCompanionMessageController({
 
   const INTENT_MAX_LENGTH = 1000
 
+  // Por que algo pedido pelo vendedor não entrou na copy (ex.: valor sem
+  // confirmação oficial). A instrução do vendedor não cria fato.
+  function renderAdvisories(advisories) {
+    const items = Array.isArray(advisories)
+      ? advisories.filter((item) => typeof item === 'string' && item.trim())
+      : []
+
+    if (items.length === 0) {
+      return ''
+    }
+
+    return `<div class="yolen-message-advisory" data-yolen-seller-message-advisory>${items.map((item) => escapeHtml(item)).join('<br>')}</div>`
+  }
+
+  // Trace factual (claim → fonte → autoridade → status): SOMENTE no pacote
+  // HML. O backend só o envia em preview; o pacote PROD nunca o desenha.
+  function renderHomologFactTrace(factTrace) {
+    const environment =
+      typeof globalThis !== 'undefined'
+        ? globalThis.YolenCompanionEnvironment
+        : null
+
+    if (
+      environment?.channel !== 'homolog' ||
+      !factTrace ||
+      typeof factTrace !== 'object'
+    ) {
+      return ''
+    }
+
+    const claims = Array.isArray(factTrace.fact_trace) ? factTrace.fact_trace : []
+    const blocked = Array.isArray(factTrace.blocked_claims) ? factTrace.blocked_claims : []
+    const excluded = Array.isArray(factTrace.excluded_evidence) ? factTrace.excluded_evidence : []
+
+    const claimRow = (entry) => [
+      '<li>',
+      `<strong>${escapeHtml(String(entry?.status || ''))}</strong> · ${escapeHtml(String(entry?.kind || ''))}`,
+      ` · “${escapeHtml(String(entry?.claim || ''))}”`,
+      ` · fontes: ${escapeHtml((Array.isArray(entry?.sources) ? entry.sources : []).join(', ') || 'nenhuma')}`,
+      entry?.reason ? ` · ${escapeHtml(String(entry.reason))}` : '',
+      '</li>',
+    ].join('')
+    const claimRows = claims.map(claimRow)
+    const blockedRows = blocked.map(claimRow)
+
+    const excludedRows = excluded.map((entry) =>
+      `<li>${escapeHtml(String(entry?.source_type || ''))}:${escapeHtml(String(entry?.source_id ?? '-'))} · ${escapeHtml(String(entry?.reason || ''))}</li>`,
+    )
+
+    return [
+      '<details class="yolen-message-fact-trace" data-yolen-seller-message-fact-trace>',
+      `<summary>HML · rastreio factual (${claims.length} afirmações, ${blocked.length} removidas, ${excluded.length} evidências excluídas)</summary>`,
+      claimRows.length > 0 ? `<ul>${claimRows.join('')}</ul>` : '<div>Nenhuma afirmação factual específica.</div>',
+      blockedRows.length > 0 ? `<div>Removidas da copy (sem fonte válida):</div><ul>${blockedRows.join('')}</ul>` : '',
+      excludedRows.length > 0 ? `<div>Evidências fora da cadeia factual:</div><ul>${excludedRows.join('')}</ul>` : '',
+      '</details>',
+    ].join('')
+  }
+
   function renderComposer() {
     const context = currentContext
 
@@ -482,7 +602,11 @@ function createCompanionMessageController({
     // para nunca competir em altura com o card do objetivo.
     const resultHtml =
       canonicalNoMessage
-        ? '<div class="yolen-message-status">A Yolen recomenda aguardar a resposta do cliente. Não há uma mensagem necessária agora.</div>'
+        ? isCustomerContactOptOut(
+            analysisViewModel,
+          )
+          ? '<div class="yolen-message-status">O cliente pediu para não receber mais contato. Não envie nenhuma nova mensagem.</div>'
+          : '<div class="yolen-message-status">A Yolen recomenda aguardar a resposta do cliente. Não há uma mensagem necessária agora.</div>'
         : state.status === 'ready' && state.message
         ? [
             '<div class="yolen-message-result-card">',
@@ -496,7 +620,9 @@ function createCompanionMessageController({
             '<button type="button" class="yolen-primary-button" data-yolen-seller-message-action="insert">Incluir no ' + escapeHtml(platformDisplayName) + '</button>',
             '<button type="button" class="yolen-secondary-button" data-yolen-seller-message-action="copy">Copiar</button>',
             '</div>',
+            renderAdvisories(state.advisories),
             '<div class="yolen-message-footnote">A Yolen não envia mensagens automaticamente. Revise antes de enviar.</div>',
+            renderHomologFactTrace(state.factTrace),
             '</div>',
           ].join('')
         : state.status === 'loading'
@@ -750,6 +876,8 @@ function createCompanionMessageController({
     state.error = null
     state.message = null
     state.feedback = null
+    state.advisories = []
+    state.factTrace = null
     queueRender()
 
     const requestKey =
@@ -869,6 +997,13 @@ function createCompanionMessageController({
     state.status = 'ready'
     state.message = generation.message.trim()
     state.error = null
+    state.advisories = Array.isArray(generation.advisories)
+      ? generation.advisories
+      : []
+    state.factTrace =
+      generation.fact_trace && typeof generation.fact_trace === 'object'
+        ? generation.fact_trace
+        : null
     queueRender()
   }
 
@@ -989,7 +1124,9 @@ function createCompanionMessageController({
         ? null
         : hashText(
             JSON.stringify(
-              coachingDiagnosis,
+              stableCoachingSignaturePayload(
+                coachingDiagnosis,
+              ),
             ),
           )
 

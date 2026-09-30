@@ -32,6 +32,8 @@ function readSource(fileName) {
 // produção. assertHarnessMatchesManifest() falha o carregamento se esta
 // lista divergir do manifest.
 export const WHATSAPP_MANIFEST_FILES = Object.freeze([
+  'build-identity.js',
+  'companion-environment.js',
   'yolen-api.js',
   'ux8-interaction-consistency-runtime.js',
   'lead-summary-expand-state.js',

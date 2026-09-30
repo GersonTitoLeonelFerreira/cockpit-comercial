@@ -263,6 +263,18 @@ test(
       html,
       /Aguardando resposta do cliente/,
     )
+
+    // Pendência de resposta (fato do relacionamento) não compete com o
+    // estado comercial do Commercial Reasoning.
+    assert.match(
+      html,
+      /<span class="yolen-client-relationship-label">Pendência de resposta<\/span>/,
+    )
+
+    assert.doesNotMatch(
+      html,
+      />Situação</,
+    )
   },
 )
 

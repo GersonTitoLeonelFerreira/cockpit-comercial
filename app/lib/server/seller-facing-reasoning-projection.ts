@@ -14,6 +14,13 @@ import type {
   CanonicalCommercialReadingSource,
 } from './canonical-commercial-reading-source'
 
+import {
+  emptyFactProvenanceReport,
+  gateCustomerFacingText,
+  sanitizeDerivedText,
+  type FactEvidenceRegistry,
+} from '@/app/lib/companion/commercial-fact-grounding'
+
 export type SellerFacingCommercialRole = {
   scope: 'current_contact' | 'related'
   role:
@@ -51,6 +58,13 @@ export type SellerFacingReasoningProjection = {
     ready_to_send: string | null
     editable: true
   }
+  // Tempo como evidência comercial, em linguagem do vendedor.
+  momentum: {
+    state: string
+    label: string
+    requalify_before_continuing: boolean
+    facts: string[]
+  } | null
   limitations: string[]
 }
 
@@ -113,16 +127,96 @@ function buildCustomerRoles(
   return roles
 }
 
+// Última barreira antes do vendedor: nenhuma frase do AGORA afirma fato
+// específico (relação, objeção, preferência, valor, benefício) sem fonte
+// primária/oficial válida. Inferência sem fato específico passa.
+function groundProjection(
+  projection: SellerFacingReasoningProjection,
+  registry: FactEvidenceRegistry | null,
+): SellerFacingReasoningProjection {
+  if (!registry) {
+    return projection
+  }
+
+  const text = (value: string | null) =>
+    sanitizeDerivedText(value, registry).text
+
+  const report =
+    emptyFactProvenanceReport()
+
+  return {
+    ...projection,
+    what_is_happening:
+      text(projection.what_is_happening),
+    why_now:
+      text(projection.why_now),
+    next_best_action:
+      text(projection.next_best_action),
+    technique:
+      projection.technique
+        ? {
+            ...projection.technique,
+            why_applicable:
+              text(projection.technique.why_applicable) ?? '',
+          }
+        : null,
+    message: {
+      ...projection.message,
+      ready_to_send:
+        gateCustomerFacingText(
+          projection.message.ready_to_send,
+          'message.ready_to_send',
+          registry,
+          report,
+        ),
+    },
+    momentum:
+      projection.momentum
+        ? {
+            ...projection.momentum,
+            facts:
+              projection.momentum.facts
+                .map((fact) => text(fact))
+                .filter((fact): fact is string => Boolean(fact)),
+          }
+        : null,
+  }
+}
+
 export function buildSellerFacingReasoningProjection({
   reasoning,
   reading,
   state,
   fallback_action = null,
+  fact_registry = null,
 }: {
   reasoning: CommercialReasoning | null
   reading: CanonicalCommercialReadingSource | null
   state: StatefulCommercialState | null
   fallback_action?: string | null
+  fact_registry?: FactEvidenceRegistry | null
+}): SellerFacingReasoningProjection {
+  return groundProjection(
+    buildUngroundedProjection({
+      reasoning,
+      reading,
+      state,
+      fallback_action,
+    }),
+    fact_registry,
+  )
+}
+
+function buildUngroundedProjection({
+  reasoning,
+  reading,
+  state,
+  fallback_action,
+}: {
+  reasoning: CommercialReasoning | null
+  reading: CanonicalCommercialReadingSource | null
+  state: StatefulCommercialState | null
+  fallback_action: string | null
 }): SellerFacingReasoningProjection {
   if (!reasoning) {
     return {
@@ -140,6 +234,7 @@ export function buildSellerFacingReasoningProjection({
         ready_to_send: null,
         editable: true,
       },
+      momentum: null,
       limitations: [
         'commercial_reasoning_unavailable',
       ],
@@ -149,8 +244,27 @@ export function buildSellerFacingReasoningProjection({
   const selectedTechnique =
     reasoning.selected_techniques[0]
 
+  const temporal =
+    reasoning.temporal_context ??
+    null
+
+  // A mensagem sugerida pela leitura persistida foi escrita para o momento
+  // da análise. Se o tempo exige reativação, recuperação de atraso ou
+  // encerramento, ela descreve uma conversa que não existe mais.
+  const timeRequiresNewMove =
+    temporal !== null &&
+    [
+      'reactivate',
+      'light_follow_up',
+      'recover_delay',
+      'respect_closure',
+    ].includes(
+      temporal.reactivation.mode,
+    )
+
   const readyMessage =
     reasoning.status === 'silent' ||
+    timeRequiresNewMove ||
     !reading?.reading.communication
       .intervention_needed
       ? null
@@ -209,6 +323,23 @@ export function buildSellerFacingReasoningProjection({
         readyMessage,
       editable: true,
     },
+    momentum:
+      temporal &&
+      reasoning.status !== 'silent'
+        ? {
+            state:
+              temporal.momentum.state,
+            label:
+              temporal.narrative
+                .momentum_label,
+            requalify_before_continuing:
+              temporal.reactivation
+                .requalify_before_continuing,
+            facts:
+              temporal.narrative.facts
+                .slice(0, 3),
+          }
+        : null,
     limitations: [
       ...reasoning.limitations,
     ],

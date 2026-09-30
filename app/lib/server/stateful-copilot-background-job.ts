@@ -4,6 +4,11 @@ import {
   createHash,
 } from 'crypto'
 
+import {
+  isCompanionExecutionScope,
+  type CompanionExecutionScope,
+} from '@/app/lib/companion/companion-execution-scope'
+
 export const STATEFUL_COPILOT_BACKGROUND_JOB_VERSION =
   'phase12a-background-job-v2' as const
 
@@ -18,6 +23,107 @@ export const STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS =
 
 export const STATEFUL_COPILOT_BACKGROUND_RUNNING_LEASE_MS =
   210_000
+
+// Redelivery de falha retryable. Sem diretiva explícita a Vercel Queue só
+// reentrega quando a visibilidade (180 s) expira — cada nova tentativa de
+// uma primeira análise custava 3+ minutos e a extensão desistia antes
+// (R9). A espera cresce, mas cabe inteira na janela de acompanhamento.
+export const STATEFUL_COPILOT_BACKGROUND_RETRY_BACKOFF_SECONDS =
+  [3, 10, 20, 30] as const
+
+// Outra entrega/job da mesma conversa está rodando: espera ela terminar.
+export const STATEFUL_COPILOT_BACKGROUND_CONTENTION_RETRY_SECONDS =
+  15
+
+// Um job `queued` sem nenhum sinal de execução (claim, requeue ou retry
+// atualizam updated_at) além disto não tem mais entrega viva: pode ser
+// reaberto e republicado com segurança (CAS em updated_at).
+export const STATEFUL_COPILOT_BACKGROUND_QUEUED_STALE_MS =
+  5 * 60_000
+
+const CONTENTION_RETRY_CODES: ReadonlySet<string> = new Set([
+  'BACKGROUND_JOB_ALREADY_RUNNING',
+  'BACKGROUND_CONVERSATION_BUSY',
+])
+
+export type StatefulCopilotBackgroundRetryDirective =
+  | { afterSeconds: number }
+  | { acknowledge: true }
+
+// Diretiva da fila para uma entrega que lançou erro. Erro não retryable
+// (mensagem inválida) nunca vai dar certo: ack. Depois do teto de entregas
+// (+ margem), o job fica com a recuperação do produtor (stale).
+export function resolveStatefulCopilotBackgroundRetryDirective({
+  retryable,
+  code,
+  delivery_count,
+}: {
+  retryable: boolean
+  code: string | null
+  delivery_count: number
+}): StatefulCopilotBackgroundRetryDirective {
+  if (
+    !retryable ||
+    !Number.isSafeInteger(delivery_count) ||
+    delivery_count < 1 ||
+    delivery_count >= STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS + 2
+  ) {
+    return { acknowledge: true }
+  }
+
+  if (code && CONTENTION_RETRY_CODES.has(code)) {
+    return { afterSeconds: STATEFUL_COPILOT_BACKGROUND_CONTENTION_RETRY_SECONDS }
+  }
+
+  const backoff = STATEFUL_COPILOT_BACKGROUND_RETRY_BACKOFF_SECONDS
+
+  return {
+    afterSeconds: backoff[Math.min(delivery_count - 1, backoff.length - 1)],
+  }
+}
+
+export type StatefulCopilotBackgroundJobStaleness =
+  | 'fresh'
+  | 'stale_queued'
+  | 'stale_running'
+
+// Órfão determinístico: `queued` sem sinal de execução há mais que o limite
+// ou `running` com lease vencido (o worker tem maxDuration 180 s < lease
+// 210 s, então o dono já morreu).
+export function classifyStatefulCopilotBackgroundJobStaleness({
+  status,
+  updated_at,
+  started_at,
+  now_ms,
+}: {
+  status: unknown
+  updated_at: unknown
+  started_at: unknown
+  now_ms: number
+}): StatefulCopilotBackgroundJobStaleness {
+  const parse = (value: unknown) =>
+    typeof value === 'string' ? Date.parse(value) : Number.NaN
+
+  if (status === 'queued') {
+    const updatedAt = parse(updated_at)
+
+    return Number.isFinite(updatedAt) &&
+      now_ms - updatedAt >= STATEFUL_COPILOT_BACKGROUND_QUEUED_STALE_MS
+      ? 'stale_queued'
+      : 'fresh'
+  }
+
+  if (status === 'running') {
+    const startedAt = parse(started_at)
+
+    return Number.isFinite(startedAt) &&
+      now_ms - startedAt >= STATEFUL_COPILOT_BACKGROUND_RUNNING_LEASE_MS
+      ? 'stale_running'
+      : 'fresh'
+  }
+
+  return 'fresh'
+}
 
 export const STATEFUL_COPILOT_BACKGROUND_JOB_STATUSES = [
   'queued',
@@ -36,6 +142,9 @@ export type StatefulCopilotBackgroundJobDescriptor = {
 
   analysis_job_id:
     string
+
+  execution_scope:
+    CompanionExecutionScope
 
   company_id:
     string
@@ -151,13 +260,58 @@ export function isStatefulCopilotBackgroundJobStatus(
   )
 }
 
+function hashJobIdentity(
+  parts:
+    readonly string[],
+): string {
+  return createHash(
+    'sha256',
+  )
+    .update(
+      JSON.stringify([
+        STATEFUL_COPILOT_BACKGROUND_JOB_VERSION,
+        ...parts,
+      ]),
+    )
+    .digest(
+      'hex',
+    )
+}
+
+function requireExecutionScope(
+  value:
+    unknown,
+): CompanionExecutionScope {
+  if (
+    !isCompanionExecutionScope(
+      value,
+    )
+  ) {
+    throw new Error(
+      'execution_scope é inválido.',
+    )
+  }
+
+  return value
+}
+
+// R10: o escopo de execução faz parte da identidade do job. O mesmo
+// contexto/watermark gera um job de produção e um job de homolog
+// DIFERENTES — nenhum dos dois reaproveita, reabre ou conclui o outro.
+// Ids anteriores ao escopo (hash sem ele) são jobs legados de produção:
+// aceitos só como produção, nunca por homolog.
 export function buildStatefulCopilotBackgroundJobDescriptor({
+  execution_scope,
   company_id,
   cycle_id,
   conversation_key,
   message_watermark,
   requested_at,
+  analysis_job_id,
 }: {
+  execution_scope:
+    unknown
+
   company_id:
     unknown
 
@@ -172,7 +326,17 @@ export function buildStatefulCopilotBackgroundJobDescriptor({
 
   requested_at:
     unknown
+
+  // Id já existente (mensagem da fila, linha do banco) a conferir contra
+  // o escopo do job. Ausente = job novo.
+  analysis_job_id?:
+    unknown
 }): StatefulCopilotBackgroundJobDescriptor {
+  const executionScope =
+    requireExecutionScope(
+      execution_scope,
+    )
+
   const companyId =
     requireText(
       company_id,
@@ -206,22 +370,51 @@ export function buildStatefulCopilotBackgroundJobDescriptor({
       requested_at,
     )
 
-  const analysisJobId =
-    createHash(
-      'sha256',
-    )
-      .update(
-        JSON.stringify([
-          STATEFUL_COPILOT_BACKGROUND_JOB_VERSION,
-          companyId,
-          cycleId,
-          conversationKey,
-          messageWatermark,
-        ]),
+  const scopedJobId =
+    hashJobIdentity([
+      executionScope,
+      companyId,
+      cycleId,
+      conversationKey,
+      messageWatermark,
+    ])
+
+  let analysisJobId =
+    scopedJobId
+
+  if (
+    analysis_job_id !==
+    undefined
+  ) {
+    const legacyProductionJobId =
+      executionScope ===
+        'production'
+        ? hashJobIdentity([
+            companyId,
+            cycleId,
+            conversationKey,
+            messageWatermark,
+          ])
+        : null
+
+    if (
+      analysis_job_id !==
+        scopedJobId &&
+      (
+        legacyProductionJobId ===
+          null ||
+        analysis_job_id !==
+          legacyProductionJobId
       )
-      .digest(
-        'hex',
+    ) {
+      throw new Error(
+        'analysis_job_id não corresponde ao escopo do job.',
       )
+    }
+
+    analysisJobId =
+      analysis_job_id
+  }
 
   return Object.freeze({
     job_version:
@@ -229,6 +422,9 @@ export function buildStatefulCopilotBackgroundJobDescriptor({
 
     analysis_job_id:
       analysisJobId,
+
+    execution_scope:
+      executionScope,
 
     company_id:
       companyId,
@@ -292,8 +488,15 @@ export function parseStatefulCopilotBackgroundJobMessage(
     )
   }
 
+  // Mensagem publicada antes do escopo existir só pode ser de produção.
   const descriptor =
     buildStatefulCopilotBackgroundJobDescriptor({
+      execution_scope:
+        value.execution_scope ===
+        undefined
+          ? 'production'
+          : value.execution_scope,
+
       company_id:
         value.company_id,
 
@@ -308,16 +511,13 @@ export function parseStatefulCopilotBackgroundJobMessage(
 
       requested_at:
         value.requested_at,
-    })
 
-  if (
-    value.analysis_job_id !==
-    descriptor.analysis_job_id
-  ) {
-    throw new Error(
-      'analysis_job_id não corresponde ao escopo do job.',
-    )
-  }
+      analysis_job_id:
+        typeof value.analysis_job_id ===
+        'string'
+          ? value.analysis_job_id
+          : null,
+    })
 
   return buildStatefulCopilotBackgroundJobMessage({
     descriptor,

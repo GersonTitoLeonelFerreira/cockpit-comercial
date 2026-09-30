@@ -40,6 +40,17 @@ import {
   selectApplicableCommercialTechniques,
 } from './commercial-techniques-engine'
 
+import {
+  buildCommercialTemporalContext,
+  formatCommercialDuration,
+  type CommercialTemporalContext,
+  type CommercialTemporalOperationalContext,
+} from './commercial-temporal-context'
+
+import type {
+  SellerExecutionCustomerIntentKind,
+} from './seller-execution-trace'
+
 const MAX_TECHNIQUES = 3
 const MAX_KNOWLEDGE_REFERENCES = 5
 const MAX_DO_NOT_DO = 5
@@ -537,6 +548,21 @@ function humanTechniqueReason(
     case 'technique.commitment_wait':
       return 'A próxima resposta está com o cliente; repetir a mesma ação sem fato novo adicionaria pressão, não informação.'
 
+    case 'technique.state_change_reactivation':
+      return 'A conversa perdeu continuidade e o interesse atual do cliente é desconhecido; antes de retomar o passo antigo é preciso recuperar o contexto e descobrir o que mudou.'
+
+    case 'technique.permission_based_reengagement':
+      return 'Já houve tentativa sem resposta; pedir permissão para retomar reduz pressão e facilita uma resposta honesta do cliente.'
+
+    case 'technique.pattern_interrupt_reengagement':
+      return 'O mesmo tipo de mensagem já ficou sem resposta; repetir o formato tende a ser ignorado de novo, então a retomada precisa ser curta e diferente.'
+
+    case 'technique.delayed_response_recovery':
+      return 'O cliente ficou esperando uma resposta do vendedor; a prioridade é responder ao pedido reconhecendo a demora, sem fingir que nenhum tempo passou.'
+
+    case 'technique.respectful_closure':
+      return 'O cliente declarou que encerrou ou resolveu por outro caminho; insistir agora seria pressão e prejudicaria a relação.'
+
     case 'principle.company_rules_before_claim':
       return 'A orientação depende de condição, política ou capacidade específica; a resposta precisa permanecer dentro do conhecimento oficial da empresa.'
 
@@ -548,6 +574,7 @@ function humanTechniqueReason(
 function selectTechniques(
   ranked:
     RankedCommercialIntelligenceEntry[],
+  limit: number = MAX_TECHNIQUES,
 ): CommercialReasoningTechnique[] {
   return ranked
     .filter(
@@ -555,7 +582,7 @@ function selectTechniques(
         item.entry.kind === 'technique' ||
         item.entry.kind === 'principle',
     )
-    .slice(0, MAX_TECHNIQUES)
+    .slice(0, limit)
     .map(
       item => ({
         intelligence_id:
@@ -737,15 +764,275 @@ function objectiveForTechnique(
     case 'technique.commitment_wait':
       return 'Aguardar a resposta do cliente; não repetir a ação já executada sem fato novo.'
 
+    case 'technique.state_change_reactivation':
+      return 'Reativar a conversa relembrando de forma concreta o que o cliente estava avaliando e perguntar, com uma única pergunta de baixo esforço, como está esse interesse hoje — sem pedir data ou decisão e sem reenviar oferta.'
+
+    case 'technique.permission_based_reengagement':
+      return 'Retomar com permissão: reconhecer que o próximo passo ficou em aberto e perguntar de forma simples se ainda faz sentido continuar, deixando uma saída fácil para o cliente.'
+
+    case 'technique.pattern_interrupt_reengagement':
+      return 'Mudar o formato da abordagem: mensagem curta, diferente das tentativas sem resposta e ancorada no que o próprio cliente trouxe, com uma única pergunta fácil de responder — sem repetir oferta ou cobrança.'
+
+    case 'technique.delayed_response_recovery':
+      return 'Responder agora ao pedido que ficou esperando, reconhecendo a demora em uma frase e, se o momento indicado pelo cliente já passou, confirmar o que ainda faz sentido.'
+
+    case 'technique.respectful_closure':
+      return 'Respeitar a decisão do cliente: agradecer, não insistir na oferta e, no máximo, deixar a porta aberta.'
+
     default:
       return null
   }
+}
+
+function intentPhrase(
+  kind:
+    SellerExecutionCustomerIntentKind,
+): string {
+  switch (kind) {
+    case 'scheduling':
+      return 'interesse em agendar o próximo passo'
+    case 'close':
+      return 'intenção de fechar'
+    case 'pricing':
+      return 'interesse em valores'
+    case 'product_interest':
+      return 'interesse na solução'
+    case 'payment_objection':
+      return 'uma dúvida sobre pagamento'
+    case 'objection':
+      return 'uma objeção'
+    case 'third_party_interest':
+      return 'interesse em nome de outra pessoa'
+    case 'general_interest':
+      return 'interesse inicial'
+    default:
+      return 'interesse comercial'
+  }
+}
+
+function silenceSentence(
+  temporal: CommercialTemporalContext,
+): string {
+  const silence =
+    temporal.facts
+      .silence_since_last_customer_message_ms
+
+  const streak =
+    temporal.reactivation
+      .outbound_unanswered_turns
+
+  const streakText =
+    streak >= 2
+      ? `, com ${streak} tentativas do vendedor sem resposta desde então`
+      : streak === 1
+        ? ', e a última tentativa do vendedor ficou sem resposta'
+        : ''
+
+  return silence !== null
+    ? `A última resposta do cliente foi há ${formatCommercialDuration(silence)}${streakText}.`
+    : 'O cliente ainda não respondeu às tentativas do vendedor.'
+}
+
+function temporalSituation(
+  temporal:
+    CommercialTemporalContext | null,
+): string | null {
+  if (!temporal) {
+    return null
+  }
+
+  const intent =
+    temporal.intent
+
+  const intentAge =
+    temporal.facts
+      .age_of_last_customer_intent_ms
+
+  // Quando a intenção foi a última fala do cliente, uma única frase cobre
+  // intenção e silêncio (evita "há 18 dias... há 18 dias").
+  const intentIsLastCustomerWord =
+    Boolean(
+      intent &&
+      temporal.facts
+        .last_customer_message_at &&
+      Date.parse(
+        intent.demonstrated_at,
+      ) ===
+        Date.parse(
+          temporal.facts
+            .last_customer_message_at,
+        ),
+    )
+
+  const streak =
+    temporal.reactivation
+      .outbound_unanswered_turns
+
+  const intentSentence =
+    intent &&
+    intentAge !== null
+      ? intentIsLastCustomerWord
+        ? `O cliente demonstrou ${intentPhrase(intent.kind)} há ${formatCommercialDuration(intentAge)} e não respondeu desde então${streak >= 2 ? ` (${streak} tentativas do vendedor sem resposta)` : ''}.`
+        : `O cliente demonstrou ${intentPhrase(intent.kind)} há ${formatCommercialDuration(intentAge)}.`
+      : null
+
+  const silence =
+    intentIsLastCustomerWord
+      ? null
+      : silenceSentence(temporal)
+
+  switch (
+    temporal.reactivation.mode
+  ) {
+    case 'reactivate':
+      return [
+        intentSentence,
+        silence,
+        temporal.reactivation
+          .requalify_before_continuing
+          ? 'A conversa perdeu continuidade e o interesse atual não está confirmado: a intenção antiga não pode ser tratada como atual, mas a oportunidade também não está perdida.'
+          : 'A conversa perdeu continuidade e precisa ser reativada antes de seguir o fluxo.',
+      ]
+        .filter(Boolean)
+        .join(' ')
+
+    case 'light_follow_up': {
+      const pause =
+        temporal.progression
+          .agreed_pause
+
+      if (
+        pause &&
+        temporal.reactivation
+          .reason_codes.includes(
+            'agreed_recontact_due',
+          )
+      ) {
+        return [
+          `O cliente pediu para ser chamado ${pause.horizon_label} e o momento combinado chegou.`,
+          temporal.reactivation
+            .requalify_before_continuing
+            ? 'Passou tempo suficiente para o interesse precisar ser reconfirmado: a retomada lembra o combinado e pergunta como está o assunto hoje.'
+            : 'A retomada cumpre o combinado: lembra o que ficou em aberto e reabre o assunto sem pressão.',
+        ].join(' ')
+      }
+
+      const requalifyText =
+        temporal.reactivation
+          .requalify_before_continuing
+          ? temporal.intent?.time_window_expired
+            ? ' O momento indicado pelo cliente já passou; vale reconfirmar o interesse antes de retomar o passo pendente.'
+            : ' O interesse atual não está confirmado; descobrir o que mudou vem antes do passo pendente.'
+          : ''
+
+      switch (
+        temporal.progression.stage
+      ) {
+        case 'early_loss':
+          return `${silenceSentence(temporal)} O silêncio acabou de passar do ritmo normal de resposta; um lembrete leve e contextual basta — ainda não é caso de reativação.${requalifyText}`
+
+        case 'prolonged_silence':
+          return `${silenceSentence(temporal)} O silêncio já é prolongado; antes de cobrar o passo pendente, vale checar de forma leve se o assunto continua de pé.${requalifyText}`
+
+        case 'strong_gap':
+          return `${silenceSentence(temporal)} A lacuna de continuidade já é forte: a retomada precisa descobrir o estado atual do interesse, não repetir o passo antigo.${requalifyText}`
+
+        default:
+          return `${silenceSentence(temporal)} A conversa está esfriando; a retomada precisa reabrir o objetivo sem repetir a mesma cobrança.${requalifyText}`
+      }
+    }
+
+    case 'respond_now': {
+      if (
+        !temporal.reactivation
+          .requalify_before_continuing ||
+        !intent
+      ) {
+        return null
+      }
+
+      return `O cliente voltou a falar agora, mas a última manifestação dele sobre ${intentPhrase(intent.kind)} foi há ${formatCommercialDuration(intent.related_age_ms)} e a mensagem nova não a reconfirma. Responder já, sem tratar a intenção antiga como atual.`
+    }
+
+    case 'recover_delay': {
+      const wait =
+        temporal.seller_timing
+          .pending_customer_wait_ms
+
+      return [
+        wait !== null
+          ? `O cliente está esperando resposta do vendedor há ${formatCommercialDuration(wait)}.`
+          : 'O cliente está esperando resposta do vendedor.',
+        intent?.time_window_expired
+          ? 'O momento que ele havia indicado já passou.'
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    }
+
+    case 'respect_closure':
+      return temporal.reactivation
+        .contact_allowed
+        ? 'O cliente declarou que encerrou ou resolveu por outro caminho; não há próximo passo comercial a forçar.'
+        : 'O cliente pediu explicitamente para não receber mais contato; nenhuma nova mensagem pode ser enviada.'
+
+    default:
+      return null
+  }
+}
+
+function temporalDecisionReason({
+  temporal,
+  technique,
+}: {
+  temporal:
+    CommercialTemporalContext | null
+  technique:
+    CommercialReasoningTechnique | undefined
+}): string | null {
+  if (
+    !temporal ||
+    !technique
+  ) {
+    return null
+  }
+
+  const temporalIds = [
+    'technique.state_change_reactivation',
+    'technique.permission_based_reengagement',
+    'technique.pattern_interrupt_reengagement',
+    'technique.delayed_response_recovery',
+    'technique.respectful_closure',
+  ]
+
+  if (
+    !temporalIds.includes(
+      technique.intelligence_id,
+    ) &&
+    !(
+      technique.intelligence_id ===
+        'technique.contextual_reengagement' &&
+      temporal.reactivation.mode ===
+        'light_follow_up'
+    )
+  ) {
+    return null
+  }
+
+  const situation =
+    temporalSituation(temporal)
+
+  return situation
+    ? `${situation} ${technique.why_applicable}`
+    : technique.why_applicable
 }
 
 function inferObjectiveNow({
   reading,
   sequenceMethodAssessment,
   selectedTechniques,
+  temporal = null,
 }: {
   reading: CommercialReading
   sequenceMethodAssessment:
@@ -754,7 +1041,40 @@ function inferObjectiveNow({
     >
   selectedTechniques:
     CommercialReasoningTechnique[]
+  temporal?:
+    CommercialTemporalContext | null
 }): string {
+  // Atraso longo do vendedor que também tornou a intenção incerta: não
+  // basta responder ao pedido antigo — é preciso reconfirmar se ele ainda
+  // vale antes de retomar o compromisso original.
+  if (
+    selectedTechniques[0]
+      ?.intelligence_id ===
+      'technique.delayed_response_recovery' &&
+    temporal?.reactivation
+      .requalify_before_continuing
+  ) {
+    return 'Responder agora ao pedido que ficou sem resposta, reconhecendo a demora em uma frase, e reconfirmar se ele ainda faz sentido antes de retomar o compromisso original — sem presumir a data ou o momento antigo.'
+  }
+
+  if (
+    temporal &&
+    !temporal.reactivation
+      .contact_allowed
+  ) {
+    return 'Não enviar nenhuma mensagem: registrar e respeitar o pedido do cliente de não receber mais contato.'
+  }
+
+  if (
+    selectedTechniques[0]
+      ?.intelligence_id ===
+      'technique.state_change_reactivation' &&
+    temporal?.reactivation.mode ===
+      'respond_now'
+  ) {
+    return 'Responder agora ao que o cliente trouxe e, na mesma mensagem, perguntar de forma simples como está o interesse que ele havia demonstrado — sem presumir que o passo antigo continua de pé e sem pedir data, escolha ou fechamento.'
+  }
+
   const techniqueObjective =
     objectiveForTechnique(
       selectedTechniques[0],
@@ -792,11 +1112,19 @@ function inferObjectiveNow({
   return reading.best_approach.reason
 }
 
+const OFFER_LIKE_ACTIONS = new Set([
+  'product_presentation',
+  'price_presentation',
+  'stage_jump_unrelated_offer',
+  'pressure_or_false_urgency',
+])
+
 function prioritizeSelectedTechniques({
   techniques,
   situations,
   signals,
   techniqueContext,
+  temporal = null,
 }: {
   techniques:
     CommercialReasoningTechnique[]
@@ -806,6 +1134,8 @@ function prioritizeSelectedTechniques({
     ReturnType<
       typeof buildCommercialTechniqueContext
     >
+  temporal?:
+    CommercialTemporalContext | null
 }): CommercialReasoningTechnique[] {
   const byId =
     new Map(
@@ -828,6 +1158,196 @@ function prioritizeSelectedTechniques({
         priority.push(id)
       }
     }
+
+  // TEMPO PRIMEIRO: quando o intervalo mudou o significado da venda
+  // (encerramento, cliente esperando o vendedor, conversa esfriando ou
+  // dormente), o próximo movimento é decidido por isso — não por uma
+  // continuação cega do diálogo antigo.
+  const temporalMode =
+    temporal?.reactivation.mode ??
+    'none'
+
+  if (
+    temporal &&
+    temporalMode ===
+      'respect_closure'
+  ) {
+    push(
+      'technique.respectful_closure',
+    )
+  } else if (
+    temporal &&
+    temporalMode ===
+      'recover_delay'
+  ) {
+    push(
+      'technique.delayed_response_recovery',
+    )
+
+    if (
+      temporal.reactivation
+        .requalify_before_continuing
+    ) {
+      push(
+        'technique.state_change_reactivation',
+      )
+    }
+  } else if (
+    temporal &&
+    temporalMode === 'wait'
+  ) {
+    // O tempo sustenta espera (dentro do ritmo, vendedor acabou de agir ou
+    // prazo combinado com o cliente): nenhuma mensagem nova agora.
+    push(
+      'technique.commitment_wait',
+    )
+  } else if (
+    temporal &&
+    temporalMode ===
+      'respond_now' &&
+    temporal.reactivation
+      .requalify_before_continuing
+  ) {
+    // O cliente voltou a falar, mas sem reconfirmar a intenção antiga:
+    // responder e descobrir o estado atual antes do passo antigo.
+    push(
+      'technique.state_change_reactivation',
+    )
+  } else if (
+    temporal &&
+    (
+      temporalMode ===
+        'reactivate' ||
+      temporalMode ===
+        'light_follow_up'
+    )
+  ) {
+    const unanswered =
+      temporal.reactivation
+        .outbound_unanswered_turns
+
+    const pushedOffer =
+      temporal.reactivation
+        .last_unanswered_action_types
+        .some(
+          action =>
+            OFFER_LIKE_ACTIONS.has(
+              action,
+            ),
+        )
+
+    const requalify =
+      temporal.reactivation
+        .requalify_before_continuing
+
+    const stage =
+      temporal.progression.stage
+
+    // ESCADA PROGRESSIVA: a técnica acompanha a intensidade da lacuna,
+    // não um único limiar "normal → reativação".
+    //   perda inicial      → retomada contextual leve
+    //   silêncio prolongado → checagem com permissão
+    //   lacuna forte        → mudança de estado (reconfirmar o interesse)
+    //   sem continuidade    → mudança de estado / quebra de padrão
+    // Várias ofertas sem resposta antes da dormência: mudar o formato
+    // primeiro (a quebra de padrão já pergunta, com baixo esforço, como
+    // está o interesse).
+    if (
+      temporal.reactivation
+        .reason_codes.includes(
+          'agreed_recontact_due',
+        ) &&
+      !requalify
+    ) {
+      push(
+        'technique.contextual_reengagement',
+      )
+    }
+
+    if (
+      unanswered >= 2 &&
+      pushedOffer &&
+      stage !== 'long_dormancy'
+    ) {
+      push(
+        'technique.pattern_interrupt_reengagement',
+      )
+    }
+
+    switch (stage) {
+      case 'early_loss':
+        if (requalify) {
+          push(
+            'technique.state_change_reactivation',
+          )
+        }
+        push(
+          'technique.contextual_reengagement',
+        )
+        break
+
+      case 'prolonged_silence':
+        if (requalify) {
+          push(
+            'technique.state_change_reactivation',
+          )
+        }
+        push(
+          'technique.permission_based_reengagement',
+        )
+        break
+
+      case 'strong_gap':
+        push(
+          'technique.state_change_reactivation',
+        )
+        push(
+          'technique.permission_based_reengagement',
+        )
+        break
+
+      case 'long_dormancy':
+        push(
+          'technique.state_change_reactivation',
+        )
+
+        if (
+          unanswered >= 2 &&
+          pushedOffer
+        ) {
+          push(
+            'technique.pattern_interrupt_reengagement',
+          )
+        }
+        break
+
+      default:
+        if (requalify) {
+          push(
+            'technique.state_change_reactivation',
+          )
+        }
+        break
+    }
+
+    if (
+      unanswered >= 2
+    ) {
+      push(
+        'technique.permission_based_reengagement',
+      )
+    }
+
+    push(
+      'technique.contextual_reengagement',
+    )
+    push(
+      'technique.state_change_reactivation',
+    )
+    push(
+      'technique.permission_based_reengagement',
+    )
+  }
 
   if (
     signals.includes(
@@ -1014,6 +1534,80 @@ function prioritizeSelectedTechniques({
     )
 }
 
+// O tempo restringe a decisão final mesmo quando nenhuma técnica temporal
+// foi selecionada: cliente esperando o vendedor pede resposta (não
+// "follow-up"), e intenção que precisa ser reconfirmada nunca vira passo
+// operacional herdado da leitura antiga.
+const OPERATIONAL_DECISIONS: ReadonlySet<
+  CommercialReading[
+    'best_approach'
+  ]['decision']
+> = new Set([
+  'close',
+  'set_commitment',
+  'compare',
+  'demonstrate_value',
+  'deepen_discovery',
+])
+
+function temporalDecisionGuard({
+  decision,
+  temporal,
+}: {
+  decision:
+    CommercialReading[
+      'best_approach'
+    ]['decision']
+  temporal:
+    CommercialTemporalContext | null
+}): CommercialReading[
+  'best_approach'
+]['decision'] {
+  if (!temporal) {
+    return decision
+  }
+
+  const mode =
+    temporal.reactivation.mode
+
+  const sellerOwesReply =
+    mode === 'respond_now' ||
+    mode === 'recover_delay'
+
+  if (
+    temporal.reactivation
+      .requalify_before_continuing &&
+    OPERATIONAL_DECISIONS.has(
+      decision,
+    )
+  ) {
+    return sellerOwesReply
+      ? 'respond'
+      : 'follow_up'
+  }
+
+  // Espera sustentada pelo tempo nunca vira mensagem nova.
+  if (
+    mode === 'wait' &&
+    decision !== 'give_space'
+  ) {
+    return 'wait'
+  }
+
+  if (
+    sellerOwesReply &&
+    (
+      decision === 'follow_up' ||
+      decision === 'wait' ||
+      decision === 'give_space'
+    )
+  ) {
+    return 'respond'
+  }
+
+  return decision
+}
+
 function decisionForTechnique(
   technique:
     CommercialReasoningTechnique | undefined,
@@ -1053,6 +1647,17 @@ function decisionForTechnique(
     case 'technique.commitment_wait':
       return 'wait'
 
+    case 'technique.state_change_reactivation':
+    case 'technique.permission_based_reengagement':
+    case 'technique.pattern_interrupt_reengagement':
+      return 'follow_up'
+
+    case 'technique.delayed_response_recovery':
+      return 'respond'
+
+    case 'technique.respectful_closure':
+      return 'give_space'
+
     case 'technique.third_party_handoff':
       return 'set_commitment'
 
@@ -1065,6 +1670,7 @@ function buildCurrentSituation({
   reading,
   sequenceMethodAssessment,
   selectedTechniques,
+  temporal = null,
 }: {
   reading: CommercialReading
   sequenceMethodAssessment:
@@ -1073,10 +1679,39 @@ function buildCurrentSituation({
     >
   selectedTechniques:
     CommercialReasoningTechnique[]
+  temporal?:
+    CommercialTemporalContext | null
 }): string {
   const techniqueId =
     selectedTechniques[0]
       ?.intelligence_id
+
+  const timeDrivenSituation =
+    temporal &&
+    [
+      'technique.state_change_reactivation',
+      'technique.permission_based_reengagement',
+      'technique.pattern_interrupt_reengagement',
+      'technique.delayed_response_recovery',
+      'technique.respectful_closure',
+    ].includes(
+      techniqueId ?? '',
+    )
+      ? temporalSituation(
+          temporal,
+        )
+      : techniqueId ===
+            'technique.contextual_reengagement' &&
+          temporal?.reactivation.mode ===
+            'light_follow_up'
+        ? temporalSituation(
+            temporal,
+          )
+        : null
+
+  if (timeDrivenSituation) {
+    return timeDrivenSituation
+  }
 
   if (
     techniqueId ===
@@ -1111,6 +1746,7 @@ function buildDecisionReason({
   reading,
   sequenceMethodAssessment,
   selectedTechniques,
+  temporal = null,
 }: {
   reading: CommercialReading
   sequenceMethodAssessment:
@@ -1119,9 +1755,21 @@ function buildDecisionReason({
     >
   selectedTechniques:
     CommercialReasoningTechnique[]
+  temporal?:
+    CommercialTemporalContext | null
 }): string {
   const technique =
     selectedTechniques[0]
+
+  const timeDriven =
+    temporalDecisionReason({
+      temporal,
+      technique,
+    })
+
+  if (timeDriven) {
+    return timeDriven
+  }
 
   if (technique) {
     return technique.why_applicable
@@ -1150,10 +1798,17 @@ export function buildCommercialReasoning({
   reading,
   cycle_state,
   diagnostic_input,
+  evaluated_at = null,
+  operational_context = null,
 }: {
   reading: CommercialReading
   cycle_state: StatefulCommercialState
   diagnostic_input: CompanionDiagnosticInput
+  // Instante em que o vendedor está olhando a venda. O snapshot comercial
+  // pode ter sido calculado antes; o silêncio desde então é evidência.
+  evaluated_at?: string | null
+  operational_context?:
+    CommercialTemporalOperationalContext | null
 }): CommercialReasoning {
   const thirdPartyOpportunity =
     hasCanonicalThirdPartyOpportunity(
@@ -1186,13 +1841,44 @@ export function buildCommercialReasoning({
       diagnostic_input,
     })
 
+  const temporalContext =
+    buildCommercialTemporalContext({
+      diagnostic_input,
+      trace:
+        sellerExecutionTrace,
+      evaluated_at,
+      operational:
+        operational_context,
+    })
+
   const sequenceMethodAssessment =
     buildSellerSequenceMethodAssessment({
       reading,
       diagnostic_input,
       trace:
         sellerExecutionTrace,
+      temporal:
+        temporalContext,
     })
+
+  // Sinais da leitura persistida que descrevem um momento que o tempo já
+  // superou não podem continuar puxando a decisão: uma intenção antiga não
+  // é "intenção quente" nem "fechamento explícito" até ser reconfirmada.
+  const readingSignals =
+    temporalContext.reactivation
+      .requalify_before_continuing ||
+    temporalContext.reactivation
+      .mode === 'respect_closure'
+      ? situation.signals.filter(
+          signal =>
+            signal !==
+              'explicit_close_intent' &&
+            signal !==
+              'customer_intent_hot' &&
+            signal !==
+              'waiting_on_customer',
+        )
+      : situation.signals
 
   const techniqueContext =
     buildCommercialTechniqueContext({
@@ -1203,10 +1889,16 @@ export function buildCommercialReasoning({
       sequence_method:
         sequenceMethodAssessment,
       reading_signals:
-        situation.signals,
+        readingSignals,
       reading_situations:
         situation.situations,
+      temporal:
+        temporalContext,
     })
+
+  const staleIntent =
+    temporalContext.reactivation
+      .requalify_before_continuing
 
   const combinedSituation = {
     situations:
@@ -1214,14 +1906,24 @@ export function buildCommercialReasoning({
         ...situation.situations,
         ...sequenceMethodAssessment
           .situations,
+        ...temporalContext
+          .situations,
       ]),
     signals:
       unique([
-        ...situation.signals,
+        ...readingSignals,
         ...sequenceMethodAssessment
-          .signals,
+          .signals
+          .filter(
+            signal =>
+              !staleIntent ||
+              signal !==
+                'customer_intent_hot',
+          ),
         ...techniqueContext
           .supplemental_signals,
+        ...temporalContext
+          .signals,
       ]),
     objectives:
       unique([
@@ -1280,19 +1982,28 @@ export function buildCommercialReasoning({
         techniqueContext,
     })
 
+  // Prioriza sobre TODAS as técnicas aplicáveis e só depois corta: uma
+  // técnica exigida pelo momento (ex.: reativação) não pode ser descartada
+  // por ranking de palavras antes da prioridade comercial ser aplicada.
   const selectedTechniques =
     prioritizeSelectedTechniques({
       techniques:
         selectTechniques(
           techniqueSelection
             .selected_ranked,
+          Number.POSITIVE_INFINITY,
         ),
       situations:
         combinedSituation.situations,
       signals:
         combinedSituation.signals,
       techniqueContext,
-    })
+      temporal:
+        temporalContext,
+    }).slice(
+      0,
+      MAX_TECHNIQUES,
+    )
 
   const companyKnowledge =
     selectKnowledge(ranked)
@@ -1327,13 +2038,23 @@ export function buildCommercialReasoning({
       ),
     ])
 
-  const decision =
+  const rawDecision =
     status === 'silent'
       ? 'no_intervention'
       : decisionForTechnique(
           selectedTechniques[0],
         ) ??
         reading.best_approach.decision
+
+  const decision =
+    status === 'silent'
+      ? rawDecision
+      : temporalDecisionGuard({
+          decision:
+            rawDecision,
+          temporal:
+            temporalContext,
+        })
 
   const decisionReason =
     status === 'silent'
@@ -1342,6 +2063,8 @@ export function buildCommercialReasoning({
           reading,
           sequenceMethodAssessment,
           selectedTechniques,
+          temporal:
+            temporalContext,
         })
 
   return {
@@ -1359,6 +2082,10 @@ export function buildCommercialReasoning({
         reading,
         sequenceMethodAssessment,
         selectedTechniques,
+        temporal:
+          status === 'silent'
+            ? null
+            : temporalContext,
       }),
 
     objective_now:
@@ -1368,6 +2095,8 @@ export function buildCommercialReasoning({
             reading,
             sequenceMethodAssessment,
             selectedTechniques,
+            temporal:
+              temporalContext,
           }),
 
     do_not_do:
@@ -1376,6 +2105,15 @@ export function buildCommercialReasoning({
             'Não forçar ação comercial enquanto a relevância da sessão não estiver confirmada.',
           ]
         : unique([
+            // Opt-out do cliente é a restrição de maior precedência.
+            ...(
+              temporalContext.reactivation
+                .contact_allowed
+                ? []
+                : [
+                    'Não enviar nenhuma nova mensagem — nem agradecimento nem "porta aberta": o cliente pediu para não ser mais contatado.',
+                  ]
+            ),
             ...techniqueSelection
               .restrictions,
             ...sequenceMethodAssessment
@@ -1415,5 +2153,8 @@ export function buildCommercialReasoning({
     ],
 
     limitations,
+
+    temporal_context:
+      temporalContext,
   }
 }

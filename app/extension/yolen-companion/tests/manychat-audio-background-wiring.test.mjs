@@ -205,6 +205,7 @@ function createBackgroundHarness({ mediaReady = true } = {}) {
 
 test('manifest mantém background correto e ativa somente o runtime mínimo ManyChat', () => {
   assert.deepEqual(MANIFEST.background.scripts, [
+    'src/companion-environment.js',
     'src/capture-transport.js',
     'src/manychat-audio-background-transport.js',
     'src/manychat-safe-identity-background.js',
@@ -226,6 +227,8 @@ test('manifest mantém background correto e ativa somente o runtime mínimo Many
   // FASE 7 — o ManyChat compõe o MESMO bootstrap/Core/controllers/views
   // do WhatsApp com o ManyChatAdapter, atrás do kill switch.
   assert.deepEqual(manyChatBlocks[0].js, [
+    'src/build-identity.js',
+    'src/companion-environment.js',
     'src/yolen-api.js',
     'src/ux8-interaction-consistency-runtime.js',
     'src/lead-summary-expand-state.js',

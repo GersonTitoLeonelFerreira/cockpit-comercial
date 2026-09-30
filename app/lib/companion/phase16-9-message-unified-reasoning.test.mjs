@@ -326,6 +326,15 @@ test('CASO A: oportunidade de terceiro chega à mensagem com os mesmos papéis d
   const result = await composeSellerMessage({
     workingSummary:
       'Juliana (aluna) relatou que a irmã Mariana quer fazer uma aula experimental.',
+    // A relação ("irmã") vem da fala real da Juliana; o resumo e o
+    // reasoning sozinhos não sustentam fato.
+    currentInteraction: [
+      {
+        direction: 'incoming',
+        occurred_at: '2026-09-11T09:00:00.000Z',
+        text: 'Minha irmã Mariana quer fazer uma aula experimental, como ela começa?',
+      },
+    ],
     sellerIntent:
       'Quero ajudar a encaminhar a aula experimental da irmã dela.',
     method,

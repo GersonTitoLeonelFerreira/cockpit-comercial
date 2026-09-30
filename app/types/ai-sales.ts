@@ -246,6 +246,10 @@ export interface CompanionStatefulOnlyAnalyzeResponse {
         | 'superseded'
 
       message_watermark: string
+
+      // R10: ambiente dono do job (produção ou homolog). O cliente só
+      // acompanha job do próprio canal.
+      execution_scope: 'production' | 'homolog'
     }
   }
   error?: string

@@ -8,6 +8,12 @@ import {
   type StatefulCommercialState,
 } from './stateful-commercial-state'
 
+import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+  type CompanionExecutionScope,
+} from './companion-execution-scope'
+
 export const STATEFUL_COPILOT_STATE_TABLE =
   'companion_commercial_states' as const
 
@@ -734,10 +740,23 @@ function normalizePersistedState({
 
 export function createStatefulCopilotSupabaseReader({
   client,
+  execution_scope,
 }: {
   client:
     StatefulCopilotSupabaseReadClient
+
+  // R10: estado do próprio escopo (padrão: o do deployment). Homolog nunca
+  // lê o estado que a produção mostra, e vice-versa.
+  execution_scope?:
+    CompanionExecutionScope
 }): StatefulCopilotStateReader {
+  const stateTable =
+    companionDerivedTable(
+      'commercial_states',
+      execution_scope ??
+        resolveCompanionExecutionScope(),
+    )
+
   return async (
     request,
   ) => {
@@ -766,7 +785,7 @@ export function createStatefulCopilotSupabaseReader({
       response =
         await client
           .from(
-            STATEFUL_COPILOT_STATE_TABLE,
+            stateTable,
           )
           .select(
             STATEFUL_COPILOT_STATE_SELECT_COLUMNS,

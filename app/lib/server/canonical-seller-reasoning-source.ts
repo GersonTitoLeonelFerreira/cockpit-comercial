@@ -24,6 +24,48 @@ import type {
   CanonicalSellerCommercialContext,
 } from './canonical-seller-commercial-context-loader'
 
+import {
+  excludedPrimaryMessageIds,
+} from '@/app/lib/companion/commercial-fact-grounding'
+
+import type {
+  CompanionDiagnosticInput,
+} from '@/app/lib/companion/diagnostic-input'
+
+// Mensagem que o firewall de proveniência retirou da evidência primária
+// (ausente da conversa visível hoje ou de outra empresa) também não governa
+// tempo, intenção ou pedido pendente no raciocínio.
+function withoutExcludedEvidence(
+  input: CompanionDiagnosticInput,
+  context: CanonicalSellerCommercialContext,
+): CompanionDiagnosticInput {
+  const excluded =
+    context.fact_registry
+      ? excludedPrimaryMessageIds(
+        context.fact_registry,
+      )
+      : new Set<string>()
+
+  if (excluded.size === 0) {
+    return input
+  }
+
+  return {
+    ...input,
+    conversation: {
+      ...input.conversation,
+      active_message_ids:
+        input.conversation.active_message_ids.filter(
+          (id) => !excluded.has(id),
+        ),
+      messages:
+        input.conversation.messages.filter(
+          (message) => !excluded.has(message.id),
+        ),
+    },
+  }
+}
+
 /**
  * FASE 16-R6 — ponte única entre a fotografia comercial canônica da R1 e
  * o Commercial Reasoning Engine da R4.
@@ -38,6 +80,9 @@ import type {
  * - FASE 16.9: responsabilidade operacional determinística (quem está
  *   aguardando quem) reconcilia a decisão final para impedir que um gap de
  *   descoberta mande o vendedor repetir uma ação que já foi executada.
+ * - Recuperação do especialista comercial: o raciocínio é avaliado no
+ *   instante atual do vendedor (reference_time), não no instante em que o
+ *   snapshot foi persistido — tempo decorrido muda a decisão.
  */
 export type CanonicalSellerReasoningBundle = {
   reasoning: CommercialReasoning | null
@@ -77,6 +122,8 @@ export async function loadCanonicalSellerReasoningBundle({
         context.conversation_key,
       reference_time:
         context.ledger_reference_time,
+      preloaded_commercial_config:
+        context.commercial_config ?? null,
     })
 
   if (
@@ -93,6 +140,17 @@ export async function loadCanonicalSellerReasoningBundle({
     }
   }
 
+  // O snapshot comercial representa o instante da última análise; o
+  // vendedor olha a venda AGORA. O silêncio entre os dois é evidência
+  // comercial (Commercial Temporal Context), e os fatos operacionais que a
+  // aba CLIENTE já mostra (relacionamento, SLA configurado) chegam ao
+  // raciocínio canônico em vez de ficarem só na interface.
+  const diagnosticInput =
+    withoutExcludedEvidence(
+      snapshot.input,
+      context,
+    )
+
   const rawReasoning =
     buildCommercialReasoning({
       reading:
@@ -100,7 +158,16 @@ export async function loadCanonicalSellerReasoningBundle({
       cycle_state:
         context.state_read.state,
       diagnostic_input:
-        snapshot.input,
+        diagnosticInput,
+      evaluated_at:
+        context.reference_time,
+      operational_context: {
+        relationship:
+          context.client_context
+            .relationship,
+        sla:
+          context.client_context.sla,
+      },
     })
 
   const reasoning =
@@ -116,7 +183,7 @@ export async function loadCanonicalSellerReasoningBundle({
   return {
     reasoning,
     diagnostic_input:
-      snapshot.input,
+      diagnosticInput,
   }
 }
 

@@ -1,0 +1,646 @@
+{
+  "version": "sales-expert-recovery-golden-v1",
+  "description": "Conversas reais sanitizadas e multissetoriais para a recuperação do especialista comercial: texto + sequência + comportamento + método + contexto + TEMPO. Nomes, valores e links são fictícios. Horários em UTC; evaluated_at é o instante em que o vendedor olha a venda.",
+  "principles": [
+    "time_is_commercial_evidence",
+    "historical_intent_is_not_current_intent",
+    "no_continuity_is_not_lost_opportunity",
+    "same_action_cannot_be_praise_and_break",
+    "client_uncertainty_does_not_erase_seller_execution",
+    "reactivation_is_a_commercial_decision",
+    "persuasion_without_invention",
+    "business_agnostic"
+  ],
+  "cases": [
+    {
+      "id": "A",
+      "industry": "fitness",
+      "scenario": "Lorena: pedido de alta intenção para o mesmo dia, resposta horas depois só com saudação, retomada 9 dias depois, pergunta aberta sem resposta, oferta promocional em várias bolhas e 18 dias sem resposta do cliente.",
+      "recipient_name": "Lorena Galvão",
+      "evaluated_at": "2026-09-29T15:00:00Z",
+      "turns": [
+        ["in", "2026-09-01T14:33:00Z", "Bom dia"],
+        ["in", "2026-09-01T14:33:20Z", "Tudo bem?"],
+        ["in", "2026-09-01T14:33:40Z", "Podemos fazer a aula experimental hoje?"],
+        ["out", "2026-09-01T17:29:00Z", "Olá"],
+        ["out", "2026-09-10T15:00:00Z", "Oi, Lorena! Tivemos um problema com nosso WhatsApp e só consegui ver agora. Você já fez a aula experimental?"],
+        ["in", "2026-09-10T15:20:00Z", "Não fiz ainda."],
+        ["out", "2026-09-10T15:25:00Z", "Que ótimo."],
+        ["out", "2026-09-10T15:25:30Z", "Qual dia e horário fica melhor para você?"],
+        ["out", "2026-09-25T13:00:00Z", "PROMOÇÃO DE SETEMBRO! Plano mensal R$ 129,90 | Plano trimestral R$ 109,90/mês | Plano anual R$ 89,90/mês. Acesso livre à musculação e aulas coletivas."],
+        ["out", "2026-09-25T13:00:30Z", "Garanta sua vaga: https://exemplo.com/matricula"],
+        ["out", "2026-09-25T13:01:00Z", "Faça sua matrícula e aproveite!"]
+      ],
+      "reading": {
+        "best_approach": "set_commitment",
+        "strengths": [
+          {
+            "kind": "clear_explanation",
+            "summary": "O vendedor respondeu o interesse do cliente enviando oferta promocional detalhada com links para matrícula.",
+            "why_it_matters": "Facilita a decisão com informação completa.",
+            "evidence": ["m9"]
+          }
+        ],
+        "method_missing_information": ["Dia e horário da aula experimental"]
+      },
+      "expect": {
+        "momentum": "dormant",
+        "reactivation_mode": "reactivate",
+        "requalify": true,
+        "decision": "follow_up",
+        "technique_first": "technique.state_change_reactivation",
+        "sequence_break": true,
+        "strength_must_not_match": "oferta|promoc|link|matr[ií]cula",
+        "mistake_must_match": "saiu do objetivo comercial",
+        "findings_include": ["response_timing"],
+        "intent_is_current": false,
+        "coaching_scope": "full",
+        "strategy_required_action": "reengagement",
+        "strategy_blocks": ["scheduling_open_question", "price_presentation"],
+        "strategy_anchor": "experimental",
+        "bad_messages": [
+          ["Oi, Lorena! Qual dia e horário fica melhor para você fazer a aula experimental?", "assumes_current_intent"],
+          ["Oi, Lorena! Você estava super animada com a aula experimental. Ainda faz sentido retomarmos?", "fabricated_enthusiasm"],
+          ["Oi, Lorena! Ainda faz sentido retomarmos? Últimas vagas com desconto só hoje!", "pressure_risk"]
+        ],
+        "good_messages": [
+          "Oi, Lorena! Da última vez que falamos você queria fazer uma aula experimental. Como ficou isso por aí desde então?",
+          "Oi, Lorena! Vi que sua aula experimental ficou em aberto. Ainda faz sentido retomarmos?"
+        ]
+      }
+    },
+    {
+      "id": "B",
+      "industry": "fitness",
+      "scenario": "Mesma Lorena comprimida no mesmo dia: a oferta saiu 20 minutos atrás e a cliente respondeu há pouco mais de meia hora. Não é dormência; é quebra de sequência recente.",
+      "evaluated_at": "2026-09-10T10:40:00Z",
+      "turns": [
+        ["in", "2026-09-10T10:00:00Z", "Podemos fazer a aula experimental hoje?"],
+        ["out", "2026-09-10T10:02:00Z", "Olá"],
+        ["out", "2026-09-10T10:05:00Z", "Você já fez a aula experimental?"],
+        ["in", "2026-09-10T10:06:00Z", "Não fiz ainda."],
+        ["out", "2026-09-10T10:07:00Z", "Que ótimo."],
+        ["out", "2026-09-10T10:07:20Z", "Qual dia e horário fica melhor para você?"],
+        ["out", "2026-09-10T10:20:00Z", "Plano mensal R$ 129,90 | Plano anual R$ 89,90/mês."]
+      ],
+      "reading": {
+        "best_approach": "set_commitment"
+      },
+      "expect": {
+        "momentum": "active",
+        "requalify": false,
+        "technique_first": "technique.contextual_reengagement",
+        "technique_not": ["technique.state_change_reactivation"],
+        "sequence_break": true,
+        "intent_is_current": true,
+        "findings_exclude": ["response_timing", "momentum"]
+      }
+    },
+    {
+      "id": "C",
+      "industry": "software_b2b",
+      "scenario": "Cliente fez uma pergunta decisiva há 40 minutos e aguarda o vendedor.",
+      "evaluated_at": "2026-09-15T13:40:00Z",
+      "turns": [
+        ["out", "2026-09-15T12:30:00Z", "Segue a proposta da licença anual para sua equipe."],
+        ["in", "2026-09-15T13:00:00Z", "Vocês integram com o nosso ERP? Preciso disso para decidir essa semana."]
+      ],
+      "reading": {
+        "best_approach": "respond"
+      },
+      "expect": {
+        "momentum": "awaiting_seller",
+        "waiting_on": "seller",
+        "reactivation_mode": "respond_now",
+        "decision_not": ["wait", "follow_up"],
+        "technique_not": ["technique.commitment_wait"]
+      }
+    },
+    {
+      "id": "D",
+      "industry": "consulting",
+      "scenario": "Vendedor ofereceu duas janelas ontem à tarde; cliente ainda não respondeu (espera normal).",
+      "evaluated_at": "2026-09-16T12:00:00Z",
+      "turns": [
+        ["in", "2026-09-15T16:00:00Z", "Quero agendar uma reunião para entender a consultoria."],
+        ["out", "2026-09-15T16:10:00Z", "Consigo terça às 10h ou quarta às 15h. Qual prefere?"]
+      ],
+      "reading": {
+        "best_approach": "wait"
+      },
+      "expect": {
+        "momentum": "awaiting_customer",
+        "reactivation_mode": "wait",
+        "decision": "wait",
+        "technique_first": "technique.commitment_wait",
+        "requalify": false
+      }
+    },
+    {
+      "id": "E",
+      "industry": "real_estate",
+      "scenario": "Vendedor perguntou o dia da visita há 12 dias e o cliente nunca respondeu.",
+      "evaluated_at": "2026-09-28T14:00:00Z",
+      "turns": [
+        ["in", "2026-09-16T13:00:00Z", "Quero visitar o apartamento da rua das Flores."],
+        ["out", "2026-09-16T13:30:00Z", "Ótimo! Qual dia você pode vir?"]
+      ],
+      "reading": {
+        "best_approach": "set_commitment"
+      },
+      "expect": {
+        "momentum": "dormant",
+        "reactivation_mode": "reactivate",
+        "requalify": true,
+        "decision": "follow_up",
+        "technique_first": "technique.state_change_reactivation",
+        "do_not_do_match": "reenviar a mesma pergunta",
+        "strategy_required_action": "reengagement",
+        "strategy_anchor": "apartamento",
+        "bad_messages": [
+          ["Oi! Qual dia você pode vir visitar o apartamento?", "assumes_current_intent"]
+        ],
+        "good_messages": [
+          "Oi! Quando falamos você queria visitar o apartamento da rua das Flores. Como ficou essa busca desde então?"
+        ]
+      }
+    },
+    {
+      "id": "F",
+      "industry": "automotive_service",
+      "scenario": "Cliente pediu para trazer o carro 'amanhã cedo' e ficou 3 dias sem resposta do vendedor.",
+      "evaluated_at": "2026-09-20T12:00:00Z",
+      "turns": [
+        ["out", "2026-09-17T11:00:00Z", "Oi! Posso ajudar com a revisão do seu carro?"],
+        ["in", "2026-09-17T11:30:00Z", "Consigo trazer o carro amanhã cedo para a revisão?"]
+      ],
+      "reading": {
+        "best_approach": "respond"
+      },
+      "expect": {
+        "momentum": "cooling",
+        "waiting_on": "seller",
+        "reactivation_mode": "recover_delay",
+        "requalify": true,
+        "decision": "respond",
+        "technique_first": "technique.delayed_response_recovery",
+        "strategy_waiting_for": "3 dias"
+      }
+    },
+    {
+      "id": "G",
+      "industry": "education",
+      "scenario": "Objeção ativa de preço; o vendedor já investigou a causa e aguarda a resposta.",
+      "evaluated_at": "2026-09-18T15:00:00Z",
+      "turns": [
+        ["in", "2026-09-18T14:00:00Z", "Achei muito caro, não consigo pagar isso agora."],
+        ["out", "2026-09-18T14:10:00Z", "Entendo! O que pesa mais para você: o valor total ou o valor da parcela?"]
+      ],
+      "reading": {
+        "best_approach": "handle_objection",
+        "objections": ["Cliente achou o valor alto."]
+      },
+      "expect": {
+        "reactivation_mode_not": ["reactivate", "light_follow_up", "recover_delay"],
+        "technique_not": ["technique.state_change_reactivation", "technique.objection_diagnosis"],
+        "strength_must_match": "objeç|causa"
+      }
+    },
+    {
+      "id": "H",
+      "industry": "education",
+      "scenario": "Objeção de preço resolvida pelo parcelamento; o cliente aceitou.",
+      "evaluated_at": "2026-09-18T16:00:00Z",
+      "turns": [
+        ["in", "2026-09-18T14:00:00Z", "Achei muito caro, não consigo pagar isso agora."],
+        ["out", "2026-09-18T14:10:00Z", "Entendo! O que pesa mais para você: o valor total ou o valor da parcela?"],
+        ["in", "2026-09-18T15:30:00Z", "A parcela. Se der em 10x pode ser."],
+        ["out", "2026-09-18T15:35:00Z", "Dá sim, fica em 10x sem juros. Quer que eu envie o link de matrícula?"]
+      ],
+      "reading": {
+        "best_approach": "close"
+      },
+      "expect": {
+        "decision_not": ["handle_objection"],
+        "technique_not": ["technique.objection_diagnosis", "technique.objection_isolation"]
+      }
+    },
+    {
+      "id": "I",
+      "industry": "beauty_services",
+      "scenario": "Cliente escreve quase nada; vendedor despeja oferta longa e pressiona com urgência. Leitura do cliente incerta, execução do vendedor evidente.",
+      "evaluated_at": "2026-09-19T12:00:00Z",
+      "turns": [
+        ["in", "2026-09-19T11:00:00Z", "Oi"],
+        ["in", "2026-09-19T11:00:20Z", "quanto é?"],
+        ["out", "2026-09-19T11:05:00Z", "Olá! Temos o pacote completo de tratamento facial com 10 sessões, limpeza de pele profunda, peeling, hidratação e revitalização, tudo por R$ 1.200 em até 12x no cartão, com avaliação inclusa e acompanhamento da especialista durante todo o processo para garantir o melhor resultado possível para você."],
+        ["out", "2026-09-19T11:06:00Z", "Última chance, só hoje com esse valor!"]
+      ],
+      "reading": {
+        "relevance": "uncertain",
+        "best_approach": "no_intervention"
+      },
+      "expect": {
+        "coaching_scope": "seller_execution_only",
+        "coaching_status": "limited",
+        "findings_include": ["pressure"],
+        "analysis_neutral_headline_match": "incerto"
+      }
+    },
+    {
+      "id": "J",
+      "industry": "saas_subscription",
+      "scenario": "Cliente pediu para contratar e pagar há 5 dias; a mensagem mais recente, isolada, é só 'Bom dia'.",
+      "evaluated_at": "2026-09-22T12:10:00Z",
+      "turns": [
+        ["in", "2026-09-17T12:00:00Z", "Quero contratar o plano anual. Como faço o pagamento?"],
+        ["out", "2026-09-17T12:05:00Z", "Perfeito! Segue o link de pagamento: https://exemplo.com/pagar"],
+        ["in", "2026-09-22T12:00:00Z", "Bom dia! Tudo bem?"]
+      ],
+      "reading": {
+        "relevance": "uncertain",
+        "best_approach": "no_intervention"
+      },
+      "expect": {
+        "coaching_scope": "seller_execution_only",
+        "llm_window_includes_customer_text": "Quero contratar o plano anual"
+      }
+    },
+    {
+      "id": "K",
+      "industry": "personal",
+      "scenario": "Conversa realmente pessoal, sem nenhum sinal comercial.",
+      "evaluated_at": "2026-09-19T20:00:00Z",
+      "turns": [
+        ["in", "2026-09-19T19:00:00Z", "Oi, tudo bem? Vamos almoçar no sábado?"],
+        ["out", "2026-09-19T19:05:00Z", "Bora! Pode ser naquele restaurante perto de casa?"],
+        ["in", "2026-09-19T19:10:00Z", "Pode sim, te encontro lá."]
+      ],
+      "reading": {
+        "relevance": "non_commercial",
+        "best_approach": "no_intervention"
+      },
+      "expect": {
+        "coaching_status": "silent",
+        "analysis_neutral_headline_match": "sem evidência comercial"
+      }
+    },
+    {
+      "id": "L",
+      "industry": "saas_subscription",
+      "scenario": "Cliente declara intenção explícita de fechar; vendedor volta a fazer descoberta.",
+      "evaluated_at": "2026-09-21T10:30:00Z",
+      "turns": [
+        ["in", "2026-09-21T10:00:00Z", "Quero fechar o plano anual. Como faço o pagamento?"],
+        ["out", "2026-09-21T10:05:00Z", "Antes disso, qual é o principal objetivo da sua equipe com a ferramenta?"]
+      ],
+      "reading": {
+        "best_approach": "close"
+      },
+      "expect": {
+        "mistake_must_match": "continuou descobrindo",
+        "requalify": false,
+        "technique_not": ["technique.state_change_reactivation", "technique.commitment_wait"]
+      }
+    },
+    {
+      "id": "M",
+      "industry": "fitness",
+      "scenario": "Intermediário: a irmã fala pela prospect real.",
+      "evaluated_at": "2026-09-21T19:30:00Z",
+      "turns": [
+        ["in", "2026-09-21T19:00:00Z", "Minha irmã quer começar a treinar, vocês têm horário à noite?"]
+      ],
+      "reading": {
+        "best_approach": "respond"
+      },
+      "state_party_kinds": [
+        "commercial_party.current_contact.intermediary",
+        "commercial_party.related.prospect"
+      ],
+      "expect": {
+        "technique_in": ["technique.third_party_handoff"],
+        "reactivation_mode": "respond_now"
+      }
+    },
+    {
+      "id": "N",
+      "industry": "healthcare_clinic",
+      "scenario": "Pergunta comercial clara respondida só com saudação, horas depois.",
+      "evaluated_at": "2026-09-22T18:00:00Z",
+      "turns": [
+        ["in", "2026-09-22T12:00:00Z", "Vocês atendem aos sábados? Quanto custa a consulta?"],
+        ["out", "2026-09-22T15:00:00Z", "Oi! Tudo bem?"]
+      ],
+      "reading": {
+        "best_approach": "respond"
+      },
+      "expect": {
+        "mistake_must_match": "sem tratar esse pedido|não tratou",
+        "strength_must_not_match": "respondeu|rapid|cordial"
+      }
+    },
+    {
+      "id": "O",
+      "industry": "b2b_services",
+      "scenario": "Follow-up duplicado: a mesma cobrança em dias diferentes, sem resposta.",
+      "evaluated_at": "2026-09-24T14:00:00Z",
+      "turns": [
+        ["in", "2026-09-19T13:00:00Z", "Pode me mandar uma proposta para a manutenção mensal?"],
+        ["out", "2026-09-19T13:30:00Z", "Claro! Segue a proposta em anexo. Conseguiu ver a proposta?"],
+        ["out", "2026-09-21T13:30:00Z", "Conseguiu ver a proposta?"],
+        ["out", "2026-09-23T13:30:00Z", "Conseguiu ver a proposta?"]
+      ],
+      "reading": {
+        "best_approach": "follow_up"
+      },
+      "expect": {
+        "momentum": "cooling",
+        "findings_or_mistake_include": "follow_up",
+        "technique_not": ["technique.commitment_wait"]
+      }
+    },
+    {
+      "id": "P",
+      "industry": "language_school",
+      "scenario": "Cliente informou que fechou com outra escola; vendedor ainda envia promoção.",
+      "evaluated_at": "2026-09-25T12:00:00Z",
+      "turns": [
+        ["in", "2026-09-20T12:00:00Z", "Quero saber o valor do curso de inglês."],
+        ["out", "2026-09-20T12:10:00Z", "O curso custa R$ 350 por mês."],
+        ["in", "2026-09-22T12:00:00Z", "Obrigada, mas já fechei com outra escola."],
+        ["out", "2026-09-24T12:00:00Z", "Temos uma promoção especial: 30% de desconto no primeiro mês!"]
+      ],
+      "reading": {
+        "best_approach": "give_space"
+      },
+      "expect": {
+        "momentum": "closed",
+        "reactivation_mode": "respect_closure",
+        "decision": "give_space",
+        "technique_first": "technique.respectful_closure",
+        "mistake_must_match": "encerrou ou resolveu",
+        "strategy_blocks": ["price_presentation", "product_presentation"]
+      }
+    },
+    {
+      "id": "Q",
+      "industry": "language_school",
+      "scenario": "Reativação bem-sucedida: vendedor retomou por mudança de estado e o cliente voltou com intenção atual.",
+      "evaluated_at": "2026-09-26T12:15:00Z",
+      "turns": [
+        ["in", "2026-09-10T12:00:00Z", "Quero saber sobre o curso de inglês para adultos."],
+        ["out", "2026-09-10T12:10:00Z", "Temos turmas durante a semana e aos sábados. Qual período você prefere?"],
+        ["out", "2026-09-24T12:00:00Z", "Oi, Marina! Quando conversamos você estava avaliando o curso de inglês. Como ficou isso desde então?"],
+        ["in", "2026-09-26T12:05:00Z", "Oi! Ainda quero sim, só estava sem tempo. Podemos ver as turmas de sábado?"]
+      ],
+      "reading": {
+        "best_approach": "respond"
+      },
+      "expect": {
+        "momentum": "awaiting_seller",
+        "requalify": false,
+        "intent_is_current": true,
+        "technique_not": ["technique.state_change_reactivation", "technique.permission_based_reengagement"],
+        "strength_must_match": "retomou"
+      }
+    },
+    {
+      "id": "R",
+      "industry": "solar_energy",
+      "scenario": "Vendedor enviou oferta três vezes sem resposta depois de uma pergunta de preço.",
+      "evaluated_at": "2026-09-27T12:00:00Z",
+      "turns": [
+        ["in", "2026-09-21T12:00:00Z", "Quero saber quanto custa a instalação de energia solar."],
+        ["out", "2026-09-21T12:30:00Z", "O kit residencial custa a partir de R$ 18.900 com instalação."],
+        ["out", "2026-09-23T12:30:00Z", "Temos condição especial de financiamento em 60x. Segue o catálogo: https://exemplo.com/catalogo"],
+        ["out", "2026-09-25T12:30:00Z", "Proposta atualizada com desconto de 5% para fechamento este mês."]
+      ],
+      "reading": {
+        "best_approach": "follow_up"
+      },
+      "expect": {
+        "momentum": "cooling",
+        "reactivation_mode": "light_follow_up",
+        "technique_first": "technique.pattern_interrupt_reengagement",
+        "findings_include": ["momentum"],
+        "strategy_blocks": ["price_presentation", "product_presentation"]
+      }
+    }
+  ],
+  "temporal_trio": {
+    "description": "Mesma transcrição; só o tempo muda. A decisão comercial não pode ser idêntica.",
+    "turns": [
+      ["in", "2026-09-10T15:00:00Z", "Quero agendar uma demonstração."],
+      ["out", "2026-09-10T15:05:00Z", "Qual dia fica melhor?"]
+    ],
+    "versions": [
+      { "label": "30_minutos", "evaluated_at": "2026-09-10T15:35:00Z" },
+      { "label": "2_dias", "evaluated_at": "2026-09-12T15:05:00Z" },
+      { "label": "18_dias", "evaluated_at": "2026-09-28T15:05:00Z" }
+    ]
+  },
+  "opportunity_stance": {
+    "description": "Rejeitar uma opção ou um processo NÃO é abandonar a oportunidade. Só rejeição da própria oportunidade (ou resolução por outro caminho) encerra.",
+    "cases": [
+      {
+        "id": "A",
+        "industry": "saas",
+        "opener": "Quais planos vocês têm?",
+        "offer": "Temos o Básico por R$ 99 e o Premium por R$ 199. Qual faz mais sentido?",
+        "text": "Não quero mais o plano básico, quero o premium.",
+        "expect": {
+          "closed": false,
+          "intent_kind": "product_interest"
+        }
+      },
+      {
+        "id": "B",
+        "industry": "services",
+        "opener": "Queria entender como funciona a contratação.",
+        "offer": "Posso te mandar a proposta e você avalia com calma.",
+        "text": "Não preciso mais esperar, quero fechar agora.",
+        "expect": {
+          "closed": false,
+          "intent_kind": "close"
+        }
+      },
+      {
+        "id": "C",
+        "industry": "education",
+        "opener": "Quero saber sobre o curso de inglês.",
+        "offer": "Temos turmas à noite e aos sábados. Qual horário te atende?",
+        "text": "Não tenho mais interesse, já resolvi isso em outro lugar.",
+        "expect": {
+          "closed": true
+        }
+      },
+      {
+        "id": "D",
+        "industry": "retail",
+        "opener": "Vocês têm o sofá retrátil em cinza?",
+        "offer": "Temos sim! Posso te mandar fotos e o valor?",
+        "text": "Não quero mais falar sobre isso.",
+        "expect": {
+          "closed": true
+        }
+      },
+      {
+        "id": "E",
+        "industry": "real_estate",
+        "opener": "Quero ver apartamentos no centro.",
+        "offer": "Tenho um de 2 quartos por R$ 450 mil. Quer agendar visita?",
+        "text": "Não quero mais o apartamento de 2 quartos, quero ver os de 3.",
+        "expect": {
+          "closed": false,
+          "intent_kind": "product_interest"
+        }
+      },
+      {
+        "id": "F",
+        "industry": "software",
+        "opener": "Estou testando a versão trial.",
+        "offer": "Que ótimo! Como está sendo a experiência?",
+        "text": "Não preciso mais da versão trial, quero contratar o plano anual.",
+        "expect": {
+          "closed": false,
+          "intent_kind": "close"
+        }
+      },
+      {
+        "id": "G",
+        "industry": "healthcare",
+        "opener": "Quero marcar uma avaliação.",
+        "offer": "Temos terça às 9h ou quinta às 14h. Qual prefere?",
+        "text": "Obrigada, mas já fechei com outra clínica.",
+        "expect": {
+          "closed": true
+        }
+      }
+    ]
+  },
+  "greeting_vs_content": {
+    "description": "Saudação pura é rapport; saudação seguida de oferta, disponibilidade, proposta, agenda ou pergunta comercial é resposta com conteúdo.",
+    "pure_greetings": [
+      "Oi, Maria",
+      "Olá, João Silva",
+      "Bom dia, Lorena!",
+      "Oi, tudo bem?"
+    ],
+    "greeting_with_content": [
+      "Oi, temos horários",
+      "Olá, segue proposta",
+      "Oi, posso agendar?",
+      "Bom dia, temos vaga amanhã às 10h",
+      "Oi Maria, segue o link do catálogo"
+    ]
+  },
+  "intent_refresh": {
+    "description": "RECÊNCIA DA CONVERSA != RECÊNCIA DA INTENÇÃO. Mensagem fática recente não rejuvenesce intenção antiga; reconfirmação legítima rejuvenesce.",
+    "base_turns": [
+      ["in", "2026-09-01T13:00:00Z", "Quero contratar."],
+      ["out", "2026-09-01T13:05:00Z", "Perfeito! Te mando a proposta com os valores ainda hoje."]
+    ],
+    "day6_at": "2026-09-07T12:00:00Z",
+    "evaluated_at": "2026-09-07T12:10:00Z",
+    "irrelevant": [
+      "Bom dia.",
+      "Obrigado!",
+      "👍",
+      "Oi, tudo bem?"
+    ],
+    "reconfirming": [
+      "Sim, quero seguir com a contratação.",
+      "Ainda tenho interesse, vamos seguir?"
+    ]
+  },
+  "progression": {
+    "description": "Mesma conversa, sem fatos novos, avaliada em 9 instantes. A deterioração é progressiva: nenhum salto único de \"normal\" para \"reativação\".",
+    "turns": [
+      ["in", "2026-09-10T15:00:00Z", "Quero agendar uma demonstração."],
+      ["out", "2026-09-10T15:05:00Z", "Qual dia fica melhor?"]
+    ],
+    "points": [
+      {
+        "label": "30min",
+        "evaluated_at": "2026-09-10T15:35:00Z"
+      },
+      {
+        "label": "12h",
+        "evaluated_at": "2026-09-11T03:05:00Z"
+      },
+      {
+        "label": "1d",
+        "evaluated_at": "2026-09-11T15:05:00Z"
+      },
+      {
+        "label": "2d",
+        "evaluated_at": "2026-09-12T15:05:00Z"
+      },
+      {
+        "label": "3d",
+        "evaluated_at": "2026-09-13T15:05:00Z"
+      },
+      {
+        "label": "5d",
+        "evaluated_at": "2026-09-15T15:05:00Z"
+      },
+      {
+        "label": "7d",
+        "evaluated_at": "2026-09-17T15:05:00Z"
+      },
+      {
+        "label": "10d",
+        "evaluated_at": "2026-09-20T15:05:00Z"
+      },
+      {
+        "label": "18d",
+        "evaluated_at": "2026-09-28T15:05:00Z"
+      }
+    ],
+    "observed_rhythm": {
+      "description": "Cliente com ritmo observado de ~8h (janela esperada 24h): 2 dias e 6 dias de silêncio são leituras diferentes.",
+      "turns": [
+        ["out", "2026-09-01T12:00:00Z", "Oi! Vi que você pediu informações sobre a plataforma. Posso te ajudar?"],
+        ["in", "2026-09-01T20:00:00Z", "Pode sim, quero entender a plataforma."],
+        ["out", "2026-09-02T12:00:00Z", "Ela organiza agenda e cobranças. Qual o seu principal desafio hoje?"],
+        ["in", "2026-09-02T20:00:00Z", "Organizar a agenda da equipe."],
+        ["out", "2026-09-03T12:00:00Z", "Faz sentido uma demonstração de 20 minutos. Qual dia fica melhor?"]
+      ],
+      "two_days": "2026-09-05T12:00:00Z",
+      "six_days": "2026-09-09T12:00:00Z"
+    }
+  },
+  "agreed_pause": {
+    "description": "\"Me chama semana que vem\" muda a curva: 2–4 dias dentro do combinado não são o mesmo que 2–4 dias de silêncio não combinado.",
+    "deferred_turns": [
+      ["in", "2026-09-16T13:00:00Z", "Quero conhecer os planos para a minha equipe."],
+      ["out", "2026-09-16T13:05:00Z", "Claro! Temos o Essencial e o Pro. Quer que eu te explique as diferenças?"],
+      ["in", "2026-09-16T13:20:00Z", "Agora estou sem tempo, me chama semana que vem."],
+      ["out", "2026-09-16T13:25:00Z", "Combinado! Te chamo na segunda."]
+    ],
+    "undeferred_turns": [
+      ["in", "2026-09-16T13:00:00Z", "Quero conhecer os planos para a minha equipe."],
+      ["out", "2026-09-16T13:25:00Z", "Claro! Temos o Essencial e o Pro. Quer que eu te explique as diferenças?"]
+    ],
+    "inside_points": [
+      "2026-09-18T13:25:00Z",
+      "2026-09-19T13:25:00Z",
+      "2026-09-20T13:25:00Z"
+    ],
+    "due_at": "2026-09-21T13:30:00Z",
+    "long_after": "2026-10-10T13:30:00Z"
+  },
+  "time_sensitive_request": {
+    "description": "\"Quero contratar hoje\" torna poucas horas de espera severas; um pedido sem urgência não.",
+    "urgent_turns": [
+      ["out", "2026-09-22T11:00:00Z", "Oi! Posso te ajudar com a contratação?"],
+      ["in", "2026-09-22T12:00:00Z", "Quero contratar hoje, como faço?"]
+    ],
+    "standard_turns": [
+      ["out", "2026-09-22T11:00:00Z", "Oi! Posso te ajudar com a contratação?"],
+      ["in", "2026-09-22T12:00:00Z", "Queria entender melhor como funciona."]
+    ],
+    "evaluated_at": "2026-09-22T15:00:00Z"
+  }
+}

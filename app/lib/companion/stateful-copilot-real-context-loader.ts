@@ -9,6 +9,12 @@ import type {
 } from '@/app/types/commercial-config'
 
 import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+  type CompanionExecutionScope,
+} from './companion-execution-scope'
+
+import {
   buildCompanionDiagnosticInput,
   type CompanionDiagnosticInput,
 } from './diagnostic-input'
@@ -19,6 +25,10 @@ import {
   type StatefulCopilotStateReader,
   type StatefulCopilotSupabaseReadClient,
 } from './stateful-copilot-supabase-reader'
+
+import {
+  inferCustomerIntentFromText,
+} from './seller-execution-trace'
 
 import {
   buildDurableMemorySeedFromPriorState,
@@ -53,6 +63,34 @@ const STATEFUL_DIAGNOSTIC_MAX_MESSAGES =
 
 const STATEFUL_DIAGNOSTIC_CONTEXT_BRIDGE_MESSAGES =
   6
+
+// Conversas distribuídas por vários dias: a ponte curta pode deixar de fora
+// justamente o pedido comercial que originou a oportunidade (ex.: cliente
+// pediu uma experiência há semanas; a sessão atual é só uma oferta do
+// vendedor). Até N pedidos comerciais explícitos do cliente anteriores à
+// ponte entram como âncora, cada um com a resposta imediata do vendedor —
+// sem abrir a janela inteira e sem mudar a causalidade (ordem canônica).
+const STATEFUL_DIAGNOSTIC_INTENT_ANCHORS =
+  3
+
+// Falas do cliente que podem ficar entre a âncora e a resposta do vendedor
+// (mesma rajada: "Quero contratar" + "Como faço?"). Além disso a âncora
+// entra sozinha — nunca pareada com uma resposta a outra fala.
+const ANCHOR_MAX_INTERVENING_CUSTOMER_MESSAGES =
+  2
+
+const ANCHOR_INTENT_KINDS =
+  new Set([
+    'scheduling',
+    'close',
+    'payment_objection',
+    'objection',
+    'pricing',
+    'product_interest',
+    'third_party_interest',
+    'deferral',
+    'disengaged',
+  ])
 
 const COMPANY_FIELDS = `
   id,
@@ -1704,9 +1742,154 @@ export function selectStatefulDiagnosticMessages(
           )
       : []
 
+  const alreadySelected =
+    new Set(
+      [
+        ...bridgeMessages,
+        ...currentSession,
+      ].map(
+        message =>
+          message.id,
+      ),
+    )
+
+  const anchorCapacity =
+    Math.max(
+      0,
+      STATEFUL_DIAGNOSTIC_MAX_MESSAGES -
+        alreadySelected.size,
+    )
+
+  const anchorMessages:
+    NormalizedLedgerMessage[] = []
+
+  let anchorCount = 0
+
+  const anchorStartIndex =
+    bridgeEndIndex >= 0
+      ? bridgeEndIndex -
+        bridgeCount
+      : -1
+
+  for (
+    let index = anchorStartIndex;
+    index >= 0 &&
+    anchorCount <
+      STATEFUL_DIAGNOSTIC_INTENT_ANCHORS &&
+    anchorMessages.length + 2 <=
+      anchorCapacity;
+    index -= 1
+  ) {
+    const candidate =
+      orderedByActivity[index]
+        .message
+
+    if (
+      candidate.direction !==
+        'incoming' ||
+      candidate.is_deleted ||
+      alreadySelected.has(
+        candidate.id,
+      )
+    ) {
+      continue
+    }
+
+    const intent =
+      inferCustomerIntentFromText(
+        candidate.text_content ??
+          candidate.audio_transcription ??
+          '',
+        candidate.id,
+      )
+
+    if (
+      !ANCHOR_INTENT_KINDS.has(
+        intent.kind,
+      ) ||
+      intent.confidence === 'low'
+    ) {
+      continue
+    }
+
+    anchorCount += 1
+
+    anchorMessages.push(
+      candidate,
+    )
+
+    // A âncora só leva junto a resposta do vendedor quando o trecho entre
+    // as duas é CONTÍGUO e curto: a rajada do próprio cliente e a primeira
+    // resposta a ela. Pular uma fala intermediária do cliente faria o trace
+    // julgar como resposta ao pedido âncora algo que respondia a outra fala
+    // (ex.: "Quero contratar" → [cliente: "Rua Central, 10"] → vendedor).
+    const exchange:
+      NormalizedLedgerMessage[] = []
+
+    let reply:
+      NormalizedLedgerMessage | null =
+        null
+
+    for (
+      let next = index + 1;
+      next < orderedByActivity.length &&
+      exchange.length <=
+        ANCHOR_MAX_INTERVENING_CUSTOMER_MESSAGES;
+      next += 1
+    ) {
+      const message =
+        orderedByActivity[next]
+          .message
+
+      if (message.is_deleted) {
+        continue
+      }
+
+      if (
+        message.direction ===
+          'outgoing'
+      ) {
+        reply = message
+        break
+      }
+
+      exchange.push(message)
+    }
+
+    const block =
+      reply &&
+      exchange.length <=
+        ANCHOR_MAX_INTERVENING_CUSTOMER_MESSAGES
+        ? [
+            ...exchange,
+            reply,
+          ].filter(
+            message =>
+              !alreadySelected.has(
+                message.id,
+              ) &&
+              !anchorMessages.includes(
+                message,
+              ),
+          )
+        : []
+
+    if (
+      block.length > 0 &&
+      anchorMessages.length +
+        block.length <=
+        anchorCapacity
+    ) {
+      anchorMessages.push(
+        ...block,
+      )
+    }
+  }
+
   const selectedIds =
     new Set(
       [
+        ...anchorMessages,
         ...bridgeMessages,
         ...currentSession,
       ].map(
@@ -2295,6 +2478,7 @@ export async function loadDurableMemorySeedForMissingState({
   leadId,
   originCycleId,
   currentCycleCreatedAt,
+  executionScope,
 }: {
   client:
     StatefulCopilotRealContextSupabaseClient
@@ -2302,6 +2486,11 @@ export async function loadDurableMemorySeedForMissingState({
   companyId: string
   cycleId: string
   leadId: string
+
+  // R10: a semente vem do estado do ciclo anterior NO MESMO escopo.
+  // Ausente = escopo do deployment.
+  executionScope?:
+    CompanionExecutionScope
 
   originCycleId:
     string | null
@@ -2455,7 +2644,11 @@ export async function loadDurableMemorySeedForMissingState({
       await readList(
         client
           .from(
-            'companion_commercial_states',
+            companionDerivedTable(
+              'commercial_states',
+              executionScope ??
+                resolveCompanionExecutionScope(),
+            ),
           )
           .select(
             DURABLE_MEMORY_SEED_STATE_FIELDS,
@@ -2793,13 +2986,28 @@ export function createStatefulCopilotRealContextLoader(
     StatefulCopilotRealContextSupabaseClient,
   dependencies:
     StatefulCopilotRealContextLoaderDependencies = {},
+  {
+    execution_scope,
+  }: {
+    // R10: estado anterior e semente só do armazenamento deste escopo.
+    // Ausente = escopo do deployment.
+    execution_scope?:
+      CompanionExecutionScope
+  } = {},
 ): StatefulCopilotRealContextLoader {
+  const executionScope =
+    execution_scope ??
+    resolveCompanionExecutionScope()
+
   const stateReader =
     dependencies.state_reader ??
     createStatefulCopilotSupabaseReader({
       client:
         client as unknown as
           StatefulCopilotSupabaseReadClient,
+
+      execution_scope:
+        executionScope,
     })
 
   return async ({
@@ -3087,6 +3295,8 @@ export function createStatefulCopilotRealContextLoader(
 
             currentCycleCreatedAt:
               canonicalScope.cycle.created_at,
+
+            executionScope,
           })
         : null
 

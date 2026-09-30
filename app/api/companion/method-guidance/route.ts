@@ -16,7 +16,19 @@ import {
 
 import {
   composeSellerMessage,
+  type SellerMessageGenerationResult,
 } from '../../../lib/companion/lead-seller-message'
+
+import {
+  companyItemsFromCommercialContext,
+  companyItemsFromKnowledgeReferences,
+  excludedPrimaryMessageIds,
+} from '../../../lib/companion/commercial-fact-grounding'
+
+import {
+  buildLedgerFactRegistry,
+  loadLedgerObservation,
+} from '../../../lib/server/canonical-fact-registry-loader'
 
 import {
   createStatefulCopilotOpenAIProvider,
@@ -90,6 +102,58 @@ const CURRENT_INTERACTION_GAP_MS =
 const CURRENT_INTERACTION_LIMIT = 40
 const MAX_SELLER_INTENT_LENGTH = 1000
 
+// O diagnóstico interno da geração (falhas do critic, etapa) fica no
+// servidor: a resposta seller-facing leva só status, mensagem e a frase de
+// erro simples.
+function sellerFacingGeneration(
+  generation: SellerMessageGenerationResult,
+) {
+  if (generation.status === 'no_message') {
+    return generation
+  }
+
+  if (generation.diagnostics) {
+    console.info(
+      '[METHOD_GUIDANCE_API] seller message generation',
+      {
+        status: generation.status,
+        source:
+          generation.diagnostics.source ?? null,
+        stage:
+          generation.diagnostics.stage ?? null,
+        failure_count:
+          generation.diagnostics.failures.length,
+      },
+    )
+  }
+
+  // Trace factual (claim → fonte → autoridade → status) só no preview de
+  // homologação; nunca em produção.
+  const factTrace =
+    process.env.VERCEL_ENV === 'preview' &&
+    generation.diagnostics
+      ? {
+          fact_trace:
+            generation.diagnostics.fact_trace ?? [],
+          blocked_claims:
+            generation.diagnostics.blocked_claims ?? [],
+          excluded_evidence:
+            generation.diagnostics.excluded_evidence ?? [],
+        }
+      : null
+
+  return {
+    status: generation.status,
+    message: generation.message,
+    error: generation.error,
+    ...(generation.status === 'ready' &&
+    generation.advisories?.length
+      ? { advisories: generation.advisories }
+      : {}),
+    ...(factTrace ? { fact_trace: factTrace } : {}),
+  }
+}
+
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
 
@@ -135,6 +199,7 @@ function buildCurrentInteraction(
       direction: message.direction,
       occurred_at: message.occurred_at,
       text: toCanonicalMessagePromptText(message) || '',
+      ...(message.id ? { message_id: message.id } : {}),
     }))
 
   if (usable.length === 0) {
@@ -195,6 +260,8 @@ function toLegacyCanonicalConversationMessage(
         : message.text_content
 
   return {
+    id:
+      message.id,
     message_key:
       message.message_key,
     version:
@@ -223,7 +290,12 @@ async function loadLegacyCurrentInteractionAtReferenceTime({
   cycleId: string
   conversationKey: string
   referenceTime: string
-}): Promise<LeadMethodCurrentInteractionMessage[]> {
+}): Promise<{
+  interaction: LeadMethodCurrentInteractionMessage[]
+  ledger_messages: NormalizedLedgerMessage[]
+  observation: Awaited<ReturnType<typeof loadLedgerObservation>>
+  excluded_message_ids: Set<string>
+}> {
   const {
     canonicalMessages,
   } =
@@ -268,9 +340,40 @@ async function loadLegacyCurrentInteractionAtReferenceTime({
         )
       })
 
-  return buildCurrentInteraction(
-    legacyMessages,
-  )
+  // Mensagem ausente da conversa visível hoje (ou de outra empresa) não
+  // entra na interação atual que o redator lê: não é evidência primária.
+  const observation =
+    await loadLedgerObservation({
+      admin,
+      companyId,
+      conversationKey,
+      messages: canonicalMessages,
+    })
+
+  const excludedMessageIds =
+    excludedPrimaryMessageIds(
+      buildLedgerFactRegistry({
+        companyId,
+        messages: canonicalMessages,
+        observation,
+      }),
+    )
+
+  return {
+    interaction:
+      buildCurrentInteraction(
+        legacyMessages.filter(
+          (message) =>
+            !message.id ||
+            !excludedMessageIds.has(message.id),
+        ),
+      ),
+    ledger_messages:
+      canonicalMessages,
+    observation,
+    excluded_message_ids:
+      excludedMessageIds,
+  }
 }
 
 export async function OPTIONS(request: Request) {
@@ -506,7 +609,7 @@ export async function POST(request: Request) {
       const shadowReferenceTime =
         new Date().toISOString()
 
-      const currentInteraction =
+      const legacyInteraction =
         await loadLegacyCurrentInteractionAtReferenceTime({
           admin,
           companyId:
@@ -518,6 +621,9 @@ export async function POST(request: Request) {
           referenceTime:
             shadowReferenceTime,
         })
+
+      const currentInteraction =
+        legacyInteraction.interaction
 
       // FASE 16.9 — MENSAGEM não pode mais decidir situação, papéis,
       // objeção, técnica ou conhecimento de empresa por conta própria.
@@ -557,6 +663,15 @@ export async function POST(request: Request) {
               diagnostic_input:
                 reasoningBundle
                   .diagnostic_input,
+              evaluated_at:
+                canonicalContext
+                  .reference_time,
+              cycle_state:
+                canonicalContext.state_read
+                  .mode === 'found'
+                  ? canonicalContext
+                      .state_read.state
+                  : null,
             })
           : null
 
@@ -585,6 +700,8 @@ export async function POST(request: Request) {
             canonicalContext.state_read.mode === 'found'
               ? canonicalContext.state_read.state
               : null,
+          fact_registry:
+            canonicalContext.fact_registry ?? null,
         })
 
       const {
@@ -611,7 +728,41 @@ export async function POST(request: Request) {
           ? recipientLead.name.trim()
           : null
 
+      // Firewall factual da MENSAGEM: conversa real de agora (sem as
+      // mensagens ausentes da visão atual), conhecimento oficial vigente da
+      // mesma empresa e a instrução do vendedor — que controla estilo e
+      // objetivo, mas não cria fato.
+      const messageFactRegistry =
+        buildLedgerFactRegistry({
+          companyId:
+            identity.company_id,
+          messages:
+            legacyInteraction.ledger_messages,
+          observation:
+            legacyInteraction.observation,
+          companyItems: [
+            ...companyItemsFromCommercialContext({
+              company_id:
+                identity.company_id,
+              commercial_context:
+                reasoningBundle.diagnostic_input
+                  ?.commercial_context ?? null,
+            }),
+            ...companyItemsFromKnowledgeReferences({
+              company_id:
+                identity.company_id,
+              references:
+                canonicalReasoning
+                  ?.company_knowledge_used ?? [],
+            }),
+          ],
+          sellerInstruction:
+            sellerIntent,
+        })
+
       const generation = await composeSellerMessage({
+        factRegistry:
+          messageFactRegistry,
         workingSummary: workingSummary || null,
         currentInteraction,
         sellerIntent,
@@ -628,37 +779,42 @@ export async function POST(request: Request) {
       // INSERT + queue publish são pós-resposta: nada do enqueue pode
       // acrescentar latência ao retorno legacy. Todos os valores
       // necessários já estão congelados/capturados neste ponto.
-      after(async () => {
-        try {
-          await enqueueMessageIntelligenceShadowRunV1({
-            admin,
-            company_id: identity.company_id,
-            seller_user_id: token.sub,
-            cycle_id: identity.cycle_id,
-            conversation_key:
-              identity.conversation_key,
-            seller_intent: sellerIntent,
-            reference_time:
-              shadowReferenceTime,
-            legacy_generation_status:
-              generation.status,
-            legacy_message:
-              generation.message,
-          })
-        } catch (shadowError) {
-          console.warn(
-            '[METHOD_GUIDANCE_API] message intelligence shadow enqueue failed',
-            shadowError instanceof Error
-              ? shadowError.name
-              : 'unknown',
-          )
-        }
-      })
+      // Silêncio canônico (opt-out do cliente) não gera nada a comparar.
+      if (generation.status !== 'no_message') {
+        after(async () => {
+          try {
+            await enqueueMessageIntelligenceShadowRunV1({
+              admin,
+              company_id: identity.company_id,
+              seller_user_id: token.sub,
+              cycle_id: identity.cycle_id,
+              conversation_key:
+                identity.conversation_key,
+              seller_intent: sellerIntent,
+              reference_time:
+                shadowReferenceTime,
+              legacy_generation_status:
+                generation.status,
+              legacy_message:
+                generation.message,
+            })
+          } catch (shadowError) {
+            console.warn(
+              '[METHOD_GUIDANCE_API] message intelligence shadow enqueue failed',
+              shadowError instanceof Error
+                ? shadowError.name
+                : 'unknown',
+            )
+          }
+        })
+      }
 
       return NextResponse.json(
         {
           ok: true,
-          data: generation,
+          data: sellerFacingGeneration(
+            generation,
+          ),
         },
         {
           status: 200,

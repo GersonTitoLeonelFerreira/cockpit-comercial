@@ -52,6 +52,21 @@
 //     valor efetivo não bater com o esperado por ambiente (dev/prod=false,
 //     e2e=true) — nunca confiando só na leitura da fonte antes de copiar.
 //
+// Escopo (canal HOMOLOG — extensão e backend do MESMO HEAD):
+//   - `node build-package.mjs --homolog` gera SOMENTE os pacotes homolog
+//     (chrome/firefox), em `dist/yolen-companion/<alvo>/homolog/staging/`
+//     (nunca reaproveita o staging prod) e zips `-homolog-`, com resumo
+//     próprio (`homolog-build-summary.json`).
+//   - O backend vem de YOLEN_COMPANION_HOMOLOG_BASE_URL — nunca de uma
+//     edição manual da fonte. O build falha se a variável faltar, não for
+//     HTTPS ou não for uma origem exata (sem caminho, porta, wildcard).
+//   - Uma única configuração canônica por canal (src/companion-environment.js,
+//     GERADA aqui para cada pacote) decide backend e origens da Yolen
+//     autorizadas: PROD aceita só produção, DEV produção + localhost,
+//     HOMOLOG só o preview configurado. O manifest homolog troca o host de
+//     produção pelo host EXATO do preview em host_permissions, na bridge e
+//     em web_accessible_resources.
+//
 // Este script não depende de nenhum pacote npm novo: usa apenas módulos
 // nativos do Node (fs, path, zlib, crypto) e o binário `zip` do sistema
 // operacional para gerar o arquivo final.
@@ -59,7 +74,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -67,7 +81,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { resizePngSquare } from './lib/png-resize.mjs'
@@ -98,6 +112,7 @@ export const ICON_SIZES = [16, 32, 48, 128]
 export const SHARED_RUNTIME_FILES = [
   'assets/yolen-mark.png',
   'src/background.js',
+  'src/build-identity.js',
   'src/capture-batch.js',
   'src/capture-resilience-null-base.js',
   'src/capture-resilience.js',
@@ -111,6 +126,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/companion-conversation-registration-controller.js',
   'src/companion-lead-enrichment-controller.js',
   'src/companion-enrichment-comparison.js',
+  'src/companion-environment.js',
   'src/companion-lead-summary-controller.js',
   'src/companion-message-controller.js',
   'src/companion-core-api-composition.js',
@@ -198,6 +214,163 @@ export const PRODUCTION_HOSTS = [
 
 const DEV_HOST_PATTERN = /localhost|cockpit-comercial-vocn-git-/i
 
+// ---------------------------------------------------------------------------
+// Configuração canônica de ambiente por canal (backend + origens da Yolen
+// autorizadas). ÚNICA fonte de verdade consumida em runtime por background,
+// yolen-api, bridges e Core via src/companion-environment.js — que cada
+// pacote recebe GERADO por esta função (nunca copiado da fonte).
+// ---------------------------------------------------------------------------
+export const PRODUCTION_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
+export const LOCAL_BASE_URL = 'http://localhost:3000'
+
+// Toda origem conhecida de PRODUÇÃO do projeto Vercel: domínio canônico,
+// alias do time e alias da branch de produção. Nenhuma pode ser backend
+// de homologação (o runtime HML ainda exige que o backend se declare
+// preview antes de receber qualquer token).
+export const PRODUCTION_ORIGINS = [
+  PRODUCTION_BASE_URL,
+  'https://cockpit-comercial-vocn-yolen.vercel.app',
+  'https://cockpit-comercial-vocn-git-main-yolen.vercel.app',
+]
+export const COMPANION_ENVIRONMENT_PATHNAME = 'src/companion-environment.js'
+export const HOMOLOG_BASE_URL_ENV = 'YOLEN_COMPANION_HOMOLOG_BASE_URL'
+
+// Hosts de canal de conversa que o pacote homolog mantém além do preview.
+export const CHANNEL_HOSTS = [
+  'https://web.whatsapp.com/*',
+  'https://app.manychat.com/*',
+  'https://manybot-files.manychat.io/*',
+]
+
+// Valida a URL do backend de homologação e devolve a ORIGEM canônica.
+// Falha fechado: ausente, não-HTTPS, com caminho/query/fragmento/porta/
+// credenciais, com wildcard ou apontando para produção.
+export function parseHomologBaseUrl(raw) {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+
+  if (!value) {
+    throw new Error(
+      `${HOMOLOG_BASE_URL_ENV} ausente: o canal homolog exige a origem exata do backend de homologação ` +
+        '(ex.: https://<preview>.vercel.app).',
+    )
+  }
+
+  if (value.includes('*')) {
+    throw new Error(`${HOMOLOG_BASE_URL_ENV} inválida: wildcard não é permitido ("${value}").`)
+  }
+
+  let url
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error(`${HOMOLOG_BASE_URL_ENV} inválida: "${value}" não é uma URL.`)
+  }
+
+  if (url.protocol !== 'https:') {
+    throw new Error(`${HOMOLOG_BASE_URL_ENV} inválida: precisa ser HTTPS ("${value}").`)
+  }
+
+  if (
+    url.username ||
+    url.password ||
+    url.port ||
+    url.search ||
+    url.hash ||
+    url.pathname !== '/' ||
+    value.replace(/\/$/, '').toLowerCase() !== url.origin
+  ) {
+    throw new Error(
+      `${HOMOLOG_BASE_URL_ENV} inválida: precisa ser uma origem exata (https://host), sem caminho, porta, ` +
+        `query, fragmento ou credenciais ("${value}").`,
+    )
+  }
+
+  if (PRODUCTION_ORIGINS.includes(url.origin)) {
+    throw new Error(`${HOMOLOG_BASE_URL_ENV} inválida: homologação não pode apontar para produção.`)
+  }
+
+  return url.origin
+}
+
+export function companionEnvironmentFor(environment, { homologBaseUrl = null } = {}) {
+  if (environment === 'dev' || environment === 'e2e') {
+    return {
+      channel: environment,
+      api_base_url: PRODUCTION_BASE_URL,
+      allowed_base_urls: [PRODUCTION_BASE_URL, LOCAL_BASE_URL],
+      backend_match_required: false,
+    }
+  }
+
+  if (environment === 'prod') {
+    return {
+      channel: 'prod',
+      api_base_url: PRODUCTION_BASE_URL,
+      allowed_base_urls: [PRODUCTION_BASE_URL],
+      backend_match_required: false,
+    }
+  }
+
+  if (environment === 'homolog') {
+    const baseUrl = parseHomologBaseUrl(homologBaseUrl)
+
+    return {
+      channel: 'homolog',
+      api_base_url: baseUrl,
+      allowed_base_urls: [baseUrl],
+      backend_match_required: true,
+    }
+  }
+
+  throw new Error(`companionEnvironmentFor: ambiente desconhecido "${environment}".`)
+}
+
+export function renderCompanionEnvironmentSource(config) {
+  return [
+    ';(function initYolenCompanionEnvironment(root) {',
+    '  // Configuração canônica do canal: backend e origens da Yolen',
+    '  // autorizadas. Esta fonte versionada é o canal dev; cada pacote',
+    '  // (prod, homolog, e2e) recebe este arquivo GERADO por',
+    '  // scripts/build-package.mjs. Nunca edite para apontar outro backend:',
+    '  // o build falha se esta fonte divergir do canal dev.',
+    `  const config = ${JSON.stringify(config, null, 2).replace(/\n/g, '\n  ')}`,
+    '',
+    '  root.YolenCompanionEnvironment = Object.freeze({',
+    '    ...config,',
+    '    allowed_base_urls: Object.freeze([...config.allowed_base_urls]),',
+    '  })',
+    "})(typeof globalThis !== 'undefined' ? globalThis : window)",
+    '',
+  ].join('\n')
+}
+
+export function parseCompanionEnvironmentSource(sourceCode) {
+  const match = String(sourceCode).match(/const config = (\{[\s\S]*?\n {2}\})\n/)
+  if (!match) {
+    return null
+  }
+
+  try {
+    return JSON.parse(match[1])
+  } catch {
+    return null
+  }
+}
+
+// A fonte versionada precisa continuar sendo exatamente o canal dev: ninguém
+// aponta o Companion para outro backend editando o arquivo e esquecendo de
+// reverter. Roda antes de qualquer build e no verificador.
+export function assertCompanionEnvironmentSourceIsSafe({ extensionRoot = EXTENSION_ROOT } = {}) {
+  const source = readFileSync(join(extensionRoot, COMPANION_ENVIRONMENT_PATHNAME), 'utf8')
+
+  if (source !== renderCompanionEnvironmentSource(companionEnvironmentFor('dev'))) {
+    throw new Error(
+      `Guarda de segurança falhou: ${COMPANION_ENVIRONMENT_PATHNAME} foi editado à mão. A fonte versionada ` +
+        'precisa ser o canal dev; backends de prod/homolog são injetados pelo build.',
+    )
+  }
+}
+
 function isDevHost(entry) {
   return typeof entry === 'string' && DEV_HOST_PATTERN.test(entry)
 }
@@ -227,7 +400,7 @@ export const FEATURE_FLAGS_SOURCE_E2E = 'src/manychat-feature-flags.e2e.js'
 // diretamente (STEP 2B.1, seção 12). Qualquer ambiente fora desta lista
 // falha alto: nunca cai silenciosamente para um default.
 export function featureFlagSourceForEnvironment(environment) {
-  if (environment === 'dev' || environment === 'prod') {
+  if (environment === 'dev' || environment === 'prod' || environment === 'homolog') {
     return FEATURE_FLAGS_SOURCE_DEFAULT
   }
   if (environment === 'e2e') {
@@ -242,6 +415,7 @@ export function featureFlagSourceForEnvironment(environment) {
 export const EXPECTED_MANYCHAT_CAPTURE_ENABLED_BY_ENVIRONMENT = {
   dev: false,
   prod: false,
+  homolog: false,
   e2e: true,
 }
 
@@ -297,8 +471,8 @@ export function parseManyChatCaptureEnabledFromSource(sourceCode) {
   return rawValue === 'true'
 }
 
-function readFeatureFlagsSourceCode(relativeSourcePath) {
-  return readFileSync(join(EXTENSION_ROOT, relativeSourcePath), 'utf8')
+function readFeatureFlagsSourceCode(relativeSourcePath, extensionRoot = EXTENSION_ROOT) {
+  return readFileSync(join(extensionRoot, relativeSourcePath), 'utf8')
 }
 
 // Defesa da FONTE (STEP 2B.1, seção 11) — roda antes de QUALQUER build
@@ -307,9 +481,9 @@ function readFeatureFlagsSourceCode(relativeSourcePath) {
 // exatamente `false` ou o e2e não for exatamente `true`. Isso é o que
 // impede alguém de editar src/manychat-feature-flags.js para `true` e
 // ainda assim conseguir gerar QUALQUER pacote — inclusive prod.
-export function assertFeatureFlagSourcesAreSafe() {
+export function assertFeatureFlagSourcesAreSafe({ extensionRoot = EXTENSION_ROOT } = {}) {
   const defaultValue = parseManyChatCaptureEnabledFromSource(
-    readFeatureFlagsSourceCode(FEATURE_FLAGS_SOURCE_DEFAULT),
+    readFeatureFlagsSourceCode(FEATURE_FLAGS_SOURCE_DEFAULT, extensionRoot),
   )
   if (defaultValue !== false) {
     throw new Error(
@@ -318,7 +492,9 @@ export function assertFeatureFlagSourcesAreSafe() {
     )
   }
 
-  const e2eValue = parseManyChatCaptureEnabledFromSource(readFeatureFlagsSourceCode(FEATURE_FLAGS_SOURCE_E2E))
+  const e2eValue = parseManyChatCaptureEnabledFromSource(
+    readFeatureFlagsSourceCode(FEATURE_FLAGS_SOURCE_E2E, extensionRoot),
+  )
   if (e2eValue !== true) {
     throw new Error(
       `Guarda de segurança falhou: ${FEATURE_FLAGS_SOURCE_E2E} precisa declarar MANYCHAT_CAPTURE_ENABLED = true ` +
@@ -395,7 +571,7 @@ function assertNoDevHostsRemain(manifest) {
   }
 }
 
-// `icons` do manifest final aponta para os PNGs que `stageIcons` já
+// `icons` do manifest final aponta para os PNGs que `stageTarget` já
 // escreve em `assets/icons/` — mesmos arquivos usados pelo pacote DEV,
 // só que agora referenciados de fato pelo manifest.
 function withProductionIcons(manifest) {
@@ -459,6 +635,152 @@ export function readE2ESourceCommit() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Identidade rastreável do pacote (recuperação do especialista comercial,
+// release): source atualizado → main atualizada → Firefox recarregado → dist
+// antigo já aconteceu. A identidade do pacote não pode depender de memória
+// humana. Ela é DETERMINÍSTICA (mesmo código + mesmo commit = mesma
+// identidade, preservando a reprodutibilidade do zip) e aparece no painel.
+// O horário de build fica só em build-identity.json (fora do zip).
+// ---------------------------------------------------------------------------
+export const BUILD_IDENTITY_PATHNAME = 'src/build-identity.js'
+export const BUILD_IDENTITY_JSON = 'build-identity.json'
+
+function gitOutput(args, cwd = REPO_ROOT) {
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return null
+  }
+}
+
+// Fontes que de fato entram (ou geram algo que entra) em algum pacote. É
+// sobre elas que "alterações locais" é calculado: editar um teste não
+// muda o pacote e não deve marcar a identidade como suja.
+export function packagedSourcePaths() {
+  return [
+    ...new Set([
+      'manifest.json',
+      ...SHARED_RUNTIME_FILES,
+      ...CHROME_ONLY_FILES,
+      FEATURE_FLAGS_SOURCE_DEFAULT,
+      FEATURE_FLAGS_SOURCE_E2E,
+      'assets/yolen-mark.png',
+    ]),
+  ].sort()
+}
+
+export function readSourceGitIdentity({ repoRoot = REPO_ROOT, extensionRoot = EXTENSION_ROOT } = {}) {
+  const commit = gitOutput(['rev-parse', 'HEAD'], repoRoot)
+  const extensionPath = relative(repoRoot, extensionRoot) || '.'
+  const status = gitOutput(
+    ['status', '--porcelain', '--', ...packagedSourcePaths().map((path) => join(extensionPath, path))],
+    repoRoot,
+  )
+
+  return {
+    commit: commit || null,
+    commit_short: commit ? commit.slice(0, 8) : null,
+    // Alterações locais não commitadas no código empacotado: o painel
+    // mostra "+" para que um pacote de código não versionado nunca se passe
+    // por um commit conhecido.
+    dirty: status === null ? null : status.length > 0,
+  }
+}
+
+// Fingerprint do conteúdo de um pacote. Recebe um leitor de conteúdo para
+// que o build (bytes já staged) e o verificador (bytes ESPERADOS a partir
+// das fontes atuais) usem exatamente o mesmo cálculo.
+export function computeFingerprintFromContents(entries, readEntry) {
+  const hash = createHash('sha256')
+
+  for (const entry of [...entries].sort()) {
+    if (entry === BUILD_IDENTITY_PATHNAME) {
+      continue
+    }
+
+    hash.update(entry)
+    hash.update('\u0000')
+    hash.update(readEntry(entry))
+    hash.update('\u0000')
+  }
+
+  return hash.digest('hex').slice(0, 16)
+}
+
+export function computeSourceFingerprint(stagingDir, entries) {
+  return computeFingerprintFromContents(entries, (entry) => readFileSync(join(stagingDir, entry)))
+}
+
+export function buildIdentityFor({ version, environment, targetName, git, fingerprint, apiBaseUrl = null }) {
+  const buildId = createHash('sha256')
+    .update([version, environment, targetName, git.commit ?? 'no-commit', git.dirty ? 'dirty' : 'clean', fingerprint].join('|'))
+    .digest('hex')
+    .slice(0, 12)
+
+  return {
+    version,
+    commit: git.commit,
+    commit_short: git.commit_short,
+    dirty: git.dirty,
+    source_fingerprint: fingerprint,
+    build_id: buildId,
+    environment: `${targetName}-${environment}`,
+    // Backend que ESTE pacote usa (canal homolog: o preview configurado).
+    api_base_url: apiBaseUrl,
+  }
+}
+
+export function renderBuildIdentitySource(identity) {
+  return [
+    ';(function initYolenCompanionBuildIdentity(root) {',
+    '  // GERADO por build-package.mjs — identidade real deste pacote.',
+    `  const identity = Object.freeze(${JSON.stringify(identity, null, 2).replace(/\n/g, '\n  ')})`,
+    '',
+    '  root.YolenCompanionBuildIdentity = identity',
+    "})(typeof globalThis !== 'undefined' ? globalThis : window)",
+    '',
+  ].join('\n')
+}
+
+export function parseBuildIdentitySource(sourceCode) {
+  const match = String(sourceCode).match(/Object\.freeze\((\{[\s\S]*?\})\)/)
+  if (!match) {
+    return null
+  }
+
+  try {
+    return JSON.parse(match[1])
+  } catch {
+    return null
+  }
+}
+
+function stampBuildIdentity({ stagingDir, targetName, environment, sourceManifest, entries, repoRoot, extensionRoot, homologBaseUrl }) {
+  const git = readSourceGitIdentity({ repoRoot, extensionRoot })
+  const fingerprint = computeSourceFingerprint(stagingDir, entries)
+  const identity = buildIdentityFor({
+    version: sourceManifest.version,
+    environment,
+    targetName,
+    git,
+    fingerprint,
+    apiBaseUrl: companionEnvironmentFor(environment, { homologBaseUrl }).api_base_url,
+  })
+
+  writeFileSync(join(stagingDir, BUILD_IDENTITY_PATHNAME), renderBuildIdentitySource(identity))
+  writeFileSync(
+    join(stagingDir, BUILD_IDENTITY_JSON),
+    `${JSON.stringify({ ...identity, built_at: new Date().toISOString() }, null, 2)}\n`,
+  )
+
+  return identity
+}
+
 export function toE2EManifest(sourceManifest, targetName, { sourceCommit = readE2ESourceCommit() } = {}) {
   const target = TARGETS[targetName]
   if (!target) {
@@ -518,9 +840,206 @@ export function toProductionManifest(sourceManifest, targetName) {
   return manifest
 }
 
-export function readSourceManifest() {
-  const raw = readFileSync(join(EXTENSION_ROOT, 'manifest.json'), 'utf8')
+// Identificação forte do canal homolog: quem abre about:debugging /
+// chrome://extensions vê que não é a instalação de produção. Id próprio no
+// Firefox: sessão/armazenamento separados da extensão PROD no mesmo perfil.
+export const HOMOLOG_NAME = 'Yolen Companion [HML]'
+export const HOMOLOG_DESCRIPTION_SUFFIX = ' Homologação interna (backend de preview) — não distribuir.'
+export const FIREFOX_HOMOLOG_GECKO_ID = 'yolen-companion-hml@gerson.local'
+
+// Transformação PROD → HOMOLOG: mesmo pacote de produção, com o host de
+// produção trocado pelo host EXATO do preview configurado em
+// host_permissions, content_scripts (bridge da Yolen) e
+// web_accessible_resources (page bridge). Nenhum wildcard, nenhum
+// localhost, nenhum host de produção sobra.
+export function toHomologManifest(sourceManifest, targetName, { homologBaseUrl } = {}) {
+  const baseUrl = parseHomologBaseUrl(homologBaseUrl)
+  const previewPattern = `${baseUrl}/*`
+  const productionPattern = `${PRODUCTION_BASE_URL}/*`
+  const swap = (patterns) => patterns.map((pattern) => (pattern === productionPattern ? previewPattern : pattern))
+
+  const manifest = toProductionManifest(sourceManifest, targetName)
+
+  manifest.name = HOMOLOG_NAME
+  manifest.description = `${sourceManifest.description}${HOMOLOG_DESCRIPTION_SUFFIX}`
+  manifest.host_permissions = swap(manifest.host_permissions ?? [])
+
+  for (const block of [...(manifest.content_scripts ?? []), ...(manifest.web_accessible_resources ?? [])]) {
+    if (Array.isArray(block.matches)) {
+      block.matches = swap(block.matches)
+    }
+  }
+
+  if (targetName === 'firefox') {
+    manifest.browser_specific_settings = {
+      ...manifest.browser_specific_settings,
+      gecko: {
+        ...manifest.browser_specific_settings?.gecko,
+        id: FIREFOX_HOMOLOG_GECKO_ID,
+      },
+    }
+  }
+
+  assertHomologManifestHosts(manifest, baseUrl)
+  return manifest
+}
+
+// Rede de segurança do manifest homolog: todo host é um canal de conversa
+// ou o preview exato; o preview está na permissão, na bridge e no page
+// bridge; produção/localhost/wildcard não aparecem em lugar nenhum.
+export function assertHomologManifestHosts(manifest, baseUrl) {
+  const previewPattern = `${baseUrl}/*`
+  const allowed = new Set([...CHANNEL_HOSTS, previewPattern])
+  const patterns = [
+    ...(manifest.host_permissions ?? []),
+    ...(manifest.content_scripts ?? []).flatMap((block) => block.matches ?? []),
+    ...(manifest.web_accessible_resources ?? []).flatMap((block) => block.matches ?? []),
+  ]
+
+  const unexpected = patterns.filter((pattern) => !allowed.has(pattern))
+  if (unexpected.length > 0) {
+    throw new Error(`Manifest homolog com host inesperado: ${[...new Set(unexpected)].join(', ')}`)
+  }
+
+  const bridge = (manifest.content_scripts ?? []).find((block) => block.js?.includes('src/yolen-bridge.js'))
+  const pageBridge = (manifest.web_accessible_resources ?? []).find((block) =>
+    block.resources?.includes('src/yolen-page-bridge.js'),
+  )
+
+  if (
+    !manifest.host_permissions?.includes(previewPattern) ||
+    JSON.stringify(bridge?.matches) !== JSON.stringify([previewPattern]) ||
+    JSON.stringify(pageBridge?.matches) !== JSON.stringify([previewPattern])
+  ) {
+    throw new Error(`Manifest homolog precisa do host exato ${previewPattern} na permissão, na bridge e no page bridge.`)
+  }
+
+  const serialized = JSON.stringify(manifest)
+  if (/localhost|\*\./i.test(serialized) || PRODUCTION_ORIGINS.some((origin) => serialized.includes(origin))) {
+    throw new Error('Manifest homolog não pode conter localhost, wildcard de host nem o host de produção.')
+  }
+}
+
+export function readSourceManifest(extensionRoot = EXTENSION_ROOT) {
+  const raw = readFileSync(join(extensionRoot, 'manifest.json'), 'utf8')
   return JSON.parse(raw)
+}
+
+// Manifest que o pacote de cada ambiente carrega — única implementação,
+// usada pelo build e pelo verificador de staging.
+export function manifestForEnvironment(sourceManifest, targetName, environment, { homologBaseUrl = null } = {}) {
+  const target = TARGETS[targetName]
+  if (!target) {
+    throw new Error(`Alvo de empacotamento desconhecido: ${targetName}`)
+  }
+
+  if (environment === 'homolog') {
+    return toHomologManifest(sourceManifest, targetName, { homologBaseUrl })
+  }
+
+  return environment === 'prod'
+    ? toProductionManifest(sourceManifest, targetName)
+    : environment === 'e2e'
+      ? toE2EManifest(sourceManifest, targetName)
+      : target.adaptManifest(sourceManifest)
+}
+
+export function renderStagedManifest(manifest) {
+  return `${JSON.stringify(manifest, null, 2)}\n`
+}
+
+const ICON_ENTRY_PATTERN = /^assets\/icons\/icon-(\d+)\.png$/
+
+// Conteúdo CANÔNICO esperado de cada arquivo do pacote a partir das fontes
+// atuais: manifest transformado para o alvo/ambiente, fonte da feature flag
+// selecionada para o ambiente, ícones redimensionados e arquivos copiados.
+// O build escreve exatamente estes bytes; o verificador compara o staging
+// com eles. A identidade de build (src/build-identity.js) depende do
+// fingerprint do restante — ver expectedBuildIdentity.
+export function expectedStagedEntryContent({
+  entry,
+  targetName,
+  environment,
+  sourceManifest,
+  extensionRoot = EXTENSION_ROOT,
+  homologBaseUrl = null,
+}) {
+  if (entry === BUILD_IDENTITY_PATHNAME) {
+    throw new Error('A identidade de build depende do fingerprint do pacote — use expectedBuildIdentity.')
+  }
+
+  if (entry === 'manifest.json') {
+    return Buffer.from(
+      renderStagedManifest(manifestForEnvironment(sourceManifest, targetName, environment, { homologBaseUrl })),
+    )
+  }
+
+  // Configuração do canal: sempre gerada (nunca copiada da fonte).
+  if (entry === COMPANION_ENVIRONMENT_PATHNAME) {
+    return Buffer.from(renderCompanionEnvironmentSource(companionEnvironmentFor(environment, { homologBaseUrl })))
+  }
+
+  if (entry === FEATURE_FLAGS_PATHNAME) {
+    return readFileSync(join(extensionRoot, featureFlagSourceForEnvironment(environment)))
+  }
+
+  const icon = entry.match(ICON_ENTRY_PATTERN)
+  if (icon) {
+    return resizePngSquare(readFileSync(join(extensionRoot, 'assets', 'yolen-mark.png')), Number(icon[1]))
+  }
+
+  const source = join(extensionRoot, entry)
+  if (!existsSync(source)) {
+    throw new Error(`Arquivo de origem não existe: ${entry}`)
+  }
+
+  return readFileSync(source)
+}
+
+// Identidade que um build das fontes atuais carimbaria, calculada sem
+// escrever nada (mesmo fingerprint, mesma função de identidade).
+export function expectedBuildIdentity({
+  targetName,
+  environment,
+  sourceManifest,
+  extensionRoot = EXTENSION_ROOT,
+  repoRoot = REPO_ROOT,
+  contents = null,
+  homologBaseUrl = null,
+}) {
+  const entries = getTargetZipEntries(targetName)
+  const expected =
+    contents ??
+    new Map(
+      entries
+        .filter((entry) => entry !== BUILD_IDENTITY_PATHNAME)
+        .map((entry) => [
+          entry,
+          expectedStagedEntryContent({ entry, targetName, environment, sourceManifest, extensionRoot, homologBaseUrl }),
+        ]),
+    )
+
+  return buildIdentityFor({
+    version: sourceManifest.version,
+    environment,
+    targetName,
+    git: readSourceGitIdentity({ repoRoot, extensionRoot }),
+    fingerprint: computeFingerprintFromContents(entries, (entry) => expected.get(entry)),
+    apiBaseUrl: companionEnvironmentFor(environment, { homologBaseUrl }).api_base_url,
+  })
+}
+
+export function stagingDirFor(targetName, environment) {
+  if (environment === 'prod') {
+    return join(OUTPUT_ROOT, targetName, 'prod', 'staging')
+  }
+  if (environment === 'e2e') {
+    return join(E2E_OUTPUT_ROOT, targetName, 'staging')
+  }
+  if (environment === 'homolog') {
+    return join(OUTPUT_ROOT, targetName, 'homolog', 'staging')
+  }
+  return join(OUTPUT_ROOT, targetName, 'staging')
 }
 
 // Verificação de deriva: garante que a allowlist acima continua cobrindo
@@ -561,42 +1080,10 @@ export function assertAllowlistMatchesManifest(manifest) {
   }
 }
 
-// Copia um arquivo de origem para um pathname de destino DIFERENTE dentro
-// do staging — necessário para o canal e2e, cuja fonte da flag
-// (FEATURE_FLAGS_SOURCE_E2E) precisa ocupar o mesmo pathname que o
-// manifest espera (FEATURE_FLAGS_PATHNAME), nunca o próprio nome do
-// arquivo `.e2e.js`.
-function stageFileFromSource(sourceRelativePath, destinationRelativePath, stagingDir) {
-  const source = join(EXTENSION_ROOT, sourceRelativePath)
-  if (!existsSync(source)) {
-    throw new Error(`Arquivo de origem não existe: ${sourceRelativePath}`)
-  }
-  const destination = join(stagingDir, destinationRelativePath)
+function writeStagedEntry(stagingDir, entry, content) {
+  const destination = join(stagingDir, entry)
   mkdirSync(dirname(destination), { recursive: true })
-  copyFileSync(source, destination)
-  utimesSync(destination, REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME)
-}
-
-function stageFile(relativePath, stagingDir) {
-  stageFileFromSource(relativePath, relativePath, stagingDir)
-}
-
-function stageIcons(stagingDir) {
-  const sourceIcon = readFileSync(join(EXTENSION_ROOT, 'assets', 'yolen-mark.png'))
-  const iconsDir = join(stagingDir, 'assets', 'icons')
-  mkdirSync(iconsDir, { recursive: true })
-
-  for (const size of ICON_SIZES) {
-    const resized = resizePngSquare(sourceIcon, size)
-    const destination = join(iconsDir, `icon-${size}.png`)
-    writeFileSync(destination, resized)
-    utimesSync(destination, REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME)
-  }
-}
-
-function stageManifest(manifest, stagingDir) {
-  const destination = join(stagingDir, 'manifest.json')
-  writeFileSync(destination, `${JSON.stringify(manifest, null, 2)}\n`)
+  writeFileSync(destination, content)
   utimesSync(destination, REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME)
 }
 
@@ -640,49 +1127,68 @@ export const ENVIRONMENTS = ['dev', 'prod']
 // explicitamente (ver parseBuildCliArgs/main).
 export const E2E_ENVIRONMENTS = ['e2e']
 
+// Canal homolog — só com `--homolog` e YOLEN_COMPANION_HOMOLOG_BASE_URL.
+export const HOMOLOG_ENVIRONMENTS = ['homolog']
+
 export function zipFileName(targetName, environment, version) {
   if (environment === 'e2e') {
     return `yolen-companion-${targetName}-e2e-v${version}.zip`
+  }
+  if (environment === 'homolog') {
+    return `yolen-companion-${targetName}-homolog-v${version}.zip`
   }
   return environment === 'prod'
     ? `yolen-companion-${targetName}-prod-v${version}.zip`
     : `yolen-companion-${targetName}-v${version}.zip`
 }
 
-function buildTarget(targetName, environment, sourceManifest, { outputRoot = OUTPUT_ROOT } = {}) {
-  const target = TARGETS[targetName]
-  const stagingDir =
-    environment === 'prod'
-      ? join(OUTPUT_ROOT, targetName, 'prod', 'staging')
-      : environment === 'e2e'
-        ? join(outputRoot, targetName, 'staging')
-        : join(OUTPUT_ROOT, targetName, 'staging')
+// Monta o staging de um alvo/ambiente a partir das fontes. Toda entrada é
+// escrita com expectedStagedEntryContent — a MESMA função que o verificador
+// usa para saber o que o staging deveria conter. Raízes injetáveis para que
+// o ciclo build → verificar → alterar fonte → verificar seja testável numa
+// cópia isolada.
+export function stageTarget({
+  targetName,
+  environment,
+  sourceManifest,
+  extensionRoot = EXTENSION_ROOT,
+  repoRoot = REPO_ROOT,
+  stagingDir = stagingDirFor(targetName, environment),
+  homologBaseUrl = null,
+}) {
+  if (!TARGETS[targetName]) {
+    throw new Error(`Alvo de empacotamento desconhecido: ${targetName}`)
+  }
+
+  // Falha fechado ANTES de apagar/escrever qualquer coisa: ambiente
+  // desconhecido ou homolog sem origem válida nunca gera staging.
+  const companionEnvironment = companionEnvironmentFor(environment, { homologBaseUrl })
+
   rmSync(stagingDir, { recursive: true, force: true })
   mkdirSync(stagingDir, { recursive: true })
 
-  // Seleção de fonte da flag ANTES de copiar qualquer arquivo — dev/prod
-  // sempre pegam o arquivo normal, e2e sempre pega o arquivo e2e, mas os
-  // dois terminam no MESMO pathname dentro do staging.
-  const featureFlagsSource = featureFlagSourceForEnvironment(environment)
+  const zipEntries = getTargetZipEntries(targetName)
 
-  const sortedFiles = [...target.files].sort()
-  for (const relativePath of sortedFiles) {
-    if (relativePath === FEATURE_FLAGS_PATHNAME) {
-      stageFileFromSource(featureFlagsSource, FEATURE_FLAGS_PATHNAME, stagingDir)
+  // dev/prod sempre pegam a fonte normal da flag, e2e sempre a fonte e2e,
+  // mas as duas terminam no MESMO pathname dentro do staging.
+  for (const entry of zipEntries) {
+    if (entry === BUILD_IDENTITY_PATHNAME) {
       continue
     }
-    stageFile(relativePath, stagingDir)
+    writeStagedEntry(
+      stagingDir,
+      entry,
+      expectedStagedEntryContent({ entry, targetName, environment, sourceManifest, extensionRoot, homologBaseUrl }),
+    )
   }
 
-  stageIcons(stagingDir)
-
-  const manifest =
-    environment === 'prod'
-      ? toProductionManifest(sourceManifest, targetName)
-      : environment === 'e2e'
-        ? toE2EManifest(sourceManifest, targetName)
-        : target.adaptManifest(sourceManifest)
-  stageManifest(manifest, stagingDir)
+  // Defesa do EFETIVO da configuração do canal: relê o arquivo staged.
+  const stagedEnvironment = parseCompanionEnvironmentSource(
+    readFileSync(join(stagingDir, COMPANION_ENVIRONMENT_PATHNAME), 'utf8'),
+  )
+  if (JSON.stringify(stagedEnvironment) !== JSON.stringify(companionEnvironment)) {
+    throw new Error(`BUILD FAIL: ${COMPANION_ENVIRONMENT_PATHNAME} staged não corresponde ao canal "${environment}".`)
+  }
 
   // Defesa do EFETIVO: relê o arquivo já staged (nunca a fonte antes de
   // copiar) e falha o build se o valor não bater com o esperado para este
@@ -693,18 +1199,47 @@ function buildTarget(targetName, environment, sourceManifest, { outputRoot = OUT
   )
   assertEffectiveManyChatFlagForEnvironment(environment, effectiveManyChatCaptureEnabled)
 
-  const zipEntries = getTargetZipEntries(targetName)
+  const buildIdentity = stampBuildIdentity({
+    stagingDir,
+    targetName,
+    environment,
+    sourceManifest,
+    entries: zipEntries,
+    repoRoot,
+    extensionRoot,
+    homologBaseUrl,
+  })
+  utimesSync(join(stagingDir, BUILD_IDENTITY_PATHNAME), REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME)
+
+  return {
+    stagingDir,
+    entries: zipEntries,
+    effectiveManyChatCaptureEnabled,
+    companionEnvironment,
+    buildIdentity,
+  }
+}
+
+function buildTarget(targetName, environment, sourceManifest, { outputRoot = OUTPUT_ROOT, homologBaseUrl = null } = {}) {
+  const { stagingDir, entries, effectiveManyChatCaptureEnabled, buildIdentity } = stageTarget({
+    targetName,
+    environment,
+    sourceManifest,
+    homologBaseUrl,
+  })
 
   const zipPath = join(outputRoot, zipFileName(targetName, environment, sourceManifest.version))
-  createZip(stagingDir, zipPath, zipEntries)
+  createZip(stagingDir, zipPath, entries)
 
   return {
     target: targetName,
     environment,
     zipPath,
+    stagingDir,
     sha256: sha256(zipPath),
-    entries: zipEntries,
+    entries,
     effectiveManyChatCaptureEnabled,
+    buildIdentity,
   }
 }
 
@@ -715,20 +1250,28 @@ export function parseBuildCliArgs(argv) {
   const args = argv.slice(2)
 
   if (args.length === 0) {
-    return { e2e: false }
+    return { e2e: false, homolog: false }
   }
 
   if (args.length === 1 && args[0] === '--e2e') {
-    return { e2e: true }
+    return { e2e: true, homolog: false }
   }
 
-  throw new Error(`Argumento de linha de comando desconhecido: "${args.join(' ')}". Uso: build-package.mjs [--e2e]`)
+  if (args.length === 1 && args[0] === '--homolog') {
+    return { e2e: false, homolog: true }
+  }
+
+  throw new Error(
+    `Argumento de linha de comando desconhecido: "${args.join(' ')}". Uso: build-package.mjs [--e2e | --homolog]`,
+  )
 }
 
-function buildPackages(environments, sourceManifest, outputRoot) {
+function buildPackages(environments, sourceManifest, outputRoot, { homologBaseUrl = null } = {}) {
   mkdirSync(outputRoot, { recursive: true })
   return Object.keys(TARGETS).flatMap((targetName) =>
-    environments.map((environment) => buildTarget(targetName, environment, sourceManifest, { outputRoot })),
+    environments.map((environment) =>
+      buildTarget(targetName, environment, sourceManifest, { outputRoot, homologBaseUrl }),
+    ),
   )
 }
 
@@ -737,14 +1280,16 @@ function writeBuildSummary({ results, sourceManifest, outputRoot, fileName, note
     version: sourceManifest.version,
     generatedAt: new Date().toISOString(),
     note,
-    packages: results.map(({ target, environment, zipPath, sha256: hash, entries, effectiveManyChatCaptureEnabled }) => ({
+    packages: results.map(({ target, environment, zipPath, stagingDir, sha256: hash, entries, effectiveManyChatCaptureEnabled, buildIdentity }) => ({
       target,
       environment,
       zipPath: zipPath.replace(`${REPO_ROOT}/`, ''),
+      stagingDir: stagingDir.replace(`${REPO_ROOT}/`, ''),
       sha256: hash,
       fileCount: entries.length,
       entries,
       effectiveManyChatCaptureEnabled,
+      buildIdentity,
     })),
   }
 
@@ -756,6 +1301,8 @@ function logResults(summary) {
   for (const pkg of summary.packages) {
     console.log(`\n[${pkg.target}/${pkg.environment}] ${pkg.zipPath}`)
     console.log(`  sha256: ${pkg.sha256}`)
+    console.log(`  identidade: v${pkg.buildIdentity.version} · commit ${pkg.buildIdentity.commit_short}${pkg.buildIdentity.dirty ? ' (+ alterações locais)' : ''} · build ${pkg.buildIdentity.build_id}`)
+    console.log(`  staging: ${pkg.stagingDir}`)
     console.log(`  MANYCHAT_CAPTURE_ENABLED: ${pkg.effectiveManyChatCaptureEnabled}`)
     console.log(`  arquivos (${pkg.fileCount}):`)
     for (const entry of pkg.entries) {
@@ -776,13 +1323,39 @@ const E2E_BUILD_NOTE =
   '(o arquivo normal continua false e nunca é editado). Nunca distribuir; nunca confundir com dev/prod — ' +
   'ver dist/yolen-companion/e2e/e2e-release-candidate-report.json.'
 
+const HOMOLOG_BUILD_NOTE =
+  'Canal HOMOLOG — extensão para homologar contra o backend de preview configurado em ' +
+  `${HOMOLOG_BASE_URL_ENV}. Aceita SOMENTE esse backend (nunca produção), MANYCHAT_CAPTURE_ENABLED=false, ` +
+  'e o painel compara o commit do pacote com o commit do backend. Nunca distribuir.'
+
 function main() {
-  const { e2e } = parseBuildCliArgs(process.argv)
+  const { e2e, homolog } = parseBuildCliArgs(process.argv)
+
+  // Homolog sem origem válida falha antes de qualquer outra coisa.
+  const homologBaseUrl = homolog ? parseHomologBaseUrl(process.env[HOMOLOG_BASE_URL_ENV]) : null
 
   const sourceManifest = readSourceManifest()
   assertAllowlistMatchesManifest(sourceManifest)
   // Defesa da fonte: roda antes de QUALQUER build, normal ou e2e.
   assertFeatureFlagSourcesAreSafe()
+  assertCompanionEnvironmentSourceIsSafe()
+
+  if (homolog) {
+    const results = buildPackages(HOMOLOG_ENVIRONMENTS, sourceManifest, OUTPUT_ROOT, { homologBaseUrl })
+    const summary = writeBuildSummary({
+      results,
+      sourceManifest,
+      outputRoot: OUTPUT_ROOT,
+      fileName: 'homolog-build-summary.json',
+      note: HOMOLOG_BUILD_NOTE,
+    })
+    logResults(summary)
+    console.log(`\nBackend HML: ${homologBaseUrl}`)
+    console.log(
+      `Resumo HOMOLOG escrito em: ${join(OUTPUT_ROOT, 'homolog-build-summary.json').replace(`${REPO_ROOT}/`, '')}`,
+    )
+    return
+  }
 
   if (e2e) {
     const results = buildPackages(E2E_ENVIRONMENTS, sourceManifest, E2E_OUTPUT_ROOT)

@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildCustomerViewModel,
+  CURRENT_INTEREST_GAP_SUMMARY,
   CUSTOMER_VIEW_MODEL_UNAVAILABLE_REASONS,
 } from './customer-view-model.ts'
 
@@ -390,4 +391,69 @@ test('itens evidenciados preservam evidence_message_ids e memory_ids', () => {
 
   assert.deepEqual(vm.preferences[0].evidence_message_ids, ['m1', 'm2'])
   assert.deepEqual(vm.preferences[0].memory_ids, ['mem-1'])
+})
+
+test('knowledge_gaps: requalificação do reasoning canônico põe o interesse atual primeiro e deixa a lacuna antiga condicional', () => {
+  const reading = buildCurrentReading({
+      missing_discovery: [
+        {
+          summary: 'Ainda não foi informado o dia e horário disponíveis para realizar a aula experimental.',
+          topic: 'timing',
+          evidence_message_ids: ['m-schedule'],
+          memory_ids: ['mem-1'],
+        },
+        {
+          summary: 'Ainda não sabemos se ela decide sozinha.',
+          topic: 'decision_maker',
+          evidence_message_ids: ['m-2'],
+          memory_ids: ['mem-2'],
+        },
+        {
+          summary: 'Ainda não sabemos o objetivo principal.',
+          topic: 'objective',
+          evidence_message_ids: ['m-3'],
+          memory_ids: ['mem-3'],
+        },
+      ],
+  })
+
+  const vm = buildCustomerViewModel(reading, {
+    requalify_before_continuing: true,
+    current_interest_evidence_message_ids: ['m-request'],
+  })
+
+  assert.equal(vm.knowledge_gaps.length, 3)
+  assert.equal(vm.knowledge_gaps[0].kind, 'current_interest')
+  assert.equal(vm.knowledge_gaps[0].summary, CURRENT_INTEREST_GAP_SUMMARY)
+  assert.deepEqual(vm.knowledge_gaps[0].evidence_message_ids, ['m-request'])
+  assert.equal(vm.knowledge_gaps[0].conditional_on_reconfirmation, false)
+
+  // A lacuna histórica continua lá, com a mesma evidência, mas condicional.
+  assert.equal(vm.knowledge_gaps[1].summary, 'Ainda não foi informado o dia e horário disponíveis para realizar a aula experimental.')
+  assert.equal(vm.knowledge_gaps[1].conditional_on_reconfirmation, true)
+  assert.deepEqual(vm.knowledge_gaps[1].evidence_message_ids, ['m-schedule'])
+  assert.deepEqual(vm.knowledge_gaps[1].memory_ids, ['mem-1'])
+  assert.equal(vm.knowledge_gaps[2].conditional_on_reconfirmation, true)
+})
+
+test('knowledge_gaps: sem requalificação a prioridade da leitura continua a mesma', () => {
+  const reading = buildCurrentReading({
+      missing_discovery: [
+        {
+          summary: 'Ainda não sabemos se ele decide sozinho.',
+          topic: 'decision_maker',
+          evidence_message_ids: ['m-2'],
+          memory_ids: [],
+        },
+      ],
+  })
+
+  for (const priority of [null, { requalify_before_continuing: false }]) {
+    const vm = buildCustomerViewModel(reading, priority)
+
+    assert.equal(vm.knowledge_gaps.length, 1)
+    assert.equal(vm.knowledge_gaps[0].summary, 'Ainda não sabemos se ele decide sozinho.')
+    assert.equal(vm.knowledge_gaps[0].kind, 'discovery')
+    assert.equal(vm.knowledge_gaps[0].conditional_on_reconfirmation, undefined)
+  }
 })

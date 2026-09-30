@@ -1,5 +1,10 @@
 import 'server-only'
 
+import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+} from '../companion/companion-execution-scope'
+
 import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
@@ -826,7 +831,10 @@ async function loadCrossConversationCoaching({
       fetchPage: (offset, limit) =>
         admin
           .from(
-            'companion_commercial_state_events',
+            companionDerivedTable(
+              'commercial_state_events',
+              resolveCompanionExecutionScope(),
+            ),
           )
           .select(
             CROSS_CONVERSATION_EVENT_FIELDS,

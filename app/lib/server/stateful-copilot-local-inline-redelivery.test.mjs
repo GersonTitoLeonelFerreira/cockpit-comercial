@@ -183,6 +183,7 @@ function createFakeAdmin(rows) {
 function buildMessage() {
   const descriptor =
     buildStatefulCopilotBackgroundJobDescriptor({
+      execution_scope: 'production',
       company_id: 'company-local',
       cycle_id: 'cycle-local',
       conversation_key:
@@ -337,6 +338,9 @@ test(
         { delivery_count: 1 },
         {
           create_admin_client: () => admin,
+          // NODE_ENV=development resolveria homolog; o job deste teste é
+          // de produção (tabelas canônicas do fake admin).
+          execution_scope: 'production',
           run_runtime: async () => {
             calls += 1
 
@@ -373,6 +377,9 @@ test(
         { delivery_count: 1 },
         {
           create_admin_client: () => admin,
+          // NODE_ENV=development resolveria homolog; o job deste teste é
+          // de produção (tabelas canônicas do fake admin).
+          execution_scope: 'production',
           run_runtime: async () => {
             calls += 1
             return buildRetryableConflictResult()

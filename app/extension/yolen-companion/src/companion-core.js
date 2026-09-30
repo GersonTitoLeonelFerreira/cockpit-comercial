@@ -145,6 +145,17 @@ function createCompanionCore(ctx) {
   let accountMenuOpen = false
   let accountMenuDocumentListenersInstalled = false
 
+  // Canal homolog: o painel só vale como homologação quando o commit do
+  // backend configurado no pacote é o MESMO commit do pacote.
+  // status: 'checking' | 'match' | 'mismatch' | 'not_preview' |
+  // 'unavailable'.
+  let backendBuildCheck = {
+    status: 'checking',
+    commitShort: null,
+    environment: null,
+  }
+  let backendBuildCheckInFlight = null
+
   const conversationBoundary =
     conversationBoundaryRuntime
       .createConversationBoundary()
@@ -677,6 +688,7 @@ function createCompanionCore(ctx) {
     deepAnalysisResult: null,
     deepAnalysisTimings: null,
     deepAnalysisNotice: null,
+    deepAnalysisDebug: null,
     // CLIENTE precisa continuar mostrando a última inteligência comercial
     // válida enquanto uma nova tentativa de análise (automática ou manual)
     // está em voo ou termina em erro — ver getLastKnownClientCommercialReading.
@@ -3603,6 +3615,7 @@ function createCompanionCore(ctx) {
       deepAnalysisResult: null,
       deepAnalysisTimings: null,
       deepAnalysisNotice: null,
+      deepAnalysisDebug: null,
       lastKnownCommercialReading: null,
       lastKnownCommercialReadingContext: null,
       suggestionApplyLoading: false,
@@ -4153,10 +4166,16 @@ function createCompanionCore(ctx) {
     )
   }
 
+  // Sempre o backend do canal deste pacote (HOMOLOG: o preview) — nunca
+  // um endereço fixo de produção.
   function openYolen(path) {
     const baseUrl =
       window.YolenCompanionApi?.getBaseUrl?.() ||
-      'https://cockpit-comercial-vocn.vercel.app'
+      getCompanionEnvironment()?.api_base_url
+
+    if (!baseUrl) {
+      return
+    }
 
     window.open(`${baseUrl}${path}`, '_blank', 'noopener,noreferrer')
   }
@@ -6633,6 +6652,60 @@ function createCompanionCore(ctx) {
     return clean || null
   }
 
+  // R9 — diagnóstico técnico da fila/job SOMENTE no pacote HML: separa
+  // "a IA está pensando" (running, worker iniciou) de "o job nem saiu da
+  // fila" (queued, sem worker). Nunca aparece em PROD.
+  function getAnalysisDebugHtml() {
+    const debug =
+      state.deepAnalysisDebug
+
+    if (
+      globalThis.YolenCompanionEnvironment?.channel !== 'homolog' ||
+      !debug ||
+      typeof debug !== 'object'
+    ) {
+      return ''
+    }
+
+    const now = Date.now()
+    const seconds = (value) => {
+      const parsed = typeof value === 'string' ? Date.parse(value) : Number.NaN
+      return Number.isFinite(parsed)
+        ? `${Math.max(0, Math.round((now - parsed) / 1000))}s`
+        : '—'
+    }
+    const short = (value) =>
+      typeof value === 'string' && value
+        ? value.length > 14 ? `${value.slice(0, 12)}…` : value
+        : '—'
+
+    const rows = [
+      ['execution_scope', debug.execution_scope || '—'],
+      ['job', short(debug.analysis_job_id)],
+      ['conversation', debug.conversation_key || '—'],
+      ['watermark', short(debug.message_watermark)],
+      ['status', debug.status || '—'],
+      [
+        debug.status === 'queued' ? 'queued_for' : 'since_update',
+        seconds(debug.updated_at || debug.requested_at),
+      ],
+      ['worker_started', debug.started_at ? 'true' : 'false'],
+      ['worker_started_at', debug.started_at || '—'],
+      ['delivery_attempts', debug.attempt_count ?? '—'],
+      ['poll_attempt', debug.poll_attempt ?? '—'],
+      ['stale', debug.stale ? 'true' : 'false'],
+      ['recovery_requested', debug.recovery_requested ? 'true' : 'false'],
+      ['failure_code', debug.failure_code || '—'],
+    ]
+
+    return `
+      <details class="yolen-analysis-debug" data-yolen-analysis-debug>
+        <summary>Analysis debug (HML)</summary>
+        <div>${rows.map(([label, value]) => `${escapeHtml(label)}: ${escapeHtml(String(value))}`).join('<br>')}</div>
+      </details>
+    `
+  }
+
   // Estado do job de análise como linha discreta (mesmos textos e
   // atributos dos cards de estado abaixo), usada quando já existe uma
   // leitura persistida válida na tela.
@@ -6650,6 +6723,7 @@ function createCompanionCore(ctx) {
           ${getInlineSpinnerHtml()}
           ${escapeHtml(loadingCopy)}
         </div>
+        ${getAnalysisDebugHtml()}
       `
     }
 
@@ -6658,6 +6732,7 @@ function createCompanionCore(ctx) {
         <div class="yolen-seller-empty-state" data-yolen-analysis-pending role="status" aria-live="polite">
           ${escapeHtml(state.deepAnalysisNotice)}
         </div>
+        ${getAnalysisDebugHtml()}
       `
     }
 
@@ -6666,6 +6741,7 @@ function createCompanionCore(ctx) {
         <div class="yolen-seller-empty-state" data-yolen-analysis-error role="alert">
           ${escapeHtml(state.conversationAnalysisError)}
         </div>
+        ${getAnalysisDebugHtml()}
       `
     }
 
@@ -6744,6 +6820,7 @@ function createCompanionCore(ctx) {
             ${getInlineSpinnerHtml()}
             ${escapeHtml(loadingCopy)}
           </div>
+          ${getAnalysisDebugHtml()}
 
           <div class="yolen-inline-actions yolen-decision-actions">
             ${getAnalysisActionButton()}
@@ -6759,6 +6836,7 @@ function createCompanionCore(ctx) {
           <div class="yolen-seller-empty-state" data-yolen-analysis-pending role="status" aria-live="polite">
             ${escapeHtml(state.deepAnalysisNotice)}
           </div>
+          ${getAnalysisDebugHtml()}
 
           <div class="yolen-inline-actions yolen-decision-actions">
             ${getAnalysisActionButton()}
@@ -6774,6 +6852,7 @@ function createCompanionCore(ctx) {
           <div class="yolen-seller-empty-state" data-yolen-analysis-error role="alert">
             ${escapeHtml(state.conversationAnalysisError)}
           </div>
+          ${getAnalysisDebugHtml()}
           ${
             canAnalyzeCurrentConversation()
               ? `
@@ -7463,6 +7542,249 @@ function createCompanionCore(ctx) {
     )
   }
 
+  function getCompanionEnvironment() {
+    const environment =
+      root.YolenCompanionEnvironment
+
+    return environment &&
+      typeof environment === 'object'
+      ? environment
+      : null
+  }
+
+  function isBackendMatchRequired() {
+    return (
+      getCompanionEnvironment()
+        ?.backend_match_required === true
+    )
+  }
+
+  function getPackageBuildIdentity() {
+    return root.YolenCompanionBuildIdentity &&
+      typeof root.YolenCompanionBuildIdentity === 'object'
+      ? root.YolenCompanionBuildIdentity
+      : null
+  }
+
+  // Conferência extensão × backend (canal homolog). Nunca bloqueia o
+  // painel: só deixa explícito se a análise vale como homologação.
+  // Repetida a cada refresh de sessão — um redeploy do preview para outro
+  // commit aparece como incompatível.
+  function refreshBackendBuildCheck() {
+    if (
+      !isBackendMatchRequired() ||
+      backendBuildCheckInFlight
+    ) {
+      return backendBuildCheckInFlight
+    }
+
+    backendBuildCheckInFlight = (async () => {
+      let result = null
+
+      try {
+        result =
+          await window.YolenCompanionApi
+            ?.getBackendBuildIdentity?.()
+      } catch {
+        result = null
+      }
+
+      const identity =
+        getPackageBuildIdentity()
+
+      const backendCommit =
+        result?.ok === true &&
+        typeof result.payload?.commit === 'string'
+          ? result.payload.commit
+          : null
+
+      const backendEnvironment =
+        typeof result?.payload?.environment === 'string'
+          ? result.payload.environment
+          : null
+
+      // Homologação só vale contra um backend que se declara preview.
+      const next = !backendCommit
+        ? {
+            status: 'unavailable',
+            commitShort: null,
+            environment: backendEnvironment,
+          }
+        : {
+            status:
+              backendEnvironment !== 'preview'
+                ? 'not_preview'
+                : identity?.commit &&
+                    identity.commit === backendCommit &&
+                    identity.dirty !== true
+                  ? 'match'
+                  : 'mismatch',
+            commitShort:
+              backendCommit.slice(0, 8),
+            environment: backendEnvironment,
+          }
+
+      const changed =
+        next.status !== backendBuildCheck.status ||
+        next.commitShort !== backendBuildCheck.commitShort ||
+        next.environment !== backendBuildCheck.environment
+
+      backendBuildCheck = next
+
+      if (changed) {
+        renderPanel()
+      }
+
+      return next
+    })().finally(() => {
+      backendBuildCheckInFlight = null
+    })
+
+    return backendBuildCheckInFlight
+  }
+
+  // Cabeçalho do canal homolog: "HML · v1.5.2 · <commit do pacote>" e
+  // "Backend · <commit do backend>". Commit diferente (ou backend sem
+  // commit confirmado) vira um aviso explícito de que a análise NÃO vale
+  // como homologação.
+  function getHomologBuildBadgeHtml(version, identity) {
+    const extensionCommit =
+      identity?.commit_short
+        ? `${identity.commit_short}${identity.dirty ? '+' : ''}`
+        : 'sem commit'
+
+    const backendLabel =
+      backendBuildCheck.status === 'checking'
+        ? 'verificando…'
+        : backendBuildCheck.commitShort ||
+          'indisponível'
+
+    const title = [
+      'Yolen Companion — canal de homologação',
+      identity?.commit ? `extensão ${identity.commit}` : null,
+      getCompanionEnvironment()?.api_base_url
+        ? `backend ${getCompanionEnvironment().api_base_url}`
+        : null,
+      identity?.build_id ? `build ${identity.build_id}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    const invalid =
+      backendBuildCheck.status === 'mismatch' ||
+      backendBuildCheck.status === 'not_preview' ||
+      backendBuildCheck.status === 'unavailable'
+
+    const headline =
+      backendBuildCheck.status === 'mismatch'
+        ? 'BUILD INCOMPATÍVEL'
+        : backendBuildCheck.status === 'not_preview'
+          ? 'BACKEND NÃO É PREVIEW'
+          : 'BUILD NÃO CONFIRMADO'
+
+    const backendDetail =
+      backendBuildCheck.status === 'not_preview'
+        ? `${backendLabel} (${backendBuildCheck.environment || 'ambiente desconhecido'})`
+        : backendLabel
+
+    return [
+      '<div class="yolen-build-badge yolen-build-badge-hml" data-yolen-build-identity data-yolen-build-channel="homolog"' +
+        ' title="' + escapeHtml(title) + '">' +
+        escapeHtml(
+          ['HML', version ? `v${version}` : null, extensionCommit]
+            .filter(Boolean)
+            .join(' · '),
+        ) +
+      '</div>',
+      '<div class="yolen-build-badge yolen-build-badge-backend" data-yolen-backend-identity' +
+        ' data-yolen-backend-status="' + escapeHtml(backendBuildCheck.status) + '">' +
+        escapeHtml(`Backend · ${backendLabel}`) +
+      '</div>',
+      invalid
+        ? [
+            '<div class="yolen-build-mismatch" role="alert" data-yolen-build-mismatch>',
+              '<strong>', escapeHtml(headline), '</strong>',
+              '<span>', escapeHtml(`Extensão: ${extensionCommit}`), '</span>',
+              '<span>', escapeHtml(`Backend: ${backendDetail}`), '</span>',
+              '<span>', escapeHtml('Esta análise NÃO vale como homologação.'), '</span>',
+            '</div>',
+          ].join('')
+        : '',
+    ].join('')
+  }
+
+  // Identidade visível do pacote carregado (versão + commit). Um dist
+  // antigo recarregado no navegador fica reconhecível sem depender de
+  // memória humana.
+  function getBuildIdentityBadgeHtml() {
+    const identity =
+      getPackageBuildIdentity()
+
+    let version =
+      identity && typeof identity.version === 'string'
+        ? identity.version
+        : null
+
+    if (!version) {
+      try {
+        const runtime =
+          root.browser?.runtime ||
+          root.chrome?.runtime
+
+        version =
+          runtime?.getManifest?.()?.version ||
+          null
+      } catch {
+        version = null
+      }
+    }
+
+    if (isBackendMatchRequired()) {
+      return getHomologBuildBadgeHtml(
+        version,
+        identity,
+      )
+    }
+
+    const commit =
+      identity && typeof identity.commit_short === 'string'
+        ? identity.commit_short
+        : null
+
+    const label = [
+      version ? `v${version}` : null,
+      commit
+        ? `${commit}${identity.dirty ? '+' : ''}`
+        : identity?.environment === 'source'
+          ? 'fonte'
+          : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    if (!label) {
+      return ''
+    }
+
+    const title = [
+      'Yolen Companion',
+      version ? `versão ${version}` : null,
+      identity?.commit ? `commit ${identity.commit}` : null,
+      identity?.dirty ? 'código com alterações locais não commitadas' : null,
+      identity?.build_id ? `build ${identity.build_id}` : null,
+      identity?.environment ? `ambiente ${identity.environment}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    return (
+      '<div class="yolen-build-badge" data-yolen-build-identity' +
+      ' title="' + escapeHtml(title) + '">' +
+      escapeHtml(label) +
+      '</div>'
+    )
+  }
+
   function getYolenMarkHtml() {
     const markUrl =
       getYolenMarkUrl()
@@ -8069,6 +8391,8 @@ function createCompanionCore(ctx) {
             '<div class="yolen-title">',
               'Yolen Companion',
             '</div>',
+
+            getBuildIdentityBadgeHtml(),
 
             accountAvailable
               ? [
@@ -8750,6 +9074,9 @@ function createCompanionCore(ctx) {
   async function loadYolenSession(options = {}) {
     const showLoading = options.showLoading === true
 
+    // Canal homolog: reconfere o commit do backend a cada refresh.
+    refreshBackendBuildCheck()
+
     if (showLoading) {
       state = {
         ...state,
@@ -8887,6 +9214,7 @@ function createCompanionCore(ctx) {
               deepAnalysisResult: null,
               deepAnalysisTimings: null,
               deepAnalysisNotice: null,
+              deepAnalysisDebug: null,
               lastKnownCommercialReading: null,
               lastKnownCommercialReadingContext: null,
               // FASE 16.5 (achado do Codex, PR #283, rodada 3): sem isto,

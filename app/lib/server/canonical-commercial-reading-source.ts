@@ -1,5 +1,10 @@
 import 'server-only'
 
+import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+} from '../companion/companion-execution-scope'
+
 import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
@@ -157,7 +162,10 @@ export async function loadCanonicalCommercialReadingSource({
     } =
       await admin
         .from(
-          'companion_commercial_state_events',
+          companionDerivedTable(
+            'commercial_state_events',
+            resolveCompanionExecutionScope(),
+          ),
         )
         .select(
           CANONICAL_COMMERCIAL_READING_EVENT_FIELDS,

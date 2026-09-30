@@ -1,5 +1,10 @@
 import 'server-only'
 
+import {
+  companionDerivedTable,
+  resolveCompanionExecutionScope,
+} from '../companion/companion-execution-scope'
+
 import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
@@ -107,7 +112,7 @@ export async function loadCompanionMethodStage({
   conversationKey: string
 }): Promise<CompanionMethodStageRecord | null> {
   const { data, error } = await admin
-    .from('companion_method_stage_state')
+    .from(companionDerivedTable('method_stage_state', resolveCompanionExecutionScope()))
     .select(
       'method_config_version_id, stage_key, stage_name, stage_display_order, stage_reason, updated_at',
     )
@@ -161,8 +166,10 @@ export async function saveCompanionMethodStage({
 }): Promise<void> {
   const nowIso = new Date().toISOString()
 
+  // R10: etapa do método é resultado derivado: homolog grava só na tabela
+  // homolog (a produção nunca vê uma etapa avançada por um teste HML).
   const { error } = await admin
-    .from('companion_method_stage_state')
+    .from(companionDerivedTable('method_stage_state', resolveCompanionExecutionScope()))
     .upsert(
       {
         company_id: companyId,
