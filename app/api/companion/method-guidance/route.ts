@@ -20,6 +20,17 @@ import {
 } from '../../../lib/companion/lead-seller-message'
 
 import {
+  companyItemsFromCommercialContext,
+  companyItemsFromKnowledgeReferences,
+  excludedPrimaryMessageIds,
+} from '../../../lib/companion/commercial-fact-grounding'
+
+import {
+  buildLedgerFactRegistry,
+  loadLedgerObservation,
+} from '../../../lib/server/canonical-fact-registry-loader'
+
+import {
   createStatefulCopilotOpenAIProvider,
 } from '../../../lib/companion/stateful-copilot-openai-provider'
 
@@ -116,10 +127,30 @@ function sellerFacingGeneration(
     )
   }
 
+  // Trace factual (claim → fonte → autoridade → status) só no preview de
+  // homologação; nunca em produção.
+  const factTrace =
+    process.env.VERCEL_ENV === 'preview' &&
+    generation.diagnostics
+      ? {
+          fact_trace:
+            generation.diagnostics.fact_trace ?? [],
+          blocked_claims:
+            generation.diagnostics.blocked_claims ?? [],
+          excluded_evidence:
+            generation.diagnostics.excluded_evidence ?? [],
+        }
+      : null
+
   return {
     status: generation.status,
     message: generation.message,
     error: generation.error,
+    ...(generation.status === 'ready' &&
+    generation.advisories?.length
+      ? { advisories: generation.advisories }
+      : {}),
+    ...(factTrace ? { fact_trace: factTrace } : {}),
   }
 }
 
@@ -168,6 +199,7 @@ function buildCurrentInteraction(
       direction: message.direction,
       occurred_at: message.occurred_at,
       text: toCanonicalMessagePromptText(message) || '',
+      ...(message.id ? { message_id: message.id } : {}),
     }))
 
   if (usable.length === 0) {
@@ -228,6 +260,8 @@ function toLegacyCanonicalConversationMessage(
         : message.text_content
 
   return {
+    id:
+      message.id,
     message_key:
       message.message_key,
     version:
@@ -256,7 +290,12 @@ async function loadLegacyCurrentInteractionAtReferenceTime({
   cycleId: string
   conversationKey: string
   referenceTime: string
-}): Promise<LeadMethodCurrentInteractionMessage[]> {
+}): Promise<{
+  interaction: LeadMethodCurrentInteractionMessage[]
+  ledger_messages: NormalizedLedgerMessage[]
+  observation: Awaited<ReturnType<typeof loadLedgerObservation>>
+  excluded_message_ids: Set<string>
+}> {
   const {
     canonicalMessages,
   } =
@@ -301,9 +340,40 @@ async function loadLegacyCurrentInteractionAtReferenceTime({
         )
       })
 
-  return buildCurrentInteraction(
-    legacyMessages,
-  )
+  // Mensagem ausente da conversa visível hoje (ou de outra empresa) não
+  // entra na interação atual que o redator lê: não é evidência primária.
+  const observation =
+    await loadLedgerObservation({
+      admin,
+      companyId,
+      conversationKey,
+      messages: canonicalMessages,
+    })
+
+  const excludedMessageIds =
+    excludedPrimaryMessageIds(
+      buildLedgerFactRegistry({
+        companyId,
+        messages: canonicalMessages,
+        observation,
+      }),
+    )
+
+  return {
+    interaction:
+      buildCurrentInteraction(
+        legacyMessages.filter(
+          (message) =>
+            !message.id ||
+            !excludedMessageIds.has(message.id),
+        ),
+      ),
+    ledger_messages:
+      canonicalMessages,
+    observation,
+    excluded_message_ids:
+      excludedMessageIds,
+  }
 }
 
 export async function OPTIONS(request: Request) {
@@ -539,7 +609,7 @@ export async function POST(request: Request) {
       const shadowReferenceTime =
         new Date().toISOString()
 
-      const currentInteraction =
+      const legacyInteraction =
         await loadLegacyCurrentInteractionAtReferenceTime({
           admin,
           companyId:
@@ -551,6 +621,9 @@ export async function POST(request: Request) {
           referenceTime:
             shadowReferenceTime,
         })
+
+      const currentInteraction =
+        legacyInteraction.interaction
 
       // FASE 16.9 — MENSAGEM não pode mais decidir situação, papéis,
       // objeção, técnica ou conhecimento de empresa por conta própria.
@@ -627,6 +700,8 @@ export async function POST(request: Request) {
             canonicalContext.state_read.mode === 'found'
               ? canonicalContext.state_read.state
               : null,
+          fact_registry:
+            canonicalContext.fact_registry ?? null,
         })
 
       const {
@@ -653,7 +728,41 @@ export async function POST(request: Request) {
           ? recipientLead.name.trim()
           : null
 
+      // Firewall factual da MENSAGEM: conversa real de agora (sem as
+      // mensagens ausentes da visão atual), conhecimento oficial vigente da
+      // mesma empresa e a instrução do vendedor — que controla estilo e
+      // objetivo, mas não cria fato.
+      const messageFactRegistry =
+        buildLedgerFactRegistry({
+          companyId:
+            identity.company_id,
+          messages:
+            legacyInteraction.ledger_messages,
+          observation:
+            legacyInteraction.observation,
+          companyItems: [
+            ...companyItemsFromCommercialContext({
+              company_id:
+                identity.company_id,
+              commercial_context:
+                reasoningBundle.diagnostic_input
+                  ?.commercial_context ?? null,
+            }),
+            ...companyItemsFromKnowledgeReferences({
+              company_id:
+                identity.company_id,
+              references:
+                canonicalReasoning
+                  ?.company_knowledge_used ?? [],
+            }),
+          ],
+          sellerInstruction:
+            sellerIntent,
+        })
+
       const generation = await composeSellerMessage({
+        factRegistry:
+          messageFactRegistry,
         workingSummary: workingSummary || null,
         currentInteraction,
         sellerIntent,

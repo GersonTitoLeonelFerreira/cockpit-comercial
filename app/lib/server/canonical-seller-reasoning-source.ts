@@ -24,6 +24,48 @@ import type {
   CanonicalSellerCommercialContext,
 } from './canonical-seller-commercial-context-loader'
 
+import {
+  excludedPrimaryMessageIds,
+} from '@/app/lib/companion/commercial-fact-grounding'
+
+import type {
+  CompanionDiagnosticInput,
+} from '@/app/lib/companion/diagnostic-input'
+
+// Mensagem que o firewall de proveniência retirou da evidência primária
+// (ausente da conversa visível hoje ou de outra empresa) também não governa
+// tempo, intenção ou pedido pendente no raciocínio.
+function withoutExcludedEvidence(
+  input: CompanionDiagnosticInput,
+  context: CanonicalSellerCommercialContext,
+): CompanionDiagnosticInput {
+  const excluded =
+    context.fact_registry
+      ? excludedPrimaryMessageIds(
+        context.fact_registry,
+      )
+      : new Set<string>()
+
+  if (excluded.size === 0) {
+    return input
+  }
+
+  return {
+    ...input,
+    conversation: {
+      ...input.conversation,
+      active_message_ids:
+        input.conversation.active_message_ids.filter(
+          (id) => !excluded.has(id),
+        ),
+      messages:
+        input.conversation.messages.filter(
+          (message) => !excluded.has(message.id),
+        ),
+    },
+  }
+}
+
 /**
  * FASE 16-R6 — ponte única entre a fotografia comercial canônica da R1 e
  * o Commercial Reasoning Engine da R4.
@@ -101,6 +143,12 @@ export async function loadCanonicalSellerReasoningBundle({
   // comercial (Commercial Temporal Context), e os fatos operacionais que a
   // aba CLIENTE já mostra (relacionamento, SLA configurado) chegam ao
   // raciocínio canônico em vez de ficarem só na interface.
+  const diagnosticInput =
+    withoutExcludedEvidence(
+      snapshot.input,
+      context,
+    )
+
   const rawReasoning =
     buildCommercialReasoning({
       reading:
@@ -108,7 +156,7 @@ export async function loadCanonicalSellerReasoningBundle({
       cycle_state:
         context.state_read.state,
       diagnostic_input:
-        snapshot.input,
+        diagnosticInput,
       evaluated_at:
         context.reference_time,
       operational_context: {
@@ -133,7 +181,7 @@ export async function loadCanonicalSellerReasoningBundle({
   return {
     reasoning,
     diagnostic_input:
-      snapshot.input,
+      diagnosticInput,
   }
 }
 

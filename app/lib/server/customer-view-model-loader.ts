@@ -138,6 +138,8 @@ export async function loadCustomerViewModel({
           'found'
           ? canonicalContext.state_read.state
           : null,
+      fact_registry:
+        canonicalContext.fact_registry ?? null,
     })
 
   // O reasoning canônico decide a prioridade das lacunas (requalificação

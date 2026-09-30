@@ -22,6 +22,20 @@ import {
   type CommercialMessageStrategy,
 } from './commercial-message-strategy'
 
+import {
+  buildFactEvidenceRegistry,
+  companyItemsFromKnowledgeReferences,
+  comparableText,
+  describeUnsupportedClaims,
+  factTraceEntries,
+  groundClaims,
+  stripUnsupportedClaims,
+  unsupportedClaims,
+  type FactEvidenceExclusion,
+  type FactEvidenceRegistry,
+  type FactTraceEntry,
+} from './commercial-fact-grounding'
+
 // FASE 16.9 — MENSAGEM deixou de receber uma orientação própria
 // (SellerMessageGuidance) descolada do Commercial Reasoning canônico que
 // já sustenta AGORA/ANÁLISE/CLIENTE. O gerador de mensagem só REDIGE:
@@ -49,6 +63,10 @@ export type SellerMessageCurrentInteraction = {
   direction: 'incoming' | 'outgoing'
   occurred_at: string | null
   text: string
+  // Id canônico da mensagem no ledger (proveniência). Opcional para
+  // chamadores legados; sem ele a interação ainda é fonte primária, mas
+  // não rastreável por id.
+  message_id?: string | null
 }
 
 // Diagnóstico INTERNO da geração (log, telemetria, testes, auditoria). O
@@ -63,6 +81,11 @@ export type SellerMessageGenerationDiagnostics = {
     | 'customer_facing_review'
     | 'post_review_repair'
   failures: string[]
+  // Proveniência das afirmações da mensagem entregue (ou da última
+  // rejeitada) e das fontes descartadas. Nunca exposto em produção.
+  fact_trace?: FactTraceEntry[]
+  blocked_claims?: FactTraceEntry[]
+  excluded_evidence?: FactEvidenceExclusion[]
 }
 
 export type SellerMessageGenerationResult =
@@ -71,6 +94,9 @@ export type SellerMessageGenerationResult =
       message: string
       error: null
       diagnostics?: SellerMessageGenerationDiagnostics
+      // Avisos seller-facing: por que algo pedido não entrou na copy
+      // (ex.: valor sem confirmação oficial).
+      advisories?: string[]
     }
   | {
       status: 'error'
@@ -267,11 +293,6 @@ const GROUNDED_CONCEPTS: GroundedConcept[] = [
     output: /\b(cancelar|cancelamento|cancelado)\w*/,
     evidence: /\b(cancelar|cancelamento|cancelado)\w*/,
   },
-  {
-    label: 'relação familiar ou terceiro específico',
-    output: /\b(marido|esposo|esposa|namorado|namorada|companheiro|companheira|irmao|irma|mae|pai|filho|filha|socio|socia)\b/,
-    evidence: /\b(marido|esposo|esposa|namorado|namorada|companheiro|companheira|irmao|irma|mae|pai|filho|filha|socio|socia)\b/,
-  },
 ]
 
 function clean(value: unknown): string | null {
@@ -288,18 +309,26 @@ function clean(value: unknown): string | null {
 function normalizeCurrentInteraction(
   value: readonly SellerMessageCurrentInteraction[],
 ) {
-  return value
-    .map((message) => ({
+  const normalized: SellerMessageCurrentInteraction[] = []
+
+  for (const message of value) {
+    const text = clean(message.text)
+
+    if (!text) {
+      continue
+    }
+
+    normalized.push({
       direction: message.direction,
       occurred_at: message.occurred_at,
-      text: clean(message.text),
-    }))
-    .filter(
-      (
-        message,
-      ): message is SellerMessageCurrentInteraction =>
-        Boolean(message.text),
-    )
+      text,
+      ...(message.message_id
+        ? { message_id: message.message_id }
+        : {}),
+    })
+  }
+
+  return normalized
 }
 
 function normalizeForGrounding(value: string) {
@@ -391,6 +420,17 @@ function sellerIntentExplicitlyProvidesAnswer(intent: string) {
 function summaryHasDeclarativeSupport(summary: string) {
   return /\b(confirmad|regra|funciona|deve|e feito|e necessario|orientacao oficial|foi informado)\b/.test(
     comparable(summary),
+  )
+}
+
+const PROTECTED_FACT_FAILURE =
+  'A mensagem trouxe valor, percentual, data ou horário sem base no contexto.'
+
+function isFactualFailure(failure: string | null): boolean {
+  return Boolean(
+    failure &&
+      (failure === PROTECTED_FACT_FAILURE ||
+        failure.startsWith('A mensagem afirmou fato sem evidência válida')),
   )
 }
 
@@ -584,27 +624,6 @@ function describeCanonicalReasoning(
   }
 }
 
-function canonicalGroundingContext(
-  reasoning: SellerMessageCanonicalReasoning | null,
-): string {
-  if (!reasoning) {
-    return ''
-  }
-
-  return [
-    reasoning.current_situation,
-    reasoning.objective_now,
-    ...reasoning.selected_techniques.map(
-      (technique) =>
-        `${technique.title} ${technique.why_applicable}`,
-    ),
-    ...reasoning.company_knowledge_used.map(
-      (item) =>
-        `${item.title} ${item.grounded_content ?? item.why_relevant}`,
-    ),
-  ].join('\n')
-}
-
 type MessageAttempt = {
   message: string | null
   failure: string | null
@@ -709,9 +728,9 @@ function validateMessage({
   summary,
   interaction,
   intent,
-  reasoning,
   messageStrategy,
   recipientName,
+  registry,
 }: {
   message: string
   summary: string
@@ -721,6 +740,7 @@ function validateMessage({
   messageStrategy:
     CommercialMessageStrategy | null
   recipientName: string | null
+  registry: FactEvidenceRegistry
 }): string | null {
   if (message.length > MAX_MESSAGE_LENGTH) {
     return 'A mensagem excedeu o tamanho permitido.'
@@ -777,40 +797,81 @@ function validateMessage({
     }
   }
 
-  const interactionText = interaction
-    .map((entry) => entry.text)
+  // FIREWALL DE PROVENIÊNCIA: fato só vem de fonte com autoridade
+  // (fala real do cliente/vendedor ou configuração vigente da empresa).
+  // Resumo, reasoning e memória são DERIVADOS e não sustentam fato —
+  // senão um erro de uma camada anterior vira "verdade" aqui.
+  const primaryText = registry.sources
+    .filter(
+      (source) =>
+        source.authority === 'primary_customer' ||
+        source.authority === 'primary_seller',
+    )
+    .map((source) => source.text)
     .join('\n')
-  const factualContext = [summary, interactionText]
-    .filter(Boolean)
+  const companyText = registry.sources
+    .filter(
+      (source) =>
+        source.authority === 'company_authoritative',
+    )
+    .map((source) => source.text)
     .join('\n')
-  // A referência de contexto da estratégia é uma fala REAL do cliente
-  // (evidence_message_id): fatos dela são base legítima, mesmo quando essa
-  // fala está fora da interação recente.
-  const allowedContext = [
-    factualContext,
-    intent,
-    canonicalGroundingContext(reasoning),
-    messageStrategy?.context_reference
-      ?.text ?? null,
-  ].filter(Boolean).join('\n')
+
+  // Valor e percentual: preço atual só da configuração vigente; valor de
+  // mensagem antiga só com enquadramento histórico explícito.
+  const claims =
+    groundClaims(
+      message,
+      registry,
+      { perspective: 'customer_facing' },
+    )
+  const unsupported =
+    unsupportedClaims(claims)
 
   if (
-    hasUnsupportedProtectedFact({
-      message,
-      allowedContext,
-    })
+    unsupported.some(
+      (claim) =>
+        claim.kind === 'price' ||
+        claim.kind === 'percentage',
+    )
   ) {
-    return 'A mensagem trouxe valor, percentual, data ou horário sem base no contexto.'
+    return PROTECTED_FACT_FAILURE
   }
 
+  // Data/horário: citados na conversa real, na agenda que o próprio
+  // vendedor informou agora ou em fato oficial da empresa.
+  if (
+    hasUnsupportedProtectedFact({
+      message: message
+        .replace(/R\$\s*\d[\d.,]*/giu, ' ')
+        .replace(/\b\d+(?:[.,]\d+)?\s*%/gu, ' '),
+      allowedContext: [
+        primaryText,
+        companyText,
+        intent,
+      ].join('\n'),
+    })
+  ) {
+    return PROTECTED_FACT_FAILURE
+  }
+
+  const unsupportedFact =
+    describeUnsupportedClaims(unsupported)
+
+  if (unsupportedFact) {
+    return unsupportedFact
+  }
+
+  // Conceitos de TÓPICO (proposta, contrato, pagamento…): podem vir da
+  // conversa real, do conhecimento oficial ou da ação pedida pelo vendedor.
   const unsupportedConcept =
     findUnsupportedGroundedConcept(
       message,
-      allowedContext,
+      [primaryText, companyText, intent].join('\n'),
     )
 
   if (unsupportedConcept) {
-    return `A mensagem introduziu ${unsupportedConcept} sem base no contexto ou na intenção explícita do vendedor.`
+    return `A mensagem introduziu ${unsupportedConcept} sem base na conversa real, no conhecimento oficial ou na intenção explícita do vendedor.`
   }
 
   const lastInteraction =
@@ -835,8 +896,27 @@ function validateMessage({
     )
   }
 
+  // Especificidade (não é fato): basta citar algum assunto concreto da
+  // conversa ou do resumo. Mas o que se SUGERE ao redator vem só das falas
+  // reais do cliente — sugerir um termo do resumo lavaria o termo para a
+  // copy.
   const contextAnchors =
-    getSpecificAnchors(factualContext)
+    getSpecificAnchors(
+      [
+        summary,
+        ...interaction.map((entry) => entry.text),
+      ].join('\n'),
+    )
+  const primaryAnchors =
+    getSpecificAnchors(
+      registry.sources
+        .filter(
+          (source) =>
+            source.authority === 'primary_customer',
+        )
+        .map((source) => source.text)
+        .join('\n'),
+    )
   const intentAnchors =
     getSpecificAnchors(intent)
   const richContext =
@@ -850,7 +930,9 @@ function validateMessage({
   ) {
     return (
       'O contexto contém fatos específicos, mas a mensagem ficou intercambiável entre clientes. ' +
-      `Use naturalmente ao menos um elemento concreto pertinente, como: ${contextAnchors.slice(0, 5).join(', ')}.`
+      (primaryAnchors.length > 0
+        ? `Use naturalmente ao menos um elemento concreto da conversa real, como: ${primaryAnchors.slice(0, 5).join(', ')}.`
+        : 'Use naturalmente ao menos um elemento concreto da conversa real.')
     )
   }
 
@@ -979,6 +1061,7 @@ function checkCandidateMessage({
   reasoning,
   messageStrategy,
   recipientName,
+  registry,
 }: {
   message: string
   summary: string
@@ -987,6 +1070,7 @@ function checkCandidateMessage({
   reasoning: SellerMessageCanonicalReasoning | null
   messageStrategy: CommercialMessageStrategy | null
   recipientName: string | null
+  registry: FactEvidenceRegistry
 }): {
   message: string
   failure: string | null
@@ -1004,6 +1088,7 @@ function checkCandidateMessage({
         reasoning,
         messageStrategy,
         recipientName,
+        registry,
       })
 
     const critic =
@@ -1032,6 +1117,62 @@ function checkCandidateMessage({
       message,
       failure: null,
       repaired: false,
+    }
+  }
+
+  // Segurança factual MUDA a copy, não a elimina: a afirmação sem
+  // proveniência sai (trecho ou sentença) e o resto passa de novo pelas
+  // MESMAS regras. Só vale se sobrar uma mensagem de verdade.
+  if (isFactualFailure(first.failure)) {
+    const stripped =
+      stripUnsupportedClaims(
+        message,
+        registry,
+      )
+
+    registry.blocked.push(
+      ...unsupportedClaims(
+        groundClaims(message, registry),
+      ),
+    )
+
+    if (
+      stripped &&
+      stripped !== message &&
+      stripped.split(/\s+/).length >= 5 &&
+      (!message.includes('?') || stripped.includes('?'))
+    ) {
+      const second =
+        validate(stripped)
+
+      if (!second.failure) {
+        return {
+          message: stripped,
+          failure: null,
+          repaired: true,
+        }
+      }
+
+      const secondRepairable =
+        second.violations.length > 0 &&
+        second.violations.every(
+          violation =>
+            violation === 'generic_filler' ||
+            violation === 'excessive_questions',
+        )
+
+      if (secondRepairable) {
+        const repaired =
+          repairCommercialMessageDraft(stripped)
+
+        if (repaired.message && !validate(repaired.message).failure) {
+          return {
+            message: repaired.message,
+            failure: null,
+            repaired: true,
+          }
+        }
+      }
     }
   }
 
@@ -1108,6 +1249,7 @@ async function runAttempt({
   recipientName,
   provider,
   correctionReason,
+  registry,
 }: {
   summary: string
   interaction: readonly SellerMessageCurrentInteraction[]
@@ -1119,13 +1261,15 @@ async function runAttempt({
   recipientName: string | null
   provider: StatefulCopilotProvider
   correctionReason?: string | null
+  registry: FactEvidenceRegistry
 }): Promise<MessageAttempt> {
-  const factualContext = [
-    summary,
-    ...interaction.map((entry) => entry.text),
-  ].join('\n')
+  // Âncoras de especificidade só da conversa real (nunca do resumo).
   const contextAnchors =
-    getSpecificAnchors(factualContext)
+    getSpecificAnchors(
+      interaction
+        .map((entry) => entry.text)
+        .join('\n'),
+    )
   const correction = correctionReason
     ? [
         'A tentativa anterior não passou pela validação seller-facing.',
@@ -1151,7 +1295,8 @@ async function runAttempt({
         'Exemplo: seller_intent="Quero fazer uma pergunta para avançar com clareza." exige uma pergunta ao CLIENTE; é proibido responder "Pode mandar sua pergunta".',
         'A intenção do vendedor é a ação principal a executar somente quando seller_intent_mode="explicit_override". Quando seller_intent_mode="follow_strategy", ela apenas autoriza executar o próximo passo canônico decidido por commercial_reasoning/message_strategy.',
         'Se seller_intent_mode="follow_strategy", não volte ao ponto literal da conversa se isso repetir uma ação bloqueada ou contrariar a técnica selecionada.',
-        'Use o resumo e a interação canônica atual como únicas fontes de fatos sobre o relacionamento e o cliente.',
+        'Fatos sobre o cliente vêm SOMENTE de current_interaction (falas reais) e de message_strategy.context_reference. working_summary e commercial_reasoning são leituras DERIVADAS: use-as para entender a situação, nunca como prova de fato — se algo (pessoa, relação familiar, preferência, objeção, pedido, compromisso) só aparece ali, não afirme.',
+        'Fatos sobre a empresa (preço atual, promoção, desconto, benefício, gratuidade, condição) vêm SOMENTE do conhecimento oficial em commercial_reasoning.company_knowledge_used/message_strategy.facts_allowed. A intenção do vendedor escolhe estilo, técnica e objetivo, mas não cria preço, desconto ou benefício.',
         'Mensagens de current_interaction com direction="outgoing" já foram enviadas pelo vendedor. Não repita como nova mensagem uma pergunta, confirmação, explicação ou cobrança que acabou de ser enviada, salvo se houver nova resposta incoming que justifique a repetição.',
         'Uma entrada marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" é um áudio real cujo conteúdo é desconhecido: nunca invente ou presuma o que foi dito nele.',
         'A intenção do vendedor autoriza a ação pedida e os detalhes operacionais que ele escreveu, mas não prova fatos anteriores sobre o cliente.',
@@ -1278,6 +1423,7 @@ async function runAttempt({
         reasoning,
         messageStrategy,
         recipientName,
+        registry,
       })
 
     const strategyFailure =
@@ -1312,6 +1458,7 @@ async function reviewCustomerFacingMessage({
   roles,
   recipientName,
   provider,
+  registry,
 }: {
   candidateMessage: string
   summary: string
@@ -1322,6 +1469,7 @@ async function reviewCustomerFacingMessage({
   roles: readonly SellerMessageCommercialRole[]
   recipientName: string | null
   provider: StatefulCopilotProvider
+  registry: FactEvidenceRegistry
 }): Promise<MessageAttempt> {
   const thirdParty = hasThirdPartyOpportunity(roles)
   const intentMode =
@@ -1349,6 +1497,7 @@ async function reviewCustomerFacingMessage({
         'Remova frases vazias como "fico à disposição", "posso ajudar com o que for necessário" ou "para avançarmos" quando elas não acrescentarem uma ação concreta.',
         'Se a mensagem já estiver correta, devolva exatamente a mesma mensagem e issue_code="none".',
         'Nunca acrescente preço, percentual, data, horário, promessa ou fato não presente nas fontes.',
+        'working_summary e commercial_reasoning são leituras derivadas, não fontes: remova da mensagem qualquer fato sobre o cliente (pessoa, relação familiar, preferência, objeção, pedido) que não esteja em current_interaction ou em message_strategy.context_reference.',
         recipientName
           ? `O nome canônico do destinatário é "${recipientName}". Em WhatsApp, prefira o primeiro nome "${recipientName.trim().split(/\s+/)[0] ?? recipientName}" salvo quando message_strategy.tone exigir formalidade; qualquer outro nome é role_inversion/context_conflict.`
           : 'Sem nome canônico do destinatário, remova qualquer saudação nominal que possa ter sido copiada do vendedor.',
@@ -1413,6 +1562,7 @@ async function reviewCustomerFacingMessage({
         reasoning,
         messageStrategy,
         recipientName,
+        registry,
       })
 
     if (checked.failure) {
@@ -1442,6 +1592,104 @@ async function reviewCustomerFacingMessage({
   }
 }
 
+// Fatos externos que o vendedor pediu para afirmar (valor, promoção,
+// benefício, urgência) sem fonte oficial: a copy não os usa e o vendedor
+// fica sabendo por quê.
+function sellerInstructionAdvisories(
+  intent: string,
+  registry: FactEvidenceRegistry,
+): string[] {
+  const advisories = new Set<string>()
+
+  for (const claim of unsupportedClaims(groundClaims(intent, registry))) {
+    if (claim.kind === 'price' || claim.kind === 'percentage') {
+      const shown =
+        claim.kind === 'price'
+          ? `R$ ${Number(claim.value).toFixed(2).replace('.', ',')}`
+          : claim.value
+
+      advisories.add(
+        `Não usei ${shown} porque não encontrei esse valor confirmado na configuração da empresa.`,
+      )
+    } else if (
+      claim.kind === 'promotion' ||
+      claim.kind === 'benefit' ||
+      claim.kind === 'urgency' ||
+      claim.kind === 'company_statement'
+    ) {
+      advisories.add(
+        'Não afirmei a condição pedida porque não encontrei essa condição confirmada na configuração da empresa.',
+      )
+    }
+  }
+
+  return [...advisories]
+}
+
+function groundStrategyReference(
+  strategy: CommercialMessageStrategy | null,
+  registry: FactEvidenceRegistry,
+  note: (failure: string) => void,
+): CommercialMessageStrategy | null {
+  const reference = strategy?.context_reference
+
+  if (!strategy || !reference?.text) {
+    return strategy
+  }
+
+  const customerSources = registry.sources.filter(
+    (source) =>
+      source.source_type === 'customer_message' ||
+      source.source_type === 'customer_audio_transcription',
+  )
+
+  if (
+    customerSources.some(
+      (source) =>
+        source.source_id === reference.evidence_message_id ||
+        (!reference.evidence_message_id &&
+          source.comparable === comparableText(reference.text)),
+    )
+  ) {
+    return strategy
+  }
+
+  const anchors = reference.anchors ?? []
+  const replacement = [...customerSources]
+    .sort((left, right) =>
+      String(right.occurred_at ?? '').localeCompare(
+        String(left.occurred_at ?? ''),
+      ),
+    )
+    .map((source) => ({
+      source,
+      shared: anchors.filter((anchor) =>
+        source.comparable.split(' ').includes(anchor),
+      ),
+    }))
+    .find((candidate) => candidate.shared.length >= 2)
+
+  note(
+    replacement
+      ? `context_reference_replaced: ${reference.evidence_message_id ?? '-'} → ${replacement.source.source_id ?? '-'}`
+      : `context_reference_dropped: ${reference.evidence_message_id ?? '-'}`,
+  )
+
+  return {
+    ...strategy,
+    context_reference: replacement
+      ? {
+          ...reference,
+          text: replacement.source.text,
+          evidence_message_id:
+            replacement.source.source_id ??
+            reference.evidence_message_id,
+          anchors: replacement.shared,
+        }
+      : null,
+  }
+}
+
 export async function composeSellerMessage({
   workingSummary,
   currentInteraction = [],
@@ -1452,6 +1700,7 @@ export async function composeSellerMessage({
   roles = [],
   recipientName = null,
   provider,
+  factRegistry = null,
 }: {
   workingSummary: string | null
   currentInteraction?: readonly SellerMessageCurrentInteraction[]
@@ -1462,6 +1711,10 @@ export async function composeSellerMessage({
   roles?: readonly SellerMessageCommercialRole[]
   recipientName?: string | null
   provider: StatefulCopilotProvider
+  // Evidências com proveniência (ledger com integridade de observação +
+  // configuração vigente da empresa). Sem ele, a interação recebida e a
+  // referência da estratégia são as fontes primárias.
+  factRegistry?: FactEvidenceRegistry | null
 }): Promise<SellerMessageGenerationResult> {
   // Opt-out do cliente vale antes de qualquer outra checagem: nenhuma
   // intenção do vendedor autoriza nova mensagem depois de "não quero mais
@@ -1512,6 +1765,38 @@ export async function composeSellerMessage({
   // Diagnóstico interno acumulado (nunca seller-facing).
   const failures: string[] = []
 
+  const registry =
+    factRegistry ??
+    buildFactEvidenceRegistry({
+      company_id: null,
+      messages: [
+        ...interaction.map((entry, index) => ({
+          id: entry.message_id ?? `interaction-${index}`,
+          direction: entry.direction,
+          text: entry.text,
+          occurred_at: entry.occurred_at,
+        })),
+        ...(messageStrategy?.context_reference?.text
+          ? [{
+              id:
+                messageStrategy.context_reference
+                  .evidence_message_id ??
+                'context-reference',
+              direction: 'incoming',
+              text:
+                messageStrategy.context_reference.text,
+            }]
+          : []),
+      ],
+      company_items:
+        companyItemsFromKnowledgeReferences({
+          company_id: null,
+          references:
+            reasoning?.company_knowledge_used ?? [],
+        }),
+      seller_instruction: intent,
+    })
+
   const note = (
     failure: string | null | undefined,
   ) => {
@@ -1519,6 +1804,17 @@ export async function composeSellerMessage({
       failures.push(failure)
     }
   }
+
+  // A referência de contexto só vale se for uma fala REAL e visível do
+  // cliente. Se a mensagem citada não é evidência válida (apagada ou fora
+  // da conversa que o vendedor vê), usa-se a fala válida mais recente do
+  // mesmo assunto; sem ela, não há referência.
+  messageStrategy =
+    groundStrategyReference(
+      messageStrategy,
+      registry,
+      note,
+    )
 
   const attempt = (
     correctionReason?: string | null,
@@ -1535,6 +1831,7 @@ export async function composeSellerMessage({
         canonicalRecipientName,
       provider,
       correctionReason,
+      registry,
     })
 
   const review = (
@@ -1551,6 +1848,7 @@ export async function composeSellerMessage({
       recipientName:
         canonicalRecipientName,
       provider,
+      registry,
     })
 
   const fail = (
@@ -1563,8 +1861,15 @@ export async function composeSellerMessage({
     diagnostics: {
       stage,
       failures: [...failures],
+      excluded_evidence: [...registry.excluded],
     },
   })
+
+  const advisories =
+    sellerInstructionAdvisories(
+      intent,
+      registry,
+    )
 
   const ready = (
     message: string,
@@ -1576,7 +1881,22 @@ export async function composeSellerMessage({
     diagnostics: {
       source,
       failures: [...failures],
+      fact_trace:
+        factTraceEntries(
+          groundClaims(message, registry),
+        ),
+      blocked_claims:
+        factTraceEntries(
+          registry.blocked.filter(
+            (claim, index, all) =>
+              all.findIndex((other) => other.claim_id === claim.claim_id) === index,
+          ),
+        ),
+      excluded_evidence: [...registry.excluded],
     },
+    ...(advisories.length > 0
+      ? { advisories }
+      : {}),
   })
 
   // Recuperação semântica: quando o redator não converge, a própria
@@ -1616,6 +1936,7 @@ export async function composeSellerMessage({
         messageStrategy,
         recipientName:
           canonicalRecipientName,
+        registry,
       })
 
     if (checked.failure) {

@@ -6,6 +6,9 @@ export type LeadMethodCurrentInteractionMessage = {
   direction: 'incoming' | 'outgoing'
   occurred_at: string | null
   text: string
+  // Id da mensagem no ledger (quando conhecido): liga a fala à evidência
+  // factual do firewall de proveniência.
+  message_id?: string
 }
 
 export type LeadMethodApplicability =

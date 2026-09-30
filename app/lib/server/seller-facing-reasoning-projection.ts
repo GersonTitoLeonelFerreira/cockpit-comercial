@@ -14,6 +14,13 @@ import type {
   CanonicalCommercialReadingSource,
 } from './canonical-commercial-reading-source'
 
+import {
+  emptyFactProvenanceReport,
+  gateCustomerFacingText,
+  sanitizeDerivedText,
+  type FactEvidenceRegistry,
+} from '@/app/lib/companion/commercial-fact-grounding'
+
 export type SellerFacingCommercialRole = {
   scope: 'current_contact' | 'related'
   role:
@@ -120,16 +127,96 @@ function buildCustomerRoles(
   return roles
 }
 
+// Última barreira antes do vendedor: nenhuma frase do AGORA afirma fato
+// específico (relação, objeção, preferência, valor, benefício) sem fonte
+// primária/oficial válida. Inferência sem fato específico passa.
+function groundProjection(
+  projection: SellerFacingReasoningProjection,
+  registry: FactEvidenceRegistry | null,
+): SellerFacingReasoningProjection {
+  if (!registry) {
+    return projection
+  }
+
+  const text = (value: string | null) =>
+    sanitizeDerivedText(value, registry).text
+
+  const report =
+    emptyFactProvenanceReport()
+
+  return {
+    ...projection,
+    what_is_happening:
+      text(projection.what_is_happening),
+    why_now:
+      text(projection.why_now),
+    next_best_action:
+      text(projection.next_best_action),
+    technique:
+      projection.technique
+        ? {
+            ...projection.technique,
+            why_applicable:
+              text(projection.technique.why_applicable) ?? '',
+          }
+        : null,
+    message: {
+      ...projection.message,
+      ready_to_send:
+        gateCustomerFacingText(
+          projection.message.ready_to_send,
+          'message.ready_to_send',
+          registry,
+          report,
+        ),
+    },
+    momentum:
+      projection.momentum
+        ? {
+            ...projection.momentum,
+            facts:
+              projection.momentum.facts
+                .map((fact) => text(fact))
+                .filter((fact): fact is string => Boolean(fact)),
+          }
+        : null,
+  }
+}
+
 export function buildSellerFacingReasoningProjection({
   reasoning,
   reading,
   state,
   fallback_action = null,
+  fact_registry = null,
 }: {
   reasoning: CommercialReasoning | null
   reading: CanonicalCommercialReadingSource | null
   state: StatefulCommercialState | null
   fallback_action?: string | null
+  fact_registry?: FactEvidenceRegistry | null
+}): SellerFacingReasoningProjection {
+  return groundProjection(
+    buildUngroundedProjection({
+      reasoning,
+      reading,
+      state,
+      fallback_action,
+    }),
+    fact_registry,
+  )
+}
+
+function buildUngroundedProjection({
+  reasoning,
+  reading,
+  state,
+  fallback_action,
+}: {
+  reasoning: CommercialReasoning | null
+  reading: CanonicalCommercialReadingSource | null
+  state: StatefulCommercialState | null
+  fallback_action: string | null
 }): SellerFacingReasoningProjection {
   if (!reasoning) {
     return {

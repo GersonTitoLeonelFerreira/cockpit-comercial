@@ -1,6 +1,10 @@
 import 'server-only'
 
 import type {
+  FactEvidenceRegistry,
+} from '@/app/lib/companion/commercial-fact-grounding'
+
+import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
 
@@ -1359,6 +1363,7 @@ export async function loadCanonicalDecisionState({
   client_context,
   cycle_memory,
   method_coaching,
+  fact_registry = null,
 }: {
   admin: SupabaseClient
   company_id: string
@@ -1371,6 +1376,10 @@ export async function loadCanonicalDecisionState({
 
   client_context:
     CompanionClientContext | null
+
+  // R8: registro de evidências da conversa atual (firewall de
+  // proveniência) aplicado à memória do ciclo carregada aqui.
+  fact_registry?: FactEvidenceRegistry | null
 
   // Opcional — mesma disciplina de três casos já usada por
   // loadCanonicalMethodCoachingSource (cycle_memory) e
@@ -1483,6 +1492,8 @@ export async function loadCanonicalDecisionState({
           company_id,
           cycle_id,
           reference_time: referenceTime,
+          fact_registry,
+          conversation_key,
         })
     } catch (error) {
       console.error(

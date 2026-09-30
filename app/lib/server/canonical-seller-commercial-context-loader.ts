@@ -33,6 +33,20 @@ import {
   type CanonicalCommercialReadingSource,
 } from './canonical-commercial-reading-source'
 
+import {
+  emptyFactProvenanceReport,
+  gateCommercialReadingProvenance,
+  gateCommercialStateProvenance,
+  type FactEvidenceRegistry,
+  type FactProvenanceReport,
+} from '@/app/lib/companion/commercial-fact-grounding'
+
+import {
+  buildLedgerFactRegistry,
+  loadCompanyFactItems,
+  loadLedgerObservation,
+} from './canonical-fact-registry-loader'
+
 const MAX_SNAPSHOT_ATTEMPTS = 2
 
 type JsonRecord =
@@ -69,6 +83,13 @@ export type CanonicalSellerCommercialContext = {
 
   current_reading:
     CanonicalCommercialReadingSource | null
+
+  // Firewall de proveniência: evidências primárias válidas agora (mensagens
+  // apagadas, ausentes da conversa visível ou de outra empresa ficam de
+  // fora) e o que o gate retirou/reparou da leitura e da memória antes de
+  // chegar a qualquer superfície.
+  fact_registry: FactEvidenceRegistry
+  fact_provenance: FactProvenanceReport
 }
 
 export class CanonicalSellerStateReadError
@@ -426,6 +447,97 @@ export async function loadCanonicalSellerCommercialContext({
         })
         : null
 
+    // UMA política factual para AGORA, ANÁLISE, CLIENTE e MENSAGEM: a
+    // leitura e a memória persistidas passam pelo mesmo gate antes de
+    // qualquer superfície (e do Commercial Reasoning) consumi-las.
+    const [
+      observation,
+      companyItems,
+    ] = await Promise.all([
+      loadLedgerObservation({
+        admin,
+        companyId,
+        conversationKey,
+        messages: canonicalMessages,
+      }),
+      loadCompanyFactItems({
+        admin,
+        companyId,
+        cycleId,
+        conversationKey,
+        referenceTime,
+      }),
+    ])
+
+    const factRegistry =
+      buildLedgerFactRegistry({
+        companyId,
+        messages: canonicalMessages,
+        observation,
+        companyItems,
+      })
+
+    const factProvenance =
+      emptyFactProvenanceReport(
+        factRegistry,
+      )
+
+    let gatedStateRead =
+      stateRead
+
+    let gatedReading =
+      currentReading
+
+    if (stateRead.mode === 'found') {
+      const gatedState =
+        gateCommercialStateProvenance(
+          stateRead.state,
+          factRegistry,
+          factProvenance,
+        )
+
+      gatedStateRead = {
+        ...stateRead,
+        state: gatedState.state,
+      }
+
+      if (currentReading) {
+        try {
+          gatedReading = {
+            ...currentReading,
+            reading:
+              gateCommercialReadingProvenance(
+                currentReading.reading,
+                factRegistry,
+                gatedState.memory,
+                factProvenance,
+              ).reading,
+          }
+        } catch (error) {
+          // Leitura que o firewall não consegue julgar não chega às
+          // superfícies como fato (falha fechada).
+          console.error('[COMPANION_FACT_PROVENANCE] reading gate failed; reading withheld', {
+            company_id: companyId,
+            cycle_id: cycleId,
+            error: error instanceof Error ? error.message : 'unknown',
+          })
+          gatedReading = null
+        }
+      }
+    }
+
+    if (factProvenance.removed.length > 0) {
+      console.info('[COMPANION_FACT_PROVENANCE] gated derived output', {
+        company_id: companyId,
+        cycle_id: cycleId,
+        removed: factProvenance.removed.map((entry) => ({
+          path: entry.path,
+          reason: entry.reason,
+        })),
+        excluded_evidence: factProvenance.excluded_evidence.length,
+      })
+    }
+
     return {
       client_context:
         clientContext,
@@ -446,9 +558,13 @@ export async function loadCanonicalSellerCommercialContext({
       active_message_ids:
         activeMessageIds,
       state_read:
-        stateRead,
+        gatedStateRead,
       current_reading:
-        currentReading,
+        gatedReading,
+      fact_registry:
+        factRegistry,
+      fact_provenance:
+        factProvenance,
     }
   }
 

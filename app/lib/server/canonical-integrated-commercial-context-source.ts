@@ -1,6 +1,10 @@
 import 'server-only'
 
 import type {
+  FactEvidenceRegistry,
+} from '@/app/lib/companion/commercial-fact-grounding'
+
+import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
 
@@ -345,6 +349,7 @@ export async function loadCanonicalIntegratedCommercialContext({
   reference_time,
   current_reading,
   client_context,
+  fact_registry = null,
 }: {
   admin: SupabaseClient
   company_id: string
@@ -357,6 +362,10 @@ export async function loadCanonicalIntegratedCommercialContext({
 
   client_context:
     CompanionClientContext | null
+
+  // R8: registro de evidências da conversa atual (firewall de
+  // proveniência) aplicado à memória do ciclo.
+  fact_registry?: FactEvidenceRegistry | null
 }): Promise<CanonicalIntegratedCommercialContext | null> {
   const referenceTime =
     normalizeDateOrNull(reference_time)
@@ -388,6 +397,8 @@ export async function loadCanonicalIntegratedCommercialContext({
         company_id,
         cycle_id,
         reference_time: referenceTime,
+        fact_registry,
+        conversation_key,
       })
   } catch (error) {
     console.error(

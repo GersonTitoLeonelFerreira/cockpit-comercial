@@ -2264,6 +2264,29 @@ html.yolen-companion-collapsed #app {
   line-height: 1.4;
 }
 
+.yolen-message-advisory {
+  margin-top: 9px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(226, 180, 90, 0.28);
+  background: rgba(226, 180, 90, 0.08);
+  color: #e7c98b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.yolen-message-fact-trace {
+  margin-top: 9px;
+  color: #9fb0c6;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.yolen-message-fact-trace ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
 .yolen-message-status {
   display: flex;
   align-items: center;

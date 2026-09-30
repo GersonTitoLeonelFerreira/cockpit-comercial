@@ -142,6 +142,21 @@ export type CustomerViewModelProvenance = {
   state_updated_at: string | null
 }
 
+// Firewall de proveniência (R8): o que a leitura sustenta com a fala real do
+// cliente ("O que sabemos") separado do que é interpretação/síntese da Yolen
+// ("O que inferimos"). Só existe quando a leitura passou pelo gate (itens
+// com grounding_status); fatos sem suporte já saíram antes daqui.
+export type CustomerKnowledgeItem = {
+  label: string
+  summary: string
+  evidence_message_ids: string[]
+}
+
+export type CustomerViewModelKnowledge = {
+  known: CustomerKnowledgeItem[]
+  inferred: CustomerKnowledgeItem[]
+}
+
 export type CustomerViewModel = {
   available: boolean
   unavailable_reason: CustomerViewModelUnavailableReason | null
@@ -161,7 +176,81 @@ export type CustomerViewModel = {
   // "Balanceado" do Controle Mestre).
   opportunity_context: CustomerViewModelOpportunityContext
 
+  knowledge?: CustomerViewModelKnowledge
+
   provenance: CustomerViewModelProvenance
+}
+
+const MAX_KNOWN_ITEMS = 6
+const MAX_INFERRED_ITEMS = 4
+
+const KNOWLEDGE_FIELDS: ReadonlyArray<[keyof CommercialReadingCustomer, string]> = [
+  ['objectives', 'Objetivo'],
+  ['needs', 'Necessidade'],
+  ['interests', 'Interesse'],
+  ['preferences', 'Preferência'],
+  ['problems', 'Problema'],
+  ['impacts', 'Impacto'],
+  ['decision_criteria', 'Critério de decisão'],
+  ['discussed_products', 'Produto avaliado'],
+  ['competitors', 'Alternativa considerada'],
+]
+
+function buildCustomerKnowledge(
+  customer: CommercialReadingCustomer,
+): CustomerViewModelKnowledge | undefined {
+  const entries: Array<CommercialReadingEvidenceItem & { label: string }> = []
+
+  for (const [field, label] of KNOWLEDGE_FIELDS) {
+    const items = customer[field]
+
+    if (!Array.isArray(items)) {
+      continue
+    }
+
+    for (const item of items as CommercialReadingEvidenceItem[]) {
+      entries.push({ ...item, label })
+    }
+  }
+
+  if (!entries.some((item) => item.grounding_status !== undefined)) {
+    return undefined
+  }
+
+  // Padrão de comunicação é sempre leitura de comportamento: inferência.
+  const patterns = customer.communication.patterns.map((item) => ({
+    ...item,
+    label: 'Padrão de comunicação',
+    grounding_status: 'derived' as const,
+  }))
+
+  const seen = new Set<string>()
+  const unique = [...entries, ...patterns].filter((item) => {
+    const key = item.summary.trim().toLowerCase()
+
+    if (!key || seen.has(key)) {
+      return false
+    }
+
+    seen.add(key)
+    return true
+  })
+  const toItem = (item: CommercialReadingEvidenceItem & { label: string }) => ({
+    label: item.label,
+    summary: item.summary,
+    evidence_message_ids: [...item.evidence_message_ids],
+  })
+
+  return {
+    known: unique
+      .filter((item) => item.grounding_status === 'verified')
+      .slice(0, MAX_KNOWN_ITEMS)
+      .map(toItem),
+    inferred: unique
+      .filter((item) => item.grounding_status !== 'verified')
+      .slice(0, MAX_INFERRED_ITEMS)
+      .map(toItem),
+  }
 }
 
 function hasSharedMemoryId(
@@ -402,6 +491,11 @@ export function buildCustomerViewModel(
           MAX_OPPORTUNITY_CONTEXT_ITEMS,
         ),
     },
+
+    ...(() => {
+      const knowledge = buildCustomerKnowledge(customer)
+      return knowledge ? { knowledge } : {}
+    })(),
 
     provenance: {
       reference_time: currentReading.generated_at,

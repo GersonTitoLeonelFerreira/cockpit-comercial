@@ -179,6 +179,8 @@ export async function loadAnalysisViewModel({
           canonicalContext.current_reading,
         client_context:
           canonicalContext.client_context,
+        fact_registry:
+          canonicalContext.fact_registry ?? null,
       }),
       loadCanonicalSellerReasoningBundle({
         admin,
@@ -241,6 +243,8 @@ export async function loadAnalysisViewModel({
           'found'
           ? canonicalContext.state_read.state
           : null,
+      fact_registry:
+        canonicalContext.fact_registry ?? null,
     })
 
   // O cabeçalho da oportunidade passa a usar a situação atual estruturada

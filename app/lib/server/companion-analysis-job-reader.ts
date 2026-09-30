@@ -1,5 +1,17 @@
 import 'server-only'
 
+import {
+  gateCommercialReadingProvenance,
+  gateCustomerFacingText,
+  emptyFactProvenanceReport,
+  sanitizeDerivedText,
+  type FactEvidenceRegistry,
+} from '../companion/commercial-fact-grounding'
+
+import {
+  loadConversationFactRegistry,
+} from './canonical-fact-registry-loader'
+
 import type {
   SupabaseClient,
 } from '@supabase/supabase-js'
@@ -541,6 +553,43 @@ function buildSellerResult(
   }
 }
 
+// Firewall de proveniência (R8): o resultado profundo também chega à
+// extensão (fallback local de CLIENTE/ANÁLISE e mensagem sugerida). Passa
+// pelo MESMO gate das superfícies canônicas antes de sair do servidor.
+export function gateDeepSellerResult(
+  result: CompanionDeepSellerResult,
+  registry: FactEvidenceRegistry,
+): CompanionDeepSellerResult {
+  const report =
+    emptyFactProvenanceReport(registry)
+
+  const reading =
+    gateCommercialReadingProvenance(
+      result.commercial_reading,
+      registry,
+      undefined,
+      report,
+    ).reading
+
+  return {
+    ...result,
+    summary:
+      sanitizeDerivedText(result.summary, registry, {
+        fallback: 'Leitura comercial atualizada.',
+      }).text ?? 'Leitura comercial atualizada.',
+    recommended_next_approach:
+      sanitizeDerivedText(result.recommended_next_approach, registry, {
+        fallback: 'Retomar a conversa a partir do que o cliente disse.',
+      }).text ?? 'Retomar a conversa a partir do que o cliente disse.',
+    commercial_reading:
+      reading,
+    recommended_question:
+      gateCustomerFacingText(result.recommended_question, 'recommended_question', registry, report),
+    suggested_message:
+      gateCustomerFacingText(result.suggested_message, 'suggested_message', registry, report),
+  }
+}
+
 export type CompanionAnalysisJobStatusResult = {
   analysis_job_id: string
   status: StatefulCopilotBackgroundJobStatus
@@ -933,9 +982,40 @@ export async function loadCompanionAnalysisJobStatus({
     attempt_count: attemptCount,
     ...timingSnapshot,
     result:
-      buildSellerResult(
-        event.normalized_output,
-      ),
+      await (async () => {
+        const sellerResult =
+          buildSellerResult(
+            event.normalized_output,
+          )
+
+        const registry =
+          await loadConversationFactRegistry({
+            admin,
+            companyId,
+            cycleId,
+            conversationKey,
+            referenceTime:
+              event.generated_at as string,
+          })
+
+        if (!registry) {
+          return sellerResult
+        }
+
+        try {
+          return gateDeepSellerResult(
+            sellerResult,
+            registry,
+          )
+        } catch {
+          // Sem como julgar: nada customer-facing sai sem gate.
+          return {
+            ...sellerResult,
+            recommended_question: null,
+            suggested_message: null,
+          }
+        }
+      })(),
     result_generated_at:
       event.generated_at,
   }

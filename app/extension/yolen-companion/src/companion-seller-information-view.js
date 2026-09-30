@@ -1953,6 +1953,30 @@
     `
   }
 
+  function renderCustomerKnowledgeSection(section, eyebrow, title, items, note) {
+    const rows = displayItems(items)
+      .filter((item) => displayText(item?.summary))
+
+    if (rows.length === 0) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-seller-section" data-yolen-customer-section="${escapeHtml(section)}">
+        <div class="yolen-seller-section-heading">
+          <div>
+            <div class="yolen-seller-section-eyebrow">${escapeHtml(eyebrow)}</div>
+            <h3>${escapeHtml(title)}</h3>
+          </div>
+        </div>
+        ${note ? `<div class="yolen-seller-detail-copy">${escapeHtml(note)}</div>` : ''}
+        <ul class="yolen-client-knowledge-list" data-yolen-customer-knowledge="${escapeHtml(section)}">
+          ${rows.map((item) => `<li><span class="yolen-client-knowledge-label">${escapeHtml(displayText(item.label) || '')}</span> ${escapeHtml(displayText(item.summary))}</li>`).join('')}
+        </ul>
+      </section>
+    `
+  }
+
   // "O que ainda falta descobrir" (mandato §22/§23) — 1 lacuna principal
   // em destaque + até 2 secundárias, nunca uma lista genérica.
   function renderCustomerKnowledgeGaps(gaps) {
@@ -2052,11 +2076,27 @@
       `
     }
 
-    const sections = [
-      renderCustomerPreferences(customerViewModel.preferences, customerViewModel.communication_patterns),
-      renderCustomerKnowledgeGaps(customerViewModel.knowledge_gaps),
-      renderCustomerOpportunityContext(customerViewModel.opportunity_context),
-    ].filter(Boolean)
+    // R8 — firewall de proveniência: com a leitura já filtrada pelo gate,
+    // CLIENTE separa o que a fala real do cliente sustenta ("O que
+    // sabemos") da interpretação da Yolen ("O que inferimos") e do que
+    // falta descobrir. Os mesmos itens não se repetem em outra seção.
+    const knowledge =
+      customerViewModel.knowledge &&
+      typeof customerViewModel.knowledge === 'object'
+        ? customerViewModel.knowledge
+        : null
+
+    const sections = (knowledge
+      ? [
+          renderCustomerKnowledgeSection('known', 'Confirmado na conversa', 'O que sabemos', knowledge.known, null),
+          renderCustomerKnowledgeSection('inferred', 'Interpretação da Yolen', 'O que inferimos', knowledge.inferred, 'Leitura a partir da conversa — o cliente não disse isso literalmente. Confirme antes de tratar como fato.'),
+          renderCustomerKnowledgeGaps(customerViewModel.knowledge_gaps),
+        ]
+      : [
+          renderCustomerPreferences(customerViewModel.preferences, customerViewModel.communication_patterns),
+          renderCustomerKnowledgeGaps(customerViewModel.knowledge_gaps),
+          renderCustomerOpportunityContext(customerViewModel.opportunity_context),
+        ]).filter(Boolean)
 
     if (sections.length === 0) {
       return `
@@ -2069,7 +2109,7 @@
     return `
       <div class="yolen-card yolen-client-commercial-card" data-yolen-client-intelligence>
         <div class="yolen-client-intelligence-heading">
-          <div class="yolen-section-label">O que sabemos</div>
+          <div class="yolen-section-label">${knowledge ? 'Fatos, inferências e lacunas' : 'O que sabemos'}</div>
           <h3>Cliente</h3>
         </div>
         ${sections.join('')}

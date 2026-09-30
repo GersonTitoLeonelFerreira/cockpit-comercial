@@ -32,6 +32,7 @@ const UUID_PATTERN =
 const MAX_CANONICAL_MESSAGES = 1000
 
 export type CanonicalConversationMessage = {
+  id?: string
   message_key: string
   version: number
   direction: 'incoming' | 'outgoing'

@@ -312,6 +312,117 @@ O cérebro não mudou; mudou o que o vendedor recebe dele.
   primeira resposta veio 3 horas depois e não tratou o pedido; o pedido só
   foi efetivamente tratado 9 dias depois" e proíbe "demorou".
 
+### Firewall de proveniência factual (R8)
+
+**Princípio: saída derivada não é evidência primária.** Resumo, Commercial
+Reading, memória, reasoning, coaching e a própria mensagem gerada podem
+interpretar, mas nunca promovem a si mesmos a fato.
+
+**Origem de "marido" (Lorena).** O modelo não inventou a palavra do nada.
+
+- **Onde nasceu.** Veio da mensagem 2559 do ledger ("Quando eu e meu marido
+  podemos fazer uma aula experimental?"): `incoming`, não apagada, capturada
+  uma única vez em 12/09 por outro dispositivo. Esse dispositivo viu só 2 das
+  16 mensagens da conversa.
+- **Por que não é evidência.** A captura atual (29/09) re-observou mensagens
+  de 01/09 anteriores e posteriores a 2559, e as de 10/09, mas não ela. Logo,
+  2559 não está na conversa que o vendedor vê hoje. Ela foi apagada no
+  WhatsApp ou atribuída à conversa errada na captura; não é possível provar
+  qual das duas. A mensagem "Mayara", registrada como do cliente 9 dias antes
+  de a vendedora se apresentar, é um indício de atribuição errada.
+- **Primeira camada derivada.** O Commercial Reading v2 (26/09 22:07) citou
+  `["2559"]`. As versões v3 a v6 herdaram o fato, e a `recommended_message`
+  também. O resumo de trabalho e a memória (`state_snapshot`) nunca
+  continham "marido".
+- **Por que passou pelo validador antigo.** O `allowedContext` da MENSAGEM
+  era resumo + interação (incluindo 2559) + intenção + texto do reasoning +
+  `context_reference`. Além disso, o conceito "relação familiar" aceitava
+  qualquer palavra de família presente em qualquer lugar desse contexto
+  (lavagem factual).
+
+**Arquitetura** (`app/lib/companion/commercial-fact-grounding.ts`, uma política
+para todas as superfícies):
+
+- **Taxonomia de fontes:**
+  - primária do cliente: mensagem, áudio transcrito, perfil declarado;
+  - primária do vendedor: mensagem, instrução atual;
+  - oficial da empresa: produto, fato, configuração vigentes da mesma
+    `company_id`;
+  - derivada: resumo, leitura, reasoning, coaching, memória, mensagem gerada;
+  - sistema.
+  Foto/avatar tem autoridade `none`.
+- **Autoridade por tipo de afirmação** (`CLAIM_SOURCE_AUTHORITY`):
+
+  | Tipo de afirmação | Fonte com autoridade |
+  | --- | --- |
+  | Relação pessoal, objeção, preferência, compromisso, o que o cliente disse | Só a fala do cliente |
+  | Preço, percentual, promoção, benefício, urgência, condição | Só a configuração vigente da empresa |
+  | Valor antigo | Só com enquadramento histórico explícito ("naquela conversa foi informado…") |
+  | Conclusão tirada da foto | Nenhuma fonte |
+
+- **Integridade do ledger** (`classifyLedgerObservation`). A mensagem é
+  `absent_from_later_view` quando uma captura posterior (mais de 1h depois)
+  re-observou, no MESMO instante (≤ 2 min, mesmo dispositivo), os vizinhos
+  imediatos dela (a anterior e a posterior mais próximas), mas não ela. O
+  DOM do chat é contíguo, então ela estaria entre os dois. No caso Lorena,
+  as 14 mensagens foram vistas às 21:47:25.365; 2559 e 2560, não.
+  Vizinhos vistos em instantes diferentes (rolagem rápida, virtualização)
+  ou sem dado de observação não provam nada. Mensagem apagada, ausente ou
+  de outra empresa sai da evidência primária e da entrada do Commercial
+  Reasoning. O dado fica no banco; nada é reescrito.
+- **Afirmações.** Detectores determinísticos por tipo, sem dicionário
+  fechado:
+  - relação com possessivo, e "vocês dois"/"o casal";
+  - valores e percentuais;
+  - promoção e gratuidade com os termos vizinhos;
+  - urgência;
+  - objeção de preço;
+  - preferência e compromisso;
+  - atribuição genérica ao cliente (os termos específicos precisam ter vindo
+    dele);
+  - atribuição à empresa;
+  - `forbidden_claims`.
+
+  Pergunta não é afirmação.
+- **Gate de superfície, aplicado na leitura.**
+  - `loadCanonicalSellerCommercialContext` monta o registro de evidências:
+    ledger + observação + conhecimento publicado da empresa.
+  - O Reading e a memória passam por `gateCommercialReadingProvenance` e
+    `gateCommercialStateProvenance`. A Cycle Memory de ANÁLISE e AGORA passa
+    por `gateCycleMemoryProvenance`.
+  - Cada item recebe um de três destinos:
+    - `verified`: evidência primária válida, com o conteúdo presente nela;
+    - `derived`: interpretação, mostrada como inferência;
+    - removido: fato específico sem fonte, ou citação apenas de evidência
+      inválida. Memória removida não sustenta a leitura que a cita.
+  - O reparo tira só o trecho sem suporte ("para ele e seu marido").
+  - O resultado profundo que a extensão usa como fallback local
+    (`analysis-job-status`: leitura, resumo, pergunta e mensagem sugerida)
+    passa pelo mesmo gate (`gateDeepSellerResult`).
+  - Uma leitura que o gate não consegue julgar não chega às superfícies
+    (falha fechada).
+  - Resíduo conhecido: o Commercial Reading persistido não é recalculado.
+    O banco continua com a versão antiga, e o gate é aplicado em toda
+    leitura.
+- **AGORA.** A projeção seller-facing não afirma fato sem fonte; inferência
+  sem fato específico passa. Tempo, momentum e reativação não mudam.
+- **CLIENTE.** Mostra "O que sabemos" (verified), "O que inferimos"
+  (derived, com o aviso de que o cliente não disse isso literalmente) e "O
+  que falta descobrir". Os itens não se repetem.
+- **MENSAGEM.**
+  - Resumo, leitura e reasoning chegam ao redator marcados como DERIVADOS.
+  - A validação checa cada afirmação da copy contra o registro. A afirmação
+    sem fonte é removida (trecho ou frase), a copy revalidada e entregue.
+    Com `contact_allowed=true` e pedido do vendedor, a Yolen entrega
+    mensagem.
+  - A instrução do vendedor controla estilo e objetivo, mas não cria fato.
+    Valor, percentual ou condição sem fonte geram um aviso ("Não usei R$
+    79,90 porque não encontrei esse valor confirmado na configuração da
+    empresa.").
+- **Trace factual.** Só no preview, quando `VERCEL_ENV=preview`, e só no
+  pacote HML. Mostra claim → fontes → status, afirmações removidas e
+  evidências excluídas. Nunca aparece em produção.
+
 ## 3. Evidência
 
 - `sales-expert-recovery-golden.test.mjs` + `docs/companion-v2/corpus/sales-expert-recovery-golden.json`:
@@ -336,3 +447,15 @@ O cérebro não mudou; mudou o que o vendedor recebe dele.
   B2B 10 dias com preço antes do escopo).
 - `commercial-temporal-context.test.mjs`, `commercial-message-critic-repair.test.mjs`,
   `tests/sales-expert-recovery-surfaces.test.mjs`.
+- R8: `commercial-fact-grounding.test.mjs`:
+  - integridade do ledger (2559 emoldurada; sem moldura nada é concluído);
+  - contaminação A–E (Reading, memória, resumo, AGORA, fala da própria
+    empresa);
+  - autoridade A–E (relação, preço atual vs histórico, benefício e forbidden,
+    objeção/preferência, foto);
+  - multiempresa, conhecimento vigente, memória do ciclo, instrução do
+    vendedor com aviso, reparo;
+  - golden Lorena da leitura contaminada até CLIENTE/AGORA.
+
+  Também `companion-client-intelligence-ui.test.mjs` (sabemos/inferimos/falta)
+  e `message-controller-contract.test.mjs` (aviso; trace só no HML).

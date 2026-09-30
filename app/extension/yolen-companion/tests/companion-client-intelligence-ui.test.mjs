@@ -343,3 +343,29 @@ test('contexto da oportunidade fica em <details> recolhido, nunca aberto por pad
   assert.match(html, /<details class="yolen-seller-secondary-details" data-yolen-customer-section="opportunity-context"/)
   assert.doesNotMatch(html, /<details[^>]*\sopen(?:=|\s|>)/)
 })
+
+// R8 — firewall de proveniência: com a leitura já filtrada pelo gate
+// (CustomerViewModel.knowledge), CLIENTE separa fato, inferência e lacuna.
+test('R8: CLIENTE separa "O que sabemos", "O que inferimos" e "O que falta descobrir" sem repetir itens', () => {
+  const html = view.renderCustomerViewModel({
+    available: true,
+    unavailable_reason: null,
+    preferences: [],
+    communication_patterns: [],
+    knowledge_gaps: [{ summary: 'O interesse atual ainda não foi reconfirmado depois do intervalo.', topic: 'current_interest', kind: 'current_interest', evidence_message_ids: [], memory_ids: [] }],
+    opportunity_context: { objectives: [evidence('Busca uma rotina de exercícios.')], needs: [], interests: [], problems: [], impacts: [], decision_criteria: [], discussed_products: [], primary_product_interest: null, competitors: [], communication_events: [] },
+    knowledge: {
+      known: [{ label: 'Interesse', summary: 'Pediu para fazer a aula experimental.', evidence_message_ids: ['2511'] }],
+      inferred: [{ label: 'Objetivo', summary: 'Busca uma rotina de exercícios.', evidence_message_ids: ['2511'] }],
+    },
+    provenance: { reference_time: null, state_record_id: null, state_version: null, state_updated_at: null },
+  })
+
+  const order = ['O que sabemos', 'O que inferimos', 'O que falta descobrir'].map((title) => html.indexOf(title))
+  assert.ok(order.every((index) => index >= 0), html)
+  assert.deepEqual([...order].sort((a, b) => a - b), order)
+  assert.match(html, /data-yolen-customer-section="known"[\s\S]*Pediu para fazer a aula experimental/)
+  assert.match(html, /data-yolen-customer-section="inferred"[\s\S]*não disse isso literalmente/)
+  assert.equal(html.match(/Busca uma rotina de exercícios/g).length, 1, 'inferência não se repete no contexto da oportunidade')
+  assert.doesNotMatch(html, /Contexto desta oportunidade/)
+})
