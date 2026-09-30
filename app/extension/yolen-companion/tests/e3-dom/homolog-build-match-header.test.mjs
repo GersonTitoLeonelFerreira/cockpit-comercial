@@ -27,15 +27,15 @@ const EXTENSION_COMMIT = 'ce50089a99b3bef6ab9deb9a348a7152439908c3'
 const OTHER_COMMIT = '91c96775d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f'
 const { version: VERSION } = readSourceManifest()
 
-function homologSources({ commit = EXTENSION_COMMIT, dirty = false } = {}) {
+function homologSources({ commit = EXTENSION_COMMIT, dirty = false, environment = 'homolog' } = {}) {
   return {
     'companion-environment.js': renderCompanionEnvironmentSource(
-      companionEnvironmentFor('homolog', { homologBaseUrl: PREVIEW }),
+      companionEnvironmentFor(environment, { homologBaseUrl: PREVIEW }),
     ),
     'build-identity.js': renderBuildIdentitySource(
       buildIdentityFor({
         version: VERSION,
-        environment: 'homolog',
+        environment,
         targetName: 'firefox',
         git: { commit, commit_short: commit.slice(0, 8), dirty },
         fingerprint: 'f'.repeat(16),
@@ -97,6 +97,20 @@ test('I) extensão e backend no MESMO commit: cabeçalho HML válido, sem alerta
   const identityCalls = calls.filter((call) => call.action === 'GET_BACKEND_BUILD_IDENTITY')
   assert.ok(identityCalls.length >= 1)
   assert.ok(identityCalls.every((call) => call.baseUrl === PREVIEW))
+})
+
+test('I) variante HML + ManyChat: mesmo cabeçalho de conferência, com o ManyChat explícito', async () => {
+  const { document } = load({
+    sources: homologSources({ environment: 'homolog-manychat' }),
+    backendCommit: EXTENSION_COMMIT,
+  })
+
+  await waitFor(() => text(document, '[data-yolen-backend-identity]') === 'Backend · ce50089a')
+
+  assert.equal(text(document, '[data-yolen-build-identity]'), `HML + ManyChat · v${VERSION} · ce50089a`)
+  assert.equal(document.querySelector('[data-yolen-build-identity]').getAttribute('data-yolen-build-channel'), 'homolog')
+  assert.match(document.querySelector('[data-yolen-build-identity]').getAttribute('title'), /com ManyChat/)
+  assert.equal(document.querySelector('[data-yolen-build-mismatch]'), null)
 })
 
 test('J) backend em outro commit: BUILD INCOMPATÍVEL com os dois commits e aviso de homologação inválida', async () => {

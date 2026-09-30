@@ -11,6 +11,8 @@
     "verify:companion-firefox-prod": "node app/extension/yolen-companion/scripts/verify-staged-build.mjs firefox prod",
     "build:companion-extension:homolog": "node app/extension/yolen-companion/scripts/build-package.mjs --homolog",
     "verify:companion-firefox-homolog": "node app/extension/yolen-companion/scripts/verify-staged-build.mjs firefox homolog",
+    "build:companion-extension:homolog-manychat": "node app/extension/yolen-companion/scripts/build-package.mjs --homolog-manychat",
+    "verify:companion-firefox-homolog-manychat": "node app/extension/yolen-companion/scripts/verify-staged-build.mjs firefox homolog-manychat",
     "start": "next start",
     "lint": "eslint",
     "test:companion": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",

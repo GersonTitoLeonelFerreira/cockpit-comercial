@@ -7659,8 +7659,16 @@ function createCompanionCore(ctx) {
         : backendBuildCheck.commitShort ||
           'indisponível'
 
+    // Pacote HML com a captura do ManyChat ligada (--homolog-manychat).
+    const channelLabel =
+      getCompanionEnvironment()?.variant === 'manychat'
+        ? 'HML + ManyChat'
+        : 'HML'
+
     const title = [
-      'Yolen Companion — canal de homologação',
+      channelLabel === 'HML'
+        ? 'Yolen Companion — canal de homologação'
+        : 'Yolen Companion — canal de homologação com ManyChat',
       identity?.commit ? `extensão ${identity.commit}` : null,
       getCompanionEnvironment()?.api_base_url
         ? `backend ${getCompanionEnvironment().api_base_url}`
@@ -7691,7 +7699,7 @@ function createCompanionCore(ctx) {
       '<div class="yolen-build-badge yolen-build-badge-hml" data-yolen-build-identity data-yolen-build-channel="homolog"' +
         ' title="' + escapeHtml(title) + '">' +
         escapeHtml(
-          ['HML', version ? `v${version}` : null, extensionCommit]
+          [channelLabel, version ? `v${version}` : null, extensionCommit]
             .filter(Boolean)
             .join(' · '),
         ) +

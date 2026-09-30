@@ -67,6 +67,17 @@
 //     produção pelo host EXATO do preview em host_permissions, na bridge e
 //     em web_accessible_resources.
 //
+// Variante HOMOLOG + ManyChat (`--homolog-manychat`):
+//   - O MESMO canal homolog (mesmo backend de preview, mesmas validações,
+//     backend_match_required=true, mesmo id Firefox — substitui a extensão
+//     HML em vez de rodar junto), com MANYCHAT_CAPTURE_ENABLED=true vindo da
+//     fonte separada src/manychat-feature-flags.e2e.js (a fonte normal
+//     continua false e nunca é editada). Um pacote só para WhatsApp e
+//     ManyChat.
+//   - Saída própria: dist/yolen-companion/<alvo>/homolog-manychat/staging/,
+//     zips `-homolog-manychat-` e homolog-manychat-build-summary.json. Os
+//     comandos padrão (dev/prod sem ManyChat), --homolog e --e2e não mudam.
+//
 // Este script não depende de nenhum pacote npm novo: usa apenas módulos
 // nativos do Node (fs, path, zlib, crypto) e o binário `zip` do sistema
 // operacional para gerar o arquivo final.
@@ -235,6 +246,14 @@ export const PRODUCTION_ORIGINS = [
 export const COMPANION_ENVIRONMENT_PATHNAME = 'src/companion-environment.js'
 export const HOMOLOG_BASE_URL_ENV = 'YOLEN_COMPANION_HOMOLOG_BASE_URL'
 
+// Variante do canal homolog com o ManyChat ligado (`--homolog-manychat`).
+export const HOMOLOG_MANYCHAT_ENVIRONMENT = 'homolog-manychat'
+
+// Canal homolog e sua variante ManyChat: backend = preview configurado.
+export function isHomologEnvironment(environment) {
+  return environment === 'homolog' || environment === HOMOLOG_MANYCHAT_ENVIRONMENT
+}
+
 // Hosts de canal de conversa que o pacote homolog mantém além do preview.
 export const CHANNEL_HOSTS = [
   'https://web.whatsapp.com/*',
@@ -322,6 +341,16 @@ export function companionEnvironmentFor(environment, { homologBaseUrl = null } =
     }
   }
 
+  // Mesmo canal homolog (o runtime trata igual: só o preview, conferência
+  // de commit, debug HML); `variant` só identifica o pacote com ManyChat
+  // ligado no cabeçalho.
+  if (environment === HOMOLOG_MANYCHAT_ENVIRONMENT) {
+    return {
+      ...companionEnvironmentFor('homolog', { homologBaseUrl }),
+      variant: 'manychat',
+    }
+  }
+
   throw new Error(`companionEnvironmentFor: ambiente desconhecido "${environment}".`)
 }
 
@@ -403,7 +432,9 @@ export function featureFlagSourceForEnvironment(environment) {
   if (environment === 'dev' || environment === 'prod' || environment === 'homolog') {
     return FEATURE_FLAGS_SOURCE_DEFAULT
   }
-  if (environment === 'e2e') {
+  // homolog-manychat reaproveita a fonte true do e2e (arquivo separado):
+  // a fonte normal nunca é editada.
+  if (environment === 'e2e' || environment === HOMOLOG_MANYCHAT_ENVIRONMENT) {
     return FEATURE_FLAGS_SOURCE_E2E
   }
   throw new Error(`featureFlagSourceForEnvironment: ambiente desconhecido "${environment}".`)
@@ -417,6 +448,7 @@ export const EXPECTED_MANYCHAT_CAPTURE_ENABLED_BY_ENVIRONMENT = {
   prod: false,
   homolog: false,
   e2e: true,
+  [HOMOLOG_MANYCHAT_ENVIRONMENT]: true,
 }
 
 // Só reconhece uma declaração de verdade (`const`/`let`/`var
@@ -847,12 +879,18 @@ export const HOMOLOG_NAME = 'Yolen Companion [HML]'
 export const HOMOLOG_DESCRIPTION_SUFFIX = ' Homologação interna (backend de preview) — não distribuir.'
 export const FIREFOX_HOMOLOG_GECKO_ID = 'yolen-companion-hml@gerson.local'
 
+// Variante com ManyChat: mesmo id Firefox (substitui a HML atual no perfil,
+// nunca abre dois painéis no WhatsApp); nome deixa o ManyChat explícito.
+export const HOMOLOG_MANYCHAT_NAME = 'Yolen Companion [HML + ManyChat]'
+export const HOMOLOG_MANYCHAT_DESCRIPTION_SUFFIX =
+  ' Homologação interna (backend de preview) com captura do ManyChat ligada — não distribuir.'
+
 // Transformação PROD → HOMOLOG: mesmo pacote de produção, com o host de
 // produção trocado pelo host EXATO do preview configurado em
 // host_permissions, content_scripts (bridge da Yolen) e
 // web_accessible_resources (page bridge). Nenhum wildcard, nenhum
 // localhost, nenhum host de produção sobra.
-export function toHomologManifest(sourceManifest, targetName, { homologBaseUrl } = {}) {
+export function toHomologManifest(sourceManifest, targetName, { homologBaseUrl, manyChat = false } = {}) {
   const baseUrl = parseHomologBaseUrl(homologBaseUrl)
   const previewPattern = `${baseUrl}/*`
   const productionPattern = `${PRODUCTION_BASE_URL}/*`
@@ -860,8 +898,10 @@ export function toHomologManifest(sourceManifest, targetName, { homologBaseUrl }
 
   const manifest = toProductionManifest(sourceManifest, targetName)
 
-  manifest.name = HOMOLOG_NAME
-  manifest.description = `${sourceManifest.description}${HOMOLOG_DESCRIPTION_SUFFIX}`
+  manifest.name = manyChat ? HOMOLOG_MANYCHAT_NAME : HOMOLOG_NAME
+  manifest.description = `${sourceManifest.description}${
+    manyChat ? HOMOLOG_MANYCHAT_DESCRIPTION_SUFFIX : HOMOLOG_DESCRIPTION_SUFFIX
+  }`
   manifest.host_permissions = swap(manifest.host_permissions ?? [])
 
   for (const block of [...(manifest.content_scripts ?? []), ...(manifest.web_accessible_resources ?? [])]) {
@@ -935,6 +975,10 @@ export function manifestForEnvironment(sourceManifest, targetName, environment, 
 
   if (environment === 'homolog') {
     return toHomologManifest(sourceManifest, targetName, { homologBaseUrl })
+  }
+
+  if (environment === HOMOLOG_MANYCHAT_ENVIRONMENT) {
+    return toHomologManifest(sourceManifest, targetName, { homologBaseUrl, manyChat: true })
   }
 
   return environment === 'prod'
@@ -1039,6 +1083,9 @@ export function stagingDirFor(targetName, environment) {
   if (environment === 'homolog') {
     return join(OUTPUT_ROOT, targetName, 'homolog', 'staging')
   }
+  if (environment === HOMOLOG_MANYCHAT_ENVIRONMENT) {
+    return join(OUTPUT_ROOT, targetName, HOMOLOG_MANYCHAT_ENVIRONMENT, 'staging')
+  }
   return join(OUTPUT_ROOT, targetName, 'staging')
 }
 
@@ -1130,12 +1177,18 @@ export const E2E_ENVIRONMENTS = ['e2e']
 // Canal homolog — só com `--homolog` e YOLEN_COMPANION_HOMOLOG_BASE_URL.
 export const HOMOLOG_ENVIRONMENTS = ['homolog']
 
+// Variante homolog com ManyChat — só com `--homolog-manychat` e a mesma URL.
+export const HOMOLOG_MANYCHAT_ENVIRONMENTS = [HOMOLOG_MANYCHAT_ENVIRONMENT]
+
 export function zipFileName(targetName, environment, version) {
   if (environment === 'e2e') {
     return `yolen-companion-${targetName}-e2e-v${version}.zip`
   }
   if (environment === 'homolog') {
     return `yolen-companion-${targetName}-homolog-v${version}.zip`
+  }
+  if (environment === HOMOLOG_MANYCHAT_ENVIRONMENT) {
+    return `yolen-companion-${targetName}-homolog-manychat-v${version}.zip`
   }
   return environment === 'prod'
     ? `yolen-companion-${targetName}-prod-v${version}.zip`
@@ -1250,19 +1303,24 @@ export function parseBuildCliArgs(argv) {
   const args = argv.slice(2)
 
   if (args.length === 0) {
-    return { e2e: false, homolog: false }
+    return { e2e: false, homolog: false, homologManyChat: false }
   }
 
   if (args.length === 1 && args[0] === '--e2e') {
-    return { e2e: true, homolog: false }
+    return { e2e: true, homolog: false, homologManyChat: false }
   }
 
   if (args.length === 1 && args[0] === '--homolog') {
-    return { e2e: false, homolog: true }
+    return { e2e: false, homolog: true, homologManyChat: false }
+  }
+
+  if (args.length === 1 && args[0] === '--homolog-manychat') {
+    return { e2e: false, homolog: false, homologManyChat: true }
   }
 
   throw new Error(
-    `Argumento de linha de comando desconhecido: "${args.join(' ')}". Uso: build-package.mjs [--e2e | --homolog]`,
+    `Argumento de linha de comando desconhecido: "${args.join(' ')}". ` +
+      'Uso: build-package.mjs [--e2e | --homolog | --homolog-manychat]',
   )
 }
 
@@ -1323,22 +1381,46 @@ const E2E_BUILD_NOTE =
   '(o arquivo normal continua false e nunca é editado). Nunca distribuir; nunca confundir com dev/prod — ' +
   'ver dist/yolen-companion/e2e/e2e-release-candidate-report.json.'
 
+const HOMOLOG_MANYCHAT_BUILD_NOTE =
+  'Canal HOMOLOG + ManyChat — o mesmo pacote HML (mesmo backend de preview em ' +
+  `${HOMOLOG_BASE_URL_ENV}, nunca produção, conferência de commit, mesmo id Firefox), com ` +
+  'MANYCHAT_CAPTURE_ENABLED=true vindo de src/manychat-feature-flags.e2e.js. Um pacote para WhatsApp e ' +
+  'ManyChat. Nunca distribuir.'
+
 const HOMOLOG_BUILD_NOTE =
   'Canal HOMOLOG — extensão para homologar contra o backend de preview configurado em ' +
   `${HOMOLOG_BASE_URL_ENV}. Aceita SOMENTE esse backend (nunca produção), MANYCHAT_CAPTURE_ENABLED=false, ` +
   'e o painel compara o commit do pacote com o commit do backend. Nunca distribuir.'
 
 function main() {
-  const { e2e, homolog } = parseBuildCliArgs(process.argv)
+  const { e2e, homolog, homologManyChat } = parseBuildCliArgs(process.argv)
 
   // Homolog sem origem válida falha antes de qualquer outra coisa.
-  const homologBaseUrl = homolog ? parseHomologBaseUrl(process.env[HOMOLOG_BASE_URL_ENV]) : null
+  const homologBaseUrl =
+    homolog || homologManyChat ? parseHomologBaseUrl(process.env[HOMOLOG_BASE_URL_ENV]) : null
 
   const sourceManifest = readSourceManifest()
   assertAllowlistMatchesManifest(sourceManifest)
   // Defesa da fonte: roda antes de QUALQUER build, normal ou e2e.
   assertFeatureFlagSourcesAreSafe()
   assertCompanionEnvironmentSourceIsSafe()
+
+  if (homologManyChat) {
+    const results = buildPackages(HOMOLOG_MANYCHAT_ENVIRONMENTS, sourceManifest, OUTPUT_ROOT, { homologBaseUrl })
+    const summary = writeBuildSummary({
+      results,
+      sourceManifest,
+      outputRoot: OUTPUT_ROOT,
+      fileName: 'homolog-manychat-build-summary.json',
+      note: HOMOLOG_MANYCHAT_BUILD_NOTE,
+    })
+    logResults(summary)
+    console.log(`\nBackend HML: ${homologBaseUrl} · ManyChat: ligado`)
+    console.log(
+      `Resumo HOMOLOG + ManyChat escrito em: ${join(OUTPUT_ROOT, 'homolog-manychat-build-summary.json').replace(`${REPO_ROOT}/`, '')}`,
+    )
+    return
+  }
 
   if (homolog) {
     const results = buildPackages(HOMOLOG_ENVIRONMENTS, sourceManifest, OUTPUT_ROOT, { homologBaseUrl })

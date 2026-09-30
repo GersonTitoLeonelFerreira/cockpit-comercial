@@ -27,7 +27,11 @@
 // false e que a identidade do pacote é firefox|chrome-homolog com esse
 // backend. Um staging gerado para OUTRO preview é DESATUALIZADO.
 //
-// Uso: node app/extension/yolen-companion/scripts/verify-staged-build.mjs [firefox|chrome] [prod|dev|homolog]
+// Variante homolog-manychat: as mesmas provas do canal homolog (mesmo
+// backend, mesmo id Firefox), com MANYCHAT_CAPTURE_ENABLED efetivo = true,
+// nome "[HML + ManyChat]" e identidade firefox|chrome-homolog-manychat.
+//
+// Uso: node app/extension/yolen-companion/scripts/verify-staged-build.mjs [firefox|chrome] [prod|dev|homolog|homolog-manychat]
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
@@ -38,7 +42,11 @@ import {
   BUILD_IDENTITY_PATHNAME,
   CHANNEL_HOSTS,
   COMPANION_ENVIRONMENT_PATHNAME,
+  FIREFOX_HOMOLOG_GECKO_ID,
   HOMOLOG_BASE_URL_ENV,
+  HOMOLOG_MANYCHAT_ENVIRONMENT,
+  HOMOLOG_MANYCHAT_NAME,
+  HOMOLOG_NAME,
   assertCompanionEnvironmentSourceIsSafe,
   companionEnvironmentFor,
   EXPECTED_MANYCHAT_CAPTURE_ENABLED_BY_ENVIRONMENT,
@@ -51,6 +59,7 @@ import {
   expectedStagedEntryContent,
   featureFlagSourceForEnvironment,
   getTargetZipEntries,
+  isHomologEnvironment,
   parseBuildIdentitySource,
   parseCompanionEnvironmentSource,
   parseHomologBaseUrl,
@@ -99,7 +108,9 @@ function readJson(path) {
 
 // Fatos do staging homolog lidos dos ARQUIVOS REAIS (não das funções de
 // build): o que o navegador vai de fato carregar.
-function inspectHomologStaging({ stagingDir, targetName, baseUrl, identity }) {
+function inspectHomologStaging({ stagingDir, targetName, environment, baseUrl, identity }) {
+  const manyChatVariant = environment === HOMOLOG_MANYCHAT_ENVIRONMENT
+  const expectedManyChat = EXPECTED_MANYCHAT_CAPTURE_ENABLED_BY_ENVIRONMENT[environment]
   const problems = []
   const previewPattern = `${baseUrl}/*`
   const manifest = readJson(join(stagingDir, 'manifest.json'))
@@ -185,8 +196,23 @@ function inspectHomologStaging({ stagingDir, targetName, baseUrl, identity }) {
     ],
     [backgroundLoadsEnvironmentFirst, 'Background do staging não carrega a configuração do canal antes de tudo.'],
     [contentScriptsLoadEnvironment, 'Content scripts do staging não carregam a configuração do canal antes de yolen-api/bridge.'],
-    [manyChatCaptureEnabled === false, `MANYCHAT_CAPTURE_ENABLED efetivo do staging homolog é ${manyChatCaptureEnabled}.`],
-    [facts.identity_environment === `${targetName}-homolog`, `Identidade do pacote é ${facts.identity_environment}.`],
+    [
+      manyChatCaptureEnabled === expectedManyChat,
+      `MANYCHAT_CAPTURE_ENABLED efetivo do staging ${environment} é ${manyChatCaptureEnabled}; esperado ${expectedManyChat}.`,
+    ],
+    [
+      stagedEnvironment?.variant === (manyChatVariant ? 'manychat' : undefined),
+      `Variante do canal no staging é ${JSON.stringify(stagedEnvironment?.variant)}, esperado ${manyChatVariant ? '"manychat"' : 'nenhuma'}.`,
+    ],
+    [
+      facts.extension_name === (manyChatVariant ? HOMOLOG_MANYCHAT_NAME : HOMOLOG_NAME),
+      `Nome da extensão no staging é ${JSON.stringify(facts.extension_name)}.`,
+    ],
+    [
+      targetName !== 'firefox' || facts.gecko_id === FIREFOX_HOMOLOG_GECKO_ID,
+      `Id Firefox do staging é ${facts.gecko_id}, esperado ${FIREFOX_HOMOLOG_GECKO_ID} (substitui a HML).`,
+    ],
+    [facts.identity_environment === `${targetName}-${environment}`, `Identidade do pacote é ${facts.identity_environment}.`],
     [facts.identity_api_base_url === baseUrl, `Identidade do pacote aponta ${facts.identity_api_base_url}.`],
   ]
 
@@ -213,9 +239,10 @@ export function verifyStagedBuild({
 
   const problems = []
 
-  // Canal homolog: sem a MESMA origem do build não há o que comparar.
+  // Canal homolog (e variante ManyChat): sem a MESMA origem do build não há
+  // o que comparar.
   let baseUrl = null
-  if (environment === 'homolog') {
+  if (isHomologEnvironment(environment)) {
     try {
       baseUrl = parseHomologBaseUrl(homologBaseUrl)
     } catch (error) {
@@ -364,8 +391,9 @@ export function verifyStagedBuild({
     }
   }
 
-  const homolog =
-    environment === 'homolog' ? inspectHomologStaging({ stagingDir, targetName, baseUrl, identity }) : null
+  const homolog = isHomologEnvironment(environment)
+    ? inspectHomologStaging({ stagingDir, targetName, environment, baseUrl, identity })
+    : null
 
   if (homolog) {
     problems.unshift(...homolog.problems)
@@ -386,7 +414,7 @@ function main() {
   const result = verifyStagedBuild({
     targetName,
     environment,
-    homologBaseUrl: environment === 'homolog' ? process.env[HOMOLOG_BASE_URL_ENV] : null,
+    homologBaseUrl: isHomologEnvironment(environment) ? process.env[HOMOLOG_BASE_URL_ENV] : null,
   })
 
   const label = result.identity
@@ -405,7 +433,8 @@ function main() {
     console.log(`  bridge: ${JSON.stringify(facts.bridge_matches)} · page bridge: ${JSON.stringify(facts.page_bridge_matches)}`)
     console.log(`  background carrega a configuração primeiro: ${facts.background_loads_environment_first} · content scripts: ${facts.content_scripts_load_environment}`)
     console.log(`  MANYCHAT_CAPTURE_ENABLED: ${facts.manychat_capture_enabled} · extensão: ${facts.extension_name}${facts.gecko_id ? ` (${facts.gecko_id})` : ''}`)
-    console.log(`  cabeçalho esperado: "HML · v${result.identity?.version} · ${commit}" / "Backend · ${commit}" (backend no mesmo commit)`)
+    const headerLabel = environment === HOMOLOG_MANYCHAT_ENVIRONMENT ? 'HML + ManyChat' : 'HML'
+    console.log(`  cabeçalho esperado: "${headerLabel} · v${result.identity?.version} · ${commit}" / "Backend · ${commit}" (backend no mesmo commit)`)
   }
 
   if (result.fresh) {
