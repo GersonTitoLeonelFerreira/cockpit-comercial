@@ -321,7 +321,7 @@ export type FullReadingRunResult =
   | { status: 'succeeded' }
   | { status: 'failed'; failure_code: string }
 
-async function defaultLoadMessages({
+export async function loadFullReadingMessages({
   admin,
   companyId,
   cycleId,
@@ -347,7 +347,7 @@ async function defaultLoadMessages({
   return ledger.canonicalMessages
 }
 
-async function defaultLoadKanban({
+export async function loadFullReadingKanban({
   admin,
   companyId,
   cycleId,
@@ -400,7 +400,7 @@ async function defaultLoadKanban({
   return buildKanbanContextFromRow(row, productName)
 }
 
-async function defaultLoadConfig({
+export async function loadFullReadingConfig({
   admin,
   companyId,
 }: {
@@ -474,13 +474,13 @@ export async function executeFullReadingRun(
     Date.now()
 
   const loadMessages =
-    input.loadMessages ?? defaultLoadMessages
+    input.loadMessages ?? loadFullReadingMessages
 
   const loadConfig =
-    input.loadConfig ?? defaultLoadConfig
+    input.loadConfig ?? loadFullReadingConfig
 
   const loadKanban =
-    input.loadKanban ?? defaultLoadKanban
+    input.loadKanban ?? loadFullReadingKanban
 
   let transcriptMessageCount: number | null =
     null

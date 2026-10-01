@@ -204,3 +204,65 @@ test('core: com a leitura completa, a sugestão antiga de etapa some e o "Atuali
   assert.ok(stageClick.indexOf('window.confirm(') < stageClick.indexOf('applySuggestion('))
   assert.doesNotMatch(stageClick, /sales-cycles\/close|close_cycle/)
 })
+
+test('CLIENTE: Sabemos / Inferimos / A confirmar da leitura, sem HTML do modelo', () => {
+  const agora = agoraView({
+    cliente: {
+      sabemos: [`Usa o serviço desde 20/09 ${HOSTILE}`],
+      inferimos: ['Deve renovar no fim do mês.'],
+      a_confirmar: [],
+    },
+  })
+  const root = mount(view.renderFullReadingSlot('client', agora))
+
+  assert.doesNotMatch(view.renderFullReadingSlot('client', agora), /Usa o serviço|<img/)
+  assert.equal(view.hydrateFullReadingSlots(root, { agora }), 1)
+  assert.deepEqual(
+    [...root.querySelectorAll('[data-yolen-full-reading-section] h3')].map((node) => node.textContent),
+    ['Sabemos', 'Inferimos'],
+  )
+  assert.equal(root.querySelector('h3').textContent, 'Cliente')
+  assert.doesNotMatch(root.textContent, /O que falta descobrir/)
+  assert.equal(root.querySelectorAll('img, script').length, 0)
+})
+
+test('resumo do lead: situação da leitura e "Ver resumo completo" leva à ANÁLISE', () => {
+  const agora = agoraView({
+    lead_summary: { title: 'Resumo da leitura completa · 01/10/2026 11:05', text: `Cliente ativa ${HOSTILE}` },
+  })
+  const root = mount(view.renderFullReadingSlot('lead_summary', agora))
+
+  view.hydrateFullReadingSlots(root, { agora })
+
+  assert.equal(root.querySelector('.yolen-section-label').textContent, 'Resumo da leitura completa · 01/10/2026 11:05')
+  assert.match(root.querySelector('.yolen-full-reading-summary-text').textContent, /^Cliente ativa <img/)
+
+  const button = root.querySelector('[data-yolen-action="full-reading-open-analysis"]')
+
+  assert.equal(button.textContent, 'Ver resumo completo')
+  assert.equal(root.querySelectorAll('textarea, [data-yolen-action="save-lead-summary"]').length, 0)
+  assert.equal(root.querySelectorAll('img').length, 0)
+})
+
+test('core: MENSAGEM, resumo, CLIENTE e ícone minimizado seguem a leitura quando ela existe', () => {
+  const core = readFileSync(new URL('../src/companion-core.js', import.meta.url), 'utf8')
+
+  // MENSAGEM não depende do resumo do lead quando há leitura.
+  const mount = core.slice(core.indexOf('function isSellerMessageMountEligible()'), core.indexOf('function isSellerMessageMountEligible()') + 600)
+  assert.match(mount, /getCurrentFullReadingViews\(\)\.agora\?\.message/)
+  assert.match(core, /messageController\.syncFullReading\?\.\(/)
+
+  // Card do resumo: a leitura vem antes do resumo salvo antigo.
+  const summaryController = readFileSync(new URL('../src/companion-lead-summary-controller.js', import.meta.url), 'utf8')
+  assert.match(core, /get getFullReadingLeadSummaryCardHtml\(\) {\s*return getFullReadingLeadSummaryCardHtml/)
+  assert.match(summaryController, /ctx\.getFullReadingLeadSummaryCardHtml\(\)[\s\S]*if \(fullReadingCardHtml\) {\s*return fullReadingCardHtml/)
+
+  // CLIENTE: a leitura substitui o bloco antigo (inclusive "O que falta descobrir").
+  const client = core.slice(core.indexOf('function getClientInformationAreaHtml()'), core.indexOf('function getClientInformationAreaHtml()') + 2500)
+  assert.match(client, /renderFullReadingSlot\(\s*'client'/)
+
+  // Ícone minimizado: a AGORA da leitura, não a antiga.
+  const rail = core.slice(core.indexOf('function getCollapsedCompanionAttentionSnapshot()'), core.indexOf('function getCollapsedCompanionAttentionSnapshot()') + 9000)
+  assert.match(rail, /isCurrentAgoraContext &&\s*!fullReadingDrivesRail/)
+  assert.match(rail, /fullReadingAgora\.attention/)
+})

@@ -67,6 +67,14 @@ function validDecision(overrides = {}) {
       valor: '',
       forma_pagamento: '',
       motivo_perda: '',
+      valor_total: '',
+      forma_pagamento_codigo: '',
+      tipo_pagamento_codigo: '',
+    },
+    cliente: {
+      sabemos: ['Usa o serviço desde 20/09.'],
+      inferimos: [],
+      a_confirmar: [],
     },
     oportunidades: [
       {
@@ -243,7 +251,7 @@ test('o prompt de sistema pede a análise e a decisão consistentes', () => {
   assert.match(system, /analise_markdown/)
   assert.match(system, /nunca pode contradizê-la/)
   assert.match(system, /"Não fazer nada agora" é uma decisão válida/)
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v2')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v3')
 })
 
 test('o prompt do usuário leva referência, cadastro e conversa', () => {

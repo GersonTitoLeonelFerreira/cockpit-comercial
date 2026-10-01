@@ -797,10 +797,9 @@ export function buildAgoraFullReadingView(
   snapshot: FullReadingPanelSnapshot,
   {
     cycleId,
-    referenceTime,
   }: {
     cycleId: string
-    referenceTime: string
+    referenceTime?: string
   },
 ): FullReadingAgoraView {
   return buildFullReadingAgoraView({
@@ -809,7 +808,6 @@ export function buildAgoraFullReadingView(
     failureCode: snapshot.failure_code,
     kanban: snapshot.kanban,
     cycleId,
-    referenceTime,
     lastCustomerMessageAt: snapshot.last_customer_message_at,
   })
 }

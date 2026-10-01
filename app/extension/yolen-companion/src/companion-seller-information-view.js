@@ -2347,9 +2347,24 @@
   // O texto do modelo NUNCA entra em HTML: o HTML do painel leva só um
   // marcador com a chave da view, e o conteúdo é montado depois por
   // hydrateFullReadingSlots, com createElement e textContent.
+  const FULL_READING_SLOT_KINDS =
+    new Set(['agora', 'analysis', 'client', 'lead_summary'])
+
+  // client e lead_summary vêm da view da AGORA (decisao.cliente e
+  // situacao_resumo da mesma leitura).
+  function getFullReadingSlotView(kind, views) {
+    if (kind === 'analysis') {
+      return views?.analysis || null
+    }
+
+    return FULL_READING_SLOT_KINDS.has(kind)
+      ? views?.agora || null
+      : null
+  }
+
   function renderFullReadingSlot(kind, view) {
     if (
-      (kind !== 'agora' && kind !== 'analysis') ||
+      !FULL_READING_SLOT_KINDS.has(kind) ||
       !view ||
       typeof view !== 'object' ||
       typeof view.view_key !== 'string'
@@ -2589,6 +2604,69 @@
     return nodes
   }
 
+  function buildClientFullReadingNodes(doc, view) {
+    const nodes = []
+    const customer = view.cliente && typeof view.cliente === 'object' ? view.cliente : {}
+
+    const heading = doc.createElement('div')
+    heading.className = 'yolen-client-intelligence-heading'
+    heading.appendChild(createTextElement(doc, 'div', 'yolen-section-label', 'Fatos, inferências e pontos a confirmar'))
+    heading.appendChild(createTextElement(doc, 'h3', '', 'Cliente'))
+    nodes.push(heading)
+
+    let shown = 0
+
+    for (const [key, title, items] of [
+      ['sabemos', 'Sabemos', customer.sabemos],
+      ['inferimos', 'Inferimos', customer.inferimos],
+      ['a_confirmar', 'A confirmar', customer.a_confirmar],
+    ]) {
+      const list = Array.isArray(items) ? items.filter((item) => fullReadingText(item)) : []
+
+      if (list.length === 0) {
+        continue
+      }
+
+      const section = createFullReadingSection(doc, key, title)
+      appendFullReadingList(doc, section, list)
+      nodes.push(section)
+      shown += 1
+    }
+
+    if (shown === 0) {
+      nodes.push(createTextElement(doc, 'div', 'yolen-seller-empty-state', 'A leitura completa não trouxe dados sobre o cliente.'))
+    }
+
+    const footer = fullReadingText(view.footer)
+
+    if (footer) {
+      nodes.push(createTextElement(doc, 'div', 'yolen-message-footnote yolen-full-reading-footer', footer))
+    }
+
+    return nodes
+  }
+
+  function buildLeadSummaryFullReadingNodes(doc, view) {
+    const summary = view.lead_summary && typeof view.lead_summary === 'object' ? view.lead_summary : {}
+    const nodes = [
+      createTextElement(doc, 'div', 'yolen-section-label', summary.title || 'Resumo da leitura completa'),
+      createTextElement(doc, 'div', 'yolen-decision-copy yolen-full-reading-summary-text', summary.text),
+    ]
+
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.className = 'yolen-tertiary-button'
+    button.setAttribute('data-yolen-action', 'full-reading-open-analysis')
+    button.textContent = 'Ver resumo completo'
+
+    const actions = doc.createElement('div')
+    actions.className = 'yolen-inline-actions'
+    actions.appendChild(button)
+    nodes.push(actions)
+
+    return nodes
+  }
+
   // Preenche os marcadores da leitura completa dentro de `container`. Só
   // preenche o marcador cuja chave bate com a view atual (um HTML antigo
   // ainda pendente nunca recebe o conteúdo de uma view nova).
@@ -2603,12 +2681,7 @@
       .querySelectorAll('[data-yolen-full-reading]')
       .forEach((slot) => {
         const kind = slot.getAttribute('data-yolen-full-reading')
-        const view =
-          kind === 'agora'
-            ? views?.agora
-            : kind === 'analysis'
-              ? views?.analysis
-              : null
+        const view = getFullReadingSlotView(kind, views)
 
         if (
           !view ||
@@ -2636,7 +2709,11 @@
         const nodes =
           kind === 'agora'
             ? buildAgoraFullReadingNodes(doc, view, options)
-            : buildAnalysisFullReadingNodes(doc, view)
+            : kind === 'client'
+              ? buildClientFullReadingNodes(doc, view)
+              : kind === 'lead_summary'
+                ? buildLeadSummaryFullReadingNodes(doc, view)
+                : buildAnalysisFullReadingNodes(doc, view)
 
         slot.replaceChildren(...nodes)
         slot.setAttribute('data-yolen-full-reading-hydrated', signature)

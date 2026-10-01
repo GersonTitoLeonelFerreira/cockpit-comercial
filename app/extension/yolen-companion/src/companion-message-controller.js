@@ -31,6 +31,11 @@ function createCompanionMessageController({
   const analysisViewModelByConversation = new Map()
   let currentContext = null
   let renderQueued = false
+  // Leitura completa (HML, flag no backend): quando a AGORA traz a
+  // leitura, a MENSAGEM vem dela — objetivo recomendado, mensagem
+  // sugerida ou "não enviar agora" — e o objetivo/mensagem do motor
+  // antigo não aparecem. Sem leitura (flag desligada, falha), nada muda.
+  let currentFullReading = null
 
   function getRuntime() {
     if (root.browser?.runtime?.sendMessage) {
@@ -130,10 +135,20 @@ function createCompanionMessageController({
 
     if (!requestKey) {
       currentContext = null
+      currentFullReading = null
       stateByConversation.clear()
       analysisViewModelByConversation.clear()
       removeVisibleComposer()
       return
+    }
+
+    if (
+      currentFullReading &&
+      buildRequestContextKey(
+        currentFullReading.payload,
+      ) === requestKey
+    ) {
+      currentFullReading = null
     }
 
     // Limpeza ESCOPADA invalida somente o estado/copy da MENSAGEM.
@@ -201,6 +216,32 @@ function createCompanionMessageController({
       ) === state &&
       state.contextKey === context.key
     )
+  }
+
+  function getFullReadingContext() {
+    return currentFullReading
+      ? {
+          payload: currentFullReading.payload,
+          key: currentFullReading.key,
+          operationContext:
+            currentFullReading.operationContext,
+          fullReading: currentFullReading.view,
+        }
+      : null
+  }
+
+  // Contexto que a MENSAGEM usa agora: o da leitura completa, quando
+  // existe; senão o do resumo do lead (comportamento de hoje).
+  function getActiveContext() {
+    return getFullReadingContext() || currentContext
+  }
+
+  function getFullReadingPresets(view) {
+    return view?.mode === 'send' &&
+      typeof view.recommended_objective === 'string' &&
+      view.recommended_objective.trim()
+      ? [view.recommended_objective.trim()]
+      : []
   }
 
   // A decisão canônica muda quando muda o momentum, o frescor da intenção
@@ -496,6 +537,11 @@ function createCompanionMessageController({
   }
 
   function renderComposer() {
+    if (currentFullReading) {
+      renderFullReadingComposer()
+      return
+    }
+
     const context = currentContext
 
     if (!context) {
@@ -702,6 +748,190 @@ function createCompanionMessageController({
     )
   }
 
+  // Composer da leitura completa. O HTML leva só marcadores; o texto do
+  // modelo (aviso da seção, objetivo recomendado, mensagem) entra depois
+  // com textContent — nunca como HTML.
+  function renderFullReadingComposer() {
+    const context = getFullReadingContext()
+
+    if (!context) {
+      return
+    }
+
+    const dedicatedMount = document.querySelector(
+      '[data-yolen-seller-message-mount]',
+    )
+
+    if (!dedicatedMount) {
+      removeVisibleComposer()
+      return
+    }
+
+    let box = document.querySelector(
+      '[data-yolen-seller-message-box]',
+    )
+
+    if (!box) {
+      box = document.createElement('div')
+      box.setAttribute(
+        'data-yolen-seller-message-box',
+        '',
+      )
+      box.className = 'yolen-message-workspace'
+    }
+
+    if (box.parentElement !== dedicatedMount) {
+      dedicatedMount.appendChild(box)
+    }
+
+    const view = context.fullReading
+    const state = getState(context)
+
+    // Leitura que manda falar com o cliente: a mensagem da seção
+    // "Mensagem sugerida" já vem pronta para Incluir/Copiar.
+    if (
+      state.status === 'idle' &&
+      !state.message &&
+      view.mode === 'send' &&
+      typeof view.suggested_message === 'string' &&
+      view.suggested_message.trim()
+    ) {
+      state.status = 'ready'
+      state.message = view.suggested_message.trim()
+      state.messageSource = 'reading'
+    }
+
+    const presets = getFullReadingPresets(view)
+    const trimmedIntent = state.intent.trim()
+    const noSend = view.mode === 'no_send'
+
+    const noticeHtml = noSend
+      ? [
+          '<div class="yolen-message-status" data-yolen-full-reading-message-notice>',
+          '<span data-yolen-fr-text="notice"></span>',
+          '</div>',
+          '<div class="yolen-message-objective-help" data-yolen-fr-text="section"></div>',
+        ].join('')
+      : ''
+
+    const objectiveHtml = [
+      '<div class="yolen-message-objective-card">',
+      '<div class="yolen-message-objective-title">Objetivo da mensagem</div>',
+      `<div class="yolen-message-objective-help">${
+        noSend
+          ? 'Se quiser escrever mesmo assim, descreva o que você quer comunicar.'
+          : 'Use o objetivo da leitura ou descreva o que você quer comunicar.'
+      }</div>`,
+      presets.length > 0
+        ? [
+            '<div class="yolen-message-presets">',
+            presets.map((preset, index) =>
+              `<button type="button" class="yolen-message-preset${preset === trimmedIntent ? ' yolen-message-preset--active' : ''}" data-yolen-seller-message-preset="${index}"><span class="yolen-message-preset-recommended">Recomendado pela leitura completa · </span><span data-yolen-fr-text="preset-${index}"></span></button>`,
+            ).join(''),
+            '</div>',
+          ].join('')
+        : '',
+      '<div class="yolen-message-intent-field">',
+      `<textarea class="yolen-message-intent" data-yolen-seller-message-intent maxlength="${INTENT_MAX_LENGTH}" placeholder="Ex.: Quero responder ao ponto específico que o cliente trouxe."></textarea>`,
+      `<div class="yolen-message-intent-counter" data-yolen-seller-message-counter>${state.intent.length} / ${INTENT_MAX_LENGTH}</div>`,
+      '</div>',
+      '<button type="button" class="yolen-primary-button yolen-message-generate" data-yolen-seller-message-action="generate"',
+      !trimmedIntent || state.status === 'loading' ? ' disabled' : '',
+      '>',
+      state.status === 'loading'
+        ? '<span class="yolen-message-spinner" aria-hidden="true"></span>Gerando…'
+        : 'Gerar mensagem',
+      '</button>',
+      '</div>',
+    ].join('')
+
+    const resultHtml =
+      state.status === 'ready' && state.message
+        ? [
+            '<div class="yolen-message-result-card" data-yolen-full-reading-message-result>',
+            `<div class="yolen-message-result-label">${
+              state.messageSource === 'reading'
+                ? '✨ Mensagem sugerida pela leitura'
+                : '✨ Mensagem sugerida'
+            }</div>`,
+            '<div class="yolen-message-result-scroll">',
+            '<div class="yolen-message-result-text" data-yolen-fr-text="message"></div>',
+            '</div>',
+            '<div class="yolen-message-actions">',
+            '<button type="button" class="yolen-primary-button" data-yolen-seller-message-action="insert">Incluir no ' + escapeHtml(platformDisplayName) + '</button>',
+            '<button type="button" class="yolen-secondary-button" data-yolen-seller-message-action="copy">Copiar</button>',
+            '</div>',
+            '<div class="yolen-message-footnote">A Yolen não envia mensagens automaticamente. Revise antes de enviar.</div>',
+            '</div>',
+          ].join('')
+        : state.status === 'loading'
+          ? '<div class="yolen-message-status"><span class="yolen-message-spinner" aria-hidden="true"></span>Gerando mensagem…</div>'
+          : state.status === 'error'
+            ? `<div class="yolen-message-status yolen-message-status--error">${escapeHtml(state.error || 'Não foi possível gerar a mensagem.')}</div>`
+            : ''
+
+    const feedbackHtml = state.feedback
+      ? `<div class="yolen-message-feedback">${escapeHtml(state.feedback)}</div>`
+      : ''
+
+    const html = [
+      noticeHtml,
+      objectiveHtml,
+      resultHtml,
+      feedbackHtml,
+    ].join('')
+
+    const texts = {
+      notice: noSend ? String(view.notice || '') : '',
+      section: noSend ? String(view.section_text || '') : '',
+      message: state.status === 'ready' ? String(state.message || '') : '',
+    }
+
+    presets.forEach((preset, index) => {
+      texts[`preset-${index}`] = preset
+    })
+
+    const renderKey = hashText(
+      `${html}::${JSON.stringify(texts)}`,
+    )
+
+    if (
+      box.getAttribute('data-yolen-render-key') ===
+      renderKey
+    ) {
+      return
+    }
+
+    box.setAttribute(
+      'data-yolen-render-key',
+      renderKey,
+    )
+    applyComposerHtml(
+      box,
+      html,
+      context,
+      state,
+    )
+
+    for (const [name, value] of Object.entries(texts)) {
+      const target = box.querySelector(
+        `[data-yolen-fr-text="${name}"]`,
+      )
+
+      if (target && target.textContent !== value) {
+        target.textContent = value
+      }
+    }
+
+    const field = box.querySelector(
+      '[data-yolen-seller-message-intent]',
+    )
+
+    if (field && field.value !== state.intent) {
+      field.value = state.intent
+    }
+  }
+
   const INTENT_FIELD_SELECTOR =
     '[data-yolen-seller-message-intent]'
 
@@ -837,7 +1067,112 @@ function createCompanionMessageController({
     })
   }
 
+  // "Gerar mensagem" com a leitura completa: o backend chama o Claude com
+  // a transcrição, a leitura, o kanban, o cadastro e o objetivo. Não passa
+  // pelo motor antigo e não grava nada.
+  async function requestFullReadingGeneration(context, state) {
+    if (!state.intent.trim()) {
+      return
+    }
+
+    const runtime = getRuntime()
+
+    if (!runtime) {
+      state.status = 'error'
+      state.error =
+        'Runtime da extensão indisponível para gerar a mensagem.'
+      queueRender()
+      return
+    }
+
+    state.status = 'loading'
+    state.error = null
+    state.message = null
+    state.messageSource = null
+    state.feedback = null
+    queueRender()
+
+    const isStillCurrent = () =>
+      isStateCurrent(context, state) &&
+      isOperationContextCurrent(context.operationContext)
+
+    let result
+
+    try {
+      result = await runtime.sendMessage({
+        source: 'YOLEN_COMPANION',
+        action: 'GENERATE_FULL_READING_MESSAGE',
+        baseUrl:
+          typeof getBaseUrl === 'function'
+            ? getBaseUrl() ?? null
+            : null,
+        payload: {
+          cycle_id: context.payload.cycle_id,
+          conversation_key:
+            context.payload.conversation_key,
+          seller_intent:
+            state.intent.trim(),
+        },
+      })
+    } catch (error) {
+      if (!isStillCurrent()) {
+        return
+      }
+
+      state.status = 'error'
+      state.error =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Falha de comunicação ao gerar a mensagem.'
+      queueRender()
+      return
+    }
+
+    if (!isStillCurrent()) {
+      return
+    }
+
+    const generation =
+      result?.payload?.data
+
+    if (
+      !result?.ok ||
+      !result?.payload?.ok ||
+      generation?.status !== 'ready' ||
+      typeof generation.message !== 'string' ||
+      !generation.message.trim()
+    ) {
+      state.status = 'error'
+      state.error =
+        result?.payload?.error ||
+        'Não foi possível gerar a mensagem agora.'
+      queueRender()
+      return
+    }
+
+    state.status = 'ready'
+    state.message = generation.message.trim()
+    state.messageSource = 'generated'
+    state.error = null
+    queueRender()
+  }
+
   async function requestGeneration() {
+    const fullReadingContext = getFullReadingContext()
+
+    if (fullReadingContext) {
+      const fullReadingState = getState(fullReadingContext)
+
+      if (fullReadingState) {
+        await requestFullReadingGeneration(
+          fullReadingContext,
+          fullReadingState,
+        )
+      }
+
+      return
+    }
+
     const context = currentContext
     const state = getState(context)
 
@@ -1025,7 +1360,7 @@ function createCompanionMessageController({
   })
 
   function insertIntoChannelComposer() {
-    const context = currentContext
+    const context = getActiveContext()
     const state = getState(context)
 
     if (!state?.message) {
@@ -1049,7 +1384,7 @@ function createCompanionMessageController({
   }
 
   async function copyMessage() {
-    const context = currentContext
+    const context = getActiveContext()
     const state = getState(context)
 
     if (!state?.message) {
@@ -1091,6 +1426,63 @@ function createCompanionMessageController({
     context.operationContext =
       captureOperationContext()
     currentContext = context
+    queueRender()
+    return true
+  }
+
+  // A AGORA chama a cada render com a view de mensagem da leitura (ou
+  // null). Idempotente: só redesenha quando a leitura muda.
+  function syncFullReading(payload, view) {
+    const requestKey =
+      buildRequestContextKey(payload)
+
+    const valid =
+      requestKey &&
+      view &&
+      typeof view === 'object' &&
+      (view.mode === 'send' || view.mode === 'no_send')
+
+    if (!valid) {
+      if (
+        currentFullReading &&
+        (
+          !requestKey ||
+          buildRequestContextKey(
+            currentFullReading.payload,
+          ) === requestKey
+        )
+      ) {
+        currentFullReading = null
+        removeVisibleComposer()
+        queueRender()
+      }
+
+      return false
+    }
+
+    const key = [
+      'full-reading',
+      requestKey,
+      String(view.run_id || ''),
+      view.mode,
+      hashText(
+        `${view.section_text || ''}::${view.recommended_objective || ''}`,
+      ),
+    ].join('::')
+
+    if (currentFullReading?.key === key) {
+      return true
+    }
+
+    currentFullReading = {
+      payload: {
+        cycle_id: String(payload.cycle_id).trim(),
+        conversation_key: String(payload.conversation_key).trim(),
+      },
+      view,
+      key,
+      operationContext: captureOperationContext(),
+    }
     queueRender()
     return true
   }
@@ -1202,7 +1594,7 @@ function createCompanionMessageController({
         return
       }
 
-      const state = getState(currentContext)
+      const state = getState(getActiveContext())
 
       if (!state) {
         return
@@ -1244,13 +1636,16 @@ function createCompanionMessageController({
         )
 
       if (presetButton) {
-        const context = currentContext
+        const fullReadingContext = getFullReadingContext()
+        const context = fullReadingContext || currentContext
         const state = getState(context)
         const presets =
-          getPresets(
-            getGuidance(context),
-            getAnalysisViewModel(context),
-          )
+          fullReadingContext
+            ? getFullReadingPresets(fullReadingContext.fullReading)
+            : getPresets(
+                getGuidance(context),
+                getAnalysisViewModel(context),
+              )
         const index = Number(
           presetButton.getAttribute(
             'data-yolen-seller-message-preset',
@@ -1265,6 +1660,7 @@ function createCompanionMessageController({
           state.intent = presets[index]
           state.status = 'idle'
           state.message = null
+          state.messageSource = null
           state.error = null
           state.feedback = null
           queueRender()
@@ -1305,6 +1701,17 @@ function createCompanionMessageController({
   )
 
   const observer = new MutationObserver(() => {
+    if (currentFullReading) {
+      if (
+        !document.querySelector('[data-yolen-seller-message-box]') &&
+        document.querySelector('[data-yolen-seller-message-mount]')
+      ) {
+        queueRender()
+      }
+
+      return
+    }
+
     if (!currentContext) {
       return
     }
@@ -1352,6 +1759,7 @@ function createCompanionMessageController({
     render: queueRender,
     syncContext,
     syncAnalysisViewModel,
+    syncFullReading,
     clear(payload) {
       clearContext(payload)
     },

@@ -5,6 +5,30 @@
 // valor, forma de pagamento ou motivo da perda. A tela só ABRE o modal de
 // fechamento já existente, pré-preenchido; quem fecha é o vendedor, pelo
 // mesmo botão e pela mesma RPC de sempre.
+//
+// O modal preenche pelos campos codificados da leitura (valor_total,
+// pagamento_codigo, tipo_codigo), com mapeamento direto. Os textos livres
+// (produto, valor, pagamento) só aparecem como dica para o vendedor; nada
+// é deduzido deles.
+
+export const CLOSING_PAYMENT_METHOD_CODES = [
+  'pix',
+  'credito',
+  'debito',
+  'boleto',
+  'dinheiro',
+  'transferencia',
+  'misto',
+  'outro',
+] as const
+
+export const CLOSING_PAYMENT_TYPE_CODES = [
+  'avista',
+  'entrada_parcelas',
+  'parcelado_sem_entrada',
+  'recorrente',
+  'outro',
+] as const
 
 export type CycleClosingRequest = {
   close: 'ganho' | 'perdido'
@@ -12,11 +36,26 @@ export type CycleClosingRequest = {
   valor: string
   pagamento: string
   motivo: string
+  valor_total: string
+  pagamento_codigo: (typeof CLOSING_PAYMENT_METHOD_CODES)[number] | ''
+  tipo_codigo: (typeof CLOSING_PAYMENT_TYPE_CODES)[number] | ''
 }
 
 const MAX_VALUE_LENGTH = 200
 
-const ALLOWED_KEYS = ['fechar', 'produto', 'valor', 'pagamento', 'motivo'] as const
+const ALLOWED_KEYS = [
+  'fechar',
+  'produto',
+  'valor',
+  'pagamento',
+  'motivo',
+  'valor_total',
+  'pagamento_codigo',
+  'tipo_codigo',
+] as const
+
+// Só um número de valor (ex.: "149,90", "1.234,56", "149.90").
+const AMOUNT_PATTERN = /^(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$|^\d+\.\d{1,2}$/
 
 type SearchValue = string | string[] | null | undefined
 
@@ -28,6 +67,10 @@ function first(value: SearchValue): string {
     : ''
 }
 
+function code<T extends string>(value: string, allowed: readonly T[]): T | '' {
+  return (allowed as readonly string[]).includes(value) ? (value as T) : ''
+}
+
 export function readCycleClosingRequest(
   read: (key: string) => SearchValue,
 ): CycleClosingRequest | null {
@@ -37,13 +80,35 @@ export function readCycleClosingRequest(
     return null
   }
 
+  const won = close === 'ganho'
+  const total = won ? first(read('valor_total')) : ''
+
   return {
     close,
-    produto: close === 'ganho' ? first(read('produto')) : '',
-    valor: close === 'ganho' ? first(read('valor')) : '',
-    pagamento: close === 'ganho' ? first(read('pagamento')) : '',
+    produto: won ? first(read('produto')) : '',
+    valor: won ? first(read('valor')) : '',
+    pagamento: won ? first(read('pagamento')) : '',
     motivo: close === 'perdido' ? first(read('motivo')) : '',
+    valor_total: AMOUNT_PATTERN.test(total) ? total : '',
+    pagamento_codigo: won ? code(first(read('pagamento_codigo')), CLOSING_PAYMENT_METHOD_CODES) : '',
+    tipo_codigo: won ? code(first(read('tipo_codigo')), CLOSING_PAYMENT_TYPE_CODES) : '',
   }
+}
+
+// "149,90" → "149.90"; "1.234,56" → "1234.56"; "149.90" → "149.90". Só
+// normaliza um número já validado; texto livre nunca chega aqui.
+export function closingAmountToDecimal(valorTotal: string): string {
+  if (!AMOUNT_PATTERN.test(valorTotal)) {
+    return ''
+  }
+
+  if (valorTotal.includes(',')) {
+    return valorTotal.replace(/\./g, '').replace(',', '.')
+  }
+
+  return /^\d{1,3}(?:\.\d{3})+$/.test(valorTotal)
+    ? valorTotal.replace(/\./g, '')
+    : valorTotal
 }
 
 // Repassa só os parâmetros permitidos (redirecionamento /sales-cycles/{id}
@@ -91,46 +156,6 @@ export function stripCycleClosingParams(search: string): string {
   const query = params.toString()
 
   return query ? `?${query}` : ''
-}
-
-const PAYMENT_METHOD_HINTS: { value: string; pattern: RegExp }[] = [
-  { value: 'pix', pattern: /\bpix\b/i },
-  { value: 'credito', pattern: /cr[eé]dito/i },
-  { value: 'debito', pattern: /d[eé]bito/i },
-  { value: 'boleto', pattern: /boleto/i },
-  { value: 'transferencia', pattern: /transfer[eê]ncia|\bted\b|\bdoc\b/i },
-  { value: 'dinheiro', pattern: /dinheiro|esp[eé]cie/i },
-]
-
-// Só reconhece uma forma de pagamento quando o texto aponta para UMA delas;
-// caso contrário o campo fica para o vendedor escolher.
-export function matchPaymentMethod(text: string): string | null {
-  const matches = PAYMENT_METHOD_HINTS.filter((hint) => hint.pattern.test(text))
-
-  return matches.length === 1 ? matches[0].value : null
-}
-
-// "R$ 1.234,56", "1234.56", "199,90" → número; qualquer coisa ambígua → null.
-export function parseClosingAmount(text: string): number | null {
-  const numbers = text.match(/\d[\d.,]*/g)
-
-  if (!numbers || numbers.length !== 1) {
-    return null
-  }
-
-  let raw = numbers[0]
-
-  if (/,\d{1,2}$/.test(raw)) {
-    raw = raw.replace(/\./g, '').replace(',', '.')
-  } else if (/\.\d{3}(\.|$)/.test(raw) && !/\.\d{1,2}$/.test(raw)) {
-    raw = raw.replace(/\./g, '')
-  } else {
-    raw = raw.replace(/,/g, '')
-  }
-
-  const value = Number(raw)
-
-  return Number.isFinite(value) && value > 0 ? value : null
 }
 
 // Escolhe o produto ativo cujo nome bate com o texto da conversa. Só

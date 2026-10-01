@@ -15,9 +15,12 @@
 
 import {
   FULL_READING_KANBAN_STAGES,
+  FULL_READING_PAYMENT_METHOD_CODES,
+  FULL_READING_PAYMENT_TYPE_CODES,
   findStageCoherenceProblem,
   isFullReadingKanbanStage,
   type FullReadingClosingData,
+  type FullReadingCustomer,
   type FullReadingDecision,
   type FullReadingKanbanStage,
 } from '../companion/full-reading/output'
@@ -89,8 +92,11 @@ export type FullReadingStageCardKind =
 export type FullReadingApplyRequest = {
   cycle_id: string
   applied_status: FullReadingKanbanStage
-  next_action: string | null
-  next_action_date: string | null
+  next_action: null
+  next_action_date: null
+  // A rota apply-suggestion não toca na próxima ação registrada no kanban
+  // (nem numa data já vencida): Aplicar só muda a etapa.
+  preserve_next_action: true
   source: 'whatsapp_companion'
   confirmed_by_human: true
   suggestion: {
@@ -99,8 +105,8 @@ export type FullReadingApplyRequest = {
     action_channel: null
     action_result: null
     result_detail: null
-    next_action: string | null
-    next_action_date: string | null
+    next_action: null
+    next_action_date: null
     summary: string
     tags: string[]
     should_close_won: false
@@ -136,6 +142,35 @@ export type FullReadingAgoraMain = {
   por_que: string
 }
 
+// MENSAGEM a partir da leitura: com a leitura disponível, o objetivo e a
+// mensagem do motor antigo não aparecem.
+export type FullReadingMessageView = {
+  mode: 'no_send' | 'send'
+  // 'A leitura recomenda não enviar nada agora' (só em no_send).
+  notice: string | null
+  // Texto da seção "Mensagem sugerida" da análise.
+  section_text: string
+  // Objetivo recomendado (acao_resumo) quando a leitura manda falar com o
+  // cliente.
+  recommended_objective: string | null
+  // Mensagem pronta da leitura (a seção "Mensagem sugerida"), para
+  // Incluir/Copiar, quando a leitura manda falar com o cliente.
+  suggested_message: string | null
+  run_id: string
+}
+
+export type FullReadingLeadSummaryView = {
+  title: string
+  text: string
+}
+
+// Ícone do painel minimizado.
+export type FullReadingAttention = {
+  level: 'attention' | 'recommendation' | 'information'
+  label: string
+  key: string
+}
+
 export type FullReadingAgoraView = {
   state: FullReadingPanelState
   notice: string | null
@@ -159,6 +194,10 @@ export type FullReadingAgoraView = {
   locks: string[]
   footer: string | null
   run_id: string | null
+  message: FullReadingMessageView | null
+  lead_summary: FullReadingLeadSummaryView | null
+  cliente: FullReadingCustomer | null
+  attention: FullReadingAttention | null
   // Muda sempre que o conteúdo muda: a extensão só redesenha quando muda.
   view_key: string
 }
@@ -275,14 +314,45 @@ function limitPrefill(
     : value
 }
 
+// Só um número de valor (ex.: "149,90", "1.234,56", "149.90"). Não
+// interpreta texto livre: o que não for número fica vazio.
+const AMOUNT_PATTERN =
+  /^(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$|^\d+\.\d{1,2}$/
+
+function cleanAmount(
+  value: unknown,
+): string {
+  const amount =
+    clean(value).replace(/^R\$\s*/i, '')
+
+  return AMOUNT_PATTERN.test(amount)
+    ? amount
+    : ''
+}
+
+function cleanCode<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T | '' {
+  const code =
+    clean(value).toLowerCase()
+
+  return (allowed as readonly string[]).includes(code)
+    ? (code as T)
+    : ''
+}
+
 function buildClosingPrefill(
-  closing: FullReadingClosingData | undefined,
+  closing: Partial<FullReadingClosingData> | undefined,
 ): FullReadingClosingData {
   return {
     produto: limitPrefill(clean(closing?.produto)),
     valor: limitPrefill(clean(closing?.valor)),
     forma_pagamento: limitPrefill(clean(closing?.forma_pagamento)),
     motivo_perda: limitPrefill(clean(closing?.motivo_perda)),
+    valor_total: cleanAmount(closing?.valor_total),
+    forma_pagamento_codigo: cleanCode(closing?.forma_pagamento_codigo, FULL_READING_PAYMENT_METHOD_CODES),
+    tipo_pagamento_codigo: cleanCode(closing?.tipo_pagamento_codigo, FULL_READING_PAYMENT_TYPE_CODES),
   }
 }
 
@@ -304,6 +374,10 @@ export function buildCycleClosingPath({
     if (prefill.produto) params.set('produto', prefill.produto)
     if (prefill.valor) params.set('valor', prefill.valor)
     if (prefill.forma_pagamento) params.set('pagamento', prefill.forma_pagamento)
+    // Campos codificados: o modal preenche por eles, sem interpretar texto.
+    if (prefill.valor_total) params.set('valor_total', prefill.valor_total)
+    if (prefill.forma_pagamento_codigo) params.set('pagamento_codigo', prefill.forma_pagamento_codigo)
+    if (prefill.tipo_pagamento_codigo) params.set('tipo_codigo', prefill.tipo_pagamento_codigo)
   }
 
   if (close === 'perdido') {
@@ -318,30 +392,15 @@ export function buildCycleClosingPath({
   return `/sales-cycles/${encodeURIComponent(cycleId)}${query ? `?${query}` : ''}`
 }
 
-function isPastOrInvalid(
-  value: string | null,
-  referenceTime: string,
-): boolean {
-  const time =
-    toTime(value)
-
-  const reference =
-    toTime(referenceTime) ?? Date.now()
-
-  return time === null || time <= reference
-}
-
 function buildStageCard({
   decision,
   kanban,
   cycleId,
-  referenceTime,
   lastCustomerMessageAt,
 }: {
   decision: FullReadingPanelReading['decision']
   kanban: FullReadingPanelKanban
   cycleId: string
-  referenceTime: string
   lastCustomerMessageAt: string | null
 }): FullReadingStageCard | null {
   const suggested =
@@ -432,17 +491,9 @@ function buildStageCard({
     return null
   }
 
-  // Aplicar só muda a etapa: a próxima ação registrada continua a mesma
-  // (a rota apply-suggestion grava o que vier no corpo). Uma data que já
-  // passou não pode ir (a rota recusa); vai só o texto.
-  const nextAction =
-    clean(kanban.next_action) || null
-
-  const nextActionDate =
-    nextAction && !isPastOrInvalid(kanban.next_action_date, referenceTime)
-      ? kanban.next_action_date
-      : null
-
+  // Aplicar só muda a etapa: com preserve_next_action a rota
+  // apply-suggestion não toca na próxima ação registrada nem na data dela,
+  // mesmo vencida.
   return {
     ...base,
     kind: 'apply',
@@ -451,8 +502,9 @@ function buildStageCard({
     apply_request: {
       cycle_id: cycleId,
       applied_status: suggested,
-      next_action: nextAction,
-      next_action_date: nextActionDate,
+      next_action: null,
+      next_action_date: null,
+      preserve_next_action: true,
       source: 'whatsapp_companion',
       confirmed_by_human: true,
       suggestion: {
@@ -461,8 +513,8 @@ function buildStageCard({
         action_channel: null,
         action_result: null,
         result_detail: null,
-        next_action: nextAction,
-        next_action_date: nextActionDate,
+        next_action: null,
+        next_action_date: null,
         summary: clean(decision.situacao_resumo) || reason,
         tags: [],
         should_close_won: false,
@@ -534,7 +586,6 @@ export function buildFullReadingAgoraView({
   failureCode,
   kanban,
   cycleId,
-  referenceTime,
   lastCustomerMessageAt,
 }: {
   state: FullReadingPanelState
@@ -542,7 +593,6 @@ export function buildFullReadingAgoraView({
   failureCode: string | null
   kanban: FullReadingPanelKanban
   cycleId: string
-  referenceTime: string
   lastCustomerMessageAt: string | null
 }): FullReadingAgoraView {
   const kanbanLabel =
@@ -573,7 +623,6 @@ export function buildFullReadingAgoraView({
           decision: shownReading.decision,
           kanban,
           cycleId,
-          referenceTime,
           lastCustomerMessageAt,
         })
       : null
@@ -621,12 +670,204 @@ export function buildFullReadingAgoraView({
     locks,
     footer: shownReading ? buildFooter(shownReading.completed_at) : null,
     run_id: shownReading?.run_id ?? null,
+    message:
+      shownReading && main
+        ? buildMessageView({
+            reading: shownReading,
+            main,
+            locks,
+          })
+        : null,
+    lead_summary:
+      shownReading && main?.situacao
+        ? {
+            title: shownReading.completed_at && toTime(shownReading.completed_at) !== null
+              ? `Resumo da leitura completa · ${formatTranscriptTimestamp(shownReading.completed_at)}`
+              : 'Resumo da leitura completa',
+            text: main.situacao,
+          }
+        : null,
+    cliente:
+      shownReading
+        ? buildCustomerView(shownReading.decision)
+        : null,
+    attention:
+      shownReading && main
+        ? buildAttention({
+            decision: shownReading.decision,
+            runId: shownReading.run_id,
+            stageCard,
+            locks,
+          })
+        : null,
   }
 
   return {
     ...view,
     view_key: hashKey(JSON.stringify(view)),
   }
+}
+
+// ---------------------------------------------------------------------------
+// MENSAGEM, resumo, CLIENTE e ícone minimizado a partir da leitura
+// ---------------------------------------------------------------------------
+
+export const FULL_READING_NO_SEND_NOTICE =
+  'A leitura recomenda não enviar nada agora'
+
+const NO_SEND_ACTIONS =
+  new Set(['nao_intervir', 'verificacao_interna'])
+
+const NO_SEND_WORDING =
+  /^\s*n[aã]o\s+(?:enviar|envie|mandar|mande)\b/i
+
+function sectionText(
+  section: FullReadingAnalysisSection | undefined,
+): string {
+  if (!section) {
+    return ''
+  }
+
+  return section.blocks
+    .map((block) =>
+      block.type === 'list'
+        ? block.items.map((item) => `- ${item}`).join('\n')
+        : block.items.join('\n'),
+    )
+    .join('\n\n')
+    .trim()
+}
+
+function buildMessageView({
+  reading,
+  main,
+  locks,
+}: {
+  reading: FullReadingPanelReading
+  main: FullReadingAgoraMain
+  locks: string[]
+}): FullReadingMessageView {
+  const text =
+    sectionText(
+      parseFullReadingAnalysisSections(reading.analysis_markdown)
+        .find((section) => section.key === 'mensagem'),
+    )
+
+  const noSend =
+    NO_SEND_ACTIONS.has(reading.decision.acao_agora) ||
+    NO_SEND_WORDING.test(text) ||
+    locks.includes('ganho_sem_retomada') ||
+    locks.includes('encerrado_sem_acao')
+
+  if (noSend) {
+    return {
+      mode: 'no_send',
+      notice: FULL_READING_NO_SEND_NOTICE,
+      section_text: text,
+      recommended_objective: null,
+      suggested_message: null,
+      run_id: reading.run_id,
+    }
+  }
+
+  return {
+    mode: 'send',
+    notice: null,
+    section_text: text,
+    recommended_objective: main.acao || null,
+    suggested_message: text || null,
+    run_id: reading.run_id,
+  }
+}
+
+function cleanList(
+  values: unknown,
+): string[] {
+  return Array.isArray(values)
+    ? values.map(clean).filter((value) => value.length > 0)
+    : []
+}
+
+function buildCustomerView(
+  decision: FullReadingPanelReading['decision'],
+): FullReadingCustomer | null {
+  const customer =
+    (decision as { cliente?: Partial<FullReadingCustomer> }).cliente
+
+  if (!customer || typeof customer !== 'object') {
+    return null
+  }
+
+  return {
+    sabemos: cleanList(customer.sabemos),
+    inferimos: cleanList(customer.inferimos),
+    a_confirmar: cleanList(customer.a_confirmar),
+  }
+}
+
+// Ícone do painel minimizado: o mesmo AGORA da leitura. Sem ação para o
+// vendedor (não intervir, travas do kanban) ele fica quieto, salvo um
+// kanban atrasado.
+function buildAttention({
+  decision,
+  runId,
+  stageCard,
+  locks,
+}: {
+  decision: FullReadingPanelReading['decision']
+  runId: string
+  stageCard: FullReadingStageCard | null
+  locks: string[]
+}): FullReadingAttention | null {
+  const key = (suffix: string) =>
+    `full-reading:${runId}:${suffix}`
+
+  const locked =
+    locks.includes('ganho_sem_retomada') ||
+    locks.includes('encerrado_sem_acao')
+
+  if (!locked && decision.acao_agora === 'verificacao_interna') {
+    return {
+      level: 'attention',
+      label: 'Verificação interna antes de falar com o cliente',
+      key: key('verificacao_interna'),
+    }
+  }
+
+  if (!locked && decision.acao_agora === 'responder') {
+    return decision.pendencia_do_vendedor
+      ? {
+          level: 'attention',
+          label: 'Cliente aguardando resposta',
+          key: key('responder_pendente'),
+        }
+      : {
+          level: 'recommendation',
+          label: 'Responder o cliente',
+          key: key('responder'),
+        }
+  }
+
+  if (
+    !locked &&
+    (decision.acao_agora === 'retomar' || decision.acao_agora === 'follow_up')
+  ) {
+    return {
+      level: 'recommendation',
+      label: 'Retomar o contato',
+      key: key(decision.acao_agora),
+    }
+  }
+
+  if (stageCard) {
+    return {
+      level: 'information',
+      label: `Kanban desatualizado: a conversa indica ${stageCard.suggested_label}`,
+      key: key(`etapa_${stageCard.suggested_status}`),
+    }
+  }
+
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -738,6 +979,64 @@ function parseBlocks(
   return blocks
 }
 
+const CONFIRMATION_LABEL =
+  /^afirma[cç](?:[oõ]es|[aã]o)\s+a\s+confirmar\b/i
+
+const BULLET_PREFIX =
+  /^(?:[-*•]|\d+[.)])\s+/
+
+// Tira de "Condução do vendedor" o item "Afirmações a confirmar" e a lista
+// dele (itens aninhados, ou a lista logo abaixo de um rótulo em parágrafo).
+export function stripConfirmationList(
+  lines: string[],
+): string[] {
+  const kept: string[] = []
+  let skipping: { indent: number; paragraphLabel: boolean } | null = null
+
+  for (const line of lines) {
+    const indent =
+      (/^\s*/.exec(line)?.[0] ?? '').length
+
+    const trimmed =
+      line.trim()
+
+    const isBullet =
+      BULLET_PREFIX.test(trimmed)
+
+    if (skipping) {
+      if (!trimmed) {
+        continue
+      }
+
+      if (
+        isBullet &&
+        (skipping.paragraphLabel
+          ? indent >= skipping.indent
+          : indent > skipping.indent)
+      ) {
+        continue
+      }
+
+      skipping = null
+    }
+
+    const text =
+      stripInlineMarkdown(trimmed.replace(BULLET_PREFIX, ''))
+
+    if (CONFIRMATION_LABEL.test(text)) {
+      skipping = {
+        indent,
+        paragraphLabel: !isBullet,
+      }
+      continue
+    }
+
+    kept.push(line)
+  }
+
+  return kept
+}
+
 export function parseFullReadingAnalysisSections(
   markdown: string,
 ): FullReadingAnalysisSection[] {
@@ -773,8 +1072,13 @@ export function parseFullReadingAnalysisSections(
       continue
     }
 
+    // "Afirmações a confirmar" aparece uma vez só, no bloco separado.
     const blocks =
-      parseBlocks(chunk.lines)
+      parseBlocks(
+        definition.key === 'conducao'
+          ? stripConfirmationList(chunk.lines)
+          : chunk.lines,
+      )
 
     if (blocks.length > 0) {
       sections.push({
@@ -803,13 +1107,6 @@ export function parseFullReadingAnalysisSections(
   return sections
 }
 
-function cleanList(
-  values: unknown,
-): string[] {
-  return Array.isArray(values)
-    ? values.map(clean).filter((value) => value.length > 0)
-    : []
-}
 
 export function buildFullReadingAnalysisView({
   state,

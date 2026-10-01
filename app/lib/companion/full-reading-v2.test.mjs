@@ -1,6 +1,7 @@
-// Leitura completa v2: kanban do Yolen na entrada, campos novos na
+// Leitura completa (v2 em diante): kanban do Yolen na entrada, campos da
 // decisão e coerência da etapa sugerida. Fixtures sintéticas (nenhum
-// texto de cliente real).
+// texto de cliente real). As regras próprias da v3 ficam em
+// full-reading-v3.test.mjs.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -51,6 +52,14 @@ function decision(overrides = {}) {
       valor: '',
       forma_pagamento: 'pix',
       motivo_perda: '',
+      valor_total: '',
+      forma_pagamento_codigo: 'pix',
+      tipo_pagamento_codigo: '',
+    },
+    cliente: {
+      sabemos: ['Usa o serviço desde 20/09.'],
+      inferimos: [],
+      a_confirmar: [],
     },
     oportunidades: [{ descricao: 'Adicional sintético', status: 'adiada' }],
     afirmacoes_a_confirmar: [],
@@ -86,8 +95,8 @@ function kanban(overrides = {}) {
 // Prompt
 // ---------------------------------------------------------------------------
 
-test('prompt v2: versão nova e regras genéricas do kanban no sistema', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v2')
+test('prompt: versão atual e regras genéricas do kanban no sistema', () => {
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v3')
 
   const system =
     buildFullReadingSystemPrompt()
@@ -278,7 +287,7 @@ test('esquema v2: campos novos obrigatórios, sem união e sem opcional', () => 
   assert.deepEqual([...FULL_READING_KANBAN_STAGES], decisionSchema.properties.etapa_kanban_sugerida.enum)
   assert.deepEqual(
     decisionSchema.properties.fechamento.required,
-    ['produto', 'valor', 'forma_pagamento', 'motivo_perda'],
+    ['produto', 'valor', 'forma_pagamento', 'motivo_perda', 'valor_total', 'forma_pagamento_codigo', 'tipo_pagamento_codigo'],
   )
   assert.equal(decisionSchema.properties.fechamento.additionalProperties, false)
 
@@ -302,6 +311,9 @@ test('parser v2: lê os campos novos e normaliza a caixa da etapa', () => {
     valor: '',
     forma_pagamento: 'pix',
     motivo_perda: '',
+    valor_total: '',
+    forma_pagamento_codigo: 'pix',
+    tipo_pagamento_codigo: '',
   })
 })
 

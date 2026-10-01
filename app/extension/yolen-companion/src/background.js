@@ -973,6 +973,19 @@ async function handleCompanionMessage(message, sender) {
     )
   }
 
+  // Leitura completa (HML): "Gerar mensagem" a partir da leitura. A rota
+  // só existe no preview com a flag ligada; não grava nada.
+  if (
+    message.action ===
+    'GENERATE_FULL_READING_MESSAGE'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/full-reading/message',
+      message.payload,
+    )
+  }
+
   if (message.action === 'REGISTER_MESSAGE_ACTION') {
     return requestYolenWithToken(
       message,

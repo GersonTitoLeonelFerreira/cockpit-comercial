@@ -12,6 +12,7 @@
     "build:companion-extension:homolog": "node app/extension/yolen-companion/scripts/build-package.mjs --homolog",
     "verify:companion-firefox-homolog": "node app/extension/yolen-companion/scripts/verify-staged-build.mjs firefox homolog",
     "build:companion-extension:homolog-manychat": "node app/extension/yolen-companion/scripts/build-package.mjs --homolog-manychat",
+    "companion:hml-local": "node scripts/companion-hml-local.mjs",
     "verify:companion-firefox-homolog-manychat": "node app/extension/yolen-companion/scripts/verify-staged-build.mjs firefox homolog-manychat",
     "start": "next start",
     "lint": "eslint",

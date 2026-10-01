@@ -123,6 +123,7 @@ mock.module(
 
 const { POST: decisionStatePost } = await import('./route.ts')
 const { POST: analysisPost } = await import('../analysis-view-model/route.ts')
+const { POST: messagePost } = await import('../full-reading/message/route.ts')
 
 function untouchableAdmin() {
   return new Proxy({}, {
@@ -214,7 +215,7 @@ function freshRunAdmin() {
         cycle_id: CYCLE,
         conversation_key: CONVERSATION,
         status: 'succeeded',
-        prompt_version: 'full-reading-v2',
+        prompt_version: 'full-reading-v3',
         reference_time: '2026-09-30T12:00:00.000Z',
         created_at: '2026-09-30T12:00:00.000Z',
         started_at: '2026-09-30T12:00:00.000Z',
@@ -233,7 +234,8 @@ function freshRunAdmin() {
           por_que: 'Sem pergunta em aberto.',
           etapa_kanban_sugerida: 'ganho',
           motivo_etapa: 'Pediu acesso em 29/09.',
-          fechamento: { produto: '', valor: '', forma_pagamento: '', motivo_perda: '' },
+          fechamento: { produto: '', valor: '', forma_pagamento: '', motivo_perda: '', valor_total: '', forma_pagamento_codigo: '', tipo_pagamento_codigo: '' },
+          cliente: { sabemos: ['Usa o serviço.'], inferimos: [], a_confirmar: [] },
           oportunidades: [],
           afirmacoes_a_confirmar: [],
           alertas_de_captura: [],
@@ -307,4 +309,30 @@ test('flag ligada em preview: a resposta de hoje ganha só `full_reading` (e per
 
     // Rodada fresca: nenhuma escrita.
     assert.deepEqual(memory.writes, [])
+  }))
+
+test('Gerar mensagem da leitura: com a flag desligada a rota não existe (404) e não toca no banco', () =>
+  withEnv({ COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'preview', ANTHROPIC_API_KEY: 'sk-ant-teste' }, async () => {
+    adminBox.admin = untouchableAdmin()
+
+    const response = await messagePost(request({ ...BODY, seller_intent: 'Quero avisar que o acesso foi liberado.' }))
+
+    assert.equal(response.status, 404)
+  }))
+
+test('Gerar mensagem da leitura: em produção também não existe; em preview exige a sessão do Companion', () =>
+  withEnv({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production', ANTHROPIC_API_KEY: 'sk-ant-teste' }, async () => {
+    adminBox.admin = untouchableAdmin()
+
+    assert.equal((await messagePost(request({ ...BODY, seller_intent: 'x' }))).status, 404)
+
+    process.env.VERCEL_ENV = 'preview'
+
+    const unauthenticated = await messagePost(new Request('https://preview.example/api/companion/full-reading/message', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...BODY, seller_intent: 'x' }),
+    }))
+
+    assert.equal(unauthenticated.status, 401)
   }))

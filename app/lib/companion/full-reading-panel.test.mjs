@@ -20,6 +20,10 @@ import {
 } from '../server/full-reading-panel.ts'
 
 import {
+  FULL_READING_PROMPT_VERSION,
+} from './full-reading/prompt.ts'
+
+import {
   FULL_READING_RUNNING_NOTICE,
   buildFullReadingAgoraView,
   buildFullReadingAnalysisView,
@@ -54,6 +58,14 @@ function storedDecision(overrides = {}, kanbanStatus = 'novo') {
       valor: 'R$ 199,90',
       forma_pagamento: 'pix',
       motivo_perda: '',
+      valor_total: '199,90',
+      forma_pagamento_codigo: 'pix',
+      tipo_pagamento_codigo: '',
+    },
+    cliente: {
+      sabemos: ['Usa o serviço desde 20/09.'],
+      inferimos: ['Deve renovar no fim do mês.'],
+      a_confirmar: ['Se o plano inclui o adicional.'],
     },
     oportunidades: [],
     afirmacoes_a_confirmar: ['Regra de renovação dita pelo vendedor'],
@@ -73,7 +85,7 @@ function run(overrides = {}) {
     run_id: 'run-1',
     cycle_id: CYCLE,
     status: 'succeeded',
-    prompt_version: 'full-reading-v2',
+    prompt_version: FULL_READING_PROMPT_VERSION,
     reference_time: minutesBefore(10),
     created_at: minutesBefore(10),
     started_at: minutesBefore(10),
@@ -152,7 +164,9 @@ test('frescor: "Atualizar análise" (force) cria rodada nova, mas não duas segu
   assert.equal(plan({ runs: [recent], force: true }).action, 'use')
 })
 
-test('frescor: rodada de prompt antigo (v1) não serve', () => {
+test('frescor: rodada de prompt antigo (v1, v2) não serve: a v3 roda sozinha', () => {
+  assert.equal(plan({ runs: [run({ prompt_version: 'full-reading-v2' })] }).action, 'start')
+
   const result = plan({ runs: [run({ prompt_version: 'full-reading-v1' })] })
 
   assert.equal(result.action, 'start')
@@ -400,7 +414,8 @@ test('painel: mensagem nova cria UMA rodada (trigger permitido pela constraint) 
   assert.equal(inserted[0].table, 'companion_full_reading_runs')
   assert.equal(inserted[0].payload.trigger_source, FULL_READING_PANEL_TRIGGER_SOURCE)
   assert.ok(['manual_preview', 'analysis_job'].includes(FULL_READING_PANEL_TRIGGER_SOURCE))
-  assert.equal(inserted[0].payload.prompt_version, 'full-reading-v2')
+  assert.equal(inserted[0].payload.prompt_version, FULL_READING_PROMPT_VERSION)
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v3')
   assert.equal(inserted[0].payload.status, 'queued')
 
   // Só companion_full_reading_runs recebe escrita.
@@ -560,7 +575,7 @@ test('AGORA: ganho sugerido → "Confirmar venda" abrindo o fechamento pré-pree
   assert.equal(view.stage_card.apply_request, null)
   assert.equal(
     view.stage_card.cycle_path,
-    `/sales-cycles/${CYCLE}?fechar=ganho&produto=Plano+Sint%C3%A9tico&valor=R%24+199%2C90&pagamento=pix`,
+    `/sales-cycles/${CYCLE}?fechar=ganho&produto=Plano+Sint%C3%A9tico&valor=R%24+199%2C90&pagamento=pix&valor_total=199%2C90&pagamento_codigo=pix`,
   )
   assert.equal(view.kanban_late, true)
   assert.equal(view.hide_stage_sla, true)
@@ -602,17 +617,18 @@ test('AGORA: etapa aberta → "Aplicar" com o corpo exato da rota apply-suggesti
   assert.equal(view.stage_card.apply_request.confirmed_by_human, true)
   assert.equal(view.stage_card.apply_request.suggestion.source, 'full_reading')
   assert.equal(view.stage_card.apply_request.suggestion.recommended_status, 'negociacao')
-  // A próxima ação registrada não é apagada pela mudança de etapa.
-  assert.equal(view.stage_card.apply_request.next_action, 'Enviar proposta')
-  assert.equal(view.stage_card.apply_request.next_action_date, '2026-10-02T13:00:00.000Z')
+  // Aplicar só muda a etapa: a rota preserva a próxima ação registrada
+  // (e a data dela, mesmo vencida) — o corpo nem leva esses campos.
+  assert.equal(view.stage_card.apply_request.preserve_next_action, true)
+  assert.equal(view.stage_card.apply_request.next_action, null)
+  assert.equal(view.stage_card.apply_request.next_action_date, null)
 
-  // Data já vencida não vai (a rota recusaria): só o texto.
   const past = agora({
     decisionOverrides: { fase_relacao: 'negociacao', venda_concluida: 'nao', etapa_kanban_sugerida: 'negociacao' },
     kanbanOverrides: { status: 'contato', next_action: 'Ligar', next_action_date: minutesBefore(60) },
   })
 
-  assert.equal(past.stage_card.apply_request.next_action, 'Ligar')
+  assert.equal(past.stage_card.apply_request.preserve_next_action, true)
   assert.equal(past.stage_card.apply_request.next_action_date, null)
 })
 

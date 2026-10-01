@@ -19,6 +19,7 @@ type ApplyCompanionSuggestionBody = {
   source?: unknown
   audio_count?: unknown
   confirmed_by_human?: unknown
+  preserve_next_action?: unknown
 }
 
 type JsonRecord = Record<string, unknown>
@@ -513,11 +514,20 @@ export async function POST(request: Request) {
       )
     }
 
-    let nextAction = getCleanString(body.next_action)
+    // Aplicar só a etapa (leitura completa do HML): a próxima ação
+    // registrada no kanban e a data dela, mesmo vencida, ficam como estão.
+    const preserveNextAction =
+      body.preserve_next_action === true
+
+    let nextAction = preserveNextAction
+      ? getNullableString(cycle.next_action)
+      : getCleanString(body.next_action)
     let nextActionDate: string | null
 
     try {
-      nextActionDate = normalizeNextActionDate(body.next_action_date)
+      nextActionDate = preserveNextAction
+        ? getNullableString(cycle.next_action_date)
+        : normalizeNextActionDate(body.next_action_date)
     } catch {
       return NextResponse.json<ApplyAISuggestionResponse>(
         {
@@ -531,18 +541,19 @@ export async function POST(request: Request) {
       )
     }
 
-    if (appliedStatus === 'novo') {
+    if (appliedStatus === 'novo' && !preserveNextAction) {
       nextAction = null
       nextActionDate = null
     }
 
-    if (!nextAction) {
+    if (!nextAction && !preserveNextAction) {
       nextActionDate = null
     }
 
     const now = new Date()
 
     if (
+      !preserveNextAction &&
       nextActionDate &&
       new Date(nextActionDate).getTime() <= now.getTime()
     ) {
@@ -587,11 +598,17 @@ export async function POST(request: Request) {
       )
     }
 
-    const updatePayload: JsonRecord = {
-      next_action: nextAction,
-      next_action_date: nextActionDate,
-      updated_at: nowIso,
-    }
+    // Com preserve_next_action a escrita nem inclui os campos da próxima
+    // ação: o kanban fica exatamente como estava neles.
+    const updatePayload: JsonRecord = preserveNextAction
+      ? {
+          updated_at: nowIso,
+        }
+      : {
+          next_action: nextAction,
+          next_action_date: nextActionDate,
+          updated_at: nowIso,
+        }
 
     if (statusChanged) {
       updatePayload.previous_status = currentStatus

@@ -446,3 +446,113 @@ test('apply-suggestion: replay da mesma sugestão já confirmada contra ciclo in
     'replay contra um ciclo já no estado desejado não deveria gerar nova escrita',
   )
 })
+
+// ---------------------------------------------------------------------
+// preserve_next_action (leitura completa do HML): "Aplicar" muda só a
+// etapa. A próxima ação registrada e a data dela — mesmo vencida — não
+// são apagadas nem alteradas. Banco falso; nenhum kanban real é tocado.
+// ---------------------------------------------------------------------
+
+test('apply-suggestion: preserve_next_action muda só a etapa e não toca na próxima ação vencida', async () => {
+  const overdue = '2026-09-01T12:00:00.000Z'
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('sales_cycles', openCycle({ next_action: 'Ligar para a cliente', next_action_date: overdue })),
+    updateStep('sales_cycles', null),
+    insertStep('cycle_events', null),
+    insertStep('cycle_events', null),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycle,
+        applied_status: 'negociacao',
+        next_action: null,
+        next_action_date: null,
+        preserve_next_action: true,
+        suggestion: suggestion({ source: 'full_reading' }),
+        source: 'whatsapp_companion',
+        confirmed_by_human: true,
+      },
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.data.status, 'negociacao')
+  assert.equal(payload.data.next_action, 'Ligar para a cliente')
+  assert.equal(payload.data.next_action_date, overdue)
+
+  const update = fake.calls.find((call) => call.table === 'sales_cycles' && call.method === 'update')
+
+  assert.equal('next_action' in update.payload, false)
+  assert.equal('next_action_date' in update.payload, false)
+  assert.equal(update.payload.status, 'negociacao')
+  assert.equal(update.payload.previous_status, 'contato')
+
+  const events = fake.calls
+    .filter((call) => call.table === 'cycle_events' && call.method === 'insert')
+    .map((call) => call.payload.event_type)
+
+  assert.deepEqual(events, ['stage_changed', 'ai_suggestion_applied'])
+})
+
+test('apply-suggestion: preserve_next_action não abre a trava de ganho/perdido', async () => {
+  for (const appliedStatus of ['ganho', 'perdido']) {
+    const fake = useAdmin([])
+    const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+    const response = await POST(
+      postRequest({
+        token,
+        body: {
+          cycle_id: IDS.cycle,
+          applied_status: appliedStatus,
+          preserve_next_action: true,
+          suggestion: suggestion({ recommended_status: appliedStatus }),
+          confirmed_by_human: true,
+        },
+      }),
+    )
+
+    assert.equal(response.status, 400, appliedStatus)
+    assert.equal(fake.calls.length, 0, appliedStatus)
+  }
+})
+
+test('apply-suggestion: sem preserve_next_action o comportamento de hoje continua (grava a próxima ação do corpo)', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('sales_cycles', openCycle({ next_action: 'Ligar para a cliente', next_action_date: null })),
+    updateStep('sales_cycles', null),
+    insertStep('cycle_events', null),
+    insertStep('cycle_events', null),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycle,
+        applied_status: 'negociacao',
+        next_action: null,
+        suggestion: suggestion(),
+        confirmed_by_human: true,
+      },
+    }),
+  )
+
+  assert.equal(response.status, 200)
+
+  const update = fake.calls.find((call) => call.table === 'sales_cycles' && call.method === 'update')
+
+  assert.equal(update.payload.next_action, null)
+  assert.equal(update.payload.next_action_date, null)
+})

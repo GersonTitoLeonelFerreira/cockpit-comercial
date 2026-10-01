@@ -410,6 +410,11 @@ function createCompanionCore(ctx) {
     get leadSummaryViewTools() {
       return leadSummaryViewTools
     },
+    // Leitura completa (HML): o card do resumo mostra a situação da
+    // leitura no lugar do resumo salvo antigo.
+    get getFullReadingLeadSummaryCardHtml() {
+      return getFullReadingLeadSummaryCardHtml
+    },
     get renderPanel() {
       return renderPanel
     },
@@ -7067,7 +7072,19 @@ function createCompanionCore(ctx) {
 
     let commercialHtml = ''
 
-    if (
+    const fullReadingClientView =
+      getCurrentFullReadingViews().agora
+
+    if (fullReadingClientView?.cliente) {
+      // Leitura completa (HML): Sabemos / Inferimos / A confirmar vêm da
+      // leitura; o bloco antigo (inclusive "O que falta descobrir") sai.
+      // "Relacionamento e histórico" continua abaixo, como hoje.
+      commercialHtml =
+        sellerInformationViewTools.renderFullReadingSlot(
+          'client',
+          fullReadingClientView,
+        )
+    } else if (
       state.customerViewModel?.status === 'ready' &&
       isCurrentCustomerViewModelContext
     ) {
@@ -7221,6 +7238,42 @@ function createCompanionCore(ctx) {
       views,
       getFullReadingStageOptions(views.agora),
     )
+  }
+
+  // MENSAGEM segue a leitura da AGORA atual (ou volta ao fluxo de hoje
+  // quando não há leitura). O controller ignora chamadas repetidas.
+  function syncFullReadingMessage() {
+    const cycleId =
+      getCanonicalResolutionCycleId()
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      return
+    }
+
+    messageController.syncFullReading?.(
+      {
+        cycle_id: cycleId,
+        conversation_key: conversationKey,
+      },
+      getCurrentFullReadingViews().agora?.message ?? null,
+    )
+  }
+
+  // Card do resumo na AGORA: com a leitura, mostra a situação dela (e não
+  // o resumo salvo antigo, que não é regravado no HML).
+  function getFullReadingLeadSummaryCardHtml() {
+    const view =
+      getCurrentFullReadingViews().agora
+
+    return view?.lead_summary
+      ? sellerInformationViewTools.renderFullReadingSlot(
+          'lead_summary',
+          view,
+        )
+      : ''
   }
 
   function requestFullReadingRefresh({
@@ -7557,6 +7610,12 @@ function createCompanionCore(ctx) {
   function isSellerMessageMountEligible() {
     if (!hasSellerMessageCommercialContext()) {
       return false
+    }
+
+    // Leitura completa (HML): a MENSAGEM vem da leitura e não depende do
+    // resumo do lead.
+    if (getCurrentFullReadingViews().agora?.message) {
+      return true
     }
 
     const cycleId =
@@ -8360,7 +8419,15 @@ function createCompanionCore(ctx) {
           'complete',
       )
 
+    // Leitura completa (HML): o ícone minimizado usa a AGORA da leitura.
+    const fullReadingAgora =
+      getCurrentFullReadingViews().agora
+
+    const fullReadingDrivesRail =
+      Boolean(fullReadingAgora?.main)
+
     const neutralSession =
+      !fullReadingDrivesRail &&
       hasCurrentReading &&
       sellerInformationViewTools
         .isNeutralCommercialSession(
@@ -8432,11 +8499,35 @@ function createCompanionCore(ctx) {
     // `no_intervention`, senão o primeiro item de secondary — igual ao
     // que a aba expandida já mostra.
     const agoraSignal =
-      isCurrentAgoraContext
+      isCurrentAgoraContext &&
+      !fullReadingDrivesRail
         ? pickActionableAgoraSignal(
             state.agoraDecisionState.data,
           )
         : null
+
+    const fullReadingAttention =
+      fullReadingDrivesRail
+        ? fullReadingAgora.attention
+        : null
+
+    if (
+      fullReadingAttention &&
+      typeof fullReadingAttention.key === 'string'
+    ) {
+      addCandidate({
+        level:
+          fullReadingAttention.level,
+        key:
+          `seller-attention:${state.conversationKey}:${fullReadingAttention.key}`,
+        label:
+          fullReadingAttention.label,
+      }, {
+        attention: 300,
+        recommendation: 200,
+        information: 150,
+      }[fullReadingAttention.level] || 150)
+    }
 
     if (agoraSignal) {
       const levels = {
@@ -8499,6 +8590,7 @@ function createCompanionCore(ctx) {
     }
 
     if (
+      !fullReadingDrivesRail &&
       hasCurrentReading &&
       hasCurrentOperationalSuggestionChange()
     ) {
@@ -8518,6 +8610,7 @@ function createCompanionCore(ctx) {
     }
 
     if (
+      !fullReadingDrivesRail &&
       hasCurrentReading &&
       commercialReading
         ?.communication
@@ -8989,6 +9082,19 @@ function createCompanionCore(ctx) {
   function wirePanelInteractions(panel) {
     hydrateFullReadingSlots(panel)
     syncFullReadingPolling()
+    syncFullReadingMessage()
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="full-reading-open-analysis"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          setActiveSellerArea('analysis', {
+            focus: true,
+          })
+        })
+      })
 
     panel
       .querySelectorAll(

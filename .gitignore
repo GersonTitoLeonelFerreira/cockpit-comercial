@@ -45,3 +45,6 @@ next-env.d.ts
 
 # pacotes locais da extensão Yolen Companion
 /dist/
+
+# build local da extensão HML (npm run companion:hml-local)
+/yolen-firefox-dev/

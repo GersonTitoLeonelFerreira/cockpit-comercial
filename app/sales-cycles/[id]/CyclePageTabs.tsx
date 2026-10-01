@@ -1736,6 +1736,9 @@ export default function CyclePageTabs({
                 produto: closingRequest.produto,
                 valor: closingRequest.valor,
                 pagamento: closingRequest.pagamento,
+                valorTotal: closingRequest.valor_total,
+                pagamentoCodigo: closingRequest.pagamento_codigo,
+                tipoCodigo: closingRequest.tipo_codigo,
               }
             : null
         }

@@ -72,11 +72,43 @@ export const FULL_READING_KANBAN_STAGES = [
 export type FullReadingKanbanStage =
   (typeof FULL_READING_KANBAN_STAGES)[number]
 
+// Códigos do modal de ganho do Yolen. Texto vazio = não ficou claro na
+// conversa (o vendedor preenche).
+export const FULL_READING_PAYMENT_METHOD_CODES = [
+  'pix',
+  'credito',
+  'debito',
+  'boleto',
+  'dinheiro',
+  'transferencia',
+  'misto',
+  'outro',
+  '',
+] as const
+
+export const FULL_READING_PAYMENT_TYPE_CODES = [
+  'avista',
+  'entrada_parcelas',
+  'parcelado_sem_entrada',
+  'recorrente',
+  'outro',
+  '',
+] as const
+
 export type FullReadingClosingData = {
   produto: string
   valor: string
   forma_pagamento: string
   motivo_perda: string
+  valor_total: string
+  forma_pagamento_codigo: (typeof FULL_READING_PAYMENT_METHOD_CODES)[number]
+  tipo_pagamento_codigo: (typeof FULL_READING_PAYMENT_TYPE_CODES)[number]
+}
+
+export type FullReadingCustomer = {
+  sabemos: string[]
+  inferimos: string[]
+  a_confirmar: string[]
 }
 
 export type FullReadingDecision = {
@@ -92,6 +124,7 @@ export type FullReadingDecision = {
   etapa_kanban_sugerida: FullReadingKanbanStage
   motivo_etapa: string
   fechamento: FullReadingClosingData
+  cliente: FullReadingCustomer
   oportunidades: {
     descricao: string
     status: (typeof FULL_READING_OPPORTUNITY_STATUSES)[number]
@@ -154,6 +187,7 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
         'etapa_kanban_sugerida',
         'motivo_etapa',
         'fechamento',
+        'cliente',
         'oportunidades',
         'afirmacoes_a_confirmar',
         'alertas_de_captura',
@@ -220,6 +254,9 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
             'valor',
             'forma_pagamento',
             'motivo_perda',
+            'valor_total',
+            'forma_pagamento_codigo',
+            'tipo_pagamento_codigo',
           ],
           properties: {
             produto: {
@@ -242,6 +279,41 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
               description:
                 'Motivo da perda, como dito na conversa.',
             },
+            valor_total: {
+              type: 'string',
+              description:
+                'Só o número do total combinado (ex.: "1.250,00"), ou texto vazio se não houver um total claro.',
+            },
+            forma_pagamento_codigo: stringEnum(
+              FULL_READING_PAYMENT_METHOD_CODES,
+              'debito só quando a conversa disser cartão de débito; cobrança mensal no cartão de crédito é credito; na dúvida, texto vazio.',
+            ),
+            tipo_pagamento_codigo: stringEnum(
+              FULL_READING_PAYMENT_TYPE_CODES,
+              'Tipo de pagamento combinado; mensalidade ou assinatura é recorrente; na dúvida, texto vazio.',
+            ),
+          },
+        },
+        cliente: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            'O cliente em frases curtas, com data quando houver.',
+          required: [
+            'sabemos',
+            'inferimos',
+            'a_confirmar',
+          ],
+          properties: {
+            sabemos: stringArray(
+              'O que o cliente disse ou fez.',
+            ),
+            inferimos: stringArray(
+              'Interpretações, com o motivo.',
+            ),
+            a_confirmar: stringArray(
+              'O que ainda falta confirmar.',
+            ),
           },
         },
         oportunidades: {
@@ -355,6 +427,29 @@ function readEnum<T extends string>(
     )
 
   if (!match) {
+    fail(`${path}.${key}`, `valor fora do permitido: ${raw}`)
+  }
+
+  return match
+}
+
+// Enum que aceita texto vazio ("não ficou claro na conversa").
+function readOptionalCode<T extends string>(
+  record: Record<string, unknown>,
+  key: string,
+  allowed: readonly T[],
+  path: string,
+): T {
+  const raw =
+    readString(record, key, path, { allowEmpty: true })
+      .toLowerCase()
+
+  const match =
+    allowed.find(
+      (value) => value.toLowerCase() === raw,
+    )
+
+  if (match === undefined) {
     fail(`${path}.${key}`, `valor fora do permitido: ${raw}`)
   }
 
@@ -479,6 +574,13 @@ export function parseFullReadingOutput(
     fail(`${path}.fechamento`, 'deveria ser um objeto')
   }
 
+  const customerRaw =
+    decisionRaw.cliente
+
+  if (!isRecord(customerRaw)) {
+    fail(`${path}.cliente`, 'deveria ser um objeto')
+  }
+
   return {
     analise_markdown: analysis,
     decisao: {
@@ -534,6 +636,24 @@ export function parseFullReadingOutput(
         valor: readString(closingRaw, 'valor', `${path}.fechamento`, { allowEmpty: true }),
         forma_pagamento: readString(closingRaw, 'forma_pagamento', `${path}.fechamento`, { allowEmpty: true }),
         motivo_perda: readString(closingRaw, 'motivo_perda', `${path}.fechamento`, { allowEmpty: true }),
+        valor_total: readString(closingRaw, 'valor_total', `${path}.fechamento`, { allowEmpty: true }),
+        forma_pagamento_codigo: readOptionalCode(
+          closingRaw,
+          'forma_pagamento_codigo',
+          FULL_READING_PAYMENT_METHOD_CODES,
+          `${path}.fechamento`,
+        ),
+        tipo_pagamento_codigo: readOptionalCode(
+          closingRaw,
+          'tipo_pagamento_codigo',
+          FULL_READING_PAYMENT_TYPE_CODES,
+          `${path}.fechamento`,
+        ),
+      },
+      cliente: {
+        sabemos: readStringArray(customerRaw, 'sabemos', `${path}.cliente`),
+        inferimos: readStringArray(customerRaw, 'inferimos', `${path}.cliente`),
+        a_confirmar: readStringArray(customerRaw, 'a_confirmar', `${path}.cliente`),
       },
       oportunidades,
       afirmacoes_a_confirmar: readStringArray(

@@ -426,6 +426,17 @@ function createCompanionLeadSummaryController(ctx) {
   }
 
   function getCompanionLeadSummaryCardHtml() {
+    // Leitura completa (HML): a situação da leitura no lugar do resumo
+    // salvo antigo, que não é regravado.
+    const fullReadingCardHtml =
+      typeof ctx.getFullReadingLeadSummaryCardHtml === 'function'
+        ? ctx.getFullReadingLeadSummaryCardHtml()
+        : ''
+
+    if (fullReadingCardHtml) {
+      return fullReadingCardHtml
+    }
+
     if (ctx.state.companionLeadSummary?.status === 'idle') {
       return ''
     }

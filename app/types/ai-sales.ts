@@ -272,6 +272,11 @@ export interface ApplyAISuggestionRequest {
    * rejeitado antes de qualquer leitura/escrita.
    */
   confirmed_by_human: true
+  /**
+   * Leitura completa (HML): aplica só a etapa. A rota não altera a próxima
+   * ação registrada nem a data dela (mesmo vencida).
+   */
+  preserve_next_action?: boolean
 }
 
 export interface ApplyAISuggestionResponse {

@@ -9,9 +9,8 @@ import { listActiveProducts } from '@/app/lib/services/products'
 import type { Product } from '@/app/types/product'
 import type { PaymentMethod, PaymentType } from '@/app/types/sales_cycles'
 import {
-  matchPaymentMethod,
+  closingAmountToDecimal,
   matchProductByName,
-  parseClosingAmount,
 } from '@/app/lib/cycle-closing-link'
 
 type WinDealModalProps = {
@@ -20,12 +19,17 @@ type WinDealModalProps = {
   dealName?: string
   ownerUserId?: string
   companyId?: string
-  // Dados ditos na conversa (leitura completa do Companion). Só preenchem
-  // o campo quando batem com uma opção; o vendedor confere e confirma.
+  // Dados ditos na conversa (leitura completa do Companion). Valor, forma
+  // e tipo de pagamento vêm codificados pela leitura e entram direto; os
+  // textos livres só aparecem como dica. Campo vazio fica para o vendedor,
+  // que confere e confirma.
   prefill?: {
     produto?: string
     valor?: string
     pagamento?: string
+    valorTotal?: string
+    pagamentoCodigo?: PaymentMethod | ''
+    tipoCodigo?: PaymentType | ''
   } | null
   onClose: () => void
   onSuccess: () => void
@@ -188,21 +192,25 @@ export function WinDealModal({
     setRevenueDate((currentDate) => currentDate || getTodayISODate())
   }, [isOpen])
 
-  // Pré-preenchimento vindo da conversa: valor e forma de pagamento só
-  // quando o texto é inequívoco. Nada é salvo aqui.
+  // Pré-preenchimento pelos campos codificados da leitura (mapeamento
+  // direto, sem interpretar o texto livre). Nada é salvo aqui.
   useEffect(() => {
     if (!isOpen || !prefill) return
 
-    const amount = prefill.valor ? parseClosingAmount(prefill.valor) : null
+    const amount = prefill.valorTotal ? closingAmountToDecimal(prefill.valorTotal) : ''
 
-    if (amount !== null) {
-      setWonValue((current) => current || String(amount))
+    if (amount) {
+      setWonValue((current) => current || amount)
     }
 
-    const method = prefill.pagamento ? matchPaymentMethod(prefill.pagamento) : null
+    if (prefill.pagamentoCodigo) {
+      const method = prefill.pagamentoCodigo
+      setPaymentMethod((current) => current || method)
+    }
 
-    if (method) {
-      setPaymentMethod((current) => current || (method as PaymentMethod))
+    if (prefill.tipoCodigo) {
+      const type = prefill.tipoCodigo
+      setPaymentType((current) => current || type)
     }
   }, [isOpen, prefill])
 
