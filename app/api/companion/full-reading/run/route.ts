@@ -3,9 +3,12 @@
 // GET /api/companion/full-reading/run
 //   ?token=<COMPANION_FULL_READING_RUN_TOKEN>
 //   &company_id=<uuid>
-//   &conversation_key=<chave>
+//   &conversation_key=<chave>   (opcional quando cycle_id vem: a chave
+//                                sai do ledger do ciclo)
 //   [&cycle_id=<uuid>]          (padrão: ciclo mais recente da conversa)
 //   [&reference_time=<ISO>]     (padrão: agora)
+//   [&require_structured_output=1]  (modo estrito: recusa do formato
+//                                    fixo vira falha, sem repetir sem ele)
 //
 // Cria uma rodada em companion_full_reading_runs e executa a leitura
 // depois de responder (after). A resposta NÃO devolve conteúdo da
@@ -117,7 +120,7 @@ export async function GET(
   const companyId =
     (url.searchParams.get('company_id') ?? '').trim()
 
-  const conversationKey =
+  let conversationKey =
     (url.searchParams.get('conversation_key') ?? '').trim()
 
   const cycleParam =
@@ -126,19 +129,22 @@ export async function GET(
   const referenceParam =
     (url.searchParams.get('reference_time') ?? '').trim()
 
+  const requireStructuredOutput =
+    url.searchParams.get('require_structured_output') === '1'
+
   if (!UUID_PATTERN.test(companyId)) {
     return badRequest('INVALID_COMPANY_ID')
   }
 
+  if (cycleParam.length > 0 && !UUID_PATTERN.test(cycleParam)) {
+    return badRequest('INVALID_CYCLE_ID')
+  }
+
   if (
-    conversationKey.length === 0 ||
+    (conversationKey.length === 0 && cycleParam.length === 0) ||
     conversationKey.length > MAX_CONVERSATION_KEY_LENGTH
   ) {
     return badRequest('INVALID_CONVERSATION_KEY')
-  }
-
-  if (cycleParam.length > 0 && !UUID_PATTERN.test(cycleParam)) {
-    return badRequest('INVALID_CYCLE_ID')
   }
 
   let referenceTime =
@@ -178,6 +184,41 @@ export async function GET(
 
   let cycleId =
     cycleParam
+
+  // Só cycle_id: a conversa sai do ledger do ciclo (assim o pedido não
+  // precisa carregar o telefone do cliente).
+  if (conversationKey.length === 0) {
+    const { data, error } =
+      await admin
+        .from('conversation_messages')
+        .select('conversation_key')
+        .eq('company_id', companyId)
+        .eq('cycle_id', cycleId)
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+    if (error) {
+      return NextResponse.json(
+        { error: 'CONVERSATION_LOOKUP_FAILED' },
+        { status: 502 },
+      )
+    }
+
+    const found =
+      data && typeof data.conversation_key === 'string'
+        ? data.conversation_key.trim()
+        : ''
+
+    if (found.length === 0 || found.length > MAX_CONVERSATION_KEY_LENGTH) {
+      return NextResponse.json(
+        { error: 'CONVERSATION_NOT_FOUND' },
+        { status: 404 },
+      )
+    }
+
+    conversationKey = found
+  }
 
   if (cycleId.length === 0) {
     const { data, error } =
@@ -260,6 +301,7 @@ export async function GET(
       model,
       effort,
       apiKey,
+      requireStructuredOutput,
     })
   })
 
@@ -269,5 +311,6 @@ export async function GET(
     model,
     effort,
     prompt_version: FULL_READING_PROMPT_VERSION,
+    require_structured_output: requireStructuredOutput,
   })
 }

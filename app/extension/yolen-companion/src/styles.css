@@ -2907,3 +2907,42 @@ html.yolen-companion-collapsed #app {
   line-height: 1.5;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* Leitura completa no painel (HML): linha do kanban, card principal,
+   card de etapa e rodapé. O conteúdo é montado com textContent. */
+.yolen-full-reading .yolen-full-reading-kanban {
+  margin-bottom: 10px;
+  color: #c7d2e0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.yolen-full-reading .yolen-full-reading-notice {
+  margin-bottom: 10px;
+}
+
+.yolen-full-reading .yolen-full-reading-main .yolen-decision-block + .yolen-decision-block {
+  margin-top: 10px;
+}
+
+.yolen-full-reading .yolen-full-reading-stage {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 10px;
+  background: rgba(146, 64, 14, 0.13);
+}
+
+.yolen-full-reading .yolen-full-reading-stage-title {
+  font-weight: 800;
+}
+
+.yolen-full-reading .yolen-full-reading-stage-reason {
+  margin-top: 4px;
+  color: #a8b6c8;
+}
+
+.yolen-full-reading .yolen-full-reading-section + .yolen-full-reading-section {
+  margin-top: 12px;
+}

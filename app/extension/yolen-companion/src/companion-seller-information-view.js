@@ -2343,6 +2343,309 @@
     `
   }
 
+  // Leitura completa (HML, flag COMPANION_FULL_READING_PANEL no backend).
+  // O texto do modelo NUNCA entra em HTML: o HTML do painel leva só um
+  // marcador com a chave da view, e o conteúdo é montado depois por
+  // hydrateFullReadingSlots, com createElement e textContent.
+  function renderFullReadingSlot(kind, view) {
+    if (
+      (kind !== 'agora' && kind !== 'analysis') ||
+      !view ||
+      typeof view !== 'object' ||
+      typeof view.view_key !== 'string'
+    ) {
+      return ''
+    }
+
+    return (
+      '<div class="yolen-card yolen-seller-area-card yolen-full-reading"' +
+      ` data-yolen-full-reading="${escapeHtml(kind)}"` +
+      ` data-yolen-full-reading-key="${escapeHtml(view.view_key)}"` +
+      ` data-yolen-full-reading-state="${escapeHtml(String(view.state || ''))}"` +
+      '></div>'
+    )
+  }
+
+  function fullReadingText(value) {
+    return typeof value === 'string'
+      ? value.replace(/\s+/g, ' ').trim()
+      : ''
+  }
+
+  function createTextElement(doc, tag, className, value) {
+    const node = doc.createElement(tag)
+
+    if (className) {
+      node.className = className
+    }
+
+    node.textContent = fullReadingText(value)
+
+    return node
+  }
+
+  function appendFullReadingNotice(doc, nodes, view) {
+    const notice = fullReadingText(view.notice)
+
+    if (!notice) {
+      return
+    }
+
+    const line = doc.createElement('div')
+    line.className =
+      view.state === 'failed'
+        ? 'yolen-full-reading-notice yolen-status-warning'
+        : 'yolen-inline-loading-status yolen-full-reading-notice'
+    line.setAttribute('role', 'status')
+    line.setAttribute('aria-live', 'polite')
+    line.setAttribute('data-yolen-full-reading-notice', String(view.state || ''))
+
+    if (view.state === 'running') {
+      const spinner = doc.createElement('span')
+      spinner.className = 'yolen-spinner'
+      spinner.setAttribute('aria-hidden', 'true')
+      line.appendChild(spinner)
+    }
+
+    line.appendChild(doc.createTextNode(notice))
+    nodes.push(line)
+  }
+
+  function buildAgoraFullReadingNodes(doc, view, options) {
+    const nodes = []
+
+    nodes.push(createTextElement(doc, 'div', 'yolen-section-label', 'Agora'))
+
+    const kanbanLine = fullReadingText(view.kanban_line)
+
+    if (kanbanLine) {
+      const kanban = createTextElement(doc, 'div', 'yolen-full-reading-kanban', kanbanLine)
+      kanban.setAttribute('data-yolen-full-reading-kanban', String(view.kanban?.status || ''))
+      nodes.push(kanban)
+    }
+
+    appendFullReadingNotice(doc, nodes, view)
+
+    const main = view.main && typeof view.main === 'object' ? view.main : null
+
+    if (main) {
+      const card = doc.createElement('div')
+      card.className = 'yolen-full-reading-main'
+      card.setAttribute('data-yolen-full-reading-main', '')
+
+      for (const [label, value, key] of [
+        ['Situação', main.situacao, 'situacao'],
+        ['Ação', main.acao, 'acao'],
+        ['Por quê', main.por_que, 'por_que'],
+      ]) {
+        const text = fullReadingText(value)
+
+        if (!text) {
+          continue
+        }
+
+        const block = doc.createElement('div')
+        block.className = 'yolen-decision-block'
+        block.setAttribute('data-yolen-full-reading-field', key)
+        block.appendChild(createTextElement(doc, 'div', 'yolen-decision-kicker', label))
+        block.appendChild(createTextElement(doc, 'div', 'yolen-decision-copy', text))
+        card.appendChild(block)
+      }
+
+      nodes.push(card)
+    }
+
+    const stage = view.stage_card && typeof view.stage_card === 'object' ? view.stage_card : null
+
+    if (stage) {
+      const card = doc.createElement('div')
+      card.className = 'yolen-decision-block yolen-full-reading-stage'
+      card.setAttribute('data-yolen-full-reading-stage-kind', String(stage.kind || ''))
+      card.appendChild(createTextElement(doc, 'div', 'yolen-decision-kicker', 'Etapa'))
+      card.appendChild(createTextElement(doc, 'div', 'yolen-decision-copy yolen-full-reading-stage-title', stage.title))
+
+      if (fullReadingText(stage.reason)) {
+        card.appendChild(createTextElement(doc, 'div', 'yolen-decision-copy yolen-full-reading-stage-reason', stage.reason))
+      }
+
+      const button = doc.createElement('button')
+      button.type = 'button'
+      button.className = 'yolen-primary-button'
+      button.setAttribute('data-yolen-action', 'full-reading-stage')
+      button.setAttribute('data-yolen-full-reading-stage-kind', String(stage.kind || ''))
+      button.textContent = fullReadingText(stage.button_label)
+
+      if (options?.stageBusy === true) {
+        button.disabled = true
+      }
+
+      const actions = doc.createElement('div')
+      actions.className = 'yolen-inline-actions'
+      actions.appendChild(button)
+      card.appendChild(actions)
+
+      const status = fullReadingText(options?.stageStatus)
+
+      if (status) {
+        const statusLine = createTextElement(doc, 'div', 'yolen-card-description', status)
+        statusLine.setAttribute('data-yolen-full-reading-stage-status', '')
+        statusLine.setAttribute('role', 'status')
+        card.appendChild(statusLine)
+      }
+
+      nodes.push(card)
+    }
+
+    const footer = fullReadingText(view.footer)
+
+    if (footer) {
+      nodes.push(createTextElement(doc, 'div', 'yolen-message-footnote yolen-full-reading-footer', footer))
+    }
+
+    return nodes
+  }
+
+  function appendFullReadingList(doc, section, items) {
+    const list = doc.createElement('ul')
+    list.className = 'yolen-seller-text-list'
+
+    for (const item of items) {
+      const text = fullReadingText(item)
+
+      if (text) {
+        list.appendChild(createTextElement(doc, 'li', '', text))
+      }
+    }
+
+    if (list.childNodes.length > 0) {
+      section.appendChild(list)
+    }
+  }
+
+  function createFullReadingSection(doc, key, title) {
+    const section = doc.createElement('section')
+    section.className = 'yolen-seller-section yolen-full-reading-section'
+    section.setAttribute('data-yolen-full-reading-section', key)
+    section.appendChild(createTextElement(doc, 'h3', '', title))
+
+    return section
+  }
+
+  function buildAnalysisFullReadingNodes(doc, view) {
+    const nodes = []
+
+    nodes.push(createTextElement(doc, 'div', 'yolen-section-label', 'Análise'))
+
+    appendFullReadingNotice(doc, nodes, view)
+
+    const sections = Array.isArray(view.sections) ? view.sections : []
+
+    for (const entry of sections) {
+      if (!entry || typeof entry !== 'object') {
+        continue
+      }
+
+      const section = createFullReadingSection(doc, String(entry.key || ''), fullReadingText(entry.title))
+      const blocks = Array.isArray(entry.blocks) ? entry.blocks : []
+
+      for (const block of blocks) {
+        const items = Array.isArray(block?.items) ? block.items : []
+
+        if (block?.type === 'list') {
+          appendFullReadingList(doc, section, items)
+        } else {
+          for (const item of items) {
+            if (fullReadingText(item)) {
+              section.appendChild(createTextElement(doc, 'div', 'yolen-seller-detail-copy', item))
+            }
+          }
+        }
+      }
+
+      nodes.push(section)
+    }
+
+    for (const [key, title, items] of [
+      ['afirmacoes_a_confirmar', 'Afirmações a confirmar', view.afirmacoes_a_confirmar],
+      ['alertas_de_captura', 'Alertas de captura', view.alertas_de_captura],
+    ]) {
+      const list = Array.isArray(items) ? items.filter((item) => fullReadingText(item)) : []
+
+      if (list.length === 0) {
+        continue
+      }
+
+      const section = createFullReadingSection(doc, key, title)
+      appendFullReadingList(doc, section, list)
+      nodes.push(section)
+    }
+
+    const footer = fullReadingText(view.footer)
+
+    if (footer) {
+      nodes.push(createTextElement(doc, 'div', 'yolen-message-footnote yolen-full-reading-footer', footer))
+    }
+
+    return nodes
+  }
+
+  // Preenche os marcadores da leitura completa dentro de `container`. Só
+  // preenche o marcador cuja chave bate com a view atual (um HTML antigo
+  // ainda pendente nunca recebe o conteúdo de uma view nova).
+  function hydrateFullReadingSlots(container, views, options) {
+    if (!container || typeof container.querySelectorAll !== 'function') {
+      return 0
+    }
+
+    let hydrated = 0
+
+    container
+      .querySelectorAll('[data-yolen-full-reading]')
+      .forEach((slot) => {
+        const kind = slot.getAttribute('data-yolen-full-reading')
+        const view =
+          kind === 'agora'
+            ? views?.agora
+            : kind === 'analysis'
+              ? views?.analysis
+              : null
+
+        if (
+          !view ||
+          typeof view.view_key !== 'string' ||
+          slot.getAttribute('data-yolen-full-reading-key') !== view.view_key
+        ) {
+          return
+        }
+
+        // Já montado com o mesmo conteúdo: não recria (um botão recriado
+        // entre o pointerdown e o click perderia o clique).
+        const signature =
+          kind === 'agora'
+            ? `${view.view_key}|${options?.stageBusy === true}|${fullReadingText(options?.stageStatus)}`
+            : view.view_key
+
+        if (
+          slot.getAttribute('data-yolen-full-reading-hydrated') === signature &&
+          slot.childNodes.length > 0
+        ) {
+          return
+        }
+
+        const doc = slot.ownerDocument
+        const nodes =
+          kind === 'agora'
+            ? buildAgoraFullReadingNodes(doc, view, options)
+            : buildAnalysisFullReadingNodes(doc, view)
+
+        slot.replaceChildren(...nodes)
+        slot.setAttribute('data-yolen-full-reading-hydrated', signature)
+        hydrated += 1
+      })
+
+    return hydrated
+  }
+
   const api = Object.freeze({
     escapeHtml,
     sellerText,
@@ -2355,6 +2658,8 @@
     renderAgoraViewModelSnapshot,
     renderAnalysisViewModel,
     renderCustomerViewModel,
+    renderFullReadingSlot,
+    hydrateFullReadingSlots,
     repeatsContent,
     novelSentences,
     splitSentences,

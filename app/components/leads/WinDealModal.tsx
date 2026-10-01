@@ -8,6 +8,11 @@ import * as salesAnalytics from '@/app/lib/services/sales-analytics'
 import { listActiveProducts } from '@/app/lib/services/products'
 import type { Product } from '@/app/types/product'
 import type { PaymentMethod, PaymentType } from '@/app/types/sales_cycles'
+import {
+  matchPaymentMethod,
+  matchProductByName,
+  parseClosingAmount,
+} from '@/app/lib/cycle-closing-link'
 
 type WinDealModalProps = {
   isOpen: boolean
@@ -15,6 +20,13 @@ type WinDealModalProps = {
   dealName?: string
   ownerUserId?: string
   companyId?: string
+  // Dados ditos na conversa (leitura completa do Companion). Só preenchem
+  // o campo quando batem com uma opção; o vendedor confere e confirma.
+  prefill?: {
+    produto?: string
+    valor?: string
+    pagamento?: string
+  } | null
   onClose: () => void
   onSuccess: () => void
 }
@@ -140,6 +152,7 @@ export function WinDealModal({
   dealId,
   dealName,
   companyId,
+  prefill = null,
   onClose,
   onSuccess,
 }: WinDealModalProps) {
@@ -174,6 +187,36 @@ export function WinDealModal({
     setError(null)
     setRevenueDate((currentDate) => currentDate || getTodayISODate())
   }, [isOpen])
+
+  // Pré-preenchimento vindo da conversa: valor e forma de pagamento só
+  // quando o texto é inequívoco. Nada é salvo aqui.
+  useEffect(() => {
+    if (!isOpen || !prefill) return
+
+    const amount = prefill.valor ? parseClosingAmount(prefill.valor) : null
+
+    if (amount !== null) {
+      setWonValue((current) => current || String(amount))
+    }
+
+    const method = prefill.pagamento ? matchPaymentMethod(prefill.pagamento) : null
+
+    if (method) {
+      setPaymentMethod((current) => current || (method as PaymentMethod))
+    }
+  }, [isOpen, prefill])
+
+  useEffect(() => {
+    if (!isOpen || !prefill?.produto || productId || products.length === 0) return
+
+    const product = matchProductByName(prefill.produto, products)
+
+    if (product) {
+      setProductId(product.id)
+      setWonUnitPrice(String(product.base_price))
+      setWonValue((current) => current || String(product.base_price))
+    }
+  }, [isOpen, prefill, products, productId])
 
   useEffect(() => {
     if (!isOpen || !companyId) {
@@ -392,6 +435,31 @@ export function WinDealModal({
             gap: 14,
           }}
         >
+          {prefill && (prefill.produto || prefill.valor || prefill.pagamento) && (
+            <div
+              data-closing-prefill="won"
+              style={{
+                border: `1px solid ${DS.amberBorder}`,
+                background: DS.amberBg,
+                borderRadius: DS.radiusContainer,
+                padding: '10px 12px',
+                color: DS.amberSoft,
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              Dito na conversa (leitura completa):{' '}
+              {[
+                prefill.produto ? `produto ${prefill.produto}` : null,
+                prefill.valor ? `valor ${prefill.valor}` : null,
+                prefill.pagamento ? `pagamento ${prefill.pagamento}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              . Confira cada campo antes de confirmar.
+            </div>
+          )}
+
           {dealName && (
             <div
               style={{

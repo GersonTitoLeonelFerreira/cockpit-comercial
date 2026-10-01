@@ -224,6 +224,17 @@ function createCompanionCore(ctx) {
   // FASE 16.6 — mesmo padrão de agoraDecisionStateRequestSequence acima,
   // para o ANÁLISE seller-facing view model.
   let analysisViewModelRequestSequence = 0
+
+  // Leitura completa no painel (HML): polling enquanto a rodada roda e o
+  // estado do botão do card de etapa. Ver getCurrentFullReadingViews().
+  const FULL_READING_POLL_INTERVAL_MS = 8000
+  const FULL_READING_POLL_MAX_MS = 6 * 60 * 1000
+
+  let fullReadingPollTimerId = 0
+  let fullReadingPollStartedAt = 0
+  let fullReadingPollScope = null
+  let fullReadingStageAction = null
+
   let captureIngestionTimerId = 0
   let captureIngestionInFlight = false
   let captureIngestionQueued = false
@@ -735,6 +746,12 @@ function createCompanionCore(ctx) {
     '[data-yolen-action="analyze-conversation"]'
 
   function handleAnalyzeActionClick() {
+    // "Atualizar análise" também pede uma leitura completa nova (só quando
+    // o backend já está servindo a leitura completa no painel).
+    requestFullReadingRefresh({
+      force: true,
+    })
+
     analyzeCurrentConversation({
       automatic: false,
       retryFailedJob:
@@ -1063,6 +1080,8 @@ function createCompanionCore(ctx) {
       container,
       openDetailsKeys,
     )
+
+    hydrateFullReadingSlots(container)
   }
 
   // Núcleo da estabilidade visual do painel (Onda 7): cada card/região do
@@ -5438,6 +5457,12 @@ function createCompanionCore(ctx) {
   }
 
   function canApplyCurrentSuggestion() {
+    // Com a leitura completa no painel, a sugestão antiga (inclusive o
+    // piso fixo de etapa) não é aplicável: a etapa vem só da leitura.
+    if (isFullReadingPanelActive()) {
+      return false
+    }
+
     const suggestion =
       state
         .conversationAnalysis
@@ -5752,7 +5777,9 @@ function createCompanionCore(ctx) {
         )
       }
 
-      details.push(`Etapa sugerida: ${getStageLabel(suggestion.recommended_status)}`)
+      if (!isFullReadingPanelActive()) {
+        details.push(`Etapa sugerida: ${getStageLabel(suggestion.recommended_status)}`)
+      }
 
       if (typeof suggestion.confidence === 'number') {
         details.push(`Confiança: ${Math.round(suggestion.confidence * 100)}%`)
@@ -6508,6 +6535,11 @@ function createCompanionCore(ctx) {
   }
 
   function getOperationalSuggestionHtml() {
+    // Com a leitura completa no painel, a etapa sugerida vem só dela.
+    if (isFullReadingPanelActive()) {
+      return ''
+    }
+
     const suggestion =
       state
         .conversationAnalysis
@@ -6821,11 +6853,45 @@ function createCompanionCore(ctx) {
     // atualização legítima: "leitura → linha de atualização → leitura
     // nova", nunca "leitura → spinner/aviso vazio → leitura nova"
     // (FNC-04).
+    const fullReadingAnalysis =
+      isCurrentAnalysisViewModelContext
+        ? getCurrentFullReadingViews().analysis
+        : null
+
+    // Leitura completa (HML): com leitura pronta, a ANÁLISE mostra as
+    // seções dela; rodando sem leitura anterior ou em falha, o aviso fica
+    // acima da ANÁLISE de hoje.
+    if (
+      state.analysisViewModel?.status === 'ready' &&
+      fullReadingAnalysis &&
+      Array.isArray(fullReadingAnalysis.sections) &&
+      fullReadingAnalysis.sections.length > 0
+    ) {
+      return `
+        ${sellerInformationViewTools.renderFullReadingSlot(
+          'analysis',
+          fullReadingAnalysis,
+        )}
+
+        <div class="yolen-inline-actions yolen-decision-actions">
+          ${getAnalysisActionButton()}
+        </div>
+      `
+    }
+
     if (
       state.analysisViewModel?.status === 'ready' &&
       isCurrentAnalysisViewModelContext
     ) {
       return `
+        ${
+          fullReadingAnalysis
+            ? sellerInformationViewTools.renderFullReadingSlot(
+                'analysis',
+                fullReadingAnalysis,
+              )
+            : ''
+        }
         <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
           ${getAnalysisJobStatusLineHtml()}
 
@@ -7058,6 +7124,297 @@ function createCompanionCore(ctx) {
     `
   }
 
+  // ---------------------------------------------------------------------
+  // Leitura completa no painel (HML, flag COMPANION_FULL_READING_PANEL no
+  // backend). Com a flag desligada as respostas não trazem `full_reading`
+  // e nada abaixo muda o painel.
+  // ---------------------------------------------------------------------
+
+  function isCurrentAgoraDecisionContext() {
+    return (
+      state.agoraDecisionState?.status === 'ready' &&
+      state.agoraDecisionStateCycleId ===
+        getCanonicalResolutionCycleId() &&
+      state.agoraDecisionStateConversationKey ===
+        getCaptureConversationKey() &&
+      state.agoraDecisionStateCompanyId ===
+        (state.companyId || null)
+    )
+  }
+
+  function isCurrentAnalysisViewContext() {
+    return (
+      state.analysisViewModel?.status === 'ready' &&
+      state.analysisViewModelCycleId ===
+        getCanonicalResolutionCycleId() &&
+      state.analysisViewModelConversationKey ===
+        getCaptureConversationKey() &&
+      state.analysisViewModelCompanyId ===
+        (state.companyId || null)
+    )
+  }
+
+  function readFullReadingView(data) {
+    const view =
+      data?.full_reading
+
+    return view &&
+      typeof view === 'object' &&
+      typeof view.view_key === 'string'
+      ? view
+      : null
+  }
+
+  function getCurrentFullReadingViews() {
+    return {
+      agora:
+        isCurrentAgoraDecisionContext()
+          ? readFullReadingView(
+              state.agoraDecisionState.data,
+            )
+          : null,
+      analysis:
+        isCurrentAnalysisViewContext()
+          ? readFullReadingView(
+              state.analysisViewModel.data,
+            )
+          : null,
+    }
+  }
+
+  function isFullReadingPanelActive() {
+    const views =
+      getCurrentFullReadingViews()
+
+    return Boolean(
+      views.agora ||
+      views.analysis,
+    )
+  }
+
+  function getFullReadingStageOptions(view) {
+    const action =
+      fullReadingStageAction &&
+      fullReadingStageAction.viewKey ===
+        view?.view_key
+        ? fullReadingStageAction
+        : null
+
+    return {
+      stageBusy:
+        action?.status === 'loading',
+      stageStatus:
+        action?.message || '',
+    }
+  }
+
+  function hydrateFullReadingSlots(root) {
+    const views =
+      getCurrentFullReadingViews()
+
+    if (!views.agora && !views.analysis) {
+      return
+    }
+
+    sellerInformationViewTools.hydrateFullReadingSlots(
+      root,
+      views,
+      getFullReadingStageOptions(views.agora),
+    )
+  }
+
+  function requestFullReadingRefresh({
+    force = false,
+  } = {}) {
+    if (!isFullReadingPanelActive()) {
+      return
+    }
+
+    void loadAgoraDecisionStateForCurrentCycle({
+      force: true,
+      forceFullReading: force,
+    })
+
+    void loadAnalysisViewModelForCurrentCycle({
+      force: true,
+      forceFullReading: force,
+    })
+  }
+
+  // Enquanto a leitura roda (≈45–50 s), AGORA/ANÁLISE são relidos a cada
+  // 8 s. O backend nunca dispara uma rodada nova por causa do polling.
+  function syncFullReadingPolling() {
+    const views =
+      getCurrentFullReadingViews()
+
+    const running =
+      views.agora?.state === 'running' ||
+      views.analysis?.state === 'running'
+
+    const scope =
+      `${state.companyId || ''}|${getCanonicalResolutionCycleId() || ''}|${getCaptureConversationKey() || ''}`
+
+    if (!running) {
+      fullReadingPollStartedAt = 0
+      fullReadingPollScope = null
+      return
+    }
+
+    if (fullReadingPollScope !== scope) {
+      fullReadingPollScope = scope
+      fullReadingPollStartedAt = Date.now()
+    }
+
+    if (
+      fullReadingPollTimerId ||
+      Date.now() - fullReadingPollStartedAt >
+        FULL_READING_POLL_MAX_MS
+    ) {
+      return
+    }
+
+    fullReadingPollTimerId =
+      window.setTimeout(() => {
+        fullReadingPollTimerId = 0
+
+        const currentScope =
+          `${state.companyId || ''}|${getCanonicalResolutionCycleId() || ''}|${getCaptureConversationKey() || ''}`
+
+        if (currentScope !== scope) {
+          return
+        }
+
+        requestFullReadingRefresh()
+      }, FULL_READING_POLL_INTERVAL_MS)
+  }
+
+  async function handleFullReadingStageClick() {
+    const view =
+      getCurrentFullReadingViews().agora
+
+    const card =
+      view?.stage_card
+
+    if (
+      !card ||
+      fullReadingStageAction?.status === 'loading'
+    ) {
+      return
+    }
+
+    // Ganho, Perdido e reabrir: só abre a tela do ciclo no Yolen (e o
+    // modal de fechamento). Quem fecha é o vendedor, lá.
+    if (card.kind !== 'apply') {
+      if (
+        typeof card.cycle_path === 'string' &&
+        card.cycle_path.startsWith('/sales-cycles/')
+      ) {
+        openYolen(card.cycle_path)
+      }
+
+      return
+    }
+
+    const request =
+      card.apply_request
+
+    if (
+      !request ||
+      request.cycle_id !==
+        getCanonicalResolutionCycleId()
+    ) {
+      return
+    }
+
+    if (
+      state
+        .leadResolutionViewModel
+        ?.capabilities
+        ?.can_apply_suggestion !== true
+    ) {
+      fullReadingStageAction = {
+        viewKey: view.view_key,
+        status: 'error',
+        message: 'Sem permissão para mudar a etapa deste ciclo.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    const confirmed =
+      window.confirm(
+        `Mudar a etapa no kanban do Yolen de ${card.current_label} para ${card.suggested_label}?`,
+      )
+
+    if (!confirmed) {
+      return
+    }
+
+    fullReadingStageAction = {
+      viewKey: view.view_key,
+      status: 'loading',
+      message: 'Aplicando no Yolen…',
+    }
+
+    renderPanel()
+
+    try {
+      const result =
+        await window.YolenCompanionApi.applySuggestion({
+          ...request,
+          edited_summary:
+            request.suggestion?.summary ?? null,
+          audio_count:
+            state.lastAnalysisAudioCount || 0,
+          // Só chega aqui depois do window.confirm acima.
+          confirmed_by_human: true,
+        })
+
+      if (
+        !result?.ok ||
+        !result.payload?.ok ||
+        !result.payload?.data
+      ) {
+        fullReadingStageAction = {
+          viewKey: view.view_key,
+          status: 'error',
+          message:
+            result?.payload?.error ||
+            'Não foi possível aplicar a etapa no Yolen.',
+        }
+
+        renderPanel()
+        return
+      }
+
+      fullReadingStageAction = {
+        viewKey: view.view_key,
+        status: 'done',
+        message: 'Etapa aplicada no Yolen.',
+      }
+
+      renderPanel()
+
+      // O ciclo é relido pelo caminho canônico (nunca editando o payload
+      // bruto aqui) e, com o kanban mudado, a leitura fica velha: o
+      // backend roda outra.
+      void resolveCurrentLead()
+      requestFullReadingRefresh()
+    } catch (error) {
+      fullReadingStageAction = {
+        viewKey: view.view_key,
+        status: 'error',
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Erro ao aplicar a etapa no Yolen.',
+      }
+
+      renderPanel()
+    }
+  }
+
   // AGORA é a única superfície de decisão: quando há um alerta relevante
   // (SLA, risco de atendimento, desvio de método, pergunta/objeção em
   // aberto), ele é o item de maior prioridade visual — o mesmo sinal que já
@@ -7094,6 +7451,40 @@ function createCompanionCore(ctx) {
 
     if (!isCurrentContext) {
       return ''
+    }
+
+    const fullReadingAgora =
+      getCurrentFullReadingViews().agora
+
+    // Leitura completa (HML): o card principal e a etapa vêm dela. Sem
+    // leitura pronta (rodando sem leitura anterior, ou falha), o AGORA de
+    // hoje continua embaixo do aviso. Os sinais secundários (já sem o SLA
+    // da etapa quando o kanban está atrasado) continuam.
+    if (fullReadingAgora) {
+      const agoraData =
+        state.agoraDecisionState.data
+
+      const legacyHtml =
+        fullReadingAgora.main
+          ? sellerInformationViewTools.renderAgoraViewModelSnapshot({
+              ...agoraData,
+              primary: null,
+              reasoning: null,
+              silent:
+                !Array.isArray(agoraData.secondary) ||
+                agoraData.secondary.length === 0,
+            })
+          : sellerInformationViewTools.renderAgoraViewModelSnapshot(
+              agoraData,
+            )
+
+      return (
+        sellerInformationViewTools.renderFullReadingSlot(
+          'agora',
+          fullReadingAgora,
+        ) +
+        legacyHtml
+      )
     }
 
     const snapshotHtml =
@@ -8596,6 +8987,19 @@ function createCompanionCore(ctx) {
   }
 
   function wirePanelInteractions(panel) {
+    hydrateFullReadingSlots(panel)
+    syncFullReadingPolling()
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="full-reading-stage"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          void handleFullReadingStageClick()
+        })
+      })
+
     panel
       .querySelectorAll(
         '[data-yolen-seller-area]',

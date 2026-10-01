@@ -56,9 +56,18 @@ function validDecision(overrides = {}) {
     venda_concluida: 'provavel',
     vez_de: 'cliente',
     pendencia_do_vendedor: false,
+    situacao_resumo: 'Cliente ativa, usando o serviço.',
     acao_agora: 'nao_intervir',
     acao_resumo: 'Não enviar nada agora.',
     por_que: 'Não há pendência e a vez é da cliente.',
+    etapa_kanban_sugerida: 'ganho',
+    motivo_etapa: 'Pediu acesso ao app em 29/09.',
+    fechamento: {
+      produto: '',
+      valor: '',
+      forma_pagamento: '',
+      motivo_perda: '',
+    },
     oportunidades: [
       {
         descricao: 'Aulas coletivas',
@@ -234,7 +243,7 @@ test('o prompt de sistema pede a análise e a decisão consistentes', () => {
   assert.match(system, /analise_markdown/)
   assert.match(system, /nunca pode contradizê-la/)
   assert.match(system, /"Não fazer nada agora" é uma decisão válida/)
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v1')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v2')
 })
 
 test('o prompt do usuário leva referência, cadastro e conversa', () => {

@@ -4,7 +4,9 @@
 // no projeto. Liga o raciocínio adaptativo, define o esforço e pede a
 // resposta num formato JSON fixo (saída estruturada). Se a API recusar o
 // formato, repete uma vez sem ele; o prompt também pede JSON, e o parser
-// aceita os dois casos.
+// aceita os dois casos. No modo estrito (requireStructuredOutput) não há
+// essa repetição: a recusa do formato vira erro, o que prova, numa rodada
+// bem-sucedida, que o esquema foi aceito pela API.
 
 export const ANTHROPIC_MESSAGES_URL =
   'https://api.anthropic.com/v1/messages'
@@ -41,6 +43,7 @@ export type ClaudeReadingRequest = {
   effort: ClaudeEffort | null
   outputSchema: Record<string, unknown> | null
   timeoutMs: number
+  requireStructuredOutput?: boolean
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
 }
@@ -387,6 +390,18 @@ export async function callClaudeReading(
 
     const message =
       readErrorMessage(result.payload)
+
+    if (
+      structured &&
+      isFormatRejection(result.status, message) &&
+      request.requireStructuredOutput === true
+    ) {
+      throw new ClaudeProviderError({
+        code: 'STRUCTURED_OUTPUT_REJECTED',
+        message: `A API recusou o formato fixo: ${message}`,
+        status: result.status,
+      })
+    }
 
     if (
       structured &&

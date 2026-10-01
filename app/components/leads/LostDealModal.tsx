@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 
 import { IconCircleX, IconLoader } from '@/app/components/icons/UiIcons'
@@ -24,6 +24,11 @@ type LostDealModalProps = {
   isOpen: boolean
   dealId: string
   dealName?: string
+  // Motivo dito na conversa (leitura completa do Companion). Vira a opção
+  // igual, se houver; senão "Outro" com o texto. O vendedor confere.
+  prefill?: {
+    motivo?: string
+  } | null
   onClose: () => void
   onSuccess: () => void
 }
@@ -97,6 +102,7 @@ export function LostDealModal({
   isOpen,
   dealId,
   dealName,
+  prefill = null,
   onClose,
   onSuccess,
 }: LostDealModalProps) {
@@ -105,6 +111,25 @@ export function LostDealModal({
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const motivo = prefill?.motivo?.trim()
+
+    if (!isOpen || !motivo) return
+
+    const normalize = (value: string) =>
+      value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+
+    const match = LOST_REASONS.find((reason) => normalize(reason) === normalize(motivo))
+
+    if (match && match !== LOST_REASON_OTHER) {
+      setLostReason((current) => current || match)
+      return
+    }
+
+    setLostReason((current) => current || LOST_REASON_OTHER)
+    setNote((current) => current || motivo)
+  }, [isOpen, prefill])
 
   const isLostWithOther = lostReason === LOST_REASON_OTHER
   const normalizedNote = note.trim()
@@ -253,6 +278,23 @@ export function LostDealModal({
             gap: 14,
           }}
         >
+          {prefill?.motivo?.trim() && (
+            <div
+              data-closing-prefill="lost"
+              style={{
+                border: `1px solid ${DS.amberBorder}`,
+                background: DS.amberBg,
+                borderRadius: DS.radiusContainer,
+                padding: '10px 12px',
+                color: DS.amberSoft,
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              Motivo dito na conversa (leitura completa): {prefill.motivo.trim()}. Confira antes de confirmar.
+            </div>
+          )}
+
           {dealName && (
             <div
               style={{

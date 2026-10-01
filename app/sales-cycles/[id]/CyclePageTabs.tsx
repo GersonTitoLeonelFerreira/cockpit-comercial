@@ -22,6 +22,11 @@ import { resolveActionId, getActionLabel } from '@/app/config/stageActions'
 import { setNextAction } from '@/app/lib/services/sales-cycles'
 import type { LeadStatus } from '@/app/types/sales_cycles'
 import {
+  readCycleClosingRequest,
+  stripCycleClosingParams,
+  type CycleClosingRequest,
+} from '@/app/lib/cycle-closing-link'
+import {
   IconWhatsApp,
   IconClipboard,
   IconPencil,
@@ -157,6 +162,9 @@ export default function CyclePageTabs({
   const [showLostModal, setShowLostModal] = useState(false)
   const [showActionModal, setShowActionModal] = useState(false)
   const [aiMoveStatus, setAiMoveStatus] = useState<LeadStatus | null>(null)
+  // Pedido de fechamento vindo do Companion (?fechar=ganho|perdido): só
+  // abre o modal de sempre, pré-preenchido. Quem fecha é o vendedor.
+  const [closingRequest, setClosingRequest] = useState<CycleClosingRequest | null>(null)
 
   // Form state
   const [action, setAction] = useState('')
@@ -182,6 +190,41 @@ export default function CyclePageTabs({
   const [toastError, setToastError] = useState<string | null>(null)
   // Copy phone feedback
   const [copiedPhone, setCopiedPhone] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const request = readCycleClosingRequest((key) => params.get(key))
+
+    if (!request) return
+
+    // Um recarregar da página não reabre o modal.
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${stripCycleClosingParams(window.location.search)}${window.location.hash}`,
+    )
+
+    // Só a oportunidade aberta na tela e só enquanto ela está aberta.
+    const opportunity = params.get('opportunity')
+    const isOpenCycle =
+      cycle.status !== 'ganho' &&
+      cycle.status !== 'perdido' &&
+      cycle.status !== 'cancelado'
+
+    if ((opportunity && opportunity !== cycle.id) || !isOpenCycle) return
+
+    setClosingRequest(request)
+
+    if (request.close === 'ganho') {
+      setShowWinModal(true)
+    } else {
+      setShowLostModal(true)
+    }
+    // Lido uma vez, na abertura da tela do ciclo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Auto-dismiss toast after 4 seconds
   useEffect(() => {
@@ -1687,10 +1730,23 @@ export default function CyclePageTabs({
         dealName={cycle?.leads?.name || 'Deal'}
         ownerUserId={cycle?.owner_user_id || undefined}
         companyId={cycle.company_id}
-        onClose={() => setShowWinModal(false)}
+        prefill={
+          closingRequest?.close === 'ganho'
+            ? {
+                produto: closingRequest.produto,
+                valor: closingRequest.valor,
+                pagamento: closingRequest.pagamento,
+              }
+            : null
+        }
+        onClose={() => {
+          setShowWinModal(false)
+          setClosingRequest(null)
+        }}
         onSuccess={() => {
           router.refresh()
           setShowWinModal(false)
+          setClosingRequest(null)
         }}
       />
 
@@ -1699,10 +1755,19 @@ export default function CyclePageTabs({
         isOpen={showLostModal}
         dealId={cycle.id}
         dealName={cycle?.leads?.name || 'Deal'}
-        onClose={() => setShowLostModal(false)}
+        prefill={
+          closingRequest?.close === 'perdido'
+            ? { motivo: closingRequest.motivo }
+            : null
+        }
+        onClose={() => {
+          setShowLostModal(false)
+          setClosingRequest(null)
+        }}
         onSuccess={() => {
           router.refresh()
           setShowLostModal(false)
+          setClosingRequest(null)
         }}
       />
 

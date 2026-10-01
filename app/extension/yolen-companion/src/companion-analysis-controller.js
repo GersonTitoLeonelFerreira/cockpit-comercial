@@ -489,6 +489,12 @@ function createCompanionAnalysisController(ctx) {
             cycle_id: cycleId,
             conversation_key:
               conversationKey,
+            // Leitura completa (HML): "Atualizar análise" pede uma
+            // rodada nova. Só é enviado quando o painel já está servindo
+            // a leitura completa.
+            ...(options.forceFullReading === true
+              ? { force_reanalysis: true }
+              : {}),
           })
 
       if (!isStillCurrentContext()) {
@@ -1491,6 +1497,10 @@ function createCompanionAnalysisController(ctx) {
             cycle_id: cycleId,
             conversation_key:
               conversationKey,
+            // Leitura completa (HML): ver loadAnalysisViewModel acima.
+            ...(options.forceFullReading === true
+              ? { force_reanalysis: true }
+              : {}),
           })
 
       if (!isStillCurrentContext()) {

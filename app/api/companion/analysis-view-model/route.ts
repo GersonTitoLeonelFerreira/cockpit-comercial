@@ -3,6 +3,11 @@ import {
 } from '@supabase/supabase-js'
 
 import {
+  randomUUID,
+} from 'crypto'
+
+import {
+  after,
   NextResponse,
 } from 'next/server'
 
@@ -16,6 +21,18 @@ import {
   verifyCompanionRequestToken,
 } from '@/app/lib/server/companion-token'
 
+import {
+  attachFullReadingToAnalysis,
+  buildAnalysisFullReadingView,
+  loadFullReadingPanelForRequest,
+} from '@/app/lib/server/full-reading-panel'
+
+// A leitura completa do painel (só em preview, com a flag
+// COMPANION_FULL_READING_PANEL=on) roda depois da resposta (after) e leva
+// por volta de 45 a 50 s.
+export const maxDuration =
+  300
+
 // FASE 16.6 — expõe o ANÁLISE seller-facing view model (Integrated
 // Commercial Context, FASE 16.4, traduzido por
 // app/lib/server/analysis-view-model.ts) para a extensão. Read-only:
@@ -27,6 +44,7 @@ import {
 type AnalysisViewModelBody = {
   cycle_id?: unknown
   conversation_key?: unknown
+  force_reanalysis?: unknown
 }
 
 function getCorsHeaders(
@@ -179,6 +197,9 @@ export async function POST(
     )
 
   try {
+    const referenceTime =
+      new Date().toISOString()
+
     const result =
       await loadAnalysisViewModel({
         admin,
@@ -191,13 +212,42 @@ export async function POST(
           body.conversation_key,
 
         reference_time:
-          new Date().toISOString(),
+          referenceTime,
       })
+
+    // Flag desligada: null, e a resposta é exatamente a de hoje.
+    const fullReading =
+      await loadFullReadingPanelForRequest({
+        admin,
+        companyId:
+          token.company_id,
+        cycleId:
+          body.cycle_id,
+        conversationKey:
+          body.conversation_key,
+        force:
+          body.force_reanalysis,
+        referenceTime,
+        schedule:
+          (task) => after(task),
+        createRunId:
+          randomUUID,
+      })
+
+    const data =
+      fullReading
+        ? attachFullReadingToAnalysis(
+            result,
+            buildAnalysisFullReadingView(
+              fullReading.snapshot,
+            ),
+          )
+        : result
 
     return NextResponse.json(
       {
         ok: true,
-        data: result,
+        data,
       },
       {
         status: 200,

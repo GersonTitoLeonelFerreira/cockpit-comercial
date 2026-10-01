@@ -57,15 +57,41 @@ export const FULL_READING_CONFIDENCE_LEVELS = [
   'baixa',
 ] as const
 
+// Etapas do kanban que a leitura pode sugerir (nomes internos). Cancelado
+// é encerramento administrativo e nunca é sugerido.
+export const FULL_READING_KANBAN_STAGES = [
+  'novo',
+  'contato',
+  'respondeu',
+  'negociacao',
+  'pausado',
+  'ganho',
+  'perdido',
+] as const
+
+export type FullReadingKanbanStage =
+  (typeof FULL_READING_KANBAN_STAGES)[number]
+
+export type FullReadingClosingData = {
+  produto: string
+  valor: string
+  forma_pagamento: string
+  motivo_perda: string
+}
+
 export type FullReadingDecision = {
   fase_relacao: (typeof FULL_READING_RELATIONSHIP_PHASES)[number]
   etapa_metodo_atual: string
   venda_concluida: (typeof FULL_READING_SALE_STATUSES)[number]
   vez_de: (typeof FULL_READING_TURN_OWNERS)[number]
   pendencia_do_vendedor: boolean
+  situacao_resumo: string
   acao_agora: (typeof FULL_READING_ACTIONS)[number]
   acao_resumo: string
   por_que: string
+  etapa_kanban_sugerida: FullReadingKanbanStage
+  motivo_etapa: string
+  fechamento: FullReadingClosingData
   oportunidades: {
     descricao: string
     status: (typeof FULL_READING_OPPORTUNITY_STATUSES)[number]
@@ -121,9 +147,13 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
         'venda_concluida',
         'vez_de',
         'pendencia_do_vendedor',
+        'situacao_resumo',
         'acao_agora',
         'acao_resumo',
         'por_que',
+        'etapa_kanban_sugerida',
+        'motivo_etapa',
+        'fechamento',
         'oportunidades',
         'afirmacoes_a_confirmar',
         'alertas_de_captura',
@@ -152,6 +182,11 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
           description:
             'true se existe pergunta ou pedido do cliente que o vendedor ainda não respondeu.',
         },
+        situacao_resumo: {
+          type: 'string',
+          description:
+            'A situação atual em 1 a 2 frases (a mesma da seção Agora).',
+        },
         acao_agora: stringEnum(
           FULL_READING_ACTIONS,
           'Ação PRINCIPAL do vendedor em relação ao cliente agora. Use verificacao_interna só quando a ação principal for interna.',
@@ -165,6 +200,49 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
           type: 'string',
           description:
             'Justificativa curta da ação.',
+        },
+        etapa_kanban_sugerida: stringEnum(
+          FULL_READING_KANBAN_STAGES,
+          'Etapa do kanban que a conversa indica (nome interno). Pode ser igual à etapa atual.',
+        ),
+        motivo_etapa: {
+          type: 'string',
+          description:
+            'Frase curta com a evidência da etapa sugerida: trecho curto e data.',
+        },
+        fechamento: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            'Dados de fechamento ditos na conversa. Texto vazio quando não foram ditos; nunca inventar.',
+          required: [
+            'produto',
+            'valor',
+            'forma_pagamento',
+            'motivo_perda',
+          ],
+          properties: {
+            produto: {
+              type: 'string',
+              description:
+                'Produto ou plano fechado, como dito na conversa.',
+            },
+            valor: {
+              type: 'string',
+              description:
+                'Valor fechado, como dito na conversa.',
+            },
+            forma_pagamento: {
+              type: 'string',
+              description:
+                'Forma de pagamento, como dita na conversa.',
+            },
+            motivo_perda: {
+              type: 'string',
+              description:
+                'Motivo da perda, como dito na conversa.',
+            },
+          },
         },
         oportunidades: {
           type: 'array',
@@ -394,6 +472,13 @@ export function parseFullReadingOutput(
     fail(`${path}.pendencia_do_vendedor`, 'deveria ser verdadeiro ou falso')
   }
 
+  const closingRaw =
+    decisionRaw.fechamento
+
+  if (!isRecord(closingRaw)) {
+    fail(`${path}.fechamento`, 'deveria ser um objeto')
+  }
+
   return {
     analise_markdown: analysis,
     decisao: {
@@ -423,6 +508,7 @@ export function parseFullReadingOutput(
       ),
       pendencia_do_vendedor:
         decisionRaw.pendencia_do_vendedor,
+      situacao_resumo: readString(decisionRaw, 'situacao_resumo', path),
       acao_agora: readEnum(
         decisionRaw,
         'acao_agora',
@@ -431,6 +517,24 @@ export function parseFullReadingOutput(
       ),
       acao_resumo: readString(decisionRaw, 'acao_resumo', path),
       por_que: readString(decisionRaw, 'por_que', path),
+      etapa_kanban_sugerida: readEnum(
+        decisionRaw,
+        'etapa_kanban_sugerida',
+        FULL_READING_KANBAN_STAGES,
+        path,
+      ),
+      motivo_etapa: readString(
+        decisionRaw,
+        'motivo_etapa',
+        path,
+        { allowEmpty: true },
+      ),
+      fechamento: {
+        produto: readString(closingRaw, 'produto', `${path}.fechamento`, { allowEmpty: true }),
+        valor: readString(closingRaw, 'valor', `${path}.fechamento`, { allowEmpty: true }),
+        forma_pagamento: readString(closingRaw, 'forma_pagamento', `${path}.fechamento`, { allowEmpty: true }),
+        motivo_perda: readString(closingRaw, 'motivo_perda', `${path}.fechamento`, { allowEmpty: true }),
+      },
       oportunidades,
       afirmacoes_a_confirmar: readStringArray(
         decisionRaw,
@@ -449,5 +553,116 @@ export function parseFullReadingOutput(
         path,
       ),
     },
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Coerência da etapa sugerida (v2)
+// ---------------------------------------------------------------------------
+//
+// A etapa sugerida precisa concordar com a própria leitura. Ganho sem
+// venda confirmada ou provável, ou perdido fora da fase perdido, não
+// derruba a leitura: vira "manter a etapa atual" e fica registrado como
+// alerta na rodada. Ganho e perdido nunca são aplicados por aqui; são só
+// sugestões que o vendedor confirma no Yolen.
+
+export type FullReadingCoherenceAlert = {
+  campo: 'etapa_kanban_sugerida'
+  valor_do_modelo: FullReadingKanbanStage
+  valor_aplicado: FullReadingKanbanStage | 'manter_etapa_atual'
+  motivo: string
+}
+
+// Campos que o sistema acrescenta à decisão gravada na rodada. Não fazem
+// parte da resposta do modelo.
+export type FullReadingSystemRecord = {
+  kanban_lido: {
+    status: string | null
+    stage_entered_at: string | null
+  }
+  alertas: FullReadingCoherenceAlert[]
+  saida_estruturada: boolean | null
+}
+
+export type FullReadingStoredDecision =
+  FullReadingDecision & {
+    sistema: FullReadingSystemRecord
+  }
+
+export function isFullReadingKanbanStage(
+  value: unknown,
+): value is FullReadingKanbanStage {
+  return (
+    typeof value === 'string' &&
+    (FULL_READING_KANBAN_STAGES as readonly string[]).includes(value)
+  )
+}
+
+export function findStageCoherenceProblem(
+  decision: Pick<
+    FullReadingDecision,
+    'etapa_kanban_sugerida' | 'venda_concluida' | 'fase_relacao'
+  >,
+): string | null {
+  if (
+    decision.etapa_kanban_sugerida === 'ganho' &&
+    decision.venda_concluida !== 'confirmada' &&
+    decision.venda_concluida !== 'provavel'
+  ) {
+    return 'ganho sugerido sem venda confirmada ou provável'
+  }
+
+  if (
+    decision.etapa_kanban_sugerida === 'perdido' &&
+    decision.fase_relacao !== 'perdido'
+  ) {
+    return 'perdido sugerido com a relação fora da fase perdido'
+  }
+
+  return null
+}
+
+export function applyFullReadingCoherence(
+  decision: FullReadingDecision,
+  {
+    currentStatus,
+  }: {
+    currentStatus: string | null
+  },
+): {
+  decision: FullReadingDecision
+  alerts: FullReadingCoherenceAlert[]
+} {
+  const problem =
+    findStageCoherenceProblem(decision)
+
+  if (!problem) {
+    return {
+      decision,
+      alerts: [],
+    }
+  }
+
+  const keep =
+    isFullReadingKanbanStage(currentStatus)
+      ? currentStatus
+      : null
+
+  return {
+    decision: keep
+      ? {
+          ...decision,
+          etapa_kanban_sugerida: keep,
+        }
+      : decision,
+    alerts: [
+      {
+        campo: 'etapa_kanban_sugerida',
+        valor_do_modelo: decision.etapa_kanban_sugerida,
+        valor_aplicado: keep ?? 'manter_etapa_atual',
+        motivo: problem,
+      },
+    ],
   }
 }
