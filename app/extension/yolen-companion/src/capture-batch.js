@@ -35,12 +35,26 @@
         return normalized || null
       }
 
+      // Metade de um emoji (surrogate UTF-16 sem par) faz o PostgREST
+      // recusar o lote inteiro (PGRST102). O texto vai com U+FFFD no
+      // lugar da metade solta — mesma regra do servidor.
+      const LONE_SURROGATE_PATTERN =
+        /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
+      function toWellFormedText(value) {
+        return value.replace(
+          LONE_SURROGATE_PATTERN,
+          '\uFFFD',
+        )
+      }
+
       function normalizeNullableText(value) {
         if (typeof value !== 'string') {
           return null
         }
 
-        const normalized = value.trim()
+        const normalized =
+          toWellFormedText(value).trim()
 
         return normalized || null
       }
@@ -745,6 +759,7 @@
       return {
         CONTRACT_VERSION,
         DEFAULT_MAX_BATCH_SIZE,
+        toWellFormedText,
         isCaptureResolutionEligible,
         selectCaptureWindow,
         buildCaptureMessages,

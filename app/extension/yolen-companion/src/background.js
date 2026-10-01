@@ -873,6 +873,16 @@ async function handleCompanionMessage(message, sender) {
     )
   }
 
+  // "Nova oportunidade" a partir do ciclo fechado: só depois da
+  // confirmação explícita do vendedor no painel.
+  if (message.action === 'CREATE_SUCCESSOR_OPPORTUNITY') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/successor-opportunity',
+      message.payload,
+    )
+  }
+
   if (
     message.action ===
     'APPLY_LEAD_ENRICHMENT'

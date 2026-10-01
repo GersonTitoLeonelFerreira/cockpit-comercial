@@ -5,9 +5,13 @@ import {
   buildCaptureMessageStateKey,
   CAPTURE_INGESTION_CONTRACT_VERSION,
   CaptureContractError,
+  classifyCaptureRpcError,
+  findRpcRejectedMessageIndex,
   getCaptureRpcErrorHttpStatus,
   MAX_CAPTURE_BATCH_SIZE,
   normalizeCaptureIngestionEnvelope,
+  redactCaptureValidationText,
+  toWellFormedCaptureText,
 } from './capture-ingestion.ts'
 
 const CYCLE_ID = '123e4567-e89b-42d3-a456-426614174000'
@@ -831,3 +835,123 @@ test(
     )
   },
 )
+
+// ---------------------------------------------------------------------------
+// Rodada 5 (Parte A): recusas da RPC com código próprio; metade de emoji
+// ---------------------------------------------------------------------------
+
+test('as três validações por mensagem da RPC viram 400 com código próprio (antes 500)', () => {
+  assert.deepEqual(
+    classifyCaptureRpcError({ code: 'P0001', message: 'observed_at contém uma data inválida' }),
+    { status: 400, code: 'OBSERVED_AT_INVALID' },
+  )
+  assert.deepEqual(
+    classifyCaptureRpcError({ code: 'P0001', message: 'observed_at não pode estar mais de cinco minutos no futuro' }),
+    { status: 400, code: 'OBSERVED_AT_IN_FUTURE' },
+  )
+  assert.deepEqual(
+    classifyCaptureRpcError({
+      code: 'P0001',
+      message: 'base_version não pode ser informada quando a mensagem ainda não possui estado canônico',
+    }),
+    { status: 400, code: 'BASE_VERSION_WITHOUT_CANONICAL_STATE' },
+  )
+
+  // O resto continua como antes, agora com código.
+  assert.deepEqual(
+    classifyCaptureRpcError({ code: 'P0001', message: 'occurred_at contém uma data inválida' }),
+    { status: 400, code: 'CAPTURE_RPC_VALIDATION' },
+  )
+  assert.deepEqual(
+    classifyCaptureRpcError({ code: 'P0001', message: 'Ciclo comercial encerrado não aceita captura de mensagens' }),
+    { status: 409, code: 'CAPTURE_CYCLE_CLOSED' },
+  )
+  assert.deepEqual(
+    classifyCaptureRpcError({ code: '57014', message: 'canceling statement due to statement timeout' }),
+    { status: 500, code: 'CAPTURE_RPC_ERROR' },
+  )
+  assert.deepEqual(
+    classifyCaptureRpcError({ code: 'PGRST102', message: 'Empty or invalid json' }),
+    { status: 500, code: 'CAPTURE_RPC_BODY_REJECTED' },
+  )
+})
+
+test('texto da validação no log nunca leva sequência longa de dígitos (telefone na message_key)', () => {
+  assert.equal(
+    redactCaptureValidationText({
+      message: 'A message_key false_5511987654321@c.us_X apareceu mais de uma vez no mesmo lote',
+    }),
+    'A message_key false_<n>@c.us_X apareceu mais de uma vez no mesmo lote',
+  )
+})
+
+test('aponta a mensagem das validações de observed_at pelo mesmo critério', () => {
+  const messages = [
+    { observed_at: '2026-10-01T12:00:00.000Z' },
+    { observed_at: '2026-10-01T12:09:00.000Z' },
+    { observed_at: '2026-10-01T12:01:00.000Z' },
+  ]
+
+  assert.equal(findRpcRejectedMessageIndex('OBSERVED_AT_IN_FUTURE', messages), 1)
+  assert.equal(
+    findRpcRejectedMessageIndex('OBSERVED_AT_INVALID', [...messages, { observed_at: '+275760-09-13T00:00:00.000Z' }]),
+    3,
+  )
+  assert.equal(findRpcRejectedMessageIndex('BASE_VERSION_WITHOUT_CANONICAL_STATE', messages), -1)
+})
+
+test('metade de emoji no texto vira U+FFFD; emoji inteiro fica como está', () => {
+  assert.equal(toWellFormedCaptureText('ok \uD83D\uDE00'), 'ok \uD83D\uDE00')
+  assert.equal(toWellFormedCaptureText('corte \uD83D'), 'corte \uFFFD')
+  assert.equal(toWellFormedCaptureText('\uDE00 solto'), '\uFFFD solto')
+
+  const normalized = normalizeCaptureIngestionEnvelope(
+    buildEnvelope({
+      messages: [buildTextMessage({ text_content: 'Fechado! \uD83D' })],
+    }),
+  )
+
+  assert.equal(normalized.messages[0].text_content, 'Fechado! \uFFFD')
+  assert.equal(JSON.stringify(normalized).isWellFormed(), true)
+})
+
+test('message_key com metade de emoji é recusada (MALFORMED_TEXT) com o índice no path', () => {
+  assert.throws(
+    () =>
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          messages: [
+            buildTextMessage(),
+            buildTextMessage({ message_key: 'message-002\uD83D' }),
+          ],
+        }),
+      ),
+    (error) => {
+      assert.ok(error instanceof CaptureContractError)
+      assert.equal(error.code, 'MALFORMED_TEXT')
+      assert.equal(error.path, 'messages[1].message_key')
+      return true
+    },
+  )
+})
+
+test('chave duplicada aponta o índice do lote enviado mesmo com mensagem descartada antes', () => {
+  assert.throws(
+    () =>
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          messages: [
+            buildTextMessage({ message_key: 'gone', is_deleted: true, deletion_reason: 'dom_disappearance' }),
+            buildTextMessage({ message_key: 'dup' }),
+            buildTextMessage({ message_key: 'dup' }),
+          ],
+        }),
+      ),
+    (error) => {
+      assert.equal(error.code, 'DUPLICATE_MESSAGE_KEY')
+      assert.equal(error.path, 'messages[2].message_key')
+      assert.doesNotMatch(error.message, /dup/)
+      return true
+    },
+  )
+})

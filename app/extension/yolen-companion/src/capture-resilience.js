@@ -404,9 +404,42 @@
           : payload
       }
 
+      // O banco disse que estas mensagens não têm estado canônico: as
+      // versões lembradas para elas deixam de valer.
+      function forgetMessages(
+        conversationKey,
+        messageKeys,
+      ) {
+        const conversationState =
+          getConversationState(
+            conversationKey,
+          )
+
+        if (
+          !conversationState ||
+          !Array.isArray(messageKeys)
+        ) {
+          return
+        }
+
+        messageKeys.forEach((messageKey) => {
+          const normalizedMessageKey =
+            normalizeRequiredText(
+              messageKey,
+            )
+
+          if (normalizedMessageKey) {
+            conversationState.delete(
+              normalizedMessageKey,
+            )
+          }
+        })
+      }
+
       return {
         preparePayload,
         recordResponse,
+        forgetMessages,
       }
     }
 

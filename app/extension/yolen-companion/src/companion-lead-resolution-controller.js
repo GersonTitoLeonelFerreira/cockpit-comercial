@@ -252,6 +252,15 @@
             'can_link_lead',
             legacyActions,
           ),
+
+        // "Nova oportunidade" a partir do ciclo fechado: só a capability
+        // canônica do backend (sem fallback por status).
+        can_create_successor_opportunity:
+          readBoolean(
+            canonicalCapabilities,
+            'can_create_successor_opportunity',
+            null,
+          ),
       })
 
     const flags =

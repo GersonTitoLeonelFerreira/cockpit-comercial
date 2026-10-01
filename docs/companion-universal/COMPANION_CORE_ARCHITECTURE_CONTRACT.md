@@ -24,7 +24,8 @@
 
 | Campo | Valor |
 |---|---|
-| Versão | 1.1.0 (FASE 2.1 — hardening: resolução sem telefone, migration baseline, decision schedule, Q5) |
+| Versão | 1.2.0 (rodada 5 — `CLOSED_CYCLE` continua sem workspace; ganha a ação Nova oportunidade por capability — decisão do Controle Mestre, 01/10/2026; §5 e Q2) |
+| Versão anterior | 1.1.0 (FASE 2.1 — hardening: resolução sem telefone, migration baseline, decision schedule, Q5) |
 | Atualizações sem mudança de versão | FASE 5 — Q6 decidida (§31), harness = manifest (§25), estado da composição explícita (§26), regra operacional (§33); registro em `FASE_5_EXECUTION.md` |
 | Fase | FASE 2 / 2.1 — Contrato arquitetural definitivo |
 | Data de início da reconstrução | 2026-09-23 |
@@ -213,6 +214,9 @@ O Core é a **ÚNICA** autoridade sobre:
 - OWNED_BY_OTHER;
 - IN_POOL;
 - CLOSED_CYCLE;
+- nova oportunidade a partir do ciclo fechado (v1.2.0: só pela
+  capability `can_create_successor_opportunity`, com escolha do tipo e
+  confirmação explícita do vendedor; depois de criar, só reconsulta);
 - AGORA;
 - MENSAGEM;
 - ANÁLISE;
@@ -698,7 +702,41 @@ Resultado canônico:
 | `OWNED_BY_ME` | Sim quando as três condições acima forem satisfeitas |
 | `IN_POOL` | Somente quando `can_analyze_conversation=true` e o ciclo estiver aberto; sem capability, apenas status/CTA |
 | `OWNED_BY_OTHER` | Somente quando `can_analyze_conversation=true` e o ciclo estiver aberto; sem capability, apenas status/CTA |
-| `CLOSED_CYCLE` | Nunca (`is_closed=true` prevalece) |
+| `CLOSED_CYCLE` | Nunca (`is_closed=true` prevalece); a única ação nova é "Nova oportunidade", por capability (v1.2.0, abaixo) |
+
+**Q2 — v1.2.0 (decisão do Controle Mestre, 01/10/2026):** `CLOSED_CYCLE`
+continua sem workspace; ganha a ação Nova oportunidade por capability.
+
+- O ciclo fechado fica intocado e sem painel. O card de `CLOSED_CYCLE`
+  mantém o aviso de que ajustes no ciclo fechado são feitos só na Yolen e
+  o botão "Abrir vínculo na Yolen"; "Nova oportunidade" aparece só quando
+  `capabilities.can_create_successor_opportunity === true`.
+- A capability vem do resolve-lead e é verdadeira só quando todas as
+  regras da Yolen ("+ Nova oportunidade", `rpc_create_successor_cycle_for_company`)
+  permitem: ciclo de origem Ganho ou Perdido (Cancelado mantém só "Abrir
+  vínculo na Yolen"); lead não excluído; nenhuma oportunidade aberta para o
+  lead (`active_cycle_exists`); vendedor (member) só a partir de um ciclo
+  que foi dele (owner, won_owner ou lost_owner); admin/manager de qualquer
+  ciclo da empresa. Pelo Companion a oportunidade nova é sempre de quem
+  cria — Pool, distribuição e outro vendedor continuam só na Yolen.
+- O Core decide pela capability, nunca pelo status, igual no WhatsApp e no
+  ManyChat (o ManyChat recebe a capability pela allowlist do background).
+- Confirmação humana explícita: o vendedor escolhe o tipo (Reativação,
+  Renovação, Recompra, Upgrade, Novo produto) e confirma. Nunca
+  automático, nunca disparado pelo conteúdo da conversa.
+- O ciclo novo nasce em Novo, com `origin_cycle_id` do ciclo fechado e
+  `opportunity_type`; nada financeiro nem da perda é copiado; o ciclo
+  fechado não é reaberto nem alterado. Auditoria igual à da Yolen:
+  `cycle_created` no ciclo novo (`source = successor_cycle`,
+  `created_via = companion`) e `successor_cycle_created` no anterior.
+- Depois de criar, o Core só reconsulta (nunca cria de novo) e o painel
+  abre no ciclo novo pela resolução comum. `lead_id` nunca chega ao content
+  script: a rota devolve só o id do ciclo novo.
+- Servidor: `POST /api/companion/successor-opportunity` refaz as
+  verificações e chama `rpc_create_successor_cycle_from_companion` (ator
+  explícito do token do Companion, só `service_role`). Migration
+  `20261001150000_create_companion_successor_cycle.sql`, ainda não
+  aplicada.
 
 `WORKSPACE_READY` não habilita automaticamente todas as ações internas:
 cada área continua obedecendo suas próprias capabilities. Exemplo:
@@ -1511,7 +1549,7 @@ outra fase (ex.: "Q4 ainda está UNKNOWN" **não** bloqueia a FASE 3).
 | Questão | Tema | Status | Resolver antes de | Bloqueia FASE 3? |
 |---|---|---|---|---|
 | **Q1** | Mapeamento canônico de `LEAD_WITHOUT_CYCLE`, `SOFT_DELETED`, `MULTIPLE_MATCHES` | **DECIDED — FASE 4B.3:** todos normalizam para `RESOLUTION_ERROR`, sem criação e sem workspace até correção externa | Implementação do `companion-lead-resolution-controller` na **FASE 4** | Não |
-| **Q2** | Estados comerciais que abrem `WORKSPACE_READY` | **DECIDED — FASE 4B.4:** exige `cycle.id` + `can_analyze_conversation=true` + `is_closed=false`; `CLOSED_CYCLE` nunca abre workspace | Implementação da composição resolution → workspace na **FASE 4** | Não |
+| **Q2** | Estados comerciais que abrem `WORKSPACE_READY` | **DECIDED — FASE 4B.4:** exige `cycle.id` + `can_analyze_conversation=true` + `is_closed=false`; `CLOSED_CYCLE` nunca abre workspace. **v1.2.0 (Controle Mestre, 01/10/2026):** `CLOSED_CYCLE` continua sem workspace; ganha a ação Nova oportunidade por capability (`can_create_successor_opportunity`) | Implementação da composição resolution → workspace na **FASE 4** | Não |
 | **Q3** | Campos autorizados do `DomainResolutionViewModel` | **DECIDED — FASE 4B.4:** mesma allowlist sanitizada em WhatsApp e ManyChat; `lead_display.name`, `ownership_display.owner_name` e `cycle.status` são nullable/omitíveis conforme autorização server-side; sem raw phone, lead_id ou payload bruto | Implementação do contrato de resolução sanitizado na **FASE 4** | Não |
 | **Q4** | Capabilities ManyChat UNKNOWN (display name confiável, interceptação de envio, pedir detalhes de contato, grupo/self, deleção/edição, última mensagem enviada) | **DECIDED — FASE 6 (por evidência técnica):** display name, interceptação de envio, grupo/self e deleção/edição = NÃO COMPROVADOS → indisponíveis; detalhes de contato = UNSUPPORTED por política (exigiria navegação sintética). O adapter declara `false` e o Core aplica o estado canônico de indisponibilidade; nenhum UNKNOWN foi promovido a suportado; última mensagem enviada = SUPPORTED (derivada da autoria humana validada). Evidências em `FASE_6_EXECUTION.md` | Resolvida **por evidência técnica** na **FASE 6** (ManyChatAdapter) | Não |
 | **Q5** | Política de escrita de `address` no enrichment | **DECIDED** (FASE 2.1) — DECIDED / OUT OF SCOPE FOR WRITE: `address` detectável como contexto, não confirmável/gravável; 7 campos graváveis preservados (§19.1) | — | Não |

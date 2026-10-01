@@ -6,6 +6,7 @@ import {
   type CompanionTokenPayload,
 } from '@/app/lib/server/companion-token'
 import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
+import { evaluateSuccessorOpportunityEligibility } from '@/app/lib/companion/successor-opportunity'
 
 type ResolveLeadBody = {
   phone?: unknown
@@ -49,6 +50,8 @@ type SalesCycleRow = {
   company_id: string
   status: string | null
   owner_user_id: string | null
+  won_owner_user_id?: string | null
+  lost_owner_user_id?: string | null
   current_group_id: string | null
   next_action: string | null
   next_action_date: string | null
@@ -346,6 +349,7 @@ function buildResolutionPayload({
   displayName,
   tokenPayload,
   authorizationRole,
+  canCreateSuccessorOpportunity = false,
 }: {
   status:
     | 'NO_PHONE_DETECTED'
@@ -371,6 +375,7 @@ function buildResolutionPayload({
     | string
     | null
     | undefined
+  canCreateSuccessorOpportunity?: boolean
 }) {
   const isAdminOrManager =
     authorizationRole === 'admin' ||
@@ -457,6 +462,13 @@ function buildResolutionPayload({
       can_apply_suggestion: canApplySuggestion,
       can_open_pool: status === 'IN_POOL',
       can_open_cycle: Boolean(lead && cycle),
+      // "Nova oportunidade" a partir do ciclo fechado (decisão do Controle
+      // Mestre, 01/10/2026): só CLOSED_CYCLE e só quando todas as regras da
+      // Yolen permitem (evaluateSuccessorOpportunityEligibility). A
+      // extensão decide pela capability, nunca pelo status.
+      can_create_successor_opportunity:
+        status === 'CLOSED_CYCLE' &&
+        canCreateSuccessorOpportunity === true,
     },
     actions: {
       can_analyze_conversation: canAnalyzeConversation,
@@ -879,7 +891,7 @@ export async function POST(request: Request) {
     const { data: cycles, error: cyclesError } = await admin
       .from('sales_cycles')
       .select(
-        'id, lead_id, company_id, status, owner_user_id, current_group_id, next_action, next_action_date, updated_at, created_at',
+        'id, lead_id, company_id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, current_group_id, next_action, next_action_date, updated_at, created_at',
       )
       .eq('company_id', tokenPayload.company_id)
       .eq('lead_id', lead.id)
@@ -941,11 +953,22 @@ export async function POST(request: Request) {
     }
 
     if (!openCycle) {
+      const successorEligibility =
+        evaluateSuccessorOpportunityEligibility({
+          actorUserId: tokenPayload.sub,
+          role: membership.role,
+          lead,
+          sourceCycle: latestCycle,
+          cycles: cycleRows,
+        })
+
       return NextResponse.json(
         buildResolutionPayload({
           status: 'CLOSED_CYCLE',
           userMessage:
-            'Este lead possui apenas ciclo fechado. Nova oportunidade deve ser criada dentro da Yolen.',
+            successorEligibility.eligible
+              ? 'Este lead possui apenas ciclo fechado. Ajustes no ciclo fechado são feitos só na Yolen.'
+              : 'Este lead possui apenas ciclo fechado. Ajustes e nova oportunidade são feitos dentro da Yolen.',
           lead,
           leadProfile,
           cycle: latestCycle,
@@ -955,6 +978,8 @@ export async function POST(request: Request) {
           displayName,
           tokenPayload,
           authorizationRole: membership.role,
+          canCreateSuccessorOpportunity:
+            successorEligibility.eligible,
         }),
         {
           status: 200,

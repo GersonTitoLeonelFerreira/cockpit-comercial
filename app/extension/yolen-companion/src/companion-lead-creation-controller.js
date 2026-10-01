@@ -8,6 +8,27 @@ function createCompanionLeadCreationController(ctx) {
     resolveCurrentLead,
     sleep,
   } = ctx
+
+  // "Nova oportunidade" a partir do ciclo fechado (decisão do Controle
+  // Mestre, 01/10/2026). Autoridade: capability
+  // can_create_successor_opportunity do resolve-lead (nunca o status).
+  // Sempre com confirmação humana explícita: o vendedor escolhe o tipo e
+  // confirma; nada é criado sozinho nem a partir da conversa. Depois de
+  // criar, só reconsulta (RESOLVE) — nunca um segundo create — e o painel
+  // abre no ciclo novo. lead_id nunca passa por aqui.
+  const SUCCESSOR_OPPORTUNITY_TYPES = Object.freeze([
+    Object.freeze({ value: 'reativacao', label: 'Reativação' }),
+    Object.freeze({ value: 'renovacao', label: 'Renovação' }),
+    Object.freeze({ value: 'recompra', label: 'Recompra' }),
+    Object.freeze({ value: 'upgrade', label: 'Upgrade' }),
+    Object.freeze({ value: 'novo_produto', label: 'Novo produto' }),
+  ])
+
+  const SUCCESSOR_RESOLVE_RETRY_DELAYS_MS =
+    [400, 900, 1600]
+
+  const successorInFlightKeys =
+    new Set()
   // Idempotência determinística de createLead por conversa: nenhum clique
   // duplicado/triplo pode gerar uma segunda requisição CREATE_LEAD
   // enquanto a primeira ainda está em voo para a MESMA conversationKey.
@@ -135,11 +156,325 @@ function createCompanionLeadCreationController(ctx) {
       `
     }
 
-    return `
+    const openCycleButton = `
       <button class="yolen-secondary-button" type="button" data-yolen-action="open-cycle-yolen">
         Abrir vínculo na Yolen
       </button>
     `
+
+    const successorHtml =
+      getSuccessorOpportunityHtml(resolution)
+
+    return successorHtml
+      ? `${openCycleButton}${successorHtml}`
+      : openCycleButton
+  }
+
+  function getSuccessorKey(resolution = ctx.state.leadResolutionViewModel) {
+    const cycleId =
+      resolution?.cycle?.id
+
+    return ctx.state.conversationKey && cycleId
+      ? `${ctx.state.conversationKey}::${cycleId}`
+      : null
+  }
+
+  function getCurrentSuccessorState() {
+    const key = getSuccessorKey()
+    const current = ctx.state.successorOpportunity
+
+    return key && current?.key === key
+      ? current
+      : null
+  }
+
+  function setSuccessorState(next) {
+    ctx.state = {
+      ...ctx.state,
+      successorOpportunity: next,
+    }
+
+    renderPanel()
+  }
+
+  function getSuccessorStatusHtml(message, tone) {
+    return `
+      <div class="yolen-lead-create-status" data-tone="${escapeHtml(tone)}" data-yolen-successor-status>
+        ${escapeHtml(message)}
+      </div>
+    `
+  }
+
+  function getSuccessorOpportunityHtml(resolution) {
+    const current = getCurrentSuccessorState()
+
+    // Criação confirmada pelo backend: daqui só sai por reconsulta.
+    if (current?.step === 'creating') {
+      return getSuccessorStatusHtml('Criando nova oportunidade...', 'loading')
+    }
+
+    if (current?.step === 'created_resolving') {
+      return getSuccessorStatusHtml('Oportunidade criada. Abrindo no painel...', 'success')
+    }
+
+    if (current?.step === 'created_unresolved') {
+      return `
+        ${getSuccessorStatusHtml('Oportunidade criada, mas o painel ainda não foi atualizado.', 'warning')}
+        <button class="yolen-secondary-button" type="button" data-yolen-action="retry-lead-link">
+          Atualizar vínculo
+        </button>
+      `
+    }
+
+    if (current?.step === 'blocked') {
+      return getSuccessorStatusHtml(current.error, 'warning')
+    }
+
+    if (resolution?.capabilities?.can_create_successor_opportunity !== true) {
+      return ''
+    }
+
+    if (current?.step !== 'choosing' && current?.step !== 'error') {
+      return `
+        <button class="yolen-secondary-button" type="button" data-yolen-action="successor-open">
+          Nova oportunidade
+        </button>
+      `
+    }
+
+    const options = SUCCESSOR_OPPORTUNITY_TYPES
+      .map((option) => `
+        <label class="yolen-successor-option">
+          <input
+            type="radio"
+            name="yolen-successor-type"
+            value="${escapeHtml(option.value)}"
+            data-yolen-successor-type="${escapeHtml(option.value)}"
+            ${current.type === option.value ? 'checked' : ''}
+          />
+          <span>${escapeHtml(option.label)}</span>
+        </label>
+      `)
+      .join('')
+
+    return `
+      <div class="yolen-successor" data-yolen-successor>
+        <div class="yolen-section-label">Nova oportunidade</div>
+        <div class="yolen-successor-hint">
+          Escolha o tipo. A oportunidade nova começa em Novo, na sua carteira; o ciclo fechado não muda.
+        </div>
+        <div class="yolen-successor-options" role="radiogroup" aria-label="Tipo da nova oportunidade">
+          ${options}
+        </div>
+        ${current.step === 'error' && current.error ? getSuccessorStatusHtml(current.error, 'error') : ''}
+        <div class="yolen-successor-actions">
+          <button
+            class="yolen-primary-button"
+            type="button"
+            data-yolen-action="successor-confirm"
+            ${current.type ? '' : 'disabled'}
+          >
+            Criar oportunidade
+          </button>
+          <button class="yolen-tertiary-button" type="button" data-yolen-action="successor-cancel">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    `
+  }
+
+  function openSuccessorChooser() {
+    const resolution =
+      ctx.state.leadResolutionViewModel
+
+    const key = getSuccessorKey(resolution)
+
+    if (
+      !key ||
+      resolution?.capabilities?.can_create_successor_opportunity !== true ||
+      getCurrentSuccessorState()
+    ) {
+      return false
+    }
+
+    setSuccessorState({
+      key,
+      step: 'choosing',
+      type: null,
+      error: null,
+    })
+
+    return true
+  }
+
+  function cancelSuccessorChooser() {
+    const current = getCurrentSuccessorState()
+
+    if (current?.step !== 'choosing' && current?.step !== 'error') {
+      return false
+    }
+
+    setSuccessorState(null)
+    return true
+  }
+
+  function selectSuccessorType(value) {
+    const current = getCurrentSuccessorState()
+
+    if (
+      (current?.step !== 'choosing' && current?.step !== 'error') ||
+      !SUCCESSOR_OPPORTUNITY_TYPES.some((option) => option.value === value)
+    ) {
+      return false
+    }
+
+    setSuccessorState({
+      ...current,
+      type: value,
+    })
+
+    return true
+  }
+
+  async function resolveAfterSuccessorCreation(key) {
+    const stillCurrent = () =>
+      ctx.state.successorOpportunity?.key === key
+
+    for (
+      let attempt = 0;
+      attempt <= SUCCESSOR_RESOLVE_RETRY_DELAYS_MS.length;
+      attempt += 1
+    ) {
+      if (!stillCurrent()) {
+        return
+      }
+
+      // CLOSED_CYCLE fica no cache de resolução: sem limpar, a reconsulta
+      // devolveria o ciclo fechado de novo.
+      ctx.clearLeadResolutionCache?.()
+
+      await resolveCurrentLead({
+        requireFreshAfterInFlight: true,
+      })
+
+      if (!stillCurrent()) {
+        return
+      }
+
+      if (
+        ctx.state.leadResolutionViewModel &&
+        ctx.state.leadResolutionViewModel.status !== 'CLOSED_CYCLE'
+      ) {
+        setSuccessorState(null)
+        return
+      }
+
+      if (attempt < SUCCESSOR_RESOLVE_RETRY_DELAYS_MS.length) {
+        await sleep(SUCCESSOR_RESOLVE_RETRY_DELAYS_MS[attempt])
+      }
+    }
+
+    if (stillCurrent()) {
+      setSuccessorState({
+        ...ctx.state.successorOpportunity,
+        step: 'created_unresolved',
+        error: null,
+      })
+    }
+  }
+
+  async function confirmSuccessorOpportunity() {
+    const resolution =
+      ctx.state.leadResolutionViewModel
+
+    const current = getCurrentSuccessorState()
+    const key = getSuccessorKey(resolution)
+
+    if (
+      !key ||
+      !current ||
+      (current.step !== 'choosing' && current.step !== 'error') ||
+      !current.type ||
+      resolution?.capabilities?.can_create_successor_opportunity !== true ||
+      successorInFlightKeys.has(key)
+    ) {
+      return { ok: false, code: 'not_ready' }
+    }
+
+    successorInFlightKeys.add(key)
+
+    setSuccessorState({
+      ...current,
+      step: 'creating',
+      error: null,
+    })
+
+    try {
+      const result =
+        await window.YolenCompanionApi.createSuccessorOpportunity({
+          cycle_id: resolution.cycle.id,
+          opportunity_type: current.type,
+          confirmed_by_human: true,
+        })
+
+      if (ctx.state.successorOpportunity?.key !== key) {
+        return { ok: true, applied: false }
+      }
+
+      if (result?.ok && result.payload?.ok) {
+        setSuccessorState({
+          ...ctx.state.successorOpportunity,
+          step: 'created_resolving',
+        })
+
+        await resolveAfterSuccessorCreation(key)
+        return { ok: true, applied: true }
+      }
+
+      const code =
+        result?.payload?.code ||
+        result?.payload?.status ||
+        null
+
+      const message =
+        result?.payload?.error ||
+        'Não foi possível criar a nova oportunidade.'
+
+      if (code === 'active_cycle_exists') {
+        // Já existe oportunidade aberta (outra pessoa criou, ou ela já
+        // existia): aviso claro e reconsulta para mostrar o ciclo aberto.
+        setSuccessorState({
+          ...ctx.state.successorOpportunity,
+          step: 'blocked',
+          error: message,
+        })
+
+        ctx.clearLeadResolutionCache?.()
+        await resolveCurrentLead({ requireFreshAfterInFlight: true })
+        return { ok: false, code }
+      }
+
+      setSuccessorState({
+        ...ctx.state.successorOpportunity,
+        step: 'error',
+        error: message,
+      })
+
+      return { ok: false, code }
+    } catch {
+      if (ctx.state.successorOpportunity?.key === key) {
+        setSuccessorState({
+          ...ctx.state.successorOpportunity,
+          step: 'error',
+          error: 'Não foi possível criar a nova oportunidade.',
+        })
+      }
+
+      return { ok: false, code: 'request_failed' }
+    } finally {
+      successorInFlightKeys.delete(key)
+    }
   }
 
   const LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS =
@@ -411,6 +746,10 @@ function createCompanionLeadCreationController(ctx) {
     getLeadActionButton,
     isLeadCreationPendingForConversation,
     retryLeadLinkAfterCreation,
+    openSuccessorChooser,
+    cancelSuccessorChooser,
+    selectSuccessorType,
+    confirmSuccessorOpportunity,
   }
 }
 

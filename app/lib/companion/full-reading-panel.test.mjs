@@ -887,3 +887,75 @@ test('travas valem também para o AGORA de hoje (fallback): Ganho sem retomada, 
   assert.equal(reopened.legacy_lock, null)
   assert.equal(attachFullReadingToAgora(base, reopened).primary, base.primary)
 })
+
+// ---------------------------------------------------------------------------
+// Rodada 5: a leitura só chama o Claude quando o painel vai mostrá-la
+// ---------------------------------------------------------------------------
+
+test('ciclo fechado (Ganho/Perdido/Cancelado): nenhuma rodada nova, nem com mudança de etapa ou force', () => {
+  for (const status of ['ganho', 'perdido', 'cancelado']) {
+    const changed = plan({ kanban: kanban({ status, stage_entered_at: minutesBefore(1) }) })
+
+    assert.equal(changed.action, 'skip', status)
+    assert.equal(changed.skip_reason, 'CLOSED_CYCLE', status)
+
+    const forced = plan({ kanban: kanban({ status }), force: true })
+
+    assert.equal(forced.action, 'skip', status)
+    assert.equal(forced.skip_reason, 'CLOSED_CYCLE', status)
+
+    const newMessage = plan({ kanban: kanban({ status }), latestObservedAt: minutesBefore(1) })
+
+    assert.equal(newMessage.action, 'skip', status)
+  }
+
+  // Leitura fresca de antes continua servindo (sem chamada nova).
+  assert.equal(
+    plan({ runs: [run({}, 'ganho')], kanban: kanban({ status: 'ganho' }) }).action === 'start',
+    false,
+  )
+})
+
+test('conversa sem mensagem no ledger: nenhuma rodada (EMPTY_CONVERSATION), nem com force', () => {
+  const empty = plan({ runs: [], latestObservedAt: null })
+
+  assert.equal(empty.action, 'skip')
+  assert.equal(empty.skip_reason, 'EMPTY_CONVERSATION')
+  assert.equal(plan({ runs: [], latestObservedAt: null, force: true }).action, 'skip')
+})
+
+test('painel: ciclo Ganho com mensagens nunca agenda o Claude nem grava rodada', async () => {
+  const memory = createMemoryAdmin(seed({ status: 'ganho', messages: [message({ observed_at: minutesBefore(1) })] }))
+  const { promise, scheduled } = resolveWith(memory, { force: true })
+  const snapshot = await promise
+
+  assert.equal(snapshot.state, 'failed')
+  assert.equal(snapshot.failure_code, 'CLOSED_CYCLE')
+  assert.equal(scheduled.length, 0)
+  assert.deepEqual(memory.writes, [])
+
+  assert.equal(
+    buildAgoraFullReadingView(snapshot, { cycleId: CYCLE }).notice,
+    'Oportunidade encerrada: a leitura completa não roda para ciclo fechado.',
+  )
+})
+
+test('painel: conversa vazia nunca agenda o Claude nem grava rodada; aviso de mensagens que não chegaram', async () => {
+  const memory = createMemoryAdmin(seed({ messages: [] }))
+  const { promise, scheduled } = resolveWith(memory)
+  const snapshot = await promise
+
+  assert.equal(snapshot.state, 'failed')
+  assert.equal(snapshot.failure_code, 'EMPTY_CONVERSATION')
+  assert.equal(scheduled.length, 0)
+  assert.deepEqual(memory.writes, [])
+
+  const view = buildAgoraFullReadingView(snapshot, { cycleId: CYCLE })
+
+  assert.equal(view.failure_code, 'EMPTY_CONVERSATION')
+  assert.equal(view.notice, 'As mensagens desta conversa ainda não chegaram à Yolen.')
+  assert.equal(
+    buildFullReadingAnalysisView({ state: 'failed', reading: null, failureCode: 'EMPTY_CONVERSATION' }).notice,
+    'As mensagens desta conversa ainda não chegaram à Yolen.',
+  )
+})

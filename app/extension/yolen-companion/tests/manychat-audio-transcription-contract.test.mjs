@@ -157,7 +157,8 @@ test('resultado de transcrição válido entra no contrato universal sem perder 
     message_key: 'manychat:native-manychat-audio-id',
     direction: 'incoming',
     author_kind: 'customer',
-    occurred_at: '2026-09-14T20:30:00.000Z',
+    // data-title sem fuso = horário local do navegador do vendedor.
+    occurred_at: new Date(2026, 8, 14, 20, 30).toISOString(),
     content_type: 'audio',
     text_content: null,
     audio_transcription: 'Quero saber o valor do plano.',

@@ -15,7 +15,7 @@
 
 export const ARCHITECTURE_BASE_SHA = 'b5d877a18843b5653c79adc2c5396447d2a99310'
 
-export const CONTRACT_VERSION = '1.1.0'
+export const CONTRACT_VERSION = '1.2.0'
 
 // FASE 7 — as 12 entradas herdadas (A2/A3/A5/A10 do ManyChat legado) foram
 // removidas junto com suas causas: manychat-capture-bootstrap.js,

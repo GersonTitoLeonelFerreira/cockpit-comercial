@@ -648,7 +648,7 @@ test('resolve-lead: erro ao buscar identidade externa é reportado como EXTERNAL
 const ACTION_CONTRACT_SCENARIOS = [
   {
     status: 'NOT_FOUND',
-    capabilities: { can_create_lead: true, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false },
+    capabilities: { can_create_lead: true, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false, can_create_successor_opportunity: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -660,7 +660,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'IN_POOL',
-    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: true, can_open_cycle: true },
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: true, can_open_cycle: true, can_create_successor_opportunity: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -674,7 +674,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'OWNED_BY_ME',
-    capabilities: { can_create_lead: false, can_analyze_conversation: true, can_apply_suggestion: true, can_open_pool: false, can_open_cycle: true },
+    capabilities: { can_create_lead: false, can_analyze_conversation: true, can_apply_suggestion: true, can_open_pool: false, can_open_cycle: true, can_create_successor_opportunity: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -689,7 +689,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'OWNED_BY_OTHER',
-    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true },
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true, can_create_successor_opportunity: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -704,7 +704,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'CLOSED_CYCLE',
-    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true },
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true, can_create_successor_opportunity: true },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -719,7 +719,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'LEAD_WITHOUT_CYCLE',
-    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false },
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false, can_create_successor_opportunity: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -733,7 +733,7 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'CONTACT_NOT_LINKED',
-    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false },
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: false, can_create_successor_opportunity: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -813,4 +813,119 @@ test('resolve-lead contrato de ações (4B.5L): manager mantém can_analyze_conv
   assert.equal(payload.capabilities.can_analyze_conversation, true)
   assert.equal(payload.capabilities.can_apply_suggestion, false)
   assert.equal(payload.capabilities.can_open_cycle, true)
+})
+
+// ---------------------------------------------------------------------
+// Rodada 5 (Parte B): "Nova oportunidade" a partir do ciclo fechado.
+// CLOSED_CYCLE continua sem workspace; ganha a ação por capability
+// (decisão do Controle Mestre, 01/10/2026), com as regras da Yolen.
+// ---------------------------------------------------------------------
+
+async function resolveClosed({ role = 'member', cycles }) {
+  useAdmin([
+    selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role }),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('leads', [LEAD_ROW]),
+    selectStep('lead_profiles', LEAD_PROFILE_ROW),
+    selectStep('sales_cycles', cycles),
+    selectStep('profiles', { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role })
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'CLOSED_CYCLE')
+  // Sem workspace (is_closed prevalece) e sem aplicar etapa.
+  assert.equal(payload.capabilities.can_apply_suggestion, false)
+  assert.equal(payload.flags.is_closed, true)
+
+  return payload
+}
+
+test('capability Nova oportunidade: vendedor, Ganho que foi dele → true, com aviso de ajustes só na Yolen', async () => {
+  const payload = await resolveClosed({
+    cycles: [openCycle({ status: 'ganho', owner_user_id: IDS.otherSeller, won_owner_user_id: IDS.userA })],
+  })
+
+  assert.equal(payload.capabilities.can_create_successor_opportunity, true)
+  assert.match(payload.user_message, /Ajustes no ciclo fechado são feitos só na Yolen/)
+})
+
+test('capability Nova oportunidade: vendedor, Perdido que ele perdeu → true', async () => {
+  const payload = await resolveClosed({
+    cycles: [openCycle({ status: 'perdido', owner_user_id: IDS.otherSeller, lost_owner_user_id: IDS.userA })],
+  })
+
+  assert.equal(payload.capabilities.can_create_successor_opportunity, true)
+})
+
+test('capability Nova oportunidade: vendedor, ciclo que nunca foi dele → false', async () => {
+  const payload = await resolveClosed({
+    cycles: [openCycle({ status: 'ganho', owner_user_id: IDS.otherSeller, won_owner_user_id: IDS.otherSeller })],
+  })
+
+  assert.equal(payload.capabilities.can_create_successor_opportunity, false)
+  assert.match(payload.user_message, /nova oportunidade são feitos dentro da Yolen/)
+})
+
+test('capability Nova oportunidade: admin e manager → true mesmo com ciclo de outro vendedor', async () => {
+  for (const role of ['admin', 'manager']) {
+    const payload = await resolveClosed({
+      role,
+      cycles: [openCycle({ status: 'perdido', owner_user_id: IDS.otherSeller, lost_owner_user_id: IDS.otherSeller })],
+    })
+
+    assert.equal(payload.capabilities.can_create_successor_opportunity, true, role)
+  }
+})
+
+test('capability Nova oportunidade: Cancelado → false (só "Abrir vínculo na Yolen")', async () => {
+  const payload = await resolveClosed({
+    cycles: [openCycle({ status: 'cancelado', owner_user_id: IDS.userA })],
+  })
+
+  assert.equal(payload.capabilities.can_create_successor_opportunity, false)
+  assert.equal(payload.capabilities.can_open_cycle, true)
+})
+
+test('capability Nova oportunidade: ciclo Cancelado do mesmo lead bloqueia como na Yolen (active_cycle_exists) → false', async () => {
+  const payload = await resolveClosed({
+    cycles: [
+      openCycle({ status: 'ganho', owner_user_id: IDS.userA, won_owner_user_id: IDS.userA }),
+      openCycle({ id: 'aaaaaaaa-0000-4000-8000-0000000000d2', status: 'cancelado', owner_user_id: IDS.userA }),
+    ],
+  })
+
+  assert.equal(payload.capabilities.can_create_successor_opportunity, false)
+})
+
+test('capability Nova oportunidade: lead excluído responde SOFT_DELETED, sem a capability', async () => {
+  useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('leads', [{ ...LEAD_ROW, deleted_at: '2026-09-30T00:00:00.000Z' }]),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const response = await POST(postRequest({ token, body: { phone: '11988887777' } }))
+  const payload = await readJson(response)
+
+  assert.notEqual(payload.status, 'CLOSED_CYCLE')
+  assert.notEqual(payload.capabilities?.can_create_successor_opportunity, true)
+})
+
+test('capability Nova oportunidade: nunca aparece fora de CLOSED_CYCLE (ciclo aberto do próprio vendedor)', async () => {
+  useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    selectStep('profiles', ACTIVE_PROFILE),
+    selectStep('leads', [LEAD_ROW]),
+    selectStep('lead_profiles', LEAD_PROFILE_ROW),
+    selectStep('sales_cycles', [openCycle({ owner_user_id: IDS.userA })]),
+    selectStep('profiles', { id: IDS.userA, full_name: 'Vendedor Um', email: 'v1@example.com' }),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const payload = await readJson(await POST(postRequest({ token, body: { phone: '11988887777' } })))
+
+  assert.equal(payload.status, 'OWNED_BY_ME')
+  assert.equal(payload.capabilities.can_create_successor_opportunity, false)
 })

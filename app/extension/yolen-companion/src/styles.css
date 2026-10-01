@@ -2946,3 +2946,36 @@ html.yolen-companion-collapsed #app {
 .yolen-full-reading .yolen-full-reading-section + .yolen-full-reading-section {
   margin-top: 12px;
 }
+
+/* Nova oportunidade a partir do ciclo fechado (rodada 5). */
+#yolen-companion-panel .yolen-successor {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+#yolen-companion-panel .yolen-successor-hint {
+  color: var(--yolen-ux-text-secondary, #5b6475);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+#yolen-companion-panel .yolen-successor-options {
+  display: grid;
+  gap: 4px;
+}
+
+#yolen-companion-panel .yolen-successor-option {
+  align-items: center;
+  color: var(--yolen-ux-text, #1f2430);
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  gap: 6px;
+}
+
+#yolen-companion-panel .yolen-successor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

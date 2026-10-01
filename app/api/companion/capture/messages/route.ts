@@ -1,10 +1,15 @@
-import { createClient } from '@supabase/supabase-js'
+import { createHash } from 'node:crypto'
+
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
 import {
   CaptureContractError,
-  getCaptureRpcErrorHttpStatus,
+  classifyCaptureRpcError,
+  findRpcRejectedMessageIndex,
   normalizeCaptureIngestionEnvelope,
+  redactCaptureValidationText,
+  type NormalizedCaptureMessage,
 } from '@/app/lib/companion/capture-ingestion'
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
 
@@ -211,6 +216,99 @@ function normalizeMessageResults(
   })
 }
 
+// Log de recusa sem conteúdo: código, texto da validação (sem dígitos
+// longos), índice e uma impressão curta da message_key — a chave do
+// WhatsApp carrega o telefone, então ela nunca vai crua para o log.
+function fingerprintKey(value: unknown) {
+  return typeof value === 'string' && value
+    ? createHash('sha256').update(value).digest('hex').slice(0, 12)
+    : null
+}
+
+function logCaptureRejection(fields: Record<string, unknown>) {
+  console.warn(
+    'YOLEN_CAPTURE_INGESTION',
+    JSON.stringify({
+      event: 'capture_rejected',
+      ...fields,
+    }),
+  )
+}
+
+function readMessageIndexFromPath(path: string) {
+  const match = /^messages\[(\d+)\]/.exec(path)
+
+  return match ? Number(match[1]) : null
+}
+
+function readRawMessageKey(rawBody: unknown, index: number | null) {
+  if (
+    index === null ||
+    !rawBody ||
+    typeof rawBody !== 'object' ||
+    !Array.isArray((rawBody as { messages?: unknown }).messages)
+  ) {
+    return null
+  }
+
+  const message =
+    (rawBody as { messages: unknown[] }).messages[index]
+
+  const key =
+    message && typeof message === 'object'
+      ? (message as { message_key?: unknown }).message_key
+      : null
+
+  return typeof key === 'string' && key.trim()
+    ? key.trim()
+    : null
+}
+
+// A RPC não diz qual message_key está sem estado canônico: só lê o
+// ledger (nada é gravado) para devolver as chaves que a extensão precisa
+// reenviar sem base_version.
+async function findMessagesWithoutCanonicalState({
+  admin,
+  companyId,
+  conversationKey,
+  messages,
+}: {
+  admin: SupabaseClient
+  companyId: string
+  conversationKey: string
+  messages: NormalizedCaptureMessage[]
+}) {
+  const keysWithBase =
+    messages
+      .filter((message) => message.base_version !== null)
+      .map((message) => message.message_key)
+
+  if (keysWithBase.length === 0) {
+    return []
+  }
+
+  const { data, error } =
+    await admin
+      .from('conversation_messages')
+      .select('message_key')
+      .eq('company_id', companyId)
+      .eq('conversation_key', conversationKey)
+      .in('message_key', keysWithBase)
+
+  if (error) {
+    return keysWithBase
+  }
+
+  const known =
+    new Set(
+      ((data ?? []) as { message_key?: unknown }[])
+        .map((row) => row.message_key)
+        .filter((key): key is string => typeof key === 'string'),
+    )
+
+  return keysWithBase.filter((key) => !known.has(key))
+}
+
 export async function OPTIONS(request: Request) {
   return new NextResponse(null, {
     status: 204,
@@ -220,6 +318,9 @@ export async function OPTIONS(request: Request) {
 
 export async function POST(request: Request) {
   const corsHeaders = getCorsHeaders(request)
+
+  let rawBody: unknown = undefined
+  let cycleIdForLog: string | null = null
 
   try {
     const tokenPayload =
@@ -240,12 +341,14 @@ export async function POST(request: Request) {
       )
     }
 
-    const rawBody = await request
+    rawBody = await request
       .json()
       .catch(() => undefined)
 
     const envelope =
       normalizeCaptureIngestionEnvelope(rawBody)
+
+    cycleIdForLog = envelope.cycle_id
 
     const supabaseUrl =
       process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -294,17 +397,63 @@ export async function POST(request: Request) {
     )
 
     if (error) {
+      const classification =
+        classifyCaptureRpcError(error)
+
+      const rejectedIndex =
+        findRpcRejectedMessageIndex(
+          classification.code,
+          envelope.messages,
+        )
+
+      const messageKeysWithoutState =
+        classification.code === 'BASE_VERSION_WITHOUT_CANONICAL_STATE'
+          ? await findMessagesWithoutCanonicalState({
+              admin,
+              companyId: tokenPayload.company_id,
+              conversationKey: envelope.conversation_key,
+              messages: envelope.messages,
+            })
+          : []
+
+      const rejectedMessageKey =
+        rejectedIndex >= 0
+          ? envelope.messages[rejectedIndex].message_key
+          : null
+
+      logCaptureRejection({
+        source: 'rpc',
+        code: classification.code,
+        http_status: classification.status,
+        pg_code:
+          typeof error.code === 'string' ? error.code : null,
+        validation: redactCaptureValidationText(error),
+        cycle_id: envelope.cycle_id,
+        batch_size: envelope.messages.length,
+        message_index: rejectedIndex >= 0 ? rejectedIndex : null,
+        message_ref: fingerprintKey(rejectedMessageKey),
+        message_refs_without_state:
+          messageKeysWithoutState.map(fingerprintKey),
+      })
+
       return NextResponse.json(
         {
           ok: false,
           status: 'CAPTURE_INGESTION_REJECTED',
           error: error.message,
+          validation: {
+            code: classification.code,
+            message_index:
+              rejectedIndex >= 0 ? rejectedIndex : null,
+            message_key: rejectedMessageKey,
+            message_keys:
+              messageKeysWithoutState.length > 0
+                ? messageKeysWithoutState
+                : null,
+          },
         },
         {
-          status:
-            getCaptureRpcErrorHttpStatus(
-              error,
-            ),
+          status: classification.status,
           headers: corsHeaders,
         },
       )
@@ -442,6 +591,22 @@ export async function POST(request: Request) {
     )
   } catch (error) {
     if (error instanceof CaptureContractError) {
+      const messageIndex =
+        readMessageIndexFromPath(error.path)
+
+      const messageKey =
+        readRawMessageKey(rawBody, messageIndex)
+
+      logCaptureRejection({
+        source: 'contract',
+        code: error.code,
+        http_status: 400,
+        path: error.path.replace(/\d{5,}/g, '<n>'),
+        cycle_id: cycleIdForLog,
+        message_index: messageIndex,
+        message_ref: fingerprintKey(messageKey),
+      })
+
       return NextResponse.json(
         {
           ok: false,
@@ -450,6 +615,8 @@ export async function POST(request: Request) {
           validation: {
             code: error.code,
             path: error.path,
+            message_index: messageIndex,
+            message_key: messageKey,
           },
         },
         {
@@ -458,6 +625,13 @@ export async function POST(request: Request) {
         },
       )
     }
+
+    logCaptureRejection({
+      source: 'route',
+      code: 'CAPTURE_INGESTION_ERROR',
+      http_status: 500,
+      cycle_id: cycleIdForLog,
+    })
 
     return NextResponse.json(
       {

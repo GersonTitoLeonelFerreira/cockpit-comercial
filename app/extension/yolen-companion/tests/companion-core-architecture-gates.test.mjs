@@ -1032,9 +1032,11 @@ const comparison = compareWithBaseline(detected, LEGACY_ARCHITECTURE_BASELINE)
 
 test('fixture declara base SHA e versão do contrato autoritativo', () => {
   assert.equal(ARCHITECTURE_BASE_SHA, 'b5d877a18843b5653c79adc2c5396447d2a99310')
-  assert.equal(CONTRACT_VERSION, '1.1.0')
+  // v1.2.0: CLOSED_CYCLE ganha a ação Nova oportunidade por capability
+  // (decisão do Controle Mestre, 01/10/2026).
+  assert.equal(CONTRACT_VERSION, '1.2.0')
   const contract = readFileSync(CONTRACT_PATH, 'utf8')
-  assert.match(contract, /\|\s*Versão\s*\|\s*1\.1\.0\b/)
+  assert.match(contract, /\|\s*Versão\s*\|\s*1\.2\.0\b/)
 })
 
 test('baseline é imutável e estruturalmente válida (sem wildcard, ids únicos)', () => {

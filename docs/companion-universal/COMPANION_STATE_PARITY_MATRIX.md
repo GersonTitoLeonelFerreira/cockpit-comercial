@@ -2,7 +2,8 @@
 
 | Campo | Valor |
 |---|---|
-| Versão | 1.1.0 (FASE 2.1 — hardening) |
+| Versão | 1.2.0 (rodada 5 — cenário #18: `CLOSED_CYCLE` continua sem workspace; ganha a ação Nova oportunidade por capability — decisão do Controle Mestre, 01/10/2026) |
+| Versão anterior | 1.1.0 (FASE 2.1 — hardening) |
 | Fase | FASE 2 / 2.1 — Contrato arquitetural definitivo |
 | Branch | `claude/companion-core-rebuild` |
 | Base | `b5d877a18843b5653c79adc2c5396447d2a99310` |
@@ -120,7 +121,7 @@ evidência (TO BE VERIFIED). Evidências no §8 do contrato.
 | 15 | `OWNED_BY_ME` | resolution → workspace | "Lead vinculado à sua carteira."; display autorizado por Q3; `WORKSPACE_READY` quando existe `cycle.id`, `can_analyze_conversation=true` e `is_closed=false` | nenhum adicional | nenhum adicional | Campo display pode ser null/omitido por autorização server-side | Workspace decidido pelo adapter; payload bruto; aba faltando/extra | CORE, DOM | WA+MC |
 | 16 | `IN_POOL` | resolution → workspace condicional | Mensagem de domínio + CTA "Abrir Pool na Yolen"; workspace somente com `cycle.id` + `can_analyze_conversation=true` + `is_closed=false`; sem capability, não abre workspace | nenhum | nenhum | Capability pode variar pela autorização do usuário | Abrir workspace apenas por status; ManyChat/WhatsApp divergirem com o mesmo ViewModel | CORE, DOM | WA+MC |
 | 17 | `OWNED_BY_OTHER` | resolution → workspace condicional | Mensagem de domínio + CTA canônico; workspace somente com `cycle.id` + `can_analyze_conversation=true` + `is_closed=false`; ações internas continuam capability-gated | nenhum | nenhum | Capability pode variar pela autorização do usuário | Abrir workspace apenas por status; expor dado não autorizado; habilitar sugestão sem capability | CORE, DOM | WA+MC |
-| 18 | `CLOSED_CYCLE` | resolution | "Este ciclo comercial já está encerrado." (ou `user_message`) + CTA canônico; `is_closed=true` impede `WORKSPACE_READY`, captura e análise comercial ativa | nenhum | nenhum | Nenhuma | Workspace aberto porque `can_analyze_conversation` legacy veio true; análise disparada; copy contraditória | CORE, DOM | WA+MC |
+| 18 | `CLOSED_CYCLE` | resolution | "Este ciclo comercial já está encerrado." (ou `user_message`: ajustes no ciclo fechado só na Yolen) + "Abrir vínculo na Yolen"; `is_closed=true` impede `WORKSPACE_READY`, captura e análise comercial ativa (inclusive a leitura completa). v1.2.0: `CLOSED_CYCLE` continua sem workspace; ganha a ação Nova oportunidade por capability (decisão do Controle Mestre, 01/10/2026) — botão "Nova oportunidade" só com `can_create_successor_opportunity=true` (origem Ganho/Perdido, lead ativo, sem oportunidade aberta, ciclo que foi do vendedor ou papel admin/manager); escolha do tipo + confirmação explícita; depois de criar, só reconsulta e o painel abre no ciclo novo | nenhum | nenhum | Nenhuma | Workspace aberto porque `can_analyze_conversation` legacy veio true; análise disparada; copy contraditória; "Nova oportunidade" decidida pelo status (sem capability), criada sem confirmação, criada duas vezes ou com `lead_id` no content script | CORE, DOM | WA+MC |
 | 19 | resolution network error (`NETWORK_ERROR`) | resolution | Mensagem canônica de falha de rede + retry manual/automático definido pelo Core; nunca cacheado como resolução | nenhum | nenhum | Nenhuma | Cachear erro como resolução; copy diferente | CORE, DOM | WA+MC |
 | 20 | resolution backend error (`BACKEND_ERROR` / `RESOLUTION_ERROR`) | resolution | Mensagem canônica ("Não foi possível consultar o vínculo na Yolen.") + retry | nenhum | nenhum | Nenhuma | Idem #19 | CORE, DOM | — |
 | 21 | AGORA loading | workspace (agora) | Estado de carregamento da área AGORA | nenhum | nenhum | Nenhuma | Área vazia silenciosa em um canal | CORE, DOM | WA+MC |

@@ -47,6 +47,15 @@ function messageNode({
   }
 }
 
+// data-title do ManyChat é o horário de parede do navegador do vendedor,
+// com precisão de minuto e sem fuso (no ledger, 0 de 172 mensagens tinham
+// segundos e nenhuma ficou depois do observed_at; uma mensagem ao vivo foi
+// observada 1 s depois do seu minuto). Date.parse lê esse formato como
+// horário local, então o instante esperado é o do fuso em que o teste roda
+// (UTC ou America/Sao_Paulo).
+const LOCAL_WALL_CLOCK_INSTANT =
+  new Date(2026, 8, 14, 20, 30).toISOString()
+
 test('mensagem de cliente (typeIn) elegível vira mensagem canônica text', () => {
   const message = profile.readManyChatMessage(
     messageNode({
@@ -59,7 +68,7 @@ test('mensagem de cliente (typeIn) elegível vira mensagem canônica text', () =
     message_key: 'manychat:customer-msg-1',
     direction: 'incoming',
     author_kind: 'customer',
-    occurred_at: '2026-09-14T20:30:00.000Z',
+    occurred_at: LOCAL_WALL_CLOCK_INSTANT,
     content_type: 'text',
     text_content: 'Quero saber o preço.',
     audio_transcription: null,

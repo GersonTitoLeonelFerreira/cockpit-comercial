@@ -247,9 +247,40 @@
         })
       }
 
+      function forgetMessages(
+        conversationKey,
+        messageKeys,
+      ) {
+        const versions =
+          getConversationVersions(
+            conversationKey,
+          )
+
+        if (
+          !versions ||
+          !Array.isArray(messageKeys)
+        ) {
+          return
+        }
+
+        messageKeys.forEach((messageKey) => {
+          const normalizedMessageKey =
+            normalizeRequiredText(
+              messageKey,
+            )
+
+          if (normalizedMessageKey) {
+            versions.delete(
+              normalizedMessageKey,
+            )
+          }
+        })
+      }
+
       return {
         preparePayload,
         recordResponse,
+        forgetMessages,
       }
     }
 

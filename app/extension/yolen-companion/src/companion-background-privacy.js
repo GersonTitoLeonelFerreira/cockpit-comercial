@@ -139,6 +139,7 @@
         'can_apply_suggestion',
         'can_open_pool',
         'can_open_cycle',
+        'can_create_successor_opportunity',
       ]),
       actions: booleanFlags(payload.actions, [
         'can_analyze_conversation',
@@ -168,6 +169,23 @@
       status: textOrNull(payload.status),
       code: textOrNull(payload.code),
       error: textOrNull(payload.error),
+    }
+  }
+
+  // Nova oportunidade: só o resultado e o id do ciclo novo (nunca lead_id).
+  function sanitizeSuccessorPayload(payload) {
+    if (!isRecord(payload)) {
+      return payload
+    }
+
+    const cycleId = textOrNull(payload.cycle?.id)
+
+    return {
+      ok: payload.ok === true,
+      status: textOrNull(payload.status),
+      code: textOrNull(payload.code),
+      error: textOrNull(payload.error),
+      cycle: cycleId ? { id: cycleId, status: textOrNull(payload.cycle.status) } : null,
     }
   }
 
@@ -295,6 +313,10 @@
         return { ...response, payload: sanitizeCreateLeadPayload(response.payload) }
       }
 
+      if (message?.action === 'CREATE_SUCCESSOR_OPPORTUNITY') {
+        return { ...response, payload: sanitizeSuccessorPayload(response.payload) }
+      }
+
       return response
     }
 
@@ -311,6 +333,7 @@
     isManyChatSender,
     sanitizeResolutionPayload,
     sanitizeCreateLeadPayload,
+    sanitizeSuccessorPayload,
     createBackgroundPrivacy,
   })
 

@@ -158,3 +158,36 @@ test('sumário reproduz cobertura autenticada 6 cliente / 12 humano / 2 automaç
   assert.equal(summary.timestamp_ready, 20)
   assert.equal(summary.privacy.raw_message_id_exposed, false)
 })
+
+// Formato real do data-title: horário de parede do navegador, minuto,
+// sem fuso. O instante gravado é o do fuso local (o mesmo que o vendedor
+// vê na tela); um valor com fuso explícito vale em qualquer fuso.
+test('data-title sem fuso vira o instante do horário local do navegador', () => {
+  const result = identity.extractManyChatMessageIdentity(
+    messageNode({
+      classes: ['_wrapper_hash', '_typeIn_hash'],
+      title: '2026-09-14T20:30:00',
+      mids: ['native-local-wall-clock'],
+    }),
+  )
+
+  assert.equal(result.ready, true)
+  assert.equal(result.occurred_at, new Date(2026, 8, 14, 20, 30).toISOString())
+  assert.equal(
+    Date.parse(result.occurred_at),
+    new Date(2026, 8, 14, 20, 30).getTime(),
+  )
+})
+
+test('data-title com fuso explícito vira o mesmo instante em UTC e em America/Sao_Paulo', () => {
+  const result = identity.extractManyChatMessageIdentity(
+    messageNode({
+      classes: ['_wrapper_hash', '_typeIn_hash'],
+      title: '2026-09-14T20:30:00-03:00',
+      mids: ['native-explicit-offset'],
+    }),
+  )
+
+  assert.equal(result.ready, true)
+  assert.equal(result.occurred_at, '2026-09-14T23:30:00.000Z')
+})

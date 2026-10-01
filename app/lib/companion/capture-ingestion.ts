@@ -103,45 +103,82 @@ const CAPTURE_RPC_VALIDATION_ERROR_MARKERS = [
   'nenhuma mensagem válida foi persistida ou localizada',
 ] as const
 
-export function getCaptureRpcErrorHttpStatus(
-  error: unknown,
-) {
-  const message =
-    isRecord(error) &&
+// Validações da RPC que apontam uma mensagem do lote (não o lote todo).
+// Cada uma ganha código próprio e status 400: a extensão isola a mensagem
+// (ou reenvia sem base_version, uma vez) em vez de repetir o lote para
+// sempre como se fosse falha do servidor.
+export const CAPTURE_RPC_MESSAGE_VALIDATIONS = [
+  {
+    code: 'OBSERVED_AT_INVALID',
+    marker: 'observed_at contém uma data inválida',
+  },
+  {
+    code: 'OBSERVED_AT_IN_FUTURE',
+    marker: 'observed_at não pode estar mais de cinco minutos no futuro',
+  },
+  {
+    code: 'BASE_VERSION_WITHOUT_CANONICAL_STATE',
+    marker:
+      'base_version não pode ser informada quando a mensagem ainda não possui estado canônico',
+  },
+] as const
+
+export type CaptureRpcErrorClassification = {
+  status: number
+  code: string
+}
+
+function readRpcErrorText(error: unknown) {
+  return isRecord(error) &&
     typeof error.message === 'string'
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : ''
+    ? error.message
+    : typeof error === 'string'
+      ? error
+      : ''
+}
 
+export function classifyCaptureRpcError(
+  error: unknown,
+): CaptureRpcErrorClassification {
   const normalized =
-    message.trim().toLowerCase()
+    readRpcErrorText(error).trim().toLowerCase()
 
-  if (
-    normalized.includes(
-      'sem vínculo ativo',
-    ) ||
-    normalized.includes(
-      'não pode capturar',
-    )
-  ) {
-    return 403
+  const pgCode =
+    isRecord(error) && typeof error.code === 'string'
+      ? error.code
+      : ''
+
+  // PostgREST recusou o corpo antes de chamar a função (JSON que o
+  // parser dele não aceita). Não é validação de mensagem: é defeito do
+  // servidor e fica 500, com código próprio no log.
+  if (pgCode === 'PGRST102') {
+    return { status: 500, code: 'CAPTURE_RPC_BODY_REJECTED' }
   }
 
-  if (
-    normalized.includes(
-      'ciclo comercial não encontrado',
-    )
-  ) {
-    return 404
+  if (normalized.includes('sem vínculo ativo')) {
+    return { status: 403, code: 'CAPTURE_MEMBERSHIP_INACTIVE' }
   }
 
-  if (
-    normalized.includes(
-      'ciclo comercial encerrado',
+  if (normalized.includes('não pode capturar')) {
+    return { status: 403, code: 'CAPTURE_CYCLE_NOT_OWNED' }
+  }
+
+  if (normalized.includes('ciclo comercial não encontrado')) {
+    return { status: 404, code: 'CAPTURE_CYCLE_NOT_FOUND' }
+  }
+
+  if (normalized.includes('ciclo comercial encerrado')) {
+    return { status: 409, code: 'CAPTURE_CYCLE_CLOSED' }
+  }
+
+  const messageValidation =
+    CAPTURE_RPC_MESSAGE_VALIDATIONS.find(
+      (validation) =>
+        normalized.includes(validation.marker),
     )
-  ) {
-    return 409
+
+  if (messageValidation) {
+    return { status: 400, code: messageValidation.code }
   }
 
   if (
@@ -150,10 +187,77 @@ export function getCaptureRpcErrorHttpStatus(
         normalized.includes(marker),
     )
   ) {
-    return 400
+    return { status: 400, code: 'CAPTURE_RPC_VALIDATION' }
   }
 
-  return 500
+  return { status: 500, code: 'CAPTURE_RPC_ERROR' }
+}
+
+export function getCaptureRpcErrorHttpStatus(
+  error: unknown,
+) {
+  return classifyCaptureRpcError(error).status
+}
+
+// Texto da validação para log: sem conteúdo de mensagem (a RPC não põe
+// texto nas mensagens de erro) e sem sequências longas de dígitos (uma
+// message_key do WhatsApp carrega o telefone).
+export function redactCaptureValidationText(
+  error: unknown,
+) {
+  return readRpcErrorText(error)
+    .replace(/\d{5,}/g, '<n>')
+    .slice(0, 200)
+}
+
+// Para as validações de observed_at a RPC não diz qual mensagem falhou:
+// aponta a candidata pelo mesmo critério (nunca afrouxa a regra).
+export function findRpcRejectedMessageIndex(
+  code: string,
+  messages: Pick<NormalizedCaptureMessage, 'observed_at'>[],
+) {
+  if (code === 'OBSERVED_AT_IN_FUTURE') {
+    let latestIndex = -1
+    let latestTime = -Infinity
+
+    messages.forEach((message, index) => {
+      const time = Date.parse(message.observed_at)
+
+      if (Number.isFinite(time) && time > latestTime) {
+        latestTime = time
+        latestIndex = index
+      }
+    })
+
+    return latestIndex
+  }
+
+  if (code === 'OBSERVED_AT_INVALID') {
+    return messages.findIndex(
+      (message) =>
+        !/^\d{4}-\d{2}-\d{2}T/.test(message.observed_at),
+    )
+  }
+
+  return -1
+}
+
+// Metade de um emoji (surrogate UTF-16 sem par) passa pelo JSON do
+// navegador e do Node, mas o PostgREST recusa o corpo inteiro (PGRST102,
+// "Empty or invalid json"). O texto chega como o leitor do canal o viu,
+// com U+FFFD no lugar da metade solta — mesma regra da extensão.
+const LONE_SURROGATE_PATTERN =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
+export function toWellFormedCaptureText(value: string) {
+  return value.replace(LONE_SURROGATE_PATTERN, '\uFFFD')
+}
+
+export function hasLoneSurrogate(value: string) {
+  LONE_SURROGATE_PATTERN.lastIndex = 0
+  const found = LONE_SURROGATE_PATTERN.test(value)
+  LONE_SURROGATE_PATTERN.lastIndex = 0
+  return found
 }
 
 function fail({
@@ -199,6 +303,16 @@ function normalizeRequiredText({
     })
   }
 
+  // Chaves não são reescritas: uma chave com metade de emoji é recusada
+  // (a extensão isola a mensagem) em vez de virar outra chave.
+  if (hasLoneSurrogate(normalized)) {
+    fail({
+      code: 'MALFORMED_TEXT',
+      path,
+      message: `${path} contém um caractere inválido.`,
+    })
+  }
+
   if (normalized.length > maxLength) {
     fail({
       code: 'TEXT_TOO_LONG',
@@ -231,7 +345,8 @@ function normalizeNullableText({
     })
   }
 
-  const normalized = value.trim()
+  const normalized =
+    toWellFormedCaptureText(value).trim()
 
   if (!normalized) {
     return null
@@ -684,32 +799,42 @@ export function normalizeCaptureIngestionEnvelope(
     })
   }
 
-  const messages = value.messages
+  // O índice do path é sempre o do lote enviado (mesmo com mensagens
+  // descartadas), para a extensão saber qual mensagem isolar.
+  const indexedMessages = value.messages
     .map((message, index) => {
-      return normalizeCaptureMessage(
-        message,
+      return {
         index,
-        conversationKey,
-      )
+        message: normalizeCaptureMessage(
+          message,
+          index,
+          conversationKey,
+        ),
+      }
     })
     .filter(
-      (message): message is NormalizedCaptureMessage =>
-        message !== null,
+      (
+        entry,
+      ): entry is { index: number; message: NormalizedCaptureMessage } =>
+        entry.message !== null,
     )
 
   const observedMessageKeys = new Set<string>()
 
-  messages.forEach((message, index) => {
+  indexedMessages.forEach(({ index, message }) => {
     if (observedMessageKeys.has(message.message_key)) {
       fail({
         code: 'DUPLICATE_MESSAGE_KEY',
         path: `messages[${index}].message_key`,
-        message: `A chave ${message.message_key} apareceu mais de uma vez no mesmo lote.`,
+        message: 'A mesma message_key apareceu mais de uma vez no mesmo lote.',
       })
     }
 
     observedMessageKeys.add(message.message_key)
   })
+
+  const messages =
+    indexedMessages.map(({ message }) => message)
 
   return {
     contract_version: CAPTURE_INGESTION_CONTRACT_VERSION,

@@ -585,6 +585,10 @@
     return sendToBackground('CREATE_LEAD', payload)
   }
 
+  async function createSuccessorOpportunity(payload) {
+    return sendToBackground('CREATE_SUCCESSOR_OPPORTUNITY', payload)
+  }
+
   // FASE 7 — vínculo manual de identidade externa (first-link): busca de
   // leads vinculáveis e confirmação. Só FIRST_LINK_EXTERNAL_IDENTITY
   // (nunca relink); company/actor são derivados do token no servidor.
@@ -1109,6 +1113,7 @@
     transcribeAudio,
     loadAudioTranscriptions,
     ingestCapturedMessages,
+    createSuccessorOpportunity,
     previewConversationRegistration,
     confirmConversationRegistration,
     loadLeadSummary,

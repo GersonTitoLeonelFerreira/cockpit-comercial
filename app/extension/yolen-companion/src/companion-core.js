@@ -543,6 +543,12 @@ function createCompanionCore(ctx) {
     get escapeHtml() {
       return escapeHtml
     },
+    // Nova oportunidade: CLOSED_CYCLE fica no cache de resolução; a
+    // reconsulta depois de criar precisa de uma leitura fresca.
+    get clearLeadResolutionCache() {
+      return () =>
+        coreApiComposition.clearLeadResolutionCache()
+    },
     get renderPanel() {
       return renderPanel
     },
@@ -571,6 +577,10 @@ function createCompanionCore(ctx) {
     getLeadActionButton,
     isLeadCreationPendingForConversation,
     retryLeadLinkAfterCreation,
+    openSuccessorChooser,
+    cancelSuccessorChooser,
+    selectSuccessorType,
+    confirmSuccessorOpportunity,
   } = leadCreationController
 
   // FASE 7 — vínculo manual de identidade externa (CONTACT_NOT_LINKED):
@@ -604,6 +614,12 @@ function createCompanionCore(ctx) {
   const lastIngestedCaptureKeys = new Map()
 
   const confirmedCaptureVersionsByConversation =
+    new Map()
+
+  // Alerta de captura por contexto (ciclo + conversa): só o código da
+  // última recusa, nunca conteúdo. O painel usa para explicar uma conversa
+  // vazia na Yolen ("falha na captura: <código>").
+  const captureAlertsByContext =
     new Map()
 
   const pendingCaptureIngestionPlans =
@@ -2274,6 +2290,155 @@ function createCompanionCore(ctx) {
     return hasConflict
   }
 
+  function forgetConfirmedCaptureVersions(
+    conversationKey,
+    messageKeys,
+  ) {
+    const versions =
+      confirmedCaptureVersionsByConversation
+        .get(conversationKey)
+
+    if (
+      !versions ||
+      !Array.isArray(messageKeys)
+    ) {
+      return
+    }
+
+    messageKeys.forEach((messageKey) => {
+      versions.delete(messageKey)
+    })
+  }
+
+  function getCurrentCaptureContextKey() {
+    const cycleId =
+      getCanonicalResolutionCycleId()
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    return cycleId && conversationKey
+      ? [
+          cycleId,
+          conversationKey,
+        ].join('::')
+      : null
+  }
+
+  function getCurrentCaptureAlert() {
+    const contextKey =
+      getCurrentCaptureContextKey()
+
+    return contextKey
+      ? captureAlertsByContext.get(
+          contextKey,
+        ) || null
+      : null
+  }
+
+  function setCaptureAlert(
+    contextKey,
+    alert,
+  ) {
+    const previous =
+      captureAlertsByContext.get(
+        contextKey,
+      ) || null
+
+    if (alert) {
+      captureAlertsByContext.delete(
+        contextKey,
+      )
+      captureAlertsByContext.set(
+        contextKey,
+        alert,
+      )
+
+      if (
+        captureAlertsByContext.size >
+        100
+      ) {
+        const oldestKey =
+          captureAlertsByContext
+            .keys()
+            .next()
+            .value
+
+        if (oldestKey) {
+          captureAlertsByContext.delete(
+            oldestKey,
+          )
+        }
+      }
+    } else {
+      captureAlertsByContext.delete(
+        contextKey,
+      )
+    }
+
+    if (
+      (previous?.code || null) !==
+        (alert?.code || null) &&
+      contextKey ===
+        getCurrentCaptureContextKey()
+    ) {
+      renderPanel()
+    }
+  }
+
+  // Resultado da recuperação do lote (companion-core-api-composition):
+  // chaves reenviadas sem base_version deixam de ter versão lembrada aqui
+  // também; mensagens isoladas ou recusa do lote viram alerta de captura.
+  function applyCaptureRecovery(
+    contextKey,
+    payload,
+    result,
+  ) {
+    const recovery =
+      result?.capture_recovery
+
+    if (
+      !recovery ||
+      typeof recovery !== 'object'
+    ) {
+      return null
+    }
+
+    if (
+      Array.isArray(
+        recovery.rebased_message_keys,
+      ) &&
+      recovery.rebased_message_keys
+        .length > 0
+    ) {
+      forgetConfirmedCaptureVersions(
+        payload?.conversation_key,
+        recovery.rebased_message_keys,
+      )
+    }
+
+    const isolated =
+      Array.isArray(recovery.isolated)
+        ? recovery.isolated
+        : []
+
+    const code =
+      recovery.failure_code ||
+      isolated[0]?.code ||
+      null
+
+    return code
+      ? {
+          code,
+          isolated_count:
+            isolated.length,
+          blocking: Boolean(
+            recovery.failure_code,
+          ),
+        }
+      : null
+  }
+
   function rememberCurrentPreResolutionCapture() {
     const conversationKey =
       state.conversationKey
@@ -2718,6 +2883,8 @@ function createCompanionCore(ctx) {
           continue
         }
 
+        let planCaptureAlert = null
+
         try {
           let planHasConflict = false
 
@@ -2730,6 +2897,13 @@ function createCompanionCore(ctx) {
                 .ingestCapturedMessages(
                   payload,
                 )
+
+            planCaptureAlert =
+              applyCaptureRecovery(
+                contextKey,
+                payload,
+                result,
+              ) || planCaptureAlert
 
             if (
               !result?.ok ||
@@ -2775,6 +2949,11 @@ function createCompanionCore(ctx) {
             }
           }
 
+          setCaptureAlert(
+            contextKey,
+            planCaptureAlert,
+          )
+
           if (planHasConflict) {
             forgetPendingCapturePlan(
               contextKey,
@@ -2803,6 +2982,11 @@ function createCompanionCore(ctx) {
             plan.snapshotKey,
           )
         } catch (error) {
+          setCaptureAlert(
+            contextKey,
+            planCaptureAlert,
+          )
+
           if (
             error?.retryable === true
           ) {
@@ -7182,18 +7366,32 @@ function createCompanionCore(ctx) {
       : null
   }
 
+  // Conversa vazia na Yolen porque a captura está sendo recusada: o
+  // painel diz isso (com o código) em vez de só "conversa vazia".
+  function withCaptureFailureNotice(view) {
+    return sellerInformationViewTools
+      .applyCaptureFailureNotice(
+        view,
+        getCurrentCaptureAlert()?.code,
+      )
+  }
+
   function getCurrentFullReadingViews() {
     return {
       agora:
         isCurrentAgoraDecisionContext()
-          ? readFullReadingView(
-              state.agoraDecisionState.data,
+          ? withCaptureFailureNotice(
+              readFullReadingView(
+                state.agoraDecisionState.data,
+              ),
             )
           : null,
       analysis:
         isCurrentAnalysisViewContext()
-          ? readFullReadingView(
-              state.analysisViewModel.data,
+          ? withCaptureFailureNotice(
+              readFullReadingView(
+                state.analysisViewModel.data,
+              ),
             )
           : null,
     }
@@ -9322,6 +9520,46 @@ function createCompanionCore(ctx) {
         openYolen('/pool')
       },
     )
+
+    // Nova oportunidade (ciclo fechado): abrir, escolher o tipo, confirmar
+    // ou cancelar. A criação só acontece no clique de confirmação.
+    wireOnce(
+      panel.querySelector('[data-yolen-action="successor-open"]'),
+      'click',
+      () => {
+        openSuccessorChooser()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="successor-cancel"]'),
+      'click',
+      () => {
+        cancelSuccessorChooser()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="successor-confirm"]'),
+      'click',
+      () => {
+        confirmSuccessorOpportunity()
+      },
+    )
+
+    panel
+      .querySelectorAll('[data-yolen-successor-type]')
+      .forEach((input) => {
+        wireOnce(
+          input,
+          'change',
+          () => {
+            selectSuccessorType(
+              input.getAttribute('data-yolen-successor-type'),
+            )
+          },
+        )
+      })
 
     wireOnce(
       panel.querySelector('[data-yolen-action="open-cycle-yolen"]'),

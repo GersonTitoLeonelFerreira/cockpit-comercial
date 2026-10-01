@@ -131,6 +131,8 @@ test('payload legacy vira ViewModel allowlisted com cycle, display, capabilities
     can_register_conversation: false,
     can_enrich_lead: false,
     can_link_lead: false,
+    // Rodada 5: só a capability canônica liga "Nova oportunidade".
+    can_create_successor_opportunity: false,
   })
   assert.deepEqual({ ...viewModel.flags }, { is_closed: false, is_owned_by_me: true, is_pool: false })
 })
@@ -187,6 +189,7 @@ test('capabilities booleanas conhecidas preservadas; canônicas têm prioridade 
     can_register_conversation: true,
     can_enrich_lead: true,
     can_link_lead: false,
+    can_create_successor_opportunity: false,
   })
 
   const legacyCreate = controller.createDomainResolutionViewModel(legacyPayload({

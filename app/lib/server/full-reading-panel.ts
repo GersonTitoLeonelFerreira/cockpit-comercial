@@ -70,6 +70,18 @@ export const RUN_EXPIRED_FAILURE_CODE =
 export const DUPLICATE_RUN_FAILURE_CODE =
   'DUPLICATE_RUN_DISCARDED'
 
+// A leitura só chama o Claude quando o painel vai mostrá-la: ciclo
+// fechado não tem workspace (CLOSED_CYCLE) e conversa sem mensagem no
+// ledger não tem o que ler. Nesses casos nenhuma rodada é criada.
+export const CLOSED_CYCLE_SKIP_CODE =
+  'CLOSED_CYCLE'
+
+export const EMPTY_CONVERSATION_SKIP_CODE =
+  'EMPTY_CONVERSATION'
+
+const TERMINAL_CYCLE_STATUSES =
+  new Set(['ganho', 'perdido', 'cancelado'])
+
 const RUN_COLUMNS =
   'run_id, cycle_id, status, prompt_version, reference_time, created_at, ' +
   'started_at, completed_at, failure_code, analysis_markdown, decision'
@@ -107,12 +119,13 @@ export type FullReadingPanelRunRow = {
 }
 
 export type FullReadingPanelPlan = {
-  action: 'use' | 'wait' | 'start' | 'show_failure'
+  action: 'use' | 'wait' | 'start' | 'show_failure' | 'skip'
   reading: FullReadingPanelRunRow | null
   active_run: FullReadingPanelRunRow | null
   failed_run: FullReadingPanelRunRow | null
   expired_run_ids: string[]
   stale_reasons: string[]
+  skip_reason?: string
 }
 
 function toTime(
@@ -306,6 +319,22 @@ export function planFullReadingPanel({
       ...plan,
       action: 'use',
       stale_reasons: [],
+    }
+  }
+
+  const skipReason =
+    TERMINAL_CYCLE_STATUSES.has(kanban.status)
+      ? CLOSED_CYCLE_SKIP_CODE
+      : latestObservedAt === null
+        ? EMPTY_CONVERSATION_SKIP_CODE
+        : null
+
+  if (skipReason) {
+    return {
+      ...plan,
+      action: 'skip',
+      skip_reason: skipReason,
+      stale_reasons: staleReasons,
     }
   }
 
@@ -749,6 +778,16 @@ export async function resolveFullReadingPanel({
       state: 'failed',
       reading: toReading(plan.reading),
       failure_code: plan.failed_run?.failure_code ?? 'FULL_READING_FAILED',
+      started_run_id: null,
+    }
+  }
+
+  if (plan.action === 'skip') {
+    return {
+      ...base,
+      state: 'failed',
+      reading: toReading(plan.reading),
+      failure_code: plan.skip_reason ?? EMPTY_CONVERSATION_SKIP_CODE,
       started_run_id: null,
     }
   }

@@ -2723,9 +2723,43 @@
     return hydrated
   }
 
+  // Conversa vazia na Yolen porque a captura está sendo recusada: o
+  // aviso da leitura completa diz isso, com o código da falha, em vez de
+  // só "conversa vazia". Sem alerta de captura, o aviso do servidor fica.
+  const CAPTURE_PENDING_NOTICE =
+    'As mensagens desta conversa ainda não chegaram à Yolen'
+
+  function applyCaptureFailureNotice(view, captureFailureCode) {
+    if (
+      !view ||
+      typeof view !== 'object' ||
+      view.failure_code !== 'EMPTY_CONVERSATION'
+    ) {
+      return view
+    }
+
+    const code =
+      typeof captureFailureCode === 'string'
+        ? captureFailureCode.replace(/[^A-Z0-9_]/gi, '_').slice(0, 64)
+        : ''
+
+    if (!code) {
+      return view
+    }
+
+    // view_key muda junto: a hidratação do slot compara a assinatura e
+    // re-renderiza quando o alerta de captura aparece ou muda.
+    return {
+      ...view,
+      view_key: `${view.view_key}|capture:${code}`,
+      notice: `${CAPTURE_PENDING_NOTICE} (falha na captura: ${code})`,
+    }
+  }
+
   const api = Object.freeze({
     escapeHtml,
     sellerText,
+    applyCaptureFailureNotice,
     getMethodStatusLabel,
     getMethodAdherenceLabel,
     getNeutralSessionCopy,

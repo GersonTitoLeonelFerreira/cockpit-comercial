@@ -262,9 +262,23 @@ function buildFooter(
     : FULL_READING_SOURCE_LABEL
 }
 
+export const FULL_READING_EMPTY_CONVERSATION_NOTICE =
+  'As mensagens desta conversa ainda não chegaram à Yolen.'
+
+export const FULL_READING_CLOSED_CYCLE_NOTICE =
+  'Oportunidade encerrada: a leitura completa não roda para ciclo fechado.'
+
 function buildFailureNotice(
   failureCode: string | null,
 ): string {
+  if (failureCode === 'EMPTY_CONVERSATION') {
+    return FULL_READING_EMPTY_CONVERSATION_NOTICE
+  }
+
+  if (failureCode === 'CLOSED_CYCLE') {
+    return FULL_READING_CLOSED_CYCLE_NOTICE
+  }
+
   return failureCode
     ? `Leitura completa indisponível agora (${failureCode}). Mostrando a análise anterior.`
     : 'Leitura completa indisponível agora. Mostrando a análise anterior.'
