@@ -6,6 +6,8 @@ import CyclePageTabs from '@/app/sales-cycles/[id]/CyclePageTabs'
 import CopilotTogglePanel from '@/app/sales-cycles/[id]/components/CopilotTogglePanel'
 import CyclePulsePanel from '@/app/sales-cycles/[id]/components/CyclePulsePanel'
 import SuccessorOpportunityAction from '@/app/sales-cycles/[id]/components/SuccessorOpportunityAction'
+import CompanionReadingsSection from '@/app/sales-cycles/[id]/components/CompanionReadingsSection'
+import { isFullReadingPanelEnabled } from '@/app/lib/server/full-reading-flag'
 import {
   fmtDateShort,
   statusBadgeStyle,
@@ -931,6 +933,11 @@ const cyclesById = new Map(
         />
 
         <CopilotTogglePanel cycle={copilotCycle} />
+
+        {/* Rodada 9 (Fase 2): leitura do Companion, só no HML (flag). */}
+        {isFullReadingPanelEnabled(process.env) ? (
+          <CompanionReadingsSection cycleId={selectedCycle.id} />
+        ) : null}
 
         <div
           style={{
