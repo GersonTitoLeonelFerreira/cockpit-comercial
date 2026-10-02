@@ -25,6 +25,12 @@ import {
   verifyCompanionRequestToken,
 } from '../../../../lib/server/companion-token'
 
+import {
+  isLegacyCompanionAiDisabled,
+  legacyAiDisabledBody,
+  logLegacyAiSkipped,
+} from '../../../../lib/server/full-reading-flag'
+
 function hashSummaryText(summaryText: string) {
   return createHash('sha256').update(summaryText.trim()).digest('hex')
 }
@@ -81,6 +87,20 @@ export async function POST(request: Request) {
       },
       {
         status: 401,
+        headers: corsHeaders,
+      },
+    )
+  }
+
+  // Rodada 7: com a leitura completa ligada, o resumo de "Registrar
+  // conversa" (IA) não é gerado.
+  if (isLegacyCompanionAiDisabled()) {
+    logLegacyAiSkipped('/api/companion/register-conversation/preview')
+
+    return NextResponse.json(
+      legacyAiDisabledBody(),
+      {
+        status: 409,
         headers: corsHeaders,
       },
     )

@@ -194,7 +194,21 @@ function createCompanionAnalysisController(ctx) {
     ].join('::')
   }
 
+  // Rodada 7: com a leitura completa no painel (HML, flag ligada), a
+  // análise antiga — que chama a IA na fila companion-deep-analysis-v3 —
+  // nunca é disparada: nem automática, nem manual, nem retry.
+  function isLegacyAnalysisDisabled() {
+    return (
+      typeof ctx.isLegacyAiDisabled === 'function' &&
+      ctx.isLegacyAiDisabled() === true
+    )
+  }
+
   function canScheduleAutomaticAnalysis() {
+    if (isLegacyAnalysisDisabled()) {
+      return false
+    }
+
     const currentFingerprint =
       getCurrentConversationFingerprint()
 
@@ -953,6 +967,20 @@ function createCompanionAnalysisController(ctx) {
     clearDeepAnalysisPollTimer()
     clearAutomaticAnalysisTimer()
     clearAnalysisWatchdogTimer()
+
+    if (isLegacyAnalysisDisabled()) {
+      if (ctx.state.automaticAnalysisStatus || ctx.state.conversationAnalysisLoading) {
+        ctx.state = {
+          ...ctx.state,
+          automaticAnalysisStatus: null,
+          conversationAnalysisLoading: false,
+        }
+
+        renderPanel()
+      }
+
+      return
+    }
 
     if (!canAnalyzeCurrentConversation()) {
       if (isAutomatic) {

@@ -228,6 +228,7 @@ export async function POST(
         force:
           body.force_reanalysis,
         referenceTime,
+        route: '/api/companion/analysis-view-model',
         schedule:
           (task) => after(task),
         createRunId:

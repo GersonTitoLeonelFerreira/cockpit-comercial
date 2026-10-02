@@ -954,8 +954,12 @@ test('resolve-lead: can_note_successor_opportunity só com a leitura completa li
     assert.deepEqual((await resolve(closed)).capabilities, {
       ...closed.capabilities,
       can_note_successor_opportunity: true,
+      full_reading_panel: true,
     })
-    assert.deepEqual((await resolve(owned)).capabilities, owned.capabilities)
+    assert.deepEqual((await resolve(owned)).capabilities, {
+      ...owned.capabilities,
+      full_reading_panel: true,
+    })
 
     process.env.VERCEL_ENV = 'production'
     assert.deepEqual((await resolve(closed)).capabilities, closed.capabilities)
@@ -963,6 +967,54 @@ test('resolve-lead: can_note_successor_opportunity só com a leitura completa li
     delete process.env.COMPANION_FULL_READING_PANEL
     process.env.VERCEL_ENV = 'preview'
     assert.deepEqual((await resolve(closed)).capabilities, closed.capabilities)
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
+
+// Rodada 7: full_reading_panel diz à extensão que o caminho antigo de IA
+// fica desligado. Só existe com a flag ligada em preview; desligada (ou fora
+// do preview) a resposta inteira é a de hoje.
+test('resolve-lead: full_reading_panel só com a leitura completa ligada em preview', async () => {
+  const previous = {
+    COMPANION_FULL_READING_PANEL: process.env.COMPANION_FULL_READING_PANEL,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+  }
+
+  const resolveAll = async () => {
+    const result = []
+    for (const scenario of ACTION_CONTRACT_SCENARIOS) {
+      useAdmin(scenario.steps())
+      const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+      result.push([scenario, await readJson(await POST(postRequest({ token, body: scenario.body })))])
+    }
+    return result
+  }
+
+  try {
+    process.env.COMPANION_FULL_READING_PANEL = 'on'
+    process.env.VERCEL_ENV = 'preview'
+    for (const [scenario, payload] of await resolveAll()) {
+      assert.equal(payload.capabilities.full_reading_panel, true, scenario.status)
+    }
+
+    for (const env of [
+      { COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'preview' },
+      { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production' },
+    ]) {
+      for (const [key, value] of Object.entries(env)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+
+      for (const [scenario, payload] of await resolveAll()) {
+        assert.equal('full_reading_panel' in payload.capabilities, false, scenario.status)
+        assert.deepEqual(payload.capabilities, scenario.capabilities, scenario.status)
+      }
+    }
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]

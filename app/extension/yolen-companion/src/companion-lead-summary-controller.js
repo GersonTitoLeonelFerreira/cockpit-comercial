@@ -196,6 +196,33 @@ function createCompanionLeadSummaryController(ctx) {
       return
     }
 
+    // Rodada 7: com a leitura completa no painel (HML, flag ligada), o
+    // resumo antigo — gerado por IA a cada carga — não é pedido.
+    if (
+      typeof ctx.isLegacyAiDisabled === 'function' &&
+      ctx.isLegacyAiDisabled() === true
+    ) {
+      if (ctx.state.companionLeadSummary?.status !== 'idle') {
+        messageController.clear()
+
+        ctx.state = {
+          ...ctx.state,
+          companionLeadSummary: {
+            status: 'idle',
+          },
+          companionLeadSummaryCycleId: null,
+          companionLeadSummaryConversationKey: null,
+          companionLeadSummarySaveStatus: null,
+          companionLeadSummarySaveError: null,
+          companionLeadSummaryDraftValue: null,
+        }
+
+        renderPanel()
+      }
+
+      return
+    }
+
     // Recarga do MESMO contexto (captura confirmada, retomada da janela):
     // o resumo válido continua na tela até o novo chegar — nunca "resumo →
     // carregando → resumo", que apagava o bloco do AGORA e desmontava a

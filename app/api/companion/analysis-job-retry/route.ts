@@ -3,6 +3,12 @@ import {
 } from '@supabase/supabase-js'
 
 import {
+  isLegacyCompanionAiDisabled,
+  legacyAiDisabledBody,
+  logLegacyAiSkipped,
+} from '@/app/lib/server/full-reading-flag'
+
+import {
   NextResponse,
 } from 'next/server'
 
@@ -120,6 +126,21 @@ export async function POST(
       },
       {
         status: 401,
+        headers:
+          corsHeaders,
+      },
+    )
+  }
+
+  // Rodada 7: com a leitura completa ligada, nada é republicado na fila da
+  // análise stateful.
+  if (isLegacyCompanionAiDisabled()) {
+    logLegacyAiSkipped('/api/companion/analysis-job-retry')
+
+    return NextResponse.json(
+      legacyAiDisabledBody(),
+      {
+        status: 409,
         headers:
           corsHeaders,
       },

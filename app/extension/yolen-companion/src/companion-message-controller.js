@@ -18,6 +18,9 @@ function createCompanionMessageController({
   // em que o resumo foi sincronizado continuar vivo.
   captureOperationContext = () => null,
   isOperationContextCurrent = () => true,
+  // Rodada 7: com a leitura completa no painel, a geração antiga
+  // (method-guidance, IA) nunca é chamada.
+  isLegacyAiDisabled = () => false,
 } = {}) {
   // Estado da MENSAGEM por conversa (cycle_id + conversation_key). O
   // rascunho da intenção é do vendedor e da conversa: sobrevive a um
@@ -1234,6 +1237,10 @@ function createCompanionMessageController({
     const state = getState(context)
 
     if (!context || !state) {
+      return
+    }
+
+    if (isLegacyAiDisabled() === true) {
       return
     }
 

@@ -2,6 +2,11 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { send } from '@vercel/queue'
+import {
+  isLegacyCompanionAiDisabled,
+  legacyAiDisabledBody,
+  logLegacyAiSkipped,
+} from '@/app/lib/server/full-reading-flag'
 
 import {
   STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS,
@@ -478,6 +483,20 @@ export async function POST(request: Request) {
         },
         {
           status: 401,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    // Rodada 7: com a leitura completa ligada, a análise stateful (fila
+    // companion-deep-analysis-v3) não é criada nem publicada.
+    if (isLegacyCompanionAiDisabled()) {
+      logLegacyAiSkipped('/api/companion/analyze-conversation')
+
+      return NextResponse.json(
+        legacyAiDisabledBody(),
+        {
+          status: 409,
           headers: corsHeaders,
         },
       )

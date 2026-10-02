@@ -31,6 +31,12 @@ import {
   verifyCompanionRequestToken,
 } from '@/app/lib/server/companion-token'
 
+import {
+  isLegacyCompanionAiDisabled,
+  legacyAiDisabledBody,
+  logLegacyAiSkipped,
+} from '@/app/lib/server/full-reading-flag'
+
 type DiagnosticPreviewBody = {
   cycle_id?: unknown
   conversation_key?: unknown
@@ -168,6 +174,20 @@ export async function POST(
       },
       {
         status: 401,
+        headers:
+          corsHeaders,
+      },
+    )
+  }
+
+  // Rodada 7: com a leitura completa ligada, o diagnóstico V2 (IA) não roda.
+  if (isLegacyCompanionAiDisabled()) {
+    logLegacyAiSkipped('/api/companion/v2/diagnostic-preview')
+
+    return NextResponse.json(
+      legacyAiDisabledBody(),
+      {
+        status: 409,
         headers:
           corsHeaders,
       },

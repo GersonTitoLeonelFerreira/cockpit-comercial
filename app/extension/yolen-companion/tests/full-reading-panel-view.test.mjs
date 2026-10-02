@@ -486,12 +486,16 @@ test('core: AGORA, resumo, CLIENTE, cabeçalho e ações seguem a leitura só qu
   assert.match(core, /messageController\.syncFullReading\?\.\(/)
 
   // AGORA: com leitura pronta, só ela (sem os sinais antigos repetidos).
-  assert.match(slice('function getNowAttentionSnapshotHtml()', 2500), /fullReadingAgora\.main\s*\?\s*''\s*:\s*sellerInformationViewTools\.renderAgoraViewModelSnapshot\(/)
+  // Rodada 7: com a leitura completa no painel (rodando ou em falha), só o
+  // aviso dela; o AGORA antigo só volta com a flag desligada.
+  const agora = slice('function getNowAttentionSnapshotHtml()', 2500)
+  assert.match(agora, /fullReadingAgora\.main \|\| isFullReadingPanelMode\(\)\s*\?\s*''\s*:\s*sellerInformationViewTools\.renderAgoraViewModelSnapshot\(/)
+  assert.match(agora, /return isFullReadingPanelMode\(\)\s*\?\s*getFullReadingPendingHtml\('Agora'\)\s*:\s*''/)
 
-  // Resumo salvo / resumo da leitura: some com a leitura (pronta ou
-  // rodando); sem leitura, '' e o card de hoje.
+  // Resumo salvo / resumo da leitura: some com a leitura completa no painel
+  // (pronta, rodando ou em falha — rodada 7); sem ela, '' e o card de hoje.
   const summary = slice('function getFullReadingLeadSummaryCardHtml()', 600)
-  assert.match(summary, /return view && view\.state !== 'failed'\s*\?\s*'<div hidden data-yolen-full-reading-no-summary><\/div>'\s*:\s*''/)
+  assert.match(summary, /return isFullReadingPanelMode\(\)\s*\?\s*'<div hidden data-yolen-full-reading-no-summary><\/div>'\s*:\s*''/)
   const summaryController = readFileSync(new URL('../src/companion-lead-summary-controller.js', import.meta.url), 'utf8')
   assert.match(summaryController, /ctx\.getFullReadingLeadSummaryCardHtml\(\)[\s\S]*if \(fullReadingCardHtml\) {\s*return fullReadingCardHtml/)
 
@@ -517,7 +521,7 @@ test('core: AGORA, resumo, CLIENTE, cabeçalho e ações seguem a leitura só qu
   // Ícone minimizado: a AGORA da leitura, não a antiga.
   const rail = slice('function getCollapsedCompanionAttentionSnapshot()', 9000)
   assert.match(rail, /isCurrentAgoraContext &&\s*!fullReadingDrivesRail/)
-  assert.match(rail, /fullReadingAgora\.attention/)
+  assert.match(rail, /fullReadingAgora\??\.attention/)
 })
 
 test('flag desligada: sem `full_reading` nas respostas nada da leitura é montado', () => {

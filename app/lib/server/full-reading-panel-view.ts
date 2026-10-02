@@ -471,6 +471,10 @@ export const FULL_READING_EMPTY_CONVERSATION_NOTICE =
 export const FULL_READING_CLOSED_CYCLE_NOTICE =
   'Oportunidade encerrada: a leitura completa não roda para ciclo fechado.'
 
+// Rodada 7: a API do Claude sem crédito.
+export const FULL_READING_CREDIT_EXHAUSTED_NOTICE =
+  'Leitura indisponível: créditos da IA esgotados'
+
 function buildFailureNotice(
   failureCode: string | null,
 ): string {
@@ -482,9 +486,15 @@ function buildFailureNotice(
     return FULL_READING_CLOSED_CYCLE_NOTICE
   }
 
+  if (failureCode === 'PROVIDER_CREDIT_EXHAUSTED') {
+    return FULL_READING_CREDIT_EXHAUSTED_NOTICE
+  }
+
+  // Com a leitura completa no painel, o caminho antigo não volta: o aviso
+  // só diz que a leitura não está disponível.
   return failureCode
-    ? `Leitura completa indisponível agora (${failureCode}). Mostrando a análise anterior.`
-    : 'Leitura completa indisponível agora. Mostrando a análise anterior.'
+    ? `Leitura completa indisponível agora (${failureCode}).`
+    : 'Leitura completa indisponível agora.'
 }
 
 function hashKey(

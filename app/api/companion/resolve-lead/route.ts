@@ -480,6 +480,14 @@ function buildResolutionPayload({
           ? { can_note_successor_opportunity: true }
           : {}
       ),
+      // Rodada 7: o painel do HML usa só a leitura completa. A extensão sabe
+      // disso já na resolução (antes de qualquer AGORA) e não dispara o
+      // caminho antigo de IA. Desligada, a chave nem aparece.
+      ...(
+        isFullReadingPanelEnabled()
+          ? { full_reading_panel: true }
+          : {}
+      ),
     },
     actions: {
       can_analyze_conversation: canAnalyzeConversation,

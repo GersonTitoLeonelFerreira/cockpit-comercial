@@ -226,6 +226,7 @@ export async function POST(
         force:
           body.force_reanalysis,
         referenceTime,
+        route: '/api/companion/decision-state',
         schedule:
           (task) => after(task),
         createRunId:

@@ -2348,9 +2348,9 @@
   // marcador com a chave da view, e o conteúdo é montado depois por
   // hydrateFullReadingSlots, com createElement e textContent.
   const FULL_READING_SLOT_KINDS =
-    new Set(['agora', 'analysis', 'client'])
+    new Set(['agora', 'analysis', 'client', 'message_notice'])
 
-  // client vem da view da AGORA (decisao.cliente da mesma leitura).
+  // client e message_notice vêm da view da AGORA (a mesma leitura).
   function getFullReadingSlotView(kind, views) {
     if (kind === 'analysis') {
       return views?.analysis || null
@@ -3024,6 +3024,25 @@
     }
   }
 
+  // MENSAGEM sem a mensagem da leitura (rodando ou em falha): só o aviso
+  // dela (rodada 7: nunca o composer antigo).
+  function buildMessageNoticeNodes(doc, view) {
+    const nodes = []
+    const card = createCard(doc, { key: 'message_notice', label: 'Mensagem' })
+    const inner = []
+
+    appendFullReadingNotice(doc, inner, view)
+
+    if (inner.length === 0) {
+      inner.push(createTextElement(doc, 'div', 'yolen-fr-body', 'A mensagem fica disponível quando a leitura completa terminar.'))
+    }
+
+    inner.forEach((node) => card.appendChild(node))
+    nodes.push(card)
+
+    return nodes
+  }
+
   function buildClientFullReadingNodes(doc, view) {
     const nodes = []
     const client = readClientView(view)
@@ -3051,6 +3070,11 @@
       card.setAttribute('data-yolen-full-reading-section', 'a_confirmar')
       card.appendChild(buildIconList(doc, client.missing, { icon: 'todo', iconClass: 'yolen-fr-icon--todo', className: 'yolen-fr-checklist' }))
       nodes.push(card)
+    }
+
+    if (nodes.length === 0) {
+      // Rodando ou em falha: o aviso da leitura (rodada 7).
+      appendFullReadingNotice(doc, nodes, view)
     }
 
     if (nodes.length === 0) {
@@ -3104,7 +3128,9 @@
             ? buildAgoraFullReadingNodes(doc, view, options)
             : kind === 'client'
               ? buildClientFullReadingNodes(doc, view)
-              : buildAnalysisFullReadingNodes(doc, view)
+              : kind === 'message_notice'
+                ? buildMessageNoticeNodes(doc, view)
+                : buildAnalysisFullReadingNodes(doc, view)
 
         slot.replaceChildren(...nodes)
         slot.setAttribute('data-yolen-full-reading-hydrated', signature)

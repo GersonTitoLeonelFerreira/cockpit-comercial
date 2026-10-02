@@ -273,6 +273,18 @@
             ? { can_note_successor_opportunity: true }
             : {}
         ),
+
+        // Rodada 7 (HML): o painel usa só a leitura completa; o caminho
+        // antigo de IA não é disparado. Sem a flag, a chave não existe.
+        ...(
+          readBoolean(
+            canonicalCapabilities,
+            'full_reading_panel',
+            null,
+          ) === true
+            ? { full_reading_panel: true }
+            : {}
+        ),
       })
 
     const flags =

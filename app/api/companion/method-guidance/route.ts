@@ -53,6 +53,11 @@ import {
 } from '../../../lib/server/companion-lead-summary-store'
 
 import { verifyCompanionRequestToken } from '../../../lib/server/companion-token'
+import {
+  isLegacyCompanionAiDisabled,
+  legacyAiDisabledBody,
+  logLegacyAiSkipped,
+} from '../../../lib/server/full-reading-flag'
 
 import {
   CompanionMethodStageStoreError,
@@ -427,6 +432,20 @@ export async function POST(request: Request) {
       },
       {
         status: 401,
+        headers: corsHeaders,
+      },
+    )
+  }
+
+  // Rodada 7: com a leitura completa ligada, esta chamada de IA do caminho
+  // antigo não roda.
+  if (isLegacyCompanionAiDisabled()) {
+    logLegacyAiSkipped('/api/companion/method-guidance')
+
+    return NextResponse.json(
+      legacyAiDisabledBody(),
+      {
+        status: 409,
         headers: corsHeaders,
       },
     )

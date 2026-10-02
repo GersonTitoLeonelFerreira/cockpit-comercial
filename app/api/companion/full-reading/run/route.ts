@@ -302,6 +302,7 @@ export async function GET(
       effort,
       apiKey,
       requireStructuredOutput,
+      triggerRoute: '/api/companion/full-reading/run',
     })
   })
 

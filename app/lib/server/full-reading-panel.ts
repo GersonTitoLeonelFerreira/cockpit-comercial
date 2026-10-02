@@ -42,6 +42,11 @@ import {
 } from './full-reading-flag'
 
 import {
+  PROVIDER_CREDIT_EXHAUSTED_CODE,
+  isCreditExhaustedMessage,
+} from '../companion/full-reading/anthropic-client'
+
+import {
   loadFullReadingCycleChain,
 } from './full-reading-cycle-chain'
 
@@ -92,7 +97,28 @@ const TERMINAL_CYCLE_STATUSES =
 
 const RUN_COLUMNS =
   'run_id, cycle_id, status, prompt_version, reference_time, created_at, ' +
-  'started_at, completed_at, failure_code, analysis_markdown, decision'
+  'started_at, completed_at, failure_code, failure_detail, analysis_markdown, decision'
+
+// Rodada 7: sem crédito na API, nenhuma rodada nova por este tempo (em
+// nenhuma conversa: o crédito é da chave). Só "Atualizar" tenta de novo.
+export const FULL_READING_CREDIT_COOLDOWN_MS =
+  30 * 60 * 1000
+
+// Rodadas gravadas antes do código próprio: 400 com o texto da Anthropic.
+export function normalizeRunFailureCode(
+  failureCode: string | null,
+  failureDetail: string | null | undefined,
+): string | null {
+  if (
+    failureCode === 'PROVIDER_REQUEST_REJECTED' &&
+    typeof failureDetail === 'string' &&
+    isCreditExhaustedMessage(failureDetail)
+  ) {
+    return PROVIDER_CREDIT_EXHAUSTED_CODE
+  }
+
+  return failureCode
+}
 
 const RECENT_RUNS_LIMIT =
   20
@@ -117,6 +143,7 @@ export type FullReadingPanelRunRow = {
   started_at: string | null
   completed_at: string | null
   failure_code: string | null
+  failure_detail?: string | null
   analysis_markdown: string | null
   decision: unknown
 }
@@ -205,6 +232,7 @@ export function planFullReadingPanel({
   force,
   now,
   promptVersion = FULL_READING_PROMPT_VERSION,
+  creditExhaustedAt = null,
 }: {
   runs: FullReadingPanelRunRow[]
   cycleId: string
@@ -213,6 +241,8 @@ export function planFullReadingPanel({
   force: boolean
   now: string
   promptVersion?: string
+  // Última falha por falta de crédito na API (qualquer conversa).
+  creditExhaustedAt?: string | null
 }): FullReadingPanelPlan {
   const nowTime =
     toTime(now) ?? Date.now()
@@ -359,6 +389,24 @@ export function planFullReadingPanel({
       ...plan,
       action: 'show_failure',
       failed_run: newestAttempt,
+      stale_reasons: staleReasons,
+    }
+  }
+
+  // Sem crédito na API há pouco: nenhuma rodada nova (nem por mensagem
+  // nova, nem pelo polling) até a espera passar; só "Atualizar" tenta.
+  const creditTime =
+    toTime(creditExhaustedAt)
+
+  if (
+    !forced &&
+    creditTime !== null &&
+    nowTime - creditTime < FULL_READING_CREDIT_COOLDOWN_MS
+  ) {
+    return {
+      ...plan,
+      action: 'skip',
+      skip_reason: PROVIDER_CREDIT_EXHAUSTED_CODE,
       stale_reasons: staleReasons,
     }
   }
@@ -517,7 +565,59 @@ async function readRuns(
     )
   }
 
-  return (data ?? []) as unknown as FullReadingPanelRunRow[]
+  return ((data ?? []) as unknown as FullReadingPanelRunRow[])
+    .map((run) => ({
+      ...run,
+      failure_code: normalizeRunFailureCode(run.failure_code, run.failure_detail),
+    }))
+}
+
+// Última falha por falta de crédito (qualquer conversa) dentro da espera.
+async function readRecentCreditExhaustion(
+  admin: SupabaseClient,
+  now: string,
+): Promise<string | null> {
+  const since =
+    new Date(Date.parse(now) - FULL_READING_CREDIT_COOLDOWN_MS).toISOString()
+
+  let data: unknown = null
+
+  try {
+    const result =
+      await admin
+        .from(FULL_READING_RUNS_TABLE)
+        .select('created_at, failure_code, failure_detail')
+        .in('failure_code', [PROVIDER_CREDIT_EXHAUSTED_CODE, 'PROVIDER_REQUEST_REJECTED'])
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+    if (result.error) {
+      return null
+    }
+
+    data = result.data
+  } catch {
+    // Sem a consulta, o painel segue como antes (a rodada tenta).
+    return null
+  }
+
+  if (!Array.isArray(data)) {
+    return null
+  }
+
+  const hit =
+    (data as { created_at?: unknown; failure_code?: unknown; failure_detail?: unknown }[])
+      .find((row) =>
+        normalizeRunFailureCode(
+          typeof row.failure_code === 'string' ? row.failure_code : null,
+          typeof row.failure_detail === 'string' ? row.failure_detail : null,
+        ) === PROVIDER_CREDIT_EXHAUSTED_CODE,
+      )
+
+  return typeof hit?.created_at === 'string'
+    ? hit.created_at
+    : null
 }
 
 // cycleIds: o ciclo e, numa oportunidade nova, os ciclos de origem (a
@@ -589,6 +689,7 @@ async function startRun({
   schedule,
   createRunId,
   env,
+  route,
 }: {
   admin: SupabaseClient
   scope: FullReadingPanelScope
@@ -597,6 +698,7 @@ async function startRun({
   schedule: FullReadingRunScheduler
   createRunId: () => string
   env: EnvLike
+  route?: string
 }): Promise<{ run_id: string | null; failure_code: string | null }> {
   const runId =
     createRunId()
@@ -685,6 +787,7 @@ async function startRun({
       model,
       effort,
       apiKey,
+      triggerRoute: route,
     })
   })
 
@@ -703,6 +806,7 @@ export async function resolveFullReadingPanel({
   schedule,
   createRunId,
   env = process.env,
+  route,
 }: {
   admin: SupabaseClient
   scope: FullReadingPanelScope
@@ -712,6 +816,7 @@ export async function resolveFullReadingPanel({
   schedule: FullReadingRunScheduler
   createRunId: () => string
   env?: EnvLike
+  route?: string
 }): Promise<FullReadingPanelSnapshot | null> {
   const { data: cycleRow, error: cycleError } =
     await admin
@@ -754,7 +859,8 @@ export async function resolveFullReadingPanel({
       ? await readLatestTimestamp(admin, scope, 'occurred_at', true, chainCycleIds)
       : null
 
-  const plan =
+  // Só consulta a falta de crédito quando uma rodada poderia começar.
+  const draftPlan =
     planFullReadingPanel({
       runs,
       cycleId: scope.cycle_id,
@@ -763,6 +869,19 @@ export async function resolveFullReadingPanel({
       force,
       now,
     })
+
+  const plan =
+    draftPlan.action === 'start'
+      ? planFullReadingPanel({
+          runs,
+          cycleId: scope.cycle_id,
+          kanban,
+          latestObservedAt,
+          force,
+          now,
+          creditExhaustedAt: await readRecentCreditExhaustion(admin, now),
+        })
+      : draftPlan
 
   if (plan.expired_run_ids.length > 0) {
     await expireRuns(admin, plan.expired_run_ids, now)
@@ -836,6 +955,7 @@ export async function resolveFullReadingPanel({
       schedule,
       createRunId,
       env,
+      route,
     })
 
   if (!started.run_id) {
@@ -993,6 +1113,7 @@ export async function loadFullReadingPanelForRequest({
   schedule,
   createRunId,
   env = process.env,
+  route,
 }: {
   admin: SupabaseClient
   companyId: unknown
@@ -1003,6 +1124,8 @@ export async function loadFullReadingPanelForRequest({
   schedule: FullReadingRunScheduler
   createRunId: () => string
   env?: EnvLike
+  // Rota que pediu o painel (log de tokens da rodada).
+  route?: string
 }): Promise<{
   snapshot: FullReadingPanelSnapshot
   scope: FullReadingPanelScope
@@ -1033,6 +1156,7 @@ export async function loadFullReadingPanelForRequest({
         schedule,
         createRunId,
         env,
+        route,
       })
 
     if (snapshot?.started_run_id) {

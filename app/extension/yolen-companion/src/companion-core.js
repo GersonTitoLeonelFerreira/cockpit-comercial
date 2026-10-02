@@ -117,6 +117,7 @@ function createCompanionCore(ctx) {
           }
         },
         platformDisplayName,
+        isLegacyAiDisabled: () => isLegacyAiDisabled(),
         captureOperationContext: () =>
           captureOperationContext(),
         isOperationContextCurrent: (operationContext) =>
@@ -234,6 +235,9 @@ function createCompanionCore(ctx) {
   let fullReadingPollStartedAt = 0
   let fullReadingPollScope = null
   let fullReadingStageAction = null
+  // Rodada 7: a página já viu a capability full_reading_panel (ver
+  // isFullReadingPanelMode).
+  let fullReadingPanelModeSeen = false
 
   let captureIngestionTimerId = 0
   let captureIngestionInFlight = false
@@ -241,6 +245,11 @@ function createCompanionCore(ctx) {
   let captureIngestionRetryAttempt = 0
 
   const analysisControllerContext = {
+    // Rodada 7: com a leitura completa no painel, a análise antiga (IA)
+    // não é disparada.
+    get isLegacyAiDisabled() {
+      return isLegacyAiDisabled
+    },
     get analysisViewModelRequestSequence() {
       return analysisViewModelRequestSequence
     },
@@ -415,6 +424,10 @@ function createCompanionCore(ctx) {
     get getFullReadingLeadSummaryCardHtml() {
       return getFullReadingLeadSummaryCardHtml
     },
+    // Rodada 7: com a leitura completa, o resumo antigo (IA) não é pedido.
+    get isLegacyAiDisabled() {
+      return isLegacyAiDisabled
+    },
     get renderPanel() {
       return renderPanel
     },
@@ -499,6 +512,10 @@ function createCompanionCore(ctx) {
   } = leadEnrichmentController
 
   const conversationRegistrationControllerContext = {
+    // Rodada 7: com a leitura completa, "Registrar conversa" (IA) sai.
+    get isLegacyAiDisabled() {
+      return isLegacyAiDisabled
+    },
     get invalidateLeadSummaryForConversation() {
       return invalidateLeadSummaryForConversation
     },
@@ -773,6 +790,11 @@ function createCompanionCore(ctx) {
     requestFullReadingRefresh({
       force: true,
     })
+
+    // Rodada 7: com a leitura completa, a análise antiga (IA) não roda.
+    if (isLegacyAiDisabled()) {
+      return
+    }
 
     analyzeCurrentConversation({
       automatic: false,
@@ -7048,6 +7070,25 @@ function createCompanionCore(ctx) {
         ? getCurrentFullReadingViews().analysis
         : null
 
+    // Rodada 7: com a leitura completa no painel, a ANÁLISE é só ela —
+    // rodando ou em falha, o aviso dela; nunca a análise antiga.
+    if (isFullReadingPanelMode()) {
+      if (!fullReadingAnalysis) {
+        return getFullReadingPendingHtml('Análise')
+      }
+
+      return `
+        ${sellerInformationViewTools.renderFullReadingSlot(
+          'analysis',
+          fullReadingAnalysis,
+        )}
+
+        <div class="yolen-inline-actions yolen-decision-actions">
+          ${getAnalysisActionButton()}
+        </div>
+      `
+    }
+
     // Leitura completa (HML): com leitura pronta, a ANÁLISE mostra as
     // seções dela; rodando sem leitura anterior ou em falha, o aviso fica
     // acima da ANÁLISE de hoje.
@@ -7267,7 +7308,10 @@ function createCompanionCore(ctx) {
 
     if (
       fullReadingClientView?.client ||
-      fullReadingClientView?.cliente
+      fullReadingClientView?.cliente ||
+      // Rodada 7: com a leitura completa no painel, o CLIENTE é o dela
+      // (rodando ou em falha, o aviso); nunca o bloco antigo.
+      (fullReadingClientView && isFullReadingPanelMode())
     ) {
       // Leitura completa (HML): o que ele disse / o que parece / falta
       // descobrir vêm da leitura; o bloco antigo sai. Relacionamento vira
@@ -7288,6 +7332,11 @@ function createCompanionCore(ctx) {
             ? `<div class="yolen-fr-footer"><span class="yolen-full-reading-footer">${escapeHtml(footer)}</span></div>`
             : ''
         }
+      `
+    } else if (isFullReadingPanelMode()) {
+      return `
+        ${getFullReadingPendingHtml('Cliente')}
+        ${getCompanionClientRelationshipCardHtml({ compact: true })}
       `
     } else if (
       state.customerViewModel?.status === 'ready' &&
@@ -7428,6 +7477,31 @@ function createCompanionCore(ctx) {
     )
   }
 
+  // Rodada 7 (economia de créditos): o backend diz já na resolução do lead
+  // (capability full_reading_panel, só com a flag ligada) que o painel usa
+  // só a leitura completa. A partir daí, nesta página, nenhuma chamada de
+  // IA do caminho antigo sai da extensão: análise stateful (e o retry e o
+  // polling dela), resumo do lead, method-guidance e "Registrar conversa".
+  // Sem a flag a capability não existe e tudo segue como hoje.
+  function isFullReadingPanelMode() {
+    if (
+      state.leadResolutionViewModel
+        ?.capabilities
+        ?.full_reading_panel === true
+    ) {
+      fullReadingPanelModeSeen = true
+    }
+
+    return (
+      fullReadingPanelModeSeen ||
+      isFullReadingPanelActive()
+    )
+  }
+
+  function isLegacyAiDisabled() {
+    return isFullReadingPanelMode()
+  }
+
   function getFullReadingStageOptions(view) {
     const action =
       fullReadingStageAction &&
@@ -7487,10 +7561,9 @@ function createCompanionCore(ctx) {
   // não aparece. O marcador oculto só impede o card "preparando". Na
   // falha, o painel volta ao de hoje, com o resumo salvo.
   function getFullReadingLeadSummaryCardHtml() {
-    const view =
-      getCurrentFullReadingViews().agora
-
-    return view && view.state !== 'failed'
+    // Rodada 7: com a leitura completa no painel, nunca o resumo antigo —
+    // nem com a leitura rodando ou em falha (o aviso dela fica no AGORA).
+    return isFullReadingPanelMode()
       ? '<div hidden data-yolen-full-reading-no-summary></div>'
       : ''
   }
@@ -7498,7 +7571,7 @@ function createCompanionCore(ctx) {
   function requestFullReadingRefresh({
     force = false,
   } = {}) {
-    if (!isFullReadingPanelActive()) {
+    if (!isFullReadingPanelMode()) {
       return
     }
 
@@ -7702,9 +7775,25 @@ function createCompanionCore(ctx) {
   // isCurrentAnalysisOutdated(), a checagem de escopo abaixo garante que
   // uma troca de conversa nunca deixa a decisão da conversa anterior
   // visível (mandato §24/§25 — isolamento cross-conversation/cross-lead).
+  // Rodada 7: sem a view da leitura ainda (primeira carga), o painel diz
+  // que a leitura está sendo preparada — nunca o caminho antigo.
+  function getFullReadingPendingHtml(label) {
+    return `
+      <div class="yolen-card yolen-seller-area-card yolen-full-reading-pending" data-yolen-full-reading-pending>
+        <div class="yolen-section-label">${escapeHtml(label)}</div>
+        <div class="yolen-inline-loading-status" role="status" aria-live="polite">
+          ${getInlineSpinnerHtml()}
+          Preparando a leitura completa…
+        </div>
+      </div>
+    `
+  }
+
   function getNowAttentionSnapshotHtml() {
     if (state.agoraDecisionState?.status !== 'ready') {
-      return ''
+      return isFullReadingPanelMode()
+        ? getFullReadingPendingHtml('Agora')
+        : ''
     }
 
     const cycleId =
@@ -7722,7 +7811,9 @@ function createCompanionCore(ctx) {
         (state.companyId || null)
 
     if (!isCurrentContext) {
-      return ''
+      return isFullReadingPanelMode()
+        ? getFullReadingPendingHtml('Agora')
+        : ''
     }
 
     const fullReadingAgora =
@@ -7734,8 +7825,10 @@ function createCompanionCore(ctx) {
     // leitura anterior, ou falha), o AGORA de hoje continua embaixo do
     // aviso.
     if (fullReadingAgora) {
+      // Rodada 7: com a leitura completa no painel, rodando ou em falha,
+      // fica só o aviso dela (o caminho antigo não volta).
       const legacyHtml =
-        fullReadingAgora.main
+        fullReadingAgora.main || isFullReadingPanelMode()
           ? ''
           : sellerInformationViewTools.renderAgoraViewModelSnapshot(
               state.agoraDecisionState.data,
@@ -7748,6 +7841,10 @@ function createCompanionCore(ctx) {
         ) +
         legacyHtml
       )
+    }
+
+    if (isFullReadingPanelMode()) {
+      return getFullReadingPendingHtml('Agora')
     }
 
     const snapshotHtml =
@@ -7865,6 +7962,29 @@ function createCompanionCore(ctx) {
   // o mount simplesmente não existe no DOM para um contexto inelegível —
   // não há superfície para um composer antigo reaparecer.
   function getSellerMessageAreaHtml() {
+    // Rodada 7: com a leitura completa no painel, a MENSAGEM vem só dela;
+    // sem a mensagem da leitura (rodando ou em falha), o aviso dela.
+    if (
+      isFullReadingPanelMode() &&
+      hasSellerMessageCommercialContext() &&
+      !getCurrentFullReadingViews().agora?.message
+    ) {
+      const view =
+        getCurrentFullReadingViews().agora
+
+      return view
+        ? `
+          <div class="yolen-seller-message-workspace" data-yolen-seller-message-workspace>
+            ${sellerInformationViewTools.renderFullReadingSlot('message_notice', view)}
+          </div>
+        `
+        : `
+          <div class="yolen-seller-message-workspace" data-yolen-seller-message-workspace>
+            ${getFullReadingPendingHtml('Mensagem')}
+          </div>
+        `
+    }
+
     if (!isSellerMessageMountEligible()) {
       return `
         <div
@@ -8633,8 +8753,11 @@ function createCompanionCore(ctx) {
     const fullReadingAgora =
       getCurrentFullReadingViews().agora
 
+    // Rodada 7: com a leitura completa no painel, o ícone nunca volta aos
+    // sinais da análise antiga — sem leitura pronta, ele só fica quieto.
     const fullReadingDrivesRail =
-      Boolean(fullReadingAgora?.main)
+      Boolean(fullReadingAgora?.main) ||
+      isFullReadingPanelMode()
 
     const neutralSession =
       !fullReadingDrivesRail &&
@@ -8718,7 +8841,7 @@ function createCompanionCore(ctx) {
 
     const fullReadingAttention =
       fullReadingDrivesRail
-        ? fullReadingAgora.attention
+        ? fullReadingAgora?.attention ?? null
         : null
 
     if (

@@ -35,7 +35,12 @@ import {
 } from '@/app/lib/server/full-reading-message'
 
 import {
+  FULL_READING_CREDIT_EXHAUSTED_NOTICE,
+} from '@/app/lib/server/full-reading-panel-view'
+
+import {
   ClaudeProviderError,
+  PROVIDER_CREDIT_EXHAUSTED_CODE,
 } from '@/app/lib/companion/full-reading/anthropic-client'
 
 import {
@@ -191,6 +196,15 @@ export async function POST(
 
     if (error instanceof FullReadingMessageError) {
       return fail(error.status, error.code, error.message)
+    }
+
+    // Rodada 7: sem crédito na API, o vendedor vê o motivo (sem nova
+    // tentativa automática; o botão só é clicado de novo pelo vendedor).
+    if (
+      error instanceof ClaudeProviderError &&
+      error.code === PROVIDER_CREDIT_EXHAUSTED_CODE
+    ) {
+      return fail(503, error.code, FULL_READING_CREDIT_EXHAUSTED_NOTICE)
     }
 
     if (

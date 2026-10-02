@@ -46,6 +46,69 @@ export type ClaudeReadingRequest = {
   requireStructuredOutput?: boolean
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
+  // Rodada 7: uma linha de log por chamada HTTP ao Claude (rota, tokens),
+  // sem conteúdo.
+  usageLog?: ClaudeUsageLogContext | null
+  logger?: (line: string) => void
+}
+
+export type ClaudeUsageLogContext = {
+  // Rota da API que levou à chamada (ex.: /api/companion/decision-state).
+  route: string
+  // full_reading | full_reading_message
+  purpose: string
+  run_id?: string | null
+}
+
+export const CLAUDE_USAGE_LOG_TAG =
+  'YOLEN_CLAUDE_CALL'
+
+// Sem crédito na conta da API: não adianta tentar de novo em seguida.
+export const PROVIDER_CREDIT_EXHAUSTED_CODE =
+  'PROVIDER_CREDIT_EXHAUSTED'
+
+const CREDIT_EXHAUSTED_MESSAGE =
+  /credit balance is too low|insufficient (?:credit|credits|balance)|purchase credits/i
+
+export function isCreditExhaustedMessage(
+  message: string,
+): boolean {
+  return CREDIT_EXHAUSTED_MESSAGE.test(message)
+}
+
+function logClaudeCall(
+  request: ClaudeReadingRequest,
+  entry: {
+    outcome: 'ok' | 'error'
+    http_status: number | null
+    code: string | null
+    input_tokens: number | null
+    output_tokens: number | null
+    structured_output: boolean
+    duration_ms: number
+  },
+): void {
+  const context =
+    request.usageLog
+
+  if (!context) {
+    return
+  }
+
+  const line =
+    `${CLAUDE_USAGE_LOG_TAG} ${JSON.stringify({
+      route: context.route,
+      purpose: context.purpose,
+      run_id: context.run_id ?? null,
+      model: request.model,
+      ...entry,
+    })}`
+
+  try {
+    (request.logger ?? ((value: string) => console.info(value)))(line)
+  } catch {
+    // Log nunca derruba a chamada.
+  }
 }
 
 export type ClaudeReadingResponse = {
@@ -353,12 +416,76 @@ export async function callClaudeReading(
     false
 
   while (true) {
-    const result =
-      await postOnce(request, structured, deadline)
+    const startedAt =
+      Date.now()
+
+    let result: Awaited<ReturnType<typeof postOnce>>
+
+    try {
+      result =
+        await postOnce(request, structured, deadline)
+    } catch (error) {
+      logClaudeCall(request, {
+        outcome: 'error',
+        http_status: null,
+        code:
+          error instanceof ClaudeProviderError
+            ? error.code
+            : 'PROVIDER_NETWORK_ERROR',
+        input_tokens: null,
+        output_tokens: null,
+        structured_output: structured,
+        duration_ms: Date.now() - startedAt,
+      })
+
+      throw error
+    }
 
     if (result.status >= 200 && result.status < 300) {
-      const parsed =
-        readClaudeText(result.payload)
+      let parsed: ReturnType<typeof readClaudeText>
+
+      try {
+        parsed =
+          readClaudeText(result.payload)
+      } catch (error) {
+        logClaudeCall(request, {
+          outcome: 'error',
+          http_status: result.status,
+          code:
+            error instanceof ClaudeProviderError
+              ? error.code
+              : 'INVALID_PROVIDER_RESPONSE',
+          input_tokens: null,
+          output_tokens: null,
+          structured_output: structured,
+          duration_ms: Date.now() - startedAt,
+        })
+
+        throw error
+      }
+
+      // Tokens cobrados mesmo quando a resposta não serve (corte, recusa).
+      logClaudeCall(request, {
+        outcome:
+          parsed.stop_reason === 'max_tokens' ||
+          parsed.stop_reason === 'refusal' ||
+          parsed.text.length === 0
+            ? 'error'
+            : 'ok',
+        http_status: result.status,
+        code:
+          parsed.stop_reason === 'max_tokens'
+            ? 'PROVIDER_MAX_TOKENS'
+            : parsed.stop_reason === 'refusal'
+              ? 'PROVIDER_REFUSAL'
+              : parsed.text.length === 0
+                ? 'EMPTY_PROVIDER_RESPONSE'
+                : null,
+        input_tokens: parsed.input_tokens,
+        output_tokens: parsed.output_tokens,
+        structured_output: structured,
+        duration_ms: Date.now() - startedAt,
+      })
 
       if (parsed.stop_reason === 'max_tokens') {
         throw new ClaudeProviderError({
@@ -390,6 +517,33 @@ export async function callClaudeReading(
 
     const message =
       readErrorMessage(result.payload)
+
+    const creditExhausted =
+      isCreditExhaustedMessage(message)
+
+    logClaudeCall(request, {
+      outcome: 'error',
+      http_status: result.status,
+      code:
+        creditExhausted
+          ? PROVIDER_CREDIT_EXHAUSTED_CODE
+          : null,
+      input_tokens: null,
+      output_tokens: null,
+      structured_output: structured,
+      duration_ms: Date.now() - startedAt,
+    })
+
+    // Sem crédito: falha definitiva, sem nova tentativa nem troca de
+    // formato (nenhuma delas resolveria).
+    if (creditExhausted) {
+      throw new ClaudeProviderError({
+        code: PROVIDER_CREDIT_EXHAUSTED_CODE,
+        message: 'Créditos da API da Anthropic esgotados.',
+        status: result.status,
+        retryable: false,
+      })
+    }
 
     if (
       structured &&

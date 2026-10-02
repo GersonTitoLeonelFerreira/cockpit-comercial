@@ -51,6 +51,9 @@ import {
   resolveFullReadingModel,
 } from './full-reading-runner'
 
+export const FULL_READING_MESSAGE_ROUTE =
+  '/api/companion/full-reading/message'
+
 export const DEFAULT_FULL_READING_MESSAGE_EFFORT: ClaudeEffort =
   'low'
 
@@ -170,6 +173,7 @@ export async function generateFullReadingMessage({
   now = new Date().toISOString(),
   env = process.env,
   fetchImpl,
+  logger,
   loadReading = loadLatestFullReading,
   loadMessages = loadFullReadingMessages,
   loadMarkers,
@@ -183,6 +187,7 @@ export async function generateFullReadingMessage({
   now?: string
   env?: EnvLike
   fetchImpl?: typeof fetch
+  logger?: (line: string) => void
   loadReading?: typeof loadLatestFullReading
   loadMessages?: (args: {
     admin: SupabaseClient
@@ -319,6 +324,12 @@ export async function generateFullReadingMessage({
         FULL_READING_MESSAGE_JSON_SCHEMA as unknown as Record<string, unknown>,
       timeoutMs: FULL_READING_MESSAGE_TIMEOUT_MS,
       fetchImpl,
+      usageLog: {
+        route: FULL_READING_MESSAGE_ROUTE,
+        purpose: 'full_reading_message',
+        run_id: reading.run_id,
+      },
+      logger,
     })
 
   return {

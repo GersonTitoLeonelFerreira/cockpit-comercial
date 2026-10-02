@@ -22,6 +22,15 @@ function createCompanionConversationRegistrationController(ctx) {
   // ---------------------------------------------------------------------
 
   function canRegisterCurrentConversation() {
+    // Rodada 7: com a leitura completa no painel (HML, flag ligada), o
+    // resumo de "Registrar conversa" (IA) não é gerado e o card sai.
+    if (
+      typeof ctx.isLegacyAiDisabled === 'function' &&
+      ctx.isLegacyAiDisabled() === true
+    ) {
+      return false
+    }
+
     return Boolean(
       ctx.state.connected &&
         !ctx.state.isSelfConversation &&

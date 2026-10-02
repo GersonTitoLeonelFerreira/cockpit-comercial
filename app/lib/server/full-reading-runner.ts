@@ -295,6 +295,10 @@ export function buildKanbanContextFromRow(
   }
 }
 
+// Sem rota informada (chamada interna), o log usa esta.
+export const FULL_READING_DEFAULT_TRIGGER_ROUTE =
+  'full-reading-runner'
+
 export type FullReadingRunInput = {
   admin: SupabaseClient
   runId: string
@@ -307,6 +311,9 @@ export type FullReadingRunInput = {
   apiKey: string
   requireStructuredOutput?: boolean
   fetchImpl?: typeof fetch
+  // Rota que levou à rodada (log de tokens por chamada, rodada 7).
+  triggerRoute?: string
+  logger?: (line: string) => void
   loadKanban?: (args: {
     admin: SupabaseClient
     companyId: string
@@ -658,6 +665,12 @@ export async function executeFullReadingRun(
         timeoutMs: FULL_READING_TIMEOUT_MS,
         requireStructuredOutput: input.requireStructuredOutput === true,
         fetchImpl: input.fetchImpl,
+        usageLog: {
+          route: input.triggerRoute ?? FULL_READING_DEFAULT_TRIGGER_ROUTE,
+          purpose: 'full_reading',
+          run_id: input.runId,
+        },
+        logger: input.logger,
       })
 
     const output =
