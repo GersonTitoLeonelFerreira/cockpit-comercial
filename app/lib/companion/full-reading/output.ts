@@ -249,6 +249,20 @@ const stringArray = (
 // JSON Schema usado na saída estruturada da API do Claude. Todo objeto
 // precisa de additionalProperties: false. Sem uniões nem campos opcionais;
 // os limites de quantidade ficam na descrição e no parser.
+//
+// Rodada 8: a v5 com todos os enums passou do tamanho de gramática que a
+// API compila ("The compiled grammar is too large"). Ficam como enum só os
+// campos que decidem (fase, venda, vez, ação e etapa); códigos de
+// pagamento, status de oportunidade, dono da pendência e confiança vão
+// como texto com os valores na descrição, e o parser v5 lê com tolerância.
+const codeText = (
+  values: readonly string[],
+  description: string,
+) => ({
+  type: 'string',
+  description: `${description} Valores: ${values.map((value) => (value ? value : '"" (vazio)')).join(', ')}.`,
+})
+
 const CLOSING_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -289,11 +303,11 @@ const CLOSING_SCHEMA = {
       description:
         'Só o número do total combinado (ex.: "1.250,00"), ou texto vazio se não houver um total claro.',
     },
-    forma_pagamento_codigo: stringEnum(
+    forma_pagamento_codigo: codeText(
       FULL_READING_PAYMENT_METHOD_CODES,
       'debito só quando a conversa disser cartão de débito; cobrança mensal no cartão de crédito é credito; na dúvida, texto vazio.',
     ),
-    tipo_pagamento_codigo: stringEnum(
+    tipo_pagamento_codigo: codeText(
       FULL_READING_PAYMENT_TYPE_CODES,
       'Tipo de pagamento combinado; mensalidade ou assinatura é recorrente; na dúvida, texto vazio.',
     ),
@@ -338,7 +352,7 @@ const OPPORTUNITIES_SCHEMA = {
       descricao: {
         type: 'string',
       },
-      status: stringEnum(
+      status: codeText(
         FULL_READING_OPPORTUNITY_STATUSES,
         'Status real da oportunidade.',
       ),
@@ -390,7 +404,7 @@ const PENDING_SCHEMA = {
       'texto',
     ],
     properties: {
-      de: stringEnum(
+      de: codeText(
         FULL_READING_PENDING_OWNERS,
         'De quem é a pendência.',
       ),
@@ -479,7 +493,7 @@ const TAIL_PROPERTIES = {
     'Somente problemas da captura (ordem, autoria, mídia ausente) que podem afetar a leitura. Nada sobre o kanban ou a criação do lead.',
   ),
   linha_do_tempo: TIMELINE_SCHEMA,
-  confianca_geral: stringEnum(
+  confianca_geral: codeText(
     FULL_READING_CONFIDENCE_LEVELS,
     'Confiança geral na leitura.',
   ),
@@ -747,6 +761,22 @@ function readOptionalCode<T extends string>(
   return match
 }
 
+// v5: campos de código que vão como texto no esquema. Valor fora da lista
+// vira o padrão (nunca derruba a leitura inteira).
+function readLenientCode<T extends string>(
+  record: Record<string, unknown>,
+  key: string,
+  allowed: readonly T[],
+  fallback: T,
+  path: string,
+): T {
+  const raw =
+    readString(record, key, path, { allowEmpty: true })
+      .toLowerCase()
+
+  return allowed.find((value) => value.toLowerCase() === raw) ?? fallback
+}
+
 function readStringArray(
   record: Record<string, unknown>,
   key: string,
@@ -850,16 +880,23 @@ function parseDecisionCommon(
   path: string,
   adjustments: 'text' | 'objects',
 ): FullReadingDecision {
+  // v5: os códigos secundários vêm como texto (esquema menor) e são lidos
+  // com tolerância; v4 continua estrito como sempre foi.
+  const lenient =
+    adjustments === 'objects'
+
   const oportunidades =
     readRecordList(decisionRaw, 'oportunidades', path)
       .map((item, index) => ({
         descricao: readString(item, 'descricao', `${path}.oportunidades[${index}]`),
-        status: readEnum(
-          item,
-          'status',
-          FULL_READING_OPPORTUNITY_STATUSES,
-          `${path}.oportunidades[${index}]`,
-        ),
+        status: lenient
+          ? readLenientCode(item, 'status', FULL_READING_OPPORTUNITY_STATUSES, 'em_aberto', `${path}.oportunidades[${index}]`)
+          : readEnum(
+              item,
+              'status',
+              FULL_READING_OPPORTUNITY_STATUSES,
+              `${path}.oportunidades[${index}]`,
+            ),
       }))
 
   if (typeof decisionRaw.pendencia_do_vendedor !== 'boolean') {
@@ -885,12 +922,14 @@ function parseDecisionCommon(
   const pendencias =
     readRecordList(decisionRaw, 'pendencias', path)
       .map((item, index) => ({
-        de: readEnum(
-          item,
-          'de',
-          FULL_READING_PENDING_OWNERS,
-          `${path}.pendencias[${index}]`,
-        ),
+        de: lenient
+          ? readLenientCode(item, 'de', FULL_READING_PENDING_OWNERS, 'nenhum', `${path}.pendencias[${index}]`)
+          : readEnum(
+              item,
+              'de',
+              FULL_READING_PENDING_OWNERS,
+              `${path}.pendencias[${index}]`,
+            ),
         texto: readString(item, 'texto', `${path}.pendencias[${index}]`, { allowEmpty: true }),
       }))
       .filter((item) => item.texto.length > 0)
@@ -962,18 +1001,22 @@ function parseDecisionCommon(
       forma_pagamento: readString(closingRaw, 'forma_pagamento', `${path}.fechamento`, { allowEmpty: true }),
       motivo_perda: readString(closingRaw, 'motivo_perda', `${path}.fechamento`, { allowEmpty: true }),
       valor_total: readString(closingRaw, 'valor_total', `${path}.fechamento`, { allowEmpty: true }),
-      forma_pagamento_codigo: readOptionalCode(
-        closingRaw,
-        'forma_pagamento_codigo',
-        FULL_READING_PAYMENT_METHOD_CODES,
-        `${path}.fechamento`,
-      ),
-      tipo_pagamento_codigo: readOptionalCode(
-        closingRaw,
-        'tipo_pagamento_codigo',
-        FULL_READING_PAYMENT_TYPE_CODES,
-        `${path}.fechamento`,
-      ),
+      forma_pagamento_codigo: lenient
+        ? readLenientCode(closingRaw, 'forma_pagamento_codigo', FULL_READING_PAYMENT_METHOD_CODES, '', `${path}.fechamento`)
+        : readOptionalCode(
+            closingRaw,
+            'forma_pagamento_codigo',
+            FULL_READING_PAYMENT_METHOD_CODES,
+            `${path}.fechamento`,
+          ),
+      tipo_pagamento_codigo: lenient
+        ? readLenientCode(closingRaw, 'tipo_pagamento_codigo', FULL_READING_PAYMENT_TYPE_CODES, '', `${path}.fechamento`)
+        : readOptionalCode(
+            closingRaw,
+            'tipo_pagamento_codigo',
+            FULL_READING_PAYMENT_TYPE_CODES,
+            `${path}.fechamento`,
+          ),
     },
     cliente: {
       sabemos: readStringArray(customerRaw, 'sabemos', `${path}.cliente`),
@@ -991,12 +1034,14 @@ function parseDecisionCommon(
       'alertas_de_captura',
       path,
     ),
-    confianca_geral: readEnum(
-      decisionRaw,
-      'confianca_geral',
-      FULL_READING_CONFIDENCE_LEVELS,
-      path,
-    ),
+    confianca_geral: lenient
+      ? readLenientCode(decisionRaw, 'confianca_geral', FULL_READING_CONFIDENCE_LEVELS, 'media', path)
+      : readEnum(
+          decisionRaw,
+          'confianca_geral',
+          FULL_READING_CONFIDENCE_LEVELS,
+          path,
+        ),
     proximo_passo_titulo: readString(decisionRaw, 'proximo_passo_titulo', path),
     proximo_passo_complemento: readString(
       decisionRaw,

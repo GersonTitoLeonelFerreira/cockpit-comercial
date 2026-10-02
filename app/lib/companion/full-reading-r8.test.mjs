@@ -994,3 +994,203 @@ test('B1: rodada v5 sem markdown é leitura válida no planner, nas views e no "
   assert.match(userText, /"como_conduzir"/)
   assert.doesNotMatch(userText, /null\n\nDecisão/)
 })
+
+// ---------------------------------------------------------------------------
+// Esquema grande demais para a API ("The compiled grammar is too large")
+// ---------------------------------------------------------------------------
+
+import {
+  ClaudeProviderError,
+  buildClaudeRequestBody,
+  callClaudeReading,
+  isSchemaRecentlyRejected,
+  resetRejectedSchemas,
+} from './full-reading/anthropic-client.ts'
+
+const GRAMMAR_MESSAGE =
+  'The compiled grammar is too large, which would cause performance issues. Simplify your tool schemas or reduce the number of strict tools.'
+
+function apiError(status, message) {
+  return new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message } }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+function apiText(text) {
+  return new Response(JSON.stringify({
+    model: 'claude-sonnet-5-5',
+    content: [{ type: 'text', text }],
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 10, output_tokens: 5 },
+  }), { status: 200, headers: { 'content-type': 'application/json' } })
+}
+
+const BASE_REQUEST = {
+  apiKey: 'sk-ant-teste',
+  model: 'claude-sonnet-5-5',
+  system: 'sistema',
+  userText: 'conversa',
+  maxTokens: 24000,
+  effort: 'high',
+  outputSchema: FULL_READING_OUTPUT_JSON_SCHEMA,
+  timeoutMs: 10_000,
+}
+
+test('esquema v5: só os campos que decidem são enum (gramática menor); os códigos secundários vão como texto', () => {
+  const decision =
+    FULL_READING_OUTPUT_JSON_SCHEMA.properties.decisao.properties
+
+  const enums =
+    Object.entries(decision)
+      .filter(([, value]) => Array.isArray(value.enum))
+      .map(([key]) => key)
+      .sort()
+
+  assert.deepEqual(enums, ['acao_agora', 'etapa_kanban_sugerida', 'fase_relacao', 'venda_concluida', 'vez_de'])
+  assert.equal(decision.confianca_geral.type, 'string')
+  assert.equal(decision.pendencias.items.properties.de.type, 'string')
+  assert.equal(decision.oportunidades.items.properties.status.type, 'string')
+  assert.equal(JSON.stringify(FULL_READING_OUTPUT_JSON_SCHEMA).match(/"enum"/g).length, 5)
+})
+
+test('parser v5: códigos secundários fora da lista viram o padrão, sem derrubar a leitura', () => {
+  const parsed =
+    parseFullReadingOutput(JSON.stringify({
+      decisao: decisionV5({
+        confianca_geral: 'Alta',
+        pendencias: [{ de: 'equipe', texto: 'Algo pendente' }],
+        oportunidades: [{ descricao: 'Plano anual', status: 'talvez' }],
+        fechamento: { produto: '', valor: '', forma_pagamento: '', motivo_perda: '', valor_total: '', forma_pagamento_codigo: 'cartao', tipo_pagamento_codigo: 'Recorrente' },
+      }),
+    }), { format: 'v5' })
+
+  assert.equal(parsed.decisao.confianca_geral, 'alta')
+  assert.equal(parsed.decisao.pendencias[0].de, 'nenhum')
+  assert.equal(parsed.decisao.oportunidades[0].status, 'em_aberto')
+  assert.equal(parsed.decisao.fechamento.forma_pagamento_codigo, '')
+  assert.equal(parsed.decisao.fechamento.tipo_pagamento_codigo, 'recorrente')
+
+  // Campo que decide continua estrito.
+  assert.throws(
+    () => parseFullReadingOutput(JSON.stringify({ decisao: decisionV5({ acao_agora: 'ligar' }) }), { format: 'v5' }),
+    (error) => error instanceof FullReadingOutputError && /acao_agora/.test(error.message),
+  )
+})
+
+test('gramática grande demais: repete sem o formato fixo, com o esquema escrito no prompt, e lembra a recusa', async () => {
+  resetRejectedSchemas()
+
+  const bodies = []
+
+  const response =
+    await callClaudeReading({
+      ...BASE_REQUEST,
+      logger: () => {},
+      fetchImpl: async (_url, init) => {
+        bodies.push(JSON.parse(init.body))
+        return bodies.length === 1
+          ? apiError(400, GRAMMAR_MESSAGE)
+          : apiText('{"ok":true}')
+      },
+    })
+
+  assert.equal(bodies.length, 2)
+  assert.ok(bodies[0].output_config.format)
+  assert.equal(bodies[0].system, 'sistema')
+  assert.equal(bodies[1].output_config.format, undefined)
+  assert.match(bodies[1].system, /^sistema\n\n## Formato obrigatório da resposta\nResponda somente com um objeto JSON válido/)
+  assert.ok(bodies[1].system.endsWith(JSON.stringify(FULL_READING_OUTPUT_JSON_SCHEMA)))
+  assert.equal(response.used_structured_output, false)
+  assert.equal(isSchemaRecentlyRejected(FULL_READING_OUTPUT_JSON_SCHEMA), true)
+
+  // Próxima rodada desta instância: direto sem o formato fixo (uma
+  // chamada só).
+  const second = []
+
+  await callClaudeReading({
+    ...BASE_REQUEST,
+    logger: () => {},
+    fetchImpl: async (_url, init) => {
+      second.push(JSON.parse(init.body))
+      return apiText('{"ok":true}')
+    },
+  })
+
+  assert.equal(second.length, 1)
+  assert.equal(second[0].output_config.format, undefined)
+  assert.match(second[0].system, /## Formato obrigatório da resposta/)
+
+  // Modo estrito (rota de teste): sempre tenta o formato fixo e falha se
+  // a API recusar.
+  await assert.rejects(
+    callClaudeReading({
+      ...BASE_REQUEST,
+      requireStructuredOutput: true,
+      logger: () => {},
+      fetchImpl: async () => apiError(400, GRAMMAR_MESSAGE),
+    }),
+    (error) => error instanceof ClaudeProviderError && error.code === 'STRUCTURED_OUTPUT_REJECTED',
+  )
+
+  resetRejectedSchemas()
+  assert.equal(isSchemaRecentlyRejected(FULL_READING_OUTPUT_JSON_SCHEMA), false)
+
+  // Com o formato fixo, o prompt não leva o esquema.
+  const structuredBody = buildClaudeRequestBody({ ...BASE_REQUEST }, { structured: true })
+
+  assert.equal(structuredBody.system, 'sistema')
+})
+
+test('runner: a recusa por gramática não derruba a leitura v5 (sai pelo modo sem formato fixo)', async () => {
+  resetRejectedSchemas()
+
+  const updates = []
+  const admin = {
+    from(table) {
+      return {
+        update(values) {
+          updates.push({ table, values })
+          const chain = { eq() { return chain }, then(resolve) { resolve({ error: null }) } }
+          return chain
+        },
+      }
+    },
+  }
+
+  let calls = 0
+
+  const result =
+    await executeFullReadingRun({
+      admin,
+      runId: 'run-grammar',
+      companyId: COMPANY,
+      cycleId: CYCLE,
+      conversationKey: CONVERSATION,
+      referenceTime: NOW,
+      model: 'claude-sonnet-5-5',
+      effort: 'high',
+      apiKey: 'sk-ant-teste',
+      logger: () => {},
+      loadMessages: async () => [{ id: '1', direction: 'incoming', author_kind: 'customer', occurred_at: minutesBefore(5), content_type: 'text', text_content: 'Quanto custa?', audio_transcription: null, is_deleted: false, deletion_reason: null }],
+      loadConfig: async () => ({ bundle: null, products: [] }),
+      loadKanban: async () => null,
+      fetchImpl: async () => {
+        calls += 1
+        return calls === 1
+          ? apiError(400, GRAMMAR_MESSAGE)
+          : apiText(`Aqui está:\n${JSON.stringify({ decisao: decisionV5() })}`)
+      },
+    })
+
+  assert.deepEqual(result, { status: 'succeeded' })
+  assert.equal(calls, 2)
+
+  const final = updates[updates.length - 1].values
+
+  assert.equal(final.status, 'succeeded')
+  assert.equal(final.decision.sistema.saida_estruturada, false)
+  assert.equal(final.decision.mensagem_sugerida, decisionV5().mensagem_sugerida)
+
+  resetRejectedSchemas()
+})

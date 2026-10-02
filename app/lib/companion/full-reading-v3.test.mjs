@@ -189,10 +189,21 @@ test('esquema v3: cliente e códigos obrigatórios; códigos aceitam texto vazio
   const closing =
     decisionSchema.properties.fechamento.properties
 
-  assert.deepEqual(closing.forma_pagamento_codigo.enum, [...FULL_READING_PAYMENT_METHOD_CODES])
-  assert.deepEqual(closing.tipo_pagamento_codigo.enum, [...FULL_READING_PAYMENT_TYPE_CODES])
-  assert.ok(closing.forma_pagamento_codigo.enum.includes(''))
-  assert.ok(closing.tipo_pagamento_codigo.enum.includes(''))
+  // Rodada 8: os códigos vão como texto (o esquema v5 com enum passou do
+  // tamanho de gramática da API); os valores estão na descrição e o
+  // parser v5 lê com tolerância (fora da lista vira vazio).
+  assert.equal(closing.forma_pagamento_codigo.type, 'string')
+  assert.equal(closing.tipo_pagamento_codigo.type, 'string')
+
+  for (const code of FULL_READING_PAYMENT_METHOD_CODES.filter(Boolean)) {
+    assert.match(closing.forma_pagamento_codigo.description, new RegExp(`\\b${code}\\b`))
+  }
+
+  for (const code of FULL_READING_PAYMENT_TYPE_CODES.filter(Boolean)) {
+    assert.match(closing.tipo_pagamento_codigo.description, new RegExp(`\\b${code}\\b`))
+  }
+
+  assert.match(closing.forma_pagamento_codigo.description, /"" \(vazio\)/)
   assert.equal(closing.valor_total.type, 'string')
 })
 

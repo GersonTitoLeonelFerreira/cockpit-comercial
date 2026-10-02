@@ -145,6 +145,20 @@ export class ClaudeProviderError extends Error {
   }
 }
 
+// Sem o formato fixo (a API recusou o esquema), o esquema vai escrito no
+// prompt: o modelo continua sabendo os campos exatos e o parser lê o JSON
+// do texto.
+export function buildSchemaInstruction(
+  schema: Record<string, unknown>,
+): string {
+  return [
+    '',
+    '## Formato obrigatório da resposta',
+    'Responda somente com um objeto JSON válido, sem texto antes ou depois e sem bloco de código, seguindo exatamente este JSON Schema (todos os campos são obrigatórios; não acrescente campos):',
+    JSON.stringify(schema),
+  ].join('\n')
+}
+
 export function buildClaudeRequestBody(
   request: Pick<
     ClaudeReadingRequest,
@@ -169,7 +183,10 @@ export function buildClaudeRequestBody(
   const body: Record<string, unknown> = {
     model: request.model,
     max_tokens: request.maxTokens,
-    system: request.system,
+    system:
+      !options.structured && request.outputSchema
+        ? `${request.system}\n${buildSchemaInstruction(request.outputSchema)}`
+        : request.system,
     thinking: {
       type: 'adaptive',
     },
@@ -229,14 +246,65 @@ function readErrorMessage(
   return 'erro sem detalhe'
 }
 
+// Rodada 8: "The compiled grammar is too large… Simplify your tool
+// schemas" também é recusa do formato fixo (o esquema é grande demais).
 function isFormatRejection(
   status: number,
   message: string,
 ): boolean {
   return (
     status === 400 &&
-    /output_config|format|json_schema|structured/i.test(message)
+    /output_config|format|json_schema|structured|grammar|schema/i.test(message)
   )
+}
+
+// Esquema recusado por tamanho: nas próximas chamadas desta instância, a
+// leitura vai direto sem o formato fixo (economiza uma recusa por rodada).
+const REJECTED_SCHEMA_TTL_MS =
+  6 * 60 * 60 * 1000
+
+const rejectedSchemas =
+  new Map<string, number>()
+
+function schemaKey(
+  schema: Record<string, unknown>,
+): string {
+  const text =
+    JSON.stringify(schema)
+
+  // FNV-1a 32 bits: só identifica o esquema, não é segurança.
+  let hash = 0x811c9dc5
+
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+
+  return `${text.length}:${(hash >>> 0).toString(16)}`
+}
+
+function isGrammarSizeRejection(
+  message: string,
+): boolean {
+  return /grammar is too large|too large|too complex/i.test(message)
+}
+
+export function isSchemaRecentlyRejected(
+  schema: Record<string, unknown> | null,
+  now: number = Date.now(),
+): boolean {
+  if (!schema) {
+    return false
+  }
+
+  const rejectedAt =
+    rejectedSchemas.get(schemaKey(schema))
+
+  return rejectedAt !== undefined && now - rejectedAt < REJECTED_SCHEMA_TTL_MS
+}
+
+export function resetRejectedSchemas(): void {
+  rejectedSchemas.clear()
 }
 
 export function readClaudeText(
@@ -406,8 +474,13 @@ export async function callClaudeReading(
   const deadline =
     Date.now() + request.timeoutMs
 
+  // Modo estrito (rota de teste): sempre tenta o formato fixo.
   let structured =
-    request.outputSchema !== null
+    request.outputSchema !== null &&
+    (
+      request.requireStructuredOutput === true ||
+      !isSchemaRecentlyRejected(request.outputSchema)
+    )
 
   let transientRetryUsed =
     false
@@ -562,6 +635,10 @@ export async function callClaudeReading(
       !formatFallbackUsed &&
       isFormatRejection(result.status, message)
     ) {
+      if (request.outputSchema && isGrammarSizeRejection(message)) {
+        rejectedSchemas.set(schemaKey(request.outputSchema), Date.now())
+      }
+
       structured = false
       formatFallbackUsed = true
       continue
