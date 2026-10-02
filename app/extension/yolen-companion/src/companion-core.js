@@ -243,6 +243,10 @@ function createCompanionCore(ctx) {
   let fullReadingPollScope = null
   let fullReadingRetryTimerId = 0
   let fullReadingRetryKey = null
+  // Rodada 9: releitura agendada com o painel aberto (fim da rajada de 20 s
+  // ou o horário em que o próximo passo muda).
+  let fullReadingWakeTimerId = 0
+  let fullReadingWakeKey = null
   let fullReadingElapsedTimerId = 0
   let fullReadingStageAction = null
   // Rodada 7: a página já viu a capability full_reading_panel (ver
@@ -7614,9 +7618,10 @@ function createCompanionCore(ctx) {
       return
     }
 
+    // 'full' (rodada 9, E2): "Ler a conversa inteira".
     const forceFullReadingMode =
-      force && mode === 'if_changed'
-        ? 'if_changed'
+      force && (mode === 'if_changed' || mode === 'full')
+        ? mode
         : undefined
 
     void loadAgoraDecisionStateForCurrentCycle({
@@ -7651,6 +7656,7 @@ function createCompanionCore(ctx) {
       getFullReadingScopeKey()
 
     syncFullReadingRetry(views, scope)
+    syncFullReadingWake(views, scope)
 
     if (!running) {
       fullReadingPollStartedAt = 0
@@ -7744,6 +7750,66 @@ function createCompanionCore(ctx) {
 
         requestFullReadingRefresh()
       }, delay)
+  }
+
+  // Rodada 9: com a leitura na tela, o painel aberto relê quando a rajada
+  // do cliente acaba (status.pending_until) e quando passa o horário em que
+  // o próximo passo muda (status.review_at). O servidor decide se relê.
+  const FULL_READING_WAKE_MAX_MS =
+    6 * 60 * 60 * 1000
+
+  function syncFullReadingWake(views, scope) {
+    const status =
+      views.agora?.state === 'ready'
+        ? views.agora?.status
+        : views.analysis?.state === 'ready'
+          ? views.analysis?.status
+          : null
+
+    const now =
+      Date.now()
+
+    const candidates =
+      [status?.pending_until, status?.review_at]
+        .map((value) => (typeof value === 'string' ? Date.parse(value) : Number.NaN))
+        .filter((time) => !Number.isNaN(time) && time > now - 1000)
+
+    const wakeTime =
+      candidates.length > 0
+        ? Math.min(...candidates)
+        : Number.NaN
+
+    const key =
+      Number.isNaN(wakeTime) || wakeTime - now > FULL_READING_WAKE_MAX_MS
+        ? null
+        : `${scope}|${wakeTime}`
+
+    if (key === fullReadingWakeKey) {
+      return
+    }
+
+    if (fullReadingWakeTimerId) {
+      window.clearTimeout(fullReadingWakeTimerId)
+      fullReadingWakeTimerId = 0
+    }
+
+    fullReadingWakeKey = key
+
+    if (!key) {
+      return
+    }
+
+    fullReadingWakeTimerId =
+      window.setTimeout(() => {
+        fullReadingWakeTimerId = 0
+        fullReadingWakeKey = null
+
+        if (getFullReadingScopeKey() !== scope) {
+          return
+        }
+
+        requestFullReadingRefresh()
+      }, Math.max(1000, wakeTime - Date.now() + 1000))
   }
 
   // "Lendo a conversa inteira… 12 s": só o texto dos segundos muda, sem
@@ -9716,11 +9782,14 @@ function createCompanionCore(ctx) {
             return
           }
 
+          const frMode =
+            button.getAttribute('data-yolen-fr-mode')
+
           requestFullReadingRefresh({
             force: true,
             mode:
-              button.getAttribute('data-yolen-fr-mode') === 'if_changed'
-                ? 'if_changed'
+              frMode === 'if_changed' || frMode === 'full'
+                ? frMode
                 : 'always',
           })
         })

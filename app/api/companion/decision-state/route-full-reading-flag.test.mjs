@@ -216,7 +216,7 @@ function freshRunAdmin() {
         conversation_key: CONVERSATION,
         status: 'succeeded',
         // Rodada 8: a leitura atual é a v5 (uma v4 seria relida).
-        prompt_version: 'full-reading-v5',
+        prompt_version: 'full-reading-v6',
         reference_time: '2026-09-30T12:00:00.000Z',
         created_at: '2026-09-30T12:00:00.000Z',
         started_at: '2026-09-30T12:00:00.000Z',

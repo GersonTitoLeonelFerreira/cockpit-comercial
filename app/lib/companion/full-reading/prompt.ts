@@ -29,15 +29,23 @@
 // contradições com o cadastro (o catálogo vai com preço) e a fase
 // nao_comercial ("Não é venda"). O kanban diz quando e por onde a
 // oportunidade foi criada, para a criação não parecer movimentação.
+//
+// v6 (rodada 9): gênero do cliente só quando a conversa deixa claro;
+// pendência que não é de ninguém vai com de "nenhum"; nome de plano
+// ambíguo vira dúvida a confirmar (sem escolher um plano por suposição);
+// áudio transcrito entra como "[áudio] texto"; linhas EVENTO do sistema de
+// atendimento; leitura de continuação (decisão anterior + contexto +
+// mensagens novas); ciclo encerrado lido como atendimento; revisar_em e
+// precisa_ler_inteira.
 
 import {
   formatTranscriptTimestamp,
 } from './transcript'
 
 export const FULL_READING_PROMPT_VERSION =
-  'full-reading-v5'
+  'full-reading-v6'
 
-// Medição da v5 pela rota de teste: rodadas com esta versão nunca viram a
+// Medição pela rota de teste: rodadas com esta versão nunca viram a
 // leitura do painel (o painel só usa FULL_READING_PROMPT_VERSION).
 export const FULL_READING_EVAL_PROMPT_VERSION =
   `${FULL_READING_PROMPT_VERSION}-eval`
@@ -132,11 +140,13 @@ const SYSTEM_PROMPT = `Você é o motor de leitura do Yolen Companion, um copilo
 5. Decida o que fazer agora: uma decisão, uma ação e uma justificativa curta. "Não fazer nada agora" é uma decisão válida e muitas vezes a correta. Não crie trabalho artificial para o vendedor.
 6. Registre oportunidades novas (adicionais, upgrades, indicações) com o status real: aceita, recusada, adiada, sem resposta. Não transforme adiamento em compromisso, nem em objeção.
 7. Afirmações do vendedor sobre preço, regras, contrato ou cobrança provam que ele disse aquilo, não que é a regra oficial da empresa. Aponte contradições e o que precisa ser confirmado. Se o cadastro da empresa contradisser a conversa, aponte a contradição em vez de escolher um lado.
-8. A transcrição vem de uma captura automática do WhatsApp Web ou do ManyChat. Mensagens do mesmo minuto podem estar fora de ordem, citações de resposta podem ter se perdido, a autoria de arquivos pode estar errada e imagens não aparecem. Linhas AUTOMAÇÃO são mensagens automáticas (bot) da empresa: não são ações do vendedor nem falas do cliente. "[escolheu no menu] X" é o cliente tocando no botão X de uma mensagem automática. Quando a captura puder mudar uma conclusão, diga.
+8. A transcrição vem de uma captura automática do WhatsApp Web ou do ManyChat. Mensagens do mesmo minuto podem estar fora de ordem, citações de resposta podem ter se perdido, a autoria de arquivos pode estar errada e imagens não aparecem. Linhas AUTOMAÇÃO são mensagens automáticas (bot) da empresa: não são ações do vendedor nem falas do cliente. "[escolheu no menu] X" é o cliente tocando no botão X de uma mensagem automática. Linhas EVENTO são registros do sistema de atendimento (atendente atribuído, conversa fechada ou reaberta, respostas automáticas desativadas): não são mensagens nem respostas de ninguém, e só diga quem fez quando a própria linha disser. "[áudio] texto" é a transcrição automática de um áudio: leia como o que foi dito, sabendo que pode ter pequenos erros. "[áudio sem transcrição]" é um áudio que ninguém transcreveu: não adivinhe o conteúdo e, se ele puder mudar a leitura, diga que falta ouvir o áudio. Quando a captura puder mudar uma conclusão, diga.
 9. Nunca invente horários, preços, políticas, motivos ou compromissos.
 10. Antes de decidir a ação, compare cada afirmação da conversa sobre preço e sobre o que o plano inclui com o cadastro (nome e descrição de cada item do catálogo, preço e fatos oficiais) e registre cada divergência em contradicoes_cadastro. Um plano citado na conversa e um item do catálogo com o mesmo nome base são o mesmo plano quando não há outro parecido. Quando uma afirmação do vendedor contradiz o cadastro oficial e muda o que o cliente paga ou recebe (preço, o que o plano inclui, regra de cobrança), essa verificação interna entra na Ação principal: diga o que verificar e use acao_agora "verificacao_interna" quando ela for a ação principal. Se o cadastro estiver certo, corrigir a informação com o cliente é o próximo passo, e a Ação diz isso.
 11. Se a transcrição tiver o marco "Nova oportunidade aberta em ...", o ciclo comercial anterior está encerrado (ganho ou perdido) e o que vem antes do marco é histórico. O foco da leitura é a oportunidade nova: use o histórico para entender o cliente e o que já foi combinado, mas a fase, a etapa sugerida, as pendências e o próximo passo são desta oportunidade. Não trate a venda anterior como venda desta oportunidade.
-12. Escreva em frases curtas, uma ideia por frase. Nos textos para o vendedor, nunca use nomes internos nem códigos (por exemplo "respondeu", "sem_resposta", "nao_intervir", "verificacao_interna", "follow_up", "nao_comercial"): use as palavras do dia a dia ("Agenda", "sem resposta", "não enviar nada agora", "não é venda").
+12. Gênero: use o gênero do cliente só quando a conversa deixar claro (pelo nome ou pela forma como a pessoa fala de si). Na dúvida, escreva "o cliente". Use a mesma forma em todos os textos da leitura.
+13. Plano ou produto: quando o nome usado na conversa puder corresponder a mais de um item do catálogo, a nenhum item, ou for diferente do produto registrado no fechamento do kanban, não escolha um. Registre a dúvida (qual plano foi vendido ou está em negociação) em afirmacoes_a_confirmar e em contradicoes_cadastro. Nesse caso, a ação principal não pode ser cobrar nem oferecer algo com base num plano escolhido por suposição: primeiro confirme qual é o plano.
+14. Escreva em frases curtas, uma ideia por frase. Nos textos para o vendedor, nunca use nomes internos nem códigos (por exemplo "respondeu", "sem_resposta", "nao_intervir", "verificacao_interna", "follow_up", "nao_comercial"): use as palavras do dia a dia ("Agenda", "sem resposta", "não enviar nada agora", "não é venda").
 
 ## Conversa sem oportunidade de venda (fase nao_comercial)
 Use a fase nao_comercial para suporte, dúvida de quem já é cliente sem venda em jogo, pedido de cancelamento, reclamação ou disputa, engano, fornecedor e candidato a vaga.
@@ -149,12 +159,28 @@ Use a fase nao_comercial para suporte, dúvida de quem já é cliente sem venda 
 A seção <kanban_do_yolen> traz a etapa em que a equipe registrou esta oportunidade. Etapas possíveis: Novo, Contato, Agenda, Negociação, Pausado, Ganho, Perdido. Cancelado é um encerramento administrativo e nunca é sugerido. Só o campo etapa_kanban_sugerida usa o código da etapa (Novo = novo, Contato = contato, Agenda = respondeu, Negociação = negociacao, Pausado = pausado, Ganho = ganho, Perdido = perdido); em todos os textos use só o nome da etapa.
 1. O kanban é o que a equipe registrou e pode estar atrasado ou errado. Compare com a conversa. Se divergirem, diga isso e sugira a etapa certa; se estiver certo, repita a etapa atual.
 2. Kanban em GANHO é venda confirmada pela equipe: venda_concluida é "confirmada" e a relação está no pós-venda. Nunca sugira retomar a negociação do que já foi vendido; adicionais e upgrades continuam como oportunidades.
-3. PERDIDO ou CANCELADO é oportunidade encerrada. Só sugira reabrir se o cliente escreveu depois do encerramento com interesse novo; sem isso, não proponha ação comercial.
+3. PERDIDO ou CANCELADO é oportunidade encerrada. Sem mensagem do cliente depois do encerramento, não proponha ação comercial; com mensagem nova, siga a seção "Ciclo encerrado".
 4. Agenda é quando existe um compromisso marcado (visita, reunião, consulta, demonstração, ligação), com dia e hora, aceito pelos dois lados. Continua sendo Agenda depois do horário marcado, enquanto o resultado (compareceu, faltou, remarcou) não for conhecido; nesse caso a ação é confirmar o resultado com o cliente. Só saia de Agenda quando a conversa mostrar o resultado ou um novo rumo.
 5. GANHO só quando a venda está confirmada ou é provável pela conversa; PERDIDO só quando a relação está perdida ou numa conversa sem venda já resolvida (seção acima). Quem registra o fechamento no Yolen é o vendedor, depois de confirmar.
 6. Nunca invente valor, plano ou forma de pagamento. Os dados de fechamento só levam o que foi dito na conversa; o que não foi dito fica vazio.
 7. A linha "Oportunidade criada" diz quando e por onde o ciclo foi criado. Estar em Novo desde a criação não é movimentação do kanban, e a criação do lead não é assunto da captura.
 8. Quando a etapa sugerida for igual à atual, nenhum texto fala em ajustar, mover ou atualizar o kanban.
+
+## Ciclo encerrado
+Quando o kanban está em Ganho, Perdido ou Cancelado e o cliente escreveu depois do encerramento, a leitura é de atendimento.
+1. O que vem antes do encerramento é histórico.
+2. O foco é atender a mensagem nova (seção "Como um especialista conduz").
+3. etapa_kanban_sugerida é sempre a etapa atual.
+4. Interesse comercial novo (voltar, renovar, comprar outro produto, trocar de plano) entra em oportunidades, e o próximo passo diz para abrir uma Nova oportunidade, com o tipo: reativação, renovação, recompra, upgrade ou novo produto.
+5. Em Ganho, valem as regras de pós-venda (regra 2 do Kanban).
+
+## Leitura de continuação
+Às vezes você não recebe a conversa inteira, e sim uma leitura de continuação: <leitura_anterior> (a decisão dada antes, já salva), <conversa_contexto> (as últimas mensagens que ela já tinha visto) e <mensagens_novas> (tudo o que entrou depois; "(atualizada)" marca uma mensagem que mudou desde então, por exemplo um áudio que ganhou transcrição).
+1. A leitura anterior foi feita antes e pode ter erro. As mensagens novas mandam.
+2. Atualize a leitura inteira: mantenha o que continua valendo, corrija o que as mensagens novas mudaram e responda a decisão completa, no mesmo formato.
+3. Se algo nas mensagens novas contradiz a leitura anterior, corrija e diga isso em situacao_resumo. Diga também se a ação mudou em relação à leitura anterior e por quê, inclusive quando o tempo que passou muda a ação (um horário que já passou, um prazo vencido).
+4. Se o contexto não bastar para decidir com segurança (as mensagens novas falam de algo que não está no contexto nem na leitura anterior), responda precisa_ler_inteira true com o motivo; a conversa inteira é lida logo em seguida.
+Na leitura da conversa inteira, precisa_ler_inteira é sempre false.
 
 ${EXPERT_CONDUCT_SECTION}
 
@@ -163,7 +189,7 @@ Responda com um único objeto JSON com o campo "decisao". Preencha os campos na 
 O painel mostra a decisão como está, então os campos são escritos para a tela: frases curtas, sem parágrafos, sem códigos.
 situacao_resumo é a situação atual em 1 a 2 frases.
 cliente separa, em frases curtas: sabemos (o que o cliente disse ou fez, terminando com a data no formato (dd/mm) quando houver), inferimos (interpretação, com o motivo) e a_confirmar (o que falta descobrir ou confirmar).
-pendencias lista o que está em aberto: de "vendedor" quando o vendedor deve algo, "cliente" quando o cliente deve algo, e "nenhum" para registrar o que está resolvido (por exemplo "Nenhuma pergunta do cliente sem resposta").
+pendencias lista o que está em aberto: de "vendedor" quando o vendedor deve algo, "cliente" quando o cliente deve algo, e "nenhum" para o que não está pendente com ninguém (por exemplo "Nenhuma pergunta do cliente sem resposta"). Nunca use "cliente" ou "vendedor" para dizer que não há pendência.
 contradicoes_cadastro traz cada divergência entre o que foi dito e o cadastro, com muda_o_que_o_cliente_paga_ou_recebe verdadeiro quando a divergência muda preço, o que o plano inclui ou a regra de cobrança; lista vazia quando nada diverge.
 como_conduzir traz leitura_do_momento (uma frase: como o cliente está e do que precisa), de 1 a 3 passos (tecnica: nome curto em português simples; como: o que fazer nesta conversa, em até ~20 palavras; exemplo: uma frase curta pronta, ou vazio) e evitar (0 a 2 frases curtas).
 proximo_passo_titulo é o próximo passo em até ~8 palavras, no imperativo (quando não há nada a fazer: "Não enviar nada agora"); proximo_passo_complemento é uma frase curta que completa o passo.
@@ -173,6 +199,8 @@ para_o_gestor traz de 0 a 2 frases: risco (jurídico, de reputação, de perder 
 etapa_kanban_sugerida é a etapa que a conversa indica (pode ser igual à atual); motivo_etapa é uma frase curta com a evidência (trecho curto e data); fechamento traz produto, valor, forma de pagamento e motivo da perda só quando ditos na conversa, e texto vazio quando não.
 linha_do_tempo traz até 10 marcos da conversa, em ordem, com dia (dd/mm), hora (hh:mm, ou vazio) e texto de até ~12 palavras.
 afirmacoes_a_confirmar traz o que precisa de confirmação oficial; alertas_de_captura, só problemas da captura.
+revisar_em é a data e hora (ISO 8601 com o fuso de Brasília, por exemplo 2026-10-02T18:00:00-03:00) a partir da qual o próximo passo pode ter mudado só pela passagem do tempo: horário de visita, reunião ou consulta, prazo prometido, "retomar amanhã". Use o horário em que o passo muda (o início do compromisso ou o fim do prazo). Texto vazio quando o próximo passo não depende de horário. revisar_motivo diz o que acontece nesse horário, em poucas palavras (por exemplo "o horário da visita"), e fica vazio quando revisar_em é vazio.
+precisa_ler_inteira e precisa_ler_inteira_motivo: seção "Leitura de continuação".
 Campos codificados do fechamento, para o vendedor conferir no Yolen: valor_total é só o número do total combinado (ex.: "1.250,00"), ou texto vazio se não houver um total claro; forma_pagamento_codigo é "debito" só quando a conversa disser cartão de débito, cobrança mensal no cartão de crédito é "credito", e na dúvida é texto vazio; tipo_pagamento_codigo segue a mesma regra (mensalidade ou assinatura é "recorrente"). Os textos livres do fechamento continuam como dica para o vendedor.`
 
 export function buildFullReadingSystemPrompt(): string {
@@ -507,5 +535,69 @@ export function buildFullReadingUserPrompt({
     '<conversa>',
     transcriptText,
     '</conversa>',
+  ].join('\n')
+}
+
+
+// Decisão anterior para a leitura de continuação: sem o registro do sistema
+// (alertas, kanban lido, uso), que não é leitura.
+export function previousDecisionForPrompt(
+  decision: Record<string, unknown>,
+): Record<string, unknown> {
+  const copy: Record<string, unknown> =
+    { ...decision }
+
+  delete copy.sistema
+  delete copy.pedido
+  delete copy.precisa_ler_inteira
+  delete copy.precisa_ler_inteira_motivo
+
+  return copy
+}
+
+export function buildFullReadingContinuationUserPrompt({
+  referenceTime,
+  commercialContext,
+  kanban = null,
+  previousDecision,
+  previousReadingAt,
+  contextText,
+  newText,
+}: {
+  referenceTime: string
+  commercialContext: FullReadingCommercialContext | null
+  kanban?: FullReadingKanbanContext | null
+  previousDecision: Record<string, unknown>
+  previousReadingAt: string
+  contextText: string
+  newText: string
+}): string {
+  return [
+    `Data e hora de referência (agora): ${formatTranscriptTimestamp(referenceTime)}, horário de Brasília.`,
+    'Esta é uma leitura de continuação (seção "Leitura de continuação").',
+    '',
+    '<cadastro_da_empresa>',
+    buildCommercialContextSection(commercialContext),
+    '</cadastro_da_empresa>',
+    '',
+    '<kanban_do_yolen>',
+    buildKanbanSection(kanban, referenceTime),
+    '</kanban_do_yolen>',
+    '',
+    `<leitura_anterior feita_em="${formatTranscriptTimestamp(previousReadingAt)}">`,
+    JSON.stringify(previousDecisionForPrompt(previousDecision)),
+    '</leitura_anterior>',
+    '',
+    '<conversa_contexto>',
+    contextText.length > 0
+      ? contextText
+      : '(sem mensagens anteriores)',
+    '</conversa_contexto>',
+    '',
+    '<mensagens_novas>',
+    newText.length > 0
+      ? newText
+      : '(nenhuma mensagem nova desde a leitura anterior)',
+    '</mensagens_novas>',
   ].join('\n')
 }

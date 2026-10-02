@@ -16,6 +16,11 @@
 // conduzir o momento (técnica, como, exemplo), o que o gestor precisa
 // saber, as contradições com o cadastro e a fase nao_comercial. Rodadas v4
 // gravadas continuam válidas: o parser aceita os dois formatos.
+//
+// v6 (rodada 9): revisar_em/revisar_motivo (a partir de quando o próximo
+// passo pode ter mudado só pelo tempo) e precisa_ler_inteira/
+// precisa_ler_inteira_motivo (a leitura de continuação pede a conversa
+// inteira). Rodadas v5 gravadas não têm esses campos e continuam válidas.
 
 export const FULL_READING_RELATIONSHIP_PHASES = [
   'primeiro_contato',
@@ -216,6 +221,11 @@ export type FullReadingDecision = {
   mensagem_sugerida?: string
   mensagem_observacao?: string
   para_o_gestor?: string[]
+  // v6 (ausentes nas rodadas v5 gravadas).
+  revisar_em?: string
+  revisar_motivo?: string
+  precisa_ler_inteira?: boolean
+  precisa_ler_inteira_motivo?: string
 }
 
 export type FullReadingOutput = {
@@ -227,6 +237,7 @@ export type FullReadingOutput = {
 export type FullReadingOutputFormat =
   | 'v4'
   | 'v5'
+  | 'v6'
   | 'auto'
 
 const stringEnum = (
@@ -497,6 +508,26 @@ const TAIL_PROPERTIES = {
     FULL_READING_CONFIDENCE_LEVELS,
     'Confiança geral na leitura.',
   ),
+  revisar_em: {
+    type: 'string',
+    description:
+      'Data e hora (ISO 8601 com o fuso de Brasília, ex.: 2026-10-02T18:00:00-03:00) a partir da qual o próximo passo pode ter mudado só pela passagem do tempo (horário de visita, reunião ou consulta, prazo prometido, "retomar amanhã"). Texto vazio quando o passo não depende de horário.',
+  },
+  revisar_motivo: {
+    type: 'string',
+    description:
+      'O que acontece nesse horário, em poucas palavras (ex.: "o horário da visita"). Texto vazio quando revisar_em é vazio.',
+  },
+  precisa_ler_inteira: {
+    type: 'boolean',
+    description:
+      'Só na leitura de continuação: true quando o contexto recebido não basta para decidir com segurança. Na leitura da conversa inteira, false.',
+  },
+  precisa_ler_inteira_motivo: {
+    type: 'string',
+    description:
+      'Por que precisa ler a conversa inteira, em uma frase; texto vazio quando não precisa.',
+  },
 } as const
 
 // v5: o modelo entende antes de decidir — situação → cliente → pendências
@@ -1120,8 +1151,102 @@ function parseDecisionV5Extras(
   }
 }
 
-// format 'v5' (a leitura atual), 'v4' (rodadas antigas: analise_markdown +
-// decisão v4) ou 'auto' (decide pela presença de analise_markdown).
+// Fuso fixo de Brasília (sem horário de verão desde 2019).
+const BRASILIA_OFFSET =
+  '-03:00'
+
+const BRASILIA_OFFSET_MS =
+  3 * 60 * 60 * 1000
+
+function pad2(
+  value: number,
+): string {
+  return String(value).padStart(2, '0')
+}
+
+// revisar_em em ISO no horário de Brasília. Sem fuso, vale Brasília; data
+// inválida vira texto vazio (nunca derruba a leitura).
+export function normalizeReviewAt(
+  value: unknown,
+): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  const trimmed =
+    value.trim()
+
+  if (trimmed.length === 0) {
+    return ''
+  }
+
+  const withZone =
+    /(?:z|[+-]\d{2}:?\d{2})$/i.test(trimmed) || !/t\d{2}:\d{2}/i.test(trimmed)
+      ? trimmed
+      : `${trimmed}${BRASILIA_OFFSET}`
+
+  const time =
+    Date.parse(withZone)
+
+  if (Number.isNaN(time) || !/t\d{2}:\d{2}/i.test(trimmed)) {
+    return ''
+  }
+
+  const local =
+    new Date(time - BRASILIA_OFFSET_MS)
+
+  return `${local.getUTCFullYear()}-${pad2(local.getUTCMonth() + 1)}-${pad2(local.getUTCDate())}T${pad2(local.getUTCHours())}:${pad2(local.getUTCMinutes())}:00${BRASILIA_OFFSET}`
+}
+
+function readOptionalText(
+  record: Record<string, unknown>,
+  key: string,
+): string {
+  const value =
+    record[key]
+
+  return typeof value === 'string'
+    ? value.trim()
+    : ''
+}
+
+// Campos novos da v6. Ausentes ou fora do formato: vazios (nunca derrubam
+// a leitura).
+function parseDecisionV6Extras(
+  decisionRaw: Record<string, unknown>,
+): Required<Pick<
+  FullReadingDecision,
+  | 'revisar_em'
+  | 'revisar_motivo'
+  | 'precisa_ler_inteira'
+  | 'precisa_ler_inteira_motivo'
+>> {
+  const revisarEm =
+    normalizeReviewAt(decisionRaw.revisar_em)
+
+  const precisa =
+    decisionRaw.precisa_ler_inteira === true ||
+    (typeof decisionRaw.precisa_ler_inteira === 'string' &&
+      decisionRaw.precisa_ler_inteira.trim().toLowerCase() === 'true')
+
+  return {
+    revisar_em: revisarEm,
+    revisar_motivo:
+      revisarEm
+        ? readOptionalText(decisionRaw, 'revisar_motivo')
+        : '',
+    precisa_ler_inteira: precisa,
+    precisa_ler_inteira_motivo:
+      precisa
+        ? readOptionalText(decisionRaw, 'precisa_ler_inteira_motivo')
+        : '',
+  }
+}
+
+// format 'v6'/'v5' (a leitura atual e a anterior: mesma decisão, a v6 com
+// os campos de tempo e de continuação), 'v4' (rodadas antigas:
+// analise_markdown + decisão v4) ou 'auto' (decide pela presença de
+// analise_markdown).
 export function parseFullReadingOutput(
   text: string,
   {
@@ -1157,18 +1282,28 @@ export function parseFullReadingOutput(
     parseDecisionCommon(
       decisionRaw,
       path,
-      resolved === 'v5' ? 'objects' : 'text',
+      resolved === 'v4' ? 'text' : 'objects',
     )
+
+  if (resolved === 'v4') {
+    return {
+      analise_markdown: analysis,
+      decisao: common,
+    }
+  }
+
+  const hasV6Fields =
+    resolved === 'v6' ||
+    'revisar_em' in decisionRaw ||
+    'precisa_ler_inteira' in decisionRaw
 
   return {
     analise_markdown: analysis,
-    decisao:
-      resolved === 'v5'
-        ? {
-            ...common,
-            ...parseDecisionV5Extras(decisionRaw, path),
-          }
-        : common,
+    decisao: {
+      ...common,
+      ...parseDecisionV5Extras(decisionRaw, path),
+      ...(hasV6Fields ? parseDecisionV6Extras(decisionRaw) : {}),
+    },
   }
 }
 
@@ -1202,6 +1337,31 @@ export type FullReadingSystemRecord = {
   }
   alertas: FullReadingCoherenceAlert[]
   saida_estruturada: boolean | null
+  // Rodada 9 (E3/D5): como a leitura foi feita.
+  modo?: FullReadingMode
+  leitura_base?: string | null
+  motivo?: string[]
+  // Leituras de continuação seguidas até esta (0 numa completa).
+  continuacoes_seguidas?: number
+  // Ciclos lidos (o ciclo e, numa oportunidade nova, os de origem).
+  cadeia?: string[]
+  // A continuação pediu a conversa inteira (e a completa rodou em seguida).
+  continuacao_pediu_inteira?: string | null
+  // Leitura de atendimento de um ciclo encerrado (rodada 9, J).
+  ciclo_encerrado?: string | null
+  uso?: FullReadingUsage
+}
+
+export type FullReadingMode =
+  | 'completa'
+  | 'continuacao'
+
+export type FullReadingUsage = {
+  chamadas: number
+  entrada: number | null
+  saida: number | null
+  cache_lido: number | null
+  cache_gravado: number | null
 }
 
 export type FullReadingStoredDecision =
@@ -1221,6 +1381,10 @@ export function isFullReadingKanbanStage(
 // Fases em que a etapa Perdido faz sentido.
 const LOST_STAGE_PHASES =
   new Set(['perdido', 'nao_comercial'])
+
+// Ciclo encerrado (rodada 9, F6): a etapa sugerida é sempre a atual.
+const CLOSED_CYCLE_STATUSES =
+  new Set(['ganho', 'perdido', 'cancelado'])
 
 export function findStageCoherenceProblem(
   decision: Pick<
@@ -1300,6 +1464,34 @@ export function applyFullReadingCoherence(
   decision: FullReadingDecision
   alerts: FullReadingCoherenceAlert[]
 } {
+  if (
+    currentStatus &&
+    CLOSED_CYCLE_STATUSES.has(currentStatus) &&
+    decision.etapa_kanban_sugerida !== currentStatus
+  ) {
+    const keep =
+      isFullReadingKanbanStage(currentStatus)
+        ? currentStatus
+        : null
+
+    return {
+      decision: keep
+        ? {
+            ...decision,
+            etapa_kanban_sugerida: keep,
+          }
+        : decision,
+      alerts: [
+        {
+          campo: 'etapa_kanban_sugerida',
+          valor_do_modelo: decision.etapa_kanban_sugerida,
+          valor_aplicado: keep ?? 'manter_etapa_atual',
+          motivo: 'ciclo encerrado: a etapa sugerida é a atual',
+        },
+      ],
+    }
+  }
+
   const problem =
     findStageCoherenceProblem(decision, { currentStatus })
 

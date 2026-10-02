@@ -2542,12 +2542,23 @@
 
     const line = doc.createElement('div')
     const failed = view.state === 'failed'
+    // Rodada 9: faixa da economia (rajada, resposta do vendedor, horário,
+    // teto diário).
+    const band = status?.band && typeof status.band === 'object'
+      ? fullReadingText(status.band.kind)
+      : ''
     line.className = failed
       ? 'yolen-full-reading-notice yolen-fr-notice yolen-status-warning'
-      : 'yolen-inline-loading-status yolen-full-reading-notice yolen-fr-notice'
+      : band && view.state !== 'running'
+        ? 'yolen-full-reading-notice yolen-fr-notice yolen-fr-band'
+        : 'yolen-inline-loading-status yolen-full-reading-notice yolen-fr-notice'
     line.setAttribute('role', 'status')
     line.setAttribute('aria-live', 'polite')
     line.setAttribute('data-yolen-full-reading-notice', String(view.state || ''))
+
+    if (band) {
+      line.setAttribute('data-yolen-fr-band', band)
+    }
 
     if (view.state === 'running') {
       const spinner = doc.createElement('span')
@@ -2594,11 +2605,16 @@
     const refresh = status?.refresh
 
     if (refresh && typeof refresh === 'object') {
+      const full = refresh.full && typeof refresh.full === 'object'
+        ? fullReadingText(refresh.full.label)
+        : ''
+
       return {
         label: fullReadingText(refresh.label) || 'Atualizar',
         mode: refresh.mode === 'if_changed' ? 'if_changed' : 'always',
         disabled: refresh.disabled === true,
         hint: fullReadingText(refresh.hint),
+        full,
       }
     }
 
@@ -2607,6 +2623,7 @@
       mode: 'always',
       disabled: view.state === 'running',
       hint: '',
+      full: '',
     }
   }
 
@@ -2647,6 +2664,20 @@
     }
 
     row.appendChild(createRefreshButton(doc, control))
+
+    // Rodada 9 (E2): opção discreta de ler a conversa inteira.
+    if (control.full && !control.disabled) {
+      const full = createButton(doc, {
+        label: control.full,
+        action: 'full-reading-refresh',
+        variant: 'link',
+      })
+      full.classList.add('yolen-fr-full-read')
+      full.setAttribute('data-yolen-fr-mode', 'full')
+      full.setAttribute('data-yolen-fr-full-read', '')
+      row.appendChild(full)
+    }
+
     nodes.push(row)
 
     // "Atualizar" sem nada novo: diz desde quando e oferece reler mesmo

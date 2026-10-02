@@ -7,6 +7,14 @@
 // aceita os dois casos. No modo estrito (requireStructuredOutput) não há
 // essa repetição: a recusa do formato vira erro, o que prova, numa rodada
 // bem-sucedida, que o esquema foi aceito pela API.
+//
+// Rodada 9: a leitura completa vai direto sem o formato fixo
+// (preferStructuredOutput false: o esquema vai no prompt), porque a API
+// recusa a gramática do esquema e cada recusa custava uma chamada. O
+// formato fixo fica para a rota de teste (requireStructuredOutput). A parte
+// fixa do pedido (instruções e esquema, no system) vai marcada para o cache
+// de prompt da API (cacheSystemPrompt); o log da chamada traz os tokens
+// lidos do cache e gravados nele.
 
 export const ANTHROPIC_MESSAGES_URL =
   'https://api.anthropic.com/v1/messages'
@@ -44,6 +52,10 @@ export type ClaudeReadingRequest = {
   outputSchema: Record<string, unknown> | null
   timeoutMs: number
   requireStructuredOutput?: boolean
+  // false: nem tenta o formato fixo (o esquema vai no prompt). Padrão true.
+  preferStructuredOutput?: boolean
+  // Marca o system (parte fixa) para o cache de prompt.
+  cacheSystemPrompt?: boolean
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
   // Rodada 7: uma linha de log por chamada HTTP ao Claude (rota, tokens),
@@ -58,6 +70,8 @@ export type ClaudeUsageLogContext = {
   // full_reading | full_reading_message
   purpose: string
   run_id?: string | null
+  // Rodada 9: completa ou continuacao (leitura completa).
+  mode?: string | null
 }
 
 export const CLAUDE_USAGE_LOG_TAG =
@@ -84,6 +98,8 @@ function logClaudeCall(
     code: string | null
     input_tokens: number | null
     output_tokens: number | null
+    cache_read_input_tokens?: number | null
+    cache_creation_input_tokens?: number | null
     structured_output: boolean
     duration_ms: number
   },
@@ -100,6 +116,7 @@ function logClaudeCall(
       route: context.route,
       purpose: context.purpose,
       run_id: context.run_id ?? null,
+      ...(context.mode ? { mode: context.mode } : {}),
       model: request.model,
       ...entry,
     })}`
@@ -118,6 +135,9 @@ export type ClaudeReadingResponse = {
   request_id: string | null
   input_tokens: number | null
   output_tokens: number | null
+  // Rodada 9: cache de prompt.
+  cache_read_input_tokens: number | null
+  cache_creation_input_tokens: number | null
   used_structured_output: boolean
 }
 
@@ -163,7 +183,7 @@ export function buildClaudeRequestBody(
   request: Pick<
     ClaudeReadingRequest,
     'model' | 'system' | 'userText' | 'maxTokens' | 'effort' | 'outputSchema'
-  >,
+  > & Partial<Pick<ClaudeReadingRequest, 'cacheSystemPrompt'>>,
   options: { structured: boolean },
 ): Record<string, unknown> {
   const outputConfig: Record<string, unknown> = {}
@@ -180,13 +200,26 @@ export function buildClaudeRequestBody(
     }
   }
 
+  const systemText =
+    !options.structured && request.outputSchema
+      ? `${request.system}\n${buildSchemaInstruction(request.outputSchema)}`
+      : request.system
+
   const body: Record<string, unknown> = {
     model: request.model,
     max_tokens: request.maxTokens,
+    // Parte fixa no cache de prompt: o que muda por empresa ou conversa vem
+    // depois, na mensagem do usuário.
     system:
-      !options.structured && request.outputSchema
-        ? `${request.system}\n${buildSchemaInstruction(request.outputSchema)}`
-        : request.system,
+      request.cacheSystemPrompt === true
+        ? [
+            {
+              type: 'text',
+              text: systemText,
+              cache_control: { type: 'ephemeral' },
+            },
+          ]
+        : systemText,
     thinking: {
       type: 'adaptive',
     },
@@ -315,6 +348,8 @@ export function readClaudeText(
   stop_reason: string | null
   input_tokens: number | null
   output_tokens: number | null
+  cache_read_input_tokens: number | null
+  cache_creation_input_tokens: number | null
 } {
   if (!isRecord(payload) || !Array.isArray(payload.content)) {
     throw new ClaudeProviderError({
@@ -355,6 +390,10 @@ export function readClaudeText(
       readNumber(usage.input_tokens),
     output_tokens:
       readNumber(usage.output_tokens),
+    cache_read_input_tokens:
+      readNumber(usage.cache_read_input_tokens),
+    cache_creation_input_tokens:
+      readNumber(usage.cache_creation_input_tokens),
   }
 }
 
@@ -474,12 +513,16 @@ export async function callClaudeReading(
   const deadline =
     Date.now() + request.timeoutMs
 
-  // Modo estrito (rota de teste): sempre tenta o formato fixo.
+  // Modo estrito (rota de teste): sempre tenta o formato fixo. Sem
+  // preferência (rodada 9, leitura completa): nunca tenta.
   let structured =
     request.outputSchema !== null &&
     (
       request.requireStructuredOutput === true ||
-      !isSchemaRecentlyRejected(request.outputSchema)
+      (
+        request.preferStructuredOutput !== false &&
+        !isSchemaRecentlyRejected(request.outputSchema)
+      )
     )
 
   let transientRetryUsed =
@@ -556,6 +599,8 @@ export async function callClaudeReading(
                 : null,
         input_tokens: parsed.input_tokens,
         output_tokens: parsed.output_tokens,
+        cache_read_input_tokens: parsed.cache_read_input_tokens,
+        cache_creation_input_tokens: parsed.cache_creation_input_tokens,
         structured_output: structured,
         duration_ms: Date.now() - startedAt,
       })

@@ -859,6 +859,13 @@ function createCompanionMessageController({
         ? view.observation.trim()
         : ''
 
+    // Rodada 9 (D2): o vendedor respondeu depois da leitura; a mensagem da
+    // leitura fica esmaecida até a próxima leitura.
+    const outdated =
+      ready &&
+      state.messageSource === 'reading' &&
+      view.outdated === true
+
     const noSendHtml = noSend
       ? [
           '<section class="yolen-fr-card" data-yolen-fr-card="no_send" data-yolen-full-reading-message-notice>',
@@ -871,13 +878,16 @@ function createCompanionMessageController({
 
     const messageHtml = ready
       ? [
-          '<section class="yolen-fr-card yolen-fr-card--highlight" data-yolen-fr-card="message" data-yolen-full-reading-message-result>',
+          `<section class="yolen-fr-card yolen-fr-card--highlight${outdated ? ' yolen-fr-card--outdated' : ''}" data-yolen-fr-card="message" data-yolen-full-reading-message-result${outdated ? ' data-yolen-full-reading-message-outdated' : ''}>`,
           '<div class="yolen-fr-card-head">',
           '<div class="yolen-fr-label">Mensagem pronta</div>',
           `<span class="yolen-fr-pill yolen-fr-pill--info">${
             state.messageSource === 'reading' ? 'Da leitura' : 'Outro objetivo'
           }</span>`,
           '</div>',
+          outdated
+            ? `<div class="yolen-fr-outdated" data-yolen-fr-outdated>${escapeHtml(String(view.outdated_notice || 'pode estar desatualizada'))}</div>`
+            : '',
           objective
             ? '<div class="yolen-fr-for"><span class="yolen-fr-for-label">Para:</span> <span data-yolen-fr-text="objective"></span></div>'
             : '',

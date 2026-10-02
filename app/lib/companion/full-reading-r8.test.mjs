@@ -279,7 +279,8 @@ test('A3: falha determinística mostra a falha (com "Tentar de novo") e não rep
 
   assert.equal(view.notice, 'Não consegui ler a conversa às 21:50.')
   assert.equal(view.status.failure.detail, null)
-  assert.deepEqual(view.status.refresh, { label: 'Tentar de novo', mode: 'always', disabled: false, hint: null })
+  // Rodada 9: sem leitura na tela, sem "Ler a conversa inteira".
+  assert.deepEqual(view.status.refresh, { label: 'Tentar de novo', mode: 'always', disabled: false, hint: null, full: null })
 })
 
 test('A2/A5: a espera global de crédito acaba no primeiro sucesso depois da última falha de crédito', () => {
@@ -498,7 +499,7 @@ test('B4: "Atualizar" com a leitura em dia não relê; "Ler de novo mesmo assim"
 })
 
 test('rodadas de medição (…-eval) nunca viram a leitura do painel nem seguram a rodada', () => {
-  assert.equal(FULL_READING_EVAL_PROMPT_VERSION, 'full-reading-v5-eval')
+  assert.equal(FULL_READING_EVAL_PROMPT_VERSION, 'full-reading-v6-eval')
 
   const evalRun = run({ run_id: 'run-eval', prompt_version: FULL_READING_EVAL_PROMPT_VERSION, created_at: minutesBefore(1), reference_time: minutesBefore(1) })
   const evalLive = run({ run_id: 'run-eval-live', prompt_version: FULL_READING_EVAL_PROMPT_VERSION, status: 'running', completed_at: null, decision: null, created_at: minutesBefore(0.5) })
@@ -515,7 +516,7 @@ test('rodadas de medição (…-eval) nunca viram a leitura do painel nem segura
 // ---------------------------------------------------------------------------
 
 test('esquema v5: sem analise_markdown; decisão na ordem "entender antes de decidir"; tudo obrigatório', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v5')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v6')
   assert.deepEqual(FULL_READING_OUTPUT_JSON_SCHEMA.required, ['decisao'])
   assert.equal('analise_markdown' in FULL_READING_OUTPUT_JSON_SCHEMA.properties, false)
 
@@ -1142,7 +1143,9 @@ test('gramática grande demais: repete sem o formato fixo, com o esquema escrito
   assert.equal(structuredBody.system, 'sistema')
 })
 
-test('runner: a recusa por gramática não derruba a leitura v5 (sai pelo modo sem formato fixo)', async () => {
+// Rodada 9 (A1): a leitura vai direto sem o formato fixo; a recusa por
+// gramática nem acontece (uma chamada só).
+test('runner: a leitura vai direto pelo modo sem formato fixo (rodada 9, A1)', async () => {
   resetRejectedSchemas()
 
   const updates = []
@@ -1177,14 +1180,12 @@ test('runner: a recusa por gramática não derruba a leitura v5 (sai pelo modo s
       loadKanban: async () => null,
       fetchImpl: async () => {
         calls += 1
-        return calls === 1
-          ? apiError(400, GRAMMAR_MESSAGE)
-          : apiText(`Aqui está:\n${JSON.stringify({ decisao: decisionV5() })}`)
+        return apiText(`Aqui está:\n${JSON.stringify({ decisao: decisionV5() })}`)
       },
     })
 
   assert.deepEqual(result, { status: 'succeeded' })
-  assert.equal(calls, 2)
+  assert.equal(calls, 1)
 
   const final = updates[updates.length - 1].values
 

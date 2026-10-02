@@ -3474,6 +3474,33 @@ html.yolen-companion-collapsed #app {
   font-size: 12.5px;
 }
 
+/* Rodada 9: faixa da economia, mensagem esmaecida e "Ler a conversa
+   inteira". */
+#yolen-companion-panel .yolen-fr-band {
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--yolen-ux-surface-muted, #f4f5f7);
+  color: var(--yolen-ux-text-muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+#yolen-companion-panel .yolen-fr-card--outdated .yolen-fr-draft {
+  opacity: 0.55;
+}
+
+#yolen-companion-panel .yolen-fr-outdated {
+  color: var(--yolen-ux-text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+#yolen-companion-panel .yolen-fr-full-read {
+  margin-left: auto;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
 /* Cabeçalho do contato com a leitura completa. */
 #yolen-companion-panel .yolen-contact-card--full-reading {
   display: grid;

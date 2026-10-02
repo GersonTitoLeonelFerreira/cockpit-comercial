@@ -27,6 +27,14 @@ import 'server-only'
 // conversa por hora. A espera global de crédito acaba no primeiro sucesso
 // depois da última falha de crédito.
 //
+// Rodada 9 (custo): só mensagem real do cliente deixa a leitura velha
+// (evento do ManyChat e mensagem do próprio vendedor ou do robô não); com
+// uma leitura na tela, uma rajada do cliente espera 20 s sem mensagem nova;
+// a leitura relê uma vez quando passa o horário em que o próximo passo
+// muda (revisar_em); há um teto diário de leituras por empresa; e a próxima
+// leitura é de continuação (o executor decide) a menos que o vendedor peça
+// "Ler a conversa inteira".
+//
 // Escreve SOMENTE em companion_full_reading_runs. sales_cycles e o
 // ledger são só lidos.
 
@@ -57,6 +65,16 @@ import {
 import {
   loadFullReadingCycleChain,
 } from './full-reading-cycle-chain'
+
+import {
+  classifyLedgerEvent,
+  isCompanyPersonMessage,
+  isCustomerMessage,
+} from '../companion/full-reading/conversation-events'
+
+import type {
+  FullReadingFullReason,
+} from '../companion/full-reading/continuation'
 
 import {
   RESUME_WORDING,
@@ -100,6 +118,56 @@ export const CLOSED_CYCLE_SKIP_CODE =
 
 export const EMPTY_CONVERSATION_SKIP_CODE =
   'EMPTY_CONVERSATION'
+
+// Rodada 9 (D4): teto diário de leituras por empresa.
+export const DAILY_CAP_SKIP_CODE =
+  'DAILY_CAP_REACHED'
+
+export const FULL_READING_DEFAULT_DAILY_CAP =
+  100
+
+// Rodada 9 (D1): rajada do cliente com uma leitura na tela.
+export const FULL_READING_BURST_QUIET_MS =
+  20 * 1000
+
+// Falhas que acontecem antes de chamar o Claude: não contam no teto.
+export const FULL_READING_NO_CALL_FAILURE_CODES =
+  new Set([
+    'DUPLICATE_RUN_DISCARDED',
+    'EMPTY_CONVERSATION',
+    'RUN_INSERT_FAILED',
+    'ANTHROPIC_API_KEY_MISSING',
+    'KANBAN_READ_FAILED',
+    'FULL_READING_LEDGER_READ_FAILED',
+  ])
+
+export function resolveFullReadingDailyCap(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const raw =
+    Number.parseInt(env.COMPANION_FULL_READING_DAILY_CAP?.trim() ?? '', 10)
+
+  return Number.isFinite(raw) && raw >= 0
+    ? raw
+    : FULL_READING_DEFAULT_DAILY_CAP
+}
+
+// Começo do dia de hoje no horário de Brasília (UTC-3, sem horário de
+// verão), em ISO.
+export function startOfBrasiliaDay(
+  now: string,
+): string {
+  const time =
+    Date.parse(now)
+
+  const local =
+    new Date((Number.isNaN(time) ? Date.now() : time) - 3 * 60 * 60 * 1000)
+
+  return new Date(
+    Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) +
+      3 * 60 * 60 * 1000,
+  ).toISOString()
+}
 
 const TERMINAL_CYCLE_STATUSES =
   new Set(['ganho', 'perdido', 'cancelado'])
@@ -221,6 +289,78 @@ export type FullReadingPanelPlan = {
   force_available_at?: string | null
   // "Atualizar" sem nada novo desde a leitura (rodada 8, B4).
   nothing_new?: boolean
+  // Rodada 9 (D1): mensagem nova do cliente esperando 20 s de silêncio.
+  pending_update_at?: string | null
+  // Rodada 9 (G): horário em que o próximo passo muda já passou.
+  review_due?: { at: string; motivo: string } | null
+  // Rodada 9 (E2): gatilhos de leitura completa decididos aqui.
+  full_reasons?: FullReadingFullReason[]
+}
+
+// Pedido gravado na rodada enquanto ela roda (a decisão completa substitui
+// quando ela termina).
+export type FullReadingRunRequest = {
+  motivo: string[]
+  modo: 'auto' | 'completa'
+  leitura_base: string | null
+  revisao: { at: string; motivo: string } | null
+}
+
+export function readRunRequest(
+  run: FullReadingPanelRunRow | null | undefined,
+): FullReadingRunRequest | null {
+  const decision =
+    run?.decision as { pedido?: unknown } | null | undefined
+
+  const request =
+    decision?.pedido
+
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    return null
+  }
+
+  const record =
+    request as Record<string, unknown>
+
+  const revisao =
+    record.revisao && typeof record.revisao === 'object'
+      ? record.revisao as { at?: unknown; motivo?: unknown }
+      : null
+
+  return {
+    motivo: Array.isArray(record.motivo)
+      ? record.motivo.filter((item): item is string => typeof item === 'string')
+      : [],
+    modo: record.modo === 'completa' ? 'completa' : 'auto',
+    leitura_base: typeof record.leitura_base === 'string' ? record.leitura_base : null,
+    revisao:
+      revisao && typeof revisao.at === 'string'
+        ? { at: revisao.at, motivo: typeof revisao.motivo === 'string' ? revisao.motivo : '' }
+        : null,
+  }
+}
+
+function readReviewAt(
+  run: FullReadingPanelRunRow,
+): { at: string; time: number; motivo: string } | null {
+  const decision =
+    run.decision as { revisar_em?: unknown; revisar_motivo?: unknown } | null
+
+  const at =
+    typeof decision?.revisar_em === 'string' ? decision.revisar_em : ''
+
+  const time =
+    toTime(at)
+
+  if (time === null) {
+    return null
+  }
+
+  return {
+    at,
+    time,
+    motivo: typeof decision?.revisar_motivo === 'string' ? decision.revisar_motivo.trim() : '',
+  }
 }
 
 function toTime(
@@ -303,6 +443,8 @@ function changedAfter({
   kanban,
 }: {
   referenceTime: string
+  // Última mensagem que deixa a leitura velha (rodada 9: só mensagem real
+  // do cliente).
   latestObservedAt: string | null
   kanban: FullReadingPanelKanban
 }): string[] {
@@ -339,15 +481,23 @@ export function planFullReadingPanel({
   promptVersion = FULL_READING_PROMPT_VERSION,
   creditExhaustedAt = null,
   lastClaudeSuccessAt = null,
+  latestCustomerObservedAt,
+  burstQuietMs = FULL_READING_BURST_QUIET_MS,
 }: {
   runs: FullReadingPanelRunRow[]
   cycleId: string
   kanban: FullReadingPanelKanban
+  // Última mensagem real da conversa (conversa vazia sem ela).
   latestObservedAt: string | null
+  // Rodada 9: última mensagem real do cliente (o que deixa a leitura
+  // velha). Sem o valor, vale latestObservedAt (comportamento anterior).
+  latestCustomerObservedAt?: string | null
+  burstQuietMs?: number
   force: boolean
   // 'if_changed' (rodada 8, B4): "Atualizar" sem nada novo desde a
-  // leitura não relê; o painel diz "Nada novo desde HH:MM".
-  forceMode?: 'always' | 'if_changed'
+  // leitura não relê; o painel diz "Nada novo desde HH:MM". 'full'
+  // (rodada 9, E2): "Ler a conversa inteira".
+  forceMode?: 'always' | 'if_changed' | 'full'
   now: string
   promptVersion?: string
   // Última falha por falta de crédito na API (qualquer conversa).
@@ -357,6 +507,11 @@ export function planFullReadingPanel({
 }): FullReadingPanelPlan {
   const nowTime =
     toTime(now) ?? Date.now()
+
+  const staleObservedAt =
+    latestCustomerObservedAt === undefined
+      ? latestObservedAt
+      : latestCustomerObservedAt
 
   const ordered =
     [...runs]
@@ -454,7 +609,7 @@ export function planFullReadingPanel({
     staleReasons.push(
       ...changedAfter({
         referenceTime: reading.reference_time,
-        latestObservedAt,
+        latestObservedAt: staleObservedAt,
         kanban,
       }),
     )
@@ -468,6 +623,25 @@ export function planFullReadingPanel({
       !staleReasons.includes('kanban_mudou')
     ) {
       staleReasons.push('kanban_mudou')
+    }
+  }
+
+  // G (rodada 9): passou o horário em que o próximo passo muda e ninguém
+  // releu desde então: relê uma vez (no máximo uma por leitura, porque a
+  // tentativa seguinte já é posterior ao horário).
+  let reviewDue: { at: string; motivo: string } | null =
+    null
+
+  if (reading && staleReasons.length === 0) {
+    const review =
+      readReviewAt(reading)
+
+    const newestCreated =
+      toTime(newestAttempt?.created_at) ?? 0
+
+    if (review && nowTime >= review.time && newestCreated < review.time) {
+      staleReasons.push('horario_passou')
+      reviewDue = { at: review.at, motivo: review.motivo }
     }
   }
 
@@ -489,8 +663,29 @@ export function planFullReadingPanel({
     }
   }
 
+  // D1 (rodada 9): com uma leitura na tela, mensagem nova do cliente só
+  // inicia leitura depois de 20 s sem outra mensagem nova.
+  const customerObserved =
+    toTime(staleObservedAt)
+
+  if (
+    !forced &&
+    reading !== null &&
+    staleReasons.length > 0 &&
+    staleReasons.every((reason) => reason === 'mensagem_nova') &&
+    customerObserved !== null &&
+    nowTime - customerObserved < burstQuietMs
+  ) {
+    return {
+      ...plan,
+      action: 'use',
+      stale_reasons: [],
+      pending_update_at: toIso(customerObserved + burstQuietMs),
+    }
+  }
+
   if (forced) {
-    staleReasons.push('forcado')
+    staleReasons.push(forceMode === 'full' ? 'pedido_do_vendedor' : 'forcado')
   }
 
   if (staleReasons.length === 0) {
@@ -500,6 +695,11 @@ export function planFullReadingPanel({
       stale_reasons: [],
     }
   }
+
+  const fullReasons: FullReadingFullReason[] =
+    forced && forceMode === 'full'
+      ? ['pedido_do_vendedor']
+      : []
 
   const skipReason =
     TERMINAL_CYCLE_STATUSES.has(kanban.status)
@@ -537,7 +737,7 @@ export function planFullReadingPanel({
     const changed =
       changedAfter({
         referenceTime: newestAttempt.reference_time,
-        latestObservedAt,
+        latestObservedAt: staleObservedAt,
         kanban,
       }).length > 0
 
@@ -636,6 +836,75 @@ export function planFullReadingPanel({
     ...plan,
     action: 'start',
     stale_reasons: staleReasons,
+    review_due: reviewDue,
+    full_reasons: fullReasons,
+  }
+}
+
+// D4: o teto diário vale para toda rodada nova, inclusive "Atualizar" e
+// "Tentar de novo".
+export function applyDailyCap(
+  plan: FullReadingPanelPlan,
+  {
+    dailyCapReached,
+    now,
+  }: {
+    dailyCapReached: boolean
+    now: string
+  },
+): FullReadingPanelPlan {
+  if (plan.action !== 'start' || !dailyCapReached) {
+    return plan
+  }
+
+  return {
+    ...plan,
+    action: 'skip',
+    skip_reason: DAILY_CAP_SKIP_CODE,
+    failure_kind: 'deterministic',
+    failure_at: now,
+    retry_at: null,
+    credit_notice: false,
+  }
+}
+
+// Rodadas de hoje (Brasília) que chamaram o Claude, de qualquer conversa
+// da empresa (completas ou de continuação, painel ou rota de teste).
+export function countRunsForDailyCap(
+  rows: { status?: unknown; failure_code?: unknown }[],
+): number {
+  return rows.filter((row) => {
+    if (row.status === 'failed') {
+      return !(typeof row.failure_code === 'string' && FULL_READING_NO_CALL_FAILURE_CODES.has(row.failure_code))
+    }
+
+    return row.status === 'queued' || row.status === 'running' || row.status === 'succeeded'
+  }).length
+}
+
+async function isDailyCapReached(
+  admin: SupabaseClient,
+  companyId: string,
+  now: string,
+  cap: number,
+): Promise<boolean> {
+  try {
+    const { data, error } =
+      await admin
+        .from(FULL_READING_RUNS_TABLE)
+        .select('status, failure_code')
+        .eq('company_id', companyId)
+        .gte('created_at', startOfBrasiliaDay(now))
+        .limit(cap + 50)
+
+    if (error) {
+      return false
+    }
+
+    return countRunsForDailyCap((data ?? []) as { status?: unknown; failure_code?: unknown }[]) >= cap
+  } catch {
+    // Sem a contagem, a leitura segue (o teto é proteção de custo).
+    return false
   }
 }
 
@@ -755,6 +1024,16 @@ export type FullReadingPanelSnapshot = {
   // Oportunidade nova lendo o histórico do ciclo anterior.
   successor?: boolean
   started_run_id: string | null
+  // Rodada 9: mensagem nova do cliente esperando a rajada acabar.
+  pending_update_at?: string | null
+  // Rodada 9 (D2): o vendedor respondeu depois da leitura (hora da
+  // mensagem); a leitura espera o cliente.
+  seller_replied_at?: string | null
+  // Rodada 9 (G3): a leitura em andamento relê porque passou o horário.
+  running_review?: { at: string; motivo: string } | null
+  // Rodada 9 (G2): a extensão relê nesse horário com o painel aberto.
+  review_at?: string | null
+  daily_cap_reached?: boolean
 }
 
 export type FullReadingRunScheduler =
@@ -882,33 +1161,121 @@ async function readGlobalClaudeState(
   return state
 }
 
-// cycleIds: o ciclo e, numa oportunidade nova, os ciclos de origem (a
-// mesma conversa continua gravada no ciclo fechado).
-async function readLatestTimestamp(
+// Rodada 9: atividade da conversa só com mensagens reais (evento do
+// ManyChat fora). Uma consulta: as linhas mais recentes por observed_at.
+const ACTIVITY_ROWS_LIMIT =
+  200
+
+export type FullReadingLedgerActivity = {
+  // Última versão observada de mensagem real (qualquer lado).
+  latest_observed_at: string | null
+  // Última versão observada de mensagem real do cliente (deixa a leitura
+  // velha).
+  latest_customer_observed_at: string | null
+  // Hora da última mensagem real do cliente.
+  latest_customer_occurred_at: string | null
+  // Última mensagem de uma pessoa da empresa (nunca o robô).
+  latest_person: { occurred_at: string; observed_at: string } | null
+  // Hora da última mensagem real (qualquer lado): "Último contato".
+  last_message_at: string | null
+}
+
+type ActivityRow = {
+  direction?: unknown
+  author_kind?: unknown
+  occurred_at?: unknown
+  observed_at?: unknown
+  content_type?: unknown
+  text_content?: unknown
+}
+
+function later(
+  current: string | null,
+  candidate: string | null,
+): string | null {
+  const candidateTime =
+    toTime(candidate)
+
+  if (candidateTime === null) {
+    return current
+  }
+
+  const currentTime =
+    toTime(current)
+
+  return currentTime === null || candidateTime > currentTime
+    ? candidate
+    : current
+}
+
+export function summarizeLedgerActivity(
+  rows: ActivityRow[],
+): FullReadingLedgerActivity {
+  const activity: FullReadingLedgerActivity = {
+    latest_observed_at: null,
+    latest_customer_observed_at: null,
+    latest_customer_occurred_at: null,
+    latest_person: null,
+    last_message_at: null,
+  }
+
+  for (const row of rows) {
+    const message = {
+      direction: typeof row.direction === 'string' ? row.direction : null,
+      author_kind: typeof row.author_kind === 'string' ? row.author_kind : null,
+      content_type: typeof row.content_type === 'string' ? row.content_type : null,
+      text_content: typeof row.text_content === 'string' ? row.text_content : null,
+    }
+
+    if (classifyLedgerEvent(message)) {
+      continue
+    }
+
+    const observedAt =
+      rowText(row.observed_at)
+
+    const occurredAt =
+      rowText(row.occurred_at)
+
+    activity.latest_observed_at =
+      later(activity.latest_observed_at, observedAt)
+
+    activity.last_message_at =
+      later(activity.last_message_at, occurredAt)
+
+    if (isCustomerMessage(message)) {
+      activity.latest_customer_observed_at =
+        later(activity.latest_customer_observed_at, observedAt)
+
+      activity.latest_customer_occurred_at =
+        later(activity.latest_customer_occurred_at, occurredAt)
+    } else if (isCompanyPersonMessage(message) && observedAt && occurredAt) {
+      if (
+        !activity.latest_person ||
+        (toTime(observedAt) ?? 0) > (toTime(activity.latest_person.observed_at) ?? 0)
+      ) {
+        activity.latest_person = { occurred_at: occurredAt, observed_at: observedAt }
+      }
+    }
+  }
+
+  return activity
+}
+
+async function readLedgerActivity(
   admin: SupabaseClient,
   scope: FullReadingPanelScope,
-  column: 'observed_at' | 'occurred_at',
-  incomingOnly: boolean,
-  cycleIds: string[] = [scope.cycle_id],
-): Promise<string | null> {
-  let query =
-    admin
+  cycleIds: string[],
+): Promise<FullReadingLedgerActivity> {
+  const { data, error } =
+    await admin
       .from('conversation_messages')
-      .select(column)
+      .select('direction, author_kind, occurred_at, observed_at, content_type, text_content')
       .eq('company_id', scope.company_id)
       .in('cycle_id', cycleIds)
       .eq('conversation_key', scope.conversation_key)
-
-  if (incomingOnly) {
-    query =
-      query.eq('direction', 'incoming')
-  }
-
-  const { data, error } =
-    await query
-      .order(column, { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .order('observed_at', { ascending: false })
+      .limit(ACTIVITY_ROWS_LIMIT)
 
   if (error) {
     throw Object.assign(
@@ -917,7 +1284,54 @@ async function readLatestTimestamp(
     )
   }
 
-  return rowText((data as Record<string, unknown> | null)?.[column])
+  const rows =
+    (data ?? []) as ActivityRow[]
+
+  const activity =
+    summarizeLedgerActivity(rows)
+
+  // Só eventos nas linhas mais recentes (raro): a conversa não está vazia.
+  if (activity.latest_observed_at === null && rows.length > 0) {
+    activity.latest_observed_at =
+      rowText(rows[0]?.observed_at)
+  }
+
+  return activity
+}
+
+// D2: o vendedor respondeu depois da leitura e o cliente ainda não.
+export function sellerRepliedAfterReading({
+  reading,
+  activity,
+}: {
+  reading: FullReadingPanelRunRow | null
+  activity: FullReadingLedgerActivity
+}): string | null {
+  const person =
+    activity.latest_person
+
+  const reference =
+    toTime(reading?.reference_time)
+
+  if (!person || reference === null) {
+    return null
+  }
+
+  const personObserved =
+    toTime(person.observed_at)
+
+  if (personObserved === null || personObserved <= reference) {
+    return null
+  }
+
+  const customerObserved =
+    toTime(activity.latest_customer_observed_at)
+
+  if (customerObserved !== null && customerObserved > personObserved) {
+    return null
+  }
+
+  return person.occurred_at
 }
 
 async function expireRuns(
@@ -952,6 +1366,9 @@ async function startRun({
   createRunId,
   env,
   route,
+  baseRun = null,
+  request,
+  fullReasons = [],
 }: {
   admin: SupabaseClient
   scope: FullReadingPanelScope
@@ -961,6 +1378,9 @@ async function startRun({
   createRunId: () => string
   env: EnvLike
   route?: string
+  baseRun?: FullReadingPanelRunRow | null
+  request: FullReadingRunRequest
+  fullReasons?: FullReadingFullReason[]
 }): Promise<{ run_id: string | null; failure_code: string | null }> {
   const runId =
     createRunId()
@@ -987,6 +1407,9 @@ async function startRun({
         model,
         effort,
         status: 'queued',
+        // O pedido fica na rodada enquanto ela roda (motivo, modo, base);
+        // a decisão completa substitui quando ela termina.
+        decision: { pedido: request },
       })
 
   if (insertError) {
@@ -1050,6 +1473,18 @@ async function startRun({
       effort,
       apiKey,
       triggerRoute: route,
+      baseRun:
+        baseRun && baseRun.decision && typeof baseRun.decision === 'object'
+          ? {
+              run_id: baseRun.run_id,
+              reference_time: baseRun.reference_time,
+              completed_at: baseRun.completed_at,
+              decision: baseRun.decision as Record<string, unknown>,
+            }
+          : null,
+      mode: request.modo === 'completa' ? 'completa' : 'auto',
+      fullReasons,
+      reasons: request.motivo,
     })
   })
 
@@ -1074,7 +1509,7 @@ export async function resolveFullReadingPanel({
   admin: SupabaseClient
   scope: FullReadingPanelScope
   force: boolean
-  forceMode?: 'always' | 'if_changed'
+  forceMode?: 'always' | 'if_changed' | 'full'
   now: string
   apiKey: string
   schedule: FullReadingRunScheduler
@@ -1111,16 +1546,21 @@ export async function resolveFullReadingPanel({
       ? chain.map((link) => link.id)
       : [scope.cycle_id]
 
-  const [runs, latestObservedAt, lastMessageAt] =
+  const [runs, activity] =
     await Promise.all([
       readRuns(admin, scope),
-      readLatestTimestamp(admin, scope, 'observed_at', false, chainCycleIds),
-      readLatestTimestamp(admin, scope, 'occurred_at', false, chainCycleIds),
+      readLedgerActivity(admin, scope, chainCycleIds),
     ])
+
+  const latestObservedAt =
+    activity.latest_observed_at
+
+  const lastMessageAt =
+    activity.last_message_at
 
   const lastCustomerMessageAt =
     kanban.status === 'perdido' || kanban.status === 'cancelado'
-      ? await readLatestTimestamp(admin, scope, 'occurred_at', true, chainCycleIds)
+      ? activity.latest_customer_occurred_at
       : null
 
   const planInput = {
@@ -1128,6 +1568,7 @@ export async function resolveFullReadingPanel({
     cycleId: scope.cycle_id,
     kanban,
     latestObservedAt,
+    latestCustomerObservedAt: activity.latest_customer_observed_at,
     force,
     forceMode,
     now,
@@ -1156,6 +1597,15 @@ export async function resolveFullReadingPanel({
       })
   }
 
+  if (plan.action === 'start') {
+    plan =
+      applyDailyCap(plan, {
+        dailyCapReached:
+          await isDailyCapReached(admin, scope.company_id, now, resolveFullReadingDailyCap(env)),
+        now,
+      })
+  }
+
   if (plan.expired_run_ids.length > 0) {
     await expireRuns(admin, plan.expired_run_ids, now)
   }
@@ -1178,6 +1628,16 @@ export async function resolveFullReadingPanel({
     reading_is_fallback: currentReading === null && shownReading !== null,
     force_debounced: plan.force_debounced === true,
     force_available_at: plan.force_available_at ?? null,
+    seller_replied_at:
+      sellerRepliedAfterReading({
+        reading: plan.reading,
+        activity,
+      }),
+    review_at:
+      plan.reading
+        ? readReviewAt(plan.reading)?.at ?? null
+        : null,
+    daily_cap_reached: plan.skip_reason === DAILY_CAP_SKIP_CODE,
   }
 
   const failureFields = {
@@ -1199,6 +1659,7 @@ export async function resolveFullReadingPanel({
         plan.nothing_new === true
           ? plan.reading?.reference_time ?? null
           : null,
+      pending_update_at: plan.pending_update_at ?? null,
     }
   }
 
@@ -1211,6 +1672,8 @@ export async function resolveFullReadingPanel({
       started_run_id: null,
       running_since:
         plan.active_run?.started_at ?? plan.active_run?.created_at ?? null,
+      running_review:
+        readRunRequest(plan.active_run)?.revisao ?? null,
     }
   }
 
@@ -1258,6 +1721,14 @@ export async function resolveFullReadingPanel({
       createRunId,
       env,
       route,
+      baseRun: plan.reading,
+      request: {
+        motivo: plan.stale_reasons,
+        modo: (plan.full_reasons ?? []).length > 0 ? 'completa' : 'auto',
+        leitura_base: plan.reading?.run_id ?? null,
+        revisao: plan.review_due ?? null,
+      },
+      fullReasons: plan.full_reasons ?? [],
     })
 
   if (!started.run_id) {
@@ -1279,6 +1750,7 @@ export async function resolveFullReadingPanel({
     failure_code: null,
     started_run_id: started.run_id,
     running_since: now,
+    running_review: plan.review_due ?? null,
   }
 }
 
@@ -1316,6 +1788,11 @@ function panelStatusInput(
     force_debounced: snapshot.force_debounced === true,
     force_available_at: snapshot.force_available_at ?? null,
     nothing_new_since: snapshot.nothing_new_since ?? null,
+    pending_update_at: snapshot.pending_update_at ?? null,
+    seller_replied_at: snapshot.seller_replied_at ?? null,
+    running_review: snapshot.running_review ?? null,
+    review_at: snapshot.review_at ?? null,
+    daily_cap_reached: snapshot.daily_cap_reached === true,
   }
 }
 
@@ -1444,8 +1921,8 @@ export async function loadFullReadingPanelForRequest({
   cycleId: unknown
   conversationKey: unknown
   force: unknown
-  // "if_changed" (Atualizar com a leitura em dia não relê); qualquer outro
-  // valor relê.
+  // "if_changed" (Atualizar com a leitura em dia não relê); "full" (Ler a
+  // conversa inteira); qualquer outro valor relê.
   forceMode?: unknown
   referenceTime: string
   schedule: FullReadingRunScheduler
@@ -1478,7 +1955,10 @@ export async function loadFullReadingPanelForRequest({
         admin,
         scope,
         force: force === true,
-        forceMode: forceMode === 'if_changed' ? 'if_changed' : 'always',
+        forceMode:
+          forceMode === 'if_changed' || forceMode === 'full'
+            ? forceMode
+            : 'always',
         now: referenceTime,
         apiKey: env.ANTHROPIC_API_KEY ?? '',
         schedule,

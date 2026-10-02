@@ -49,6 +49,101 @@
   const TRUNCATED_MARK = ' [texto cortado no ManyChat]'
   const CHOICE_PREFIX = '[escolheu no menu] '
 
+  // ------------------------------------------------------------------
+  // Eventos do sistema de atendimento (rodada 9, B). Mesmas frases do
+  // classificador do servidor (app/lib/companion/full-reading/
+  // conversation-events.ts); os testes conferem os dois com as mesmas
+  // linhas. Úteis: atribuição de atendente, conversa fechada ou reaberta,
+  // automação pausada (entram no ledger com o texto da linha, os links no
+  // lugar). Internos (campo personalizado, tag, regra ou automação
+  // acionada, atraso inteligente, mudança de fila) não entram.
+  const OPTIONS_SUFFIX = /\n?\s*\[opções: [^\]]*\]\s*$/
+  const MOVED_PATTERNS = [
+    /^a conversa foi movida de (.+?) para (.+?)$/i,
+    /^conversa movida de (.+?) para (.+?)$/i,
+    /^conversation (?:was )?moved from (.+?) to (.+?)$/i,
+  ]
+  const CLOSED_STATE = /fechad|closed/i
+  const ASSIGNMENT_PATTERNS = [
+    /^atribuir automaticamente a (.+?) pela automação\b/i,
+    /^conversa atribuída automaticamente a (.+?)$/i,
+    /^conversa atribuída a (.+?)$/i,
+    /^conversation (?:was )?assigned to (.+?)$/i,
+  ]
+  const AUTOMATION_PAUSED =
+    /automação das respostas foi desativada|respostas automáticas (?:foram )?(?:pausadas|desativadas)|automação (?:foi )?pausada|automation (?:was )?paused/i
+  const INTERNAL_PATTERNS = [
+    /^campo personalizado\b/i,
+    /^tag (?:adicionada|removida)\b/i,
+    /^regra acionada\b/i,
+    /^a automação foi acionada\b/i,
+    /^automação acionada\b/i,
+    /atraso inteligente/i,
+    /^conversa desatribuída\b/i,
+    /^atribuição (?:removida|desfeita)\b/i,
+    /^custom field\b/i,
+    /^tag (?:added|removed)\b/i,
+    /^rule triggered\b/i,
+    /^automation (?:was )?triggered\b/i,
+    /^smart delay\b/i,
+    /^conversation (?:was )?unassigned\b/i,
+  ]
+
+  function stripEnd(value) {
+    return String(value || '').replace(/[\s.:;]+$/, '').trim()
+  }
+
+  // { kind: 'assignment'|'closed'|'reopened'|'automation_paused'|'internal' }
+  // ou null (mensagem de verdade).
+  function classifyManyChatEventText(rawText) {
+    if (typeof rawText !== 'string') {
+      return null
+    }
+
+    const text = rawText.replace(OPTIONS_SUFFIX, '').replace(/\s+/g, ' ').trim()
+
+    if (!text) {
+      return null
+    }
+
+    for (const pattern of MOVED_PATTERNS) {
+      const match = pattern.exec(stripEnd(text))
+
+      if (match) {
+        const from = match[1] || ''
+        const to = match[2] || ''
+
+        if (CLOSED_STATE.test(to) && !CLOSED_STATE.test(from)) {
+          return { kind: 'closed' }
+        }
+
+        if (CLOSED_STATE.test(from) && !CLOSED_STATE.test(to)) {
+          return { kind: 'reopened' }
+        }
+
+        return { kind: 'internal' }
+      }
+    }
+
+    for (const pattern of ASSIGNMENT_PATTERNS) {
+      const match = pattern.exec(stripEnd(text))
+
+      if (match) {
+        return stripEnd(match[1]) ? { kind: 'assignment' } : { kind: 'internal' }
+      }
+    }
+
+    if (AUTOMATION_PAUSED.test(text)) {
+      return { kind: 'automation_paused' }
+    }
+
+    if (INTERNAL_PATTERNS.some((pattern) => pattern.test(text))) {
+      return { kind: 'internal' }
+    }
+
+    return null
+  }
+
   function automationKeyText(body) {
     return String(body || '')
       .replace(/(?:…|\.\.\.)\s*$/, '')
@@ -115,6 +210,20 @@
       return null
     }
 
+    // Rodada 9 (B1): linha de sistema pela estrutura; o texto é a reserva.
+    // Evento interno (ou linha de sistema que não é um evento útil) não
+    // vira mensagem. A ausência dele nunca é exclusão: o ManyChat não marca
+    // mensagem apagada e o servidor não trata sumiço como exclusão.
+    const lineText = content.line_text || content.body
+    const textEvent =
+      classifyManyChatEventText(lineText) ??
+      classifyManyChatEventText(buildAutomationText(content))
+    const isEvent = content.system_line === true || textEvent !== null
+
+    if (isEvent && (!textEvent || textEvent.kind === 'internal')) {
+      return null
+    }
+
     const baseKey = buildAutomationBaseKey(content)
 
     if (!baseKey) {
@@ -128,8 +237,9 @@
       collection.automationKeys.set(baseKey, seen)
       messageKey = seen === 1 ? baseKey : `${baseKey}:${seen}`
       collection.details.set(messageKey, Object.freeze({
-        automation_body: content.body,
-        buttons: content.buttons,
+        automation_body: isEvent ? lineText : content.body,
+        buttons: isEvent ? [] : content.buttons,
+        system_event: isEvent ? textEvent.kind : null,
       }))
     }
 
@@ -139,7 +249,9 @@
       author_kind: 'automation',
       occurred_at: content.occurred_at,
       content_type: 'text',
-      text_content: buildAutomationText(content),
+      // Evento útil: o texto da linha, com os links no lugar (sem
+      // "[opções: ...]").
+      text_content: isEvent ? lineText : buildAutomationText(content),
       audio_transcription: null,
       is_deleted: false,
       deletion_reason: null,
@@ -449,6 +561,7 @@
     PLATFORM,
     CHOICE_PREFIX,
     buildMessageKey,
+    classifyManyChatEventText,
     createManyChatCollection,
     readManyChatMessage,
     reconcileManyChatMessages,

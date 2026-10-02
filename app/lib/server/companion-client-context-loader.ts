@@ -38,6 +38,18 @@ import {
   type CompanionClientContext,
 } from '../companion/companion-client-context-contract'
 
+import {
+  isFullReadingPanelEnabled,
+} from './full-reading-flag'
+
+import {
+  loadFullReadingCycleChain,
+} from './full-reading-cycle-chain'
+
+import {
+  classifyLedgerEvent,
+} from '../companion/full-reading/conversation-events'
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -546,11 +558,17 @@ async function loadMessages({
   companyId,
   cycleId,
   conversationKey,
+  fullReading = false,
+  cycleIds = [cycleId],
 }: {
   admin: SupabaseClient
   companyId: string
   cycleId: string
   conversationKey: string
+  // Rodada 9 (só com a leitura completa no HML): eventos do ManyChat fora
+  // e, numa Nova oportunidade, a conversa inteira da cadeia.
+  fullReading?: boolean
+  cycleIds?: string[]
 }): Promise<
   CompanionClientMessageFact[]
 > {
@@ -621,7 +639,9 @@ async function loadMessages({
         'conversation_messages',
       )
       .select(
-        'id, company_id, cycle_id, conversation_key, direction, occurred_at, is_deleted',
+        fullReading
+          ? 'id, company_id, cycle_id, conversation_key, direction, occurred_at, is_deleted, author_kind, content_type, text_content'
+          : 'id, company_id, cycle_id, conversation_key, direction, occurred_at, is_deleted',
       )
       .eq(
         'company_id',
@@ -646,12 +666,34 @@ async function loadMessages({
     CompanionClientMessageFact[] =
       []
 
+  const allowedCycles =
+    new Set(
+      fullReading
+        ? cycleIds
+        : [cycleId],
+    )
+
   for (
     const row of messageRows
   ) {
     if (
+      fullReading &&
+      classifyLedgerEvent({
+        author_kind:
+          typeof row.author_kind === 'string' ? row.author_kind : null,
+        content_type:
+          typeof row.content_type === 'string' ? row.content_type : null,
+        text_content:
+          typeof row.text_content === 'string' ? row.text_content : null,
+      }) !== null
+    ) {
+      continue
+    }
+
+    if (
       row.is_deleted === true ||
-      row.cycle_id !== cycleId ||
+      typeof row.cycle_id !== 'string' ||
+      !allowedCycles.has(row.cycle_id) ||
       row.company_id !== companyId ||
       row.conversation_key !==
         conversationKey
@@ -678,6 +720,13 @@ async function loadMessages({
 
       occurred_at:
         row.occurred_at,
+
+      ...(fullReading
+        ? {
+            author_kind:
+              typeof row.author_kind === 'string' ? row.author_kind : null,
+          }
+        : {}),
     })
   }
 
@@ -979,6 +1028,33 @@ export async function loadCompanionClientContext({
     role === 'admin' ||
     role === 'manager'
 
+  // Rodada 9 (C): com a leitura completa no HML, o Relacionamento usa só
+  // mensagens reais e, numa Nova oportunidade, a cadeia inteira (ciclo de
+  // origem + ciclo atual), como a leitura. Flag desligada: igual a hoje.
+  const fullReading =
+    isFullReadingPanelEnabled(process.env)
+
+  let chainCycleIds: string[] =
+    [cycleId]
+
+  if (fullReading) {
+    try {
+      const chain =
+        await loadFullReadingCycleChain({
+          admin,
+          companyId,
+          cycleId,
+        })
+
+      if (chain.length > 0) {
+        chainCycleIds =
+          chain.map((link) => link.id)
+      }
+    } catch {
+      chainCycleIds = [cycleId]
+    }
+  }
+
   const [
     messages,
     cycleEvents,
@@ -990,6 +1066,8 @@ export async function loadCompanionClientContext({
       companyId,
       cycleId,
       conversationKey,
+      fullReading,
+      cycleIds: chainCycleIds,
     }),
 
     loadCycleEvents({
@@ -1024,6 +1102,9 @@ export async function loadCompanionClientContext({
 
       reference_time:
         referenceTime,
+
+      seller_is_person_only:
+        fullReading,
     })
 
   const waiting =

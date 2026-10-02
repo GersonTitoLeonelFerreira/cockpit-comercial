@@ -23,6 +23,11 @@ export type CompanionClientMessageFact = {
 
   occurred_at:
     string
+
+  // Rodada 9 (só com a leitura completa no HML): autoria, para "Última
+  // sua" contar só mensagem de uma pessoa da empresa (nunca o robô).
+  author_kind?:
+    string | null
 }
 
 function parseTimestamp(
@@ -63,12 +68,17 @@ function sortMessagesByTime(
 export function computeCompanionClientRelationship({
   messages,
   reference_time,
+  seller_is_person_only = false,
 }: {
   messages:
     readonly CompanionClientMessageFact[]
 
   reference_time:
     string
+
+  // Rodada 9: mensagem do robô não é "Última sua".
+  seller_is_person_only?:
+    boolean
 }): CompanionClientRelationship {
   const ordered =
     sortMessagesByTime(
@@ -132,7 +142,10 @@ export function computeCompanionClientRelationship({
     ) {
       latestCustomerMessageAt =
         message.occurred_at
-    } else {
+    } else if (
+      !seller_is_person_only ||
+      message.author_kind !== 'automation'
+    ) {
       latestSellerMessageAt =
         message.occurred_at
     }

@@ -12,6 +12,8 @@
 //   [&effort=low|medium|high]   (padrão: o esforço configurado)
 //   [&eval=1]                   (medição: grava com prompt_version
 //                                "<versão>-eval", que o painel nunca usa)
+//   [&modo=completa|continuacao] (rodada 9, medição: continuação usa a
+//                                última leitura boa do ciclo como base)
 //
 // Cria uma rodada em companion_full_reading_runs e executa a leitura
 // depois de responder (after). A resposta NÃO devolve conteúdo da
@@ -38,6 +40,7 @@ import {
   executeFullReadingRun,
   resolveFullReadingEffort,
   resolveFullReadingModel,
+  type FullReadingBaseRun,
 } from '@/app/lib/server/full-reading-runner'
 
 import {
@@ -145,6 +148,17 @@ export async function GET(
 
   const effortParam =
     (url.searchParams.get('effort') ?? '').trim().toLowerCase()
+
+  const modeParam =
+    (url.searchParams.get('modo') ?? '').trim().toLowerCase()
+
+  if (
+    modeParam.length > 0 &&
+    modeParam !== 'completa' &&
+    modeParam !== 'continuacao'
+  ) {
+    return badRequest('INVALID_MODE')
+  }
 
   if (
     effortParam.length > 0 &&
@@ -274,6 +288,67 @@ export async function GET(
     cycleId = found
   }
 
+  // modo=continuacao: a última leitura boa do ciclo (mesma versão do
+  // prompt; na medição, a de medição ou, sem ela, a do painel).
+  let baseRun: FullReadingBaseRun | null =
+    null
+
+  if (modeParam === 'continuacao') {
+    const versions =
+      evalRun
+        ? [FULL_READING_EVAL_PROMPT_VERSION, FULL_READING_PROMPT_VERSION]
+        : [FULL_READING_PROMPT_VERSION]
+
+    for (const version of versions) {
+      const { data, error } =
+        await admin
+          .from(FULL_READING_RUNS_TABLE)
+          .select('run_id, reference_time, completed_at, decision')
+          .eq('company_id', companyId)
+          .eq('cycle_id', cycleId)
+          .eq('prompt_version', version)
+          .eq('status', 'succeeded')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+      if (error) {
+        return NextResponse.json(
+          { error: 'BASE_READING_LOOKUP_FAILED' },
+          { status: 502 },
+        )
+      }
+
+      const row =
+        data as {
+          run_id?: unknown
+          reference_time?: unknown
+          completed_at?: unknown
+          decision?: unknown
+        } | null
+
+      if (
+        row &&
+        typeof row.run_id === 'string' &&
+        typeof row.reference_time === 'string' &&
+        row.decision &&
+        typeof row.decision === 'object'
+      ) {
+        baseRun = {
+          run_id: row.run_id,
+          reference_time: row.reference_time,
+          completed_at: typeof row.completed_at === 'string' ? row.completed_at : null,
+          decision: row.decision as Record<string, unknown>,
+        }
+        break
+      }
+    }
+
+    if (!baseRun) {
+      return badRequest('NO_BASE_READING')
+    }
+  }
+
   const runId =
     randomUUID()
 
@@ -330,6 +405,12 @@ export async function GET(
       apiKey,
       requireStructuredOutput,
       triggerRoute: '/api/companion/full-reading/run',
+      baseRun,
+      mode:
+        modeParam === 'continuacao'
+          ? 'continuacao'
+          : 'completa',
+      reasons: ['rota_de_teste'],
     })
   })
 
@@ -340,5 +421,7 @@ export async function GET(
     effort,
     prompt_version: promptVersion,
     require_structured_output: requireStructuredOutput,
+    mode: modeParam === 'continuacao' ? 'continuacao' : 'completa',
+    base_run_id: baseRun?.run_id ?? null,
   })
 }

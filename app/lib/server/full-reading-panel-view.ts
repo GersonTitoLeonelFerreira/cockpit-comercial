@@ -48,6 +48,43 @@ export const FULL_READING_RUNNING_DETAIL =
 export const FULL_READING_UPDATING_NOTICE =
   'Atualizando a leitura…'
 
+// Rodada 9: faixas da economia de leitura.
+export const FULL_READING_BURST_NOTICE =
+  'Mensagem nova — atualizando em instantes'
+
+export const FULL_READING_DAILY_CAP_NOTICE =
+  'Limite diário de leituras atingido'
+
+export const FULL_READING_FULL_READ_LABEL =
+  'Ler a conversa inteira'
+
+export const FULL_READING_MESSAGE_OUTDATED_NOTICE =
+  'pode estar desatualizada'
+
+export function sellerRepliedNotice(
+  clock: string,
+): string {
+  return `Você respondeu às ${clock}. A leitura atualiza quando o cliente responder.`
+}
+
+export function reviewRunningNotice(
+  review: { at: string; motivo: string },
+): string {
+  const clock =
+    formatClock(review.at)
+
+  const what =
+    review.motivo.trim().replace(/[.]+$/, '')
+
+  if (!clock) {
+    return FULL_READING_UPDATING_NOTICE
+  }
+
+  return what
+    ? `Atualizando: já passou ${what} (${clock}).`
+    : `Atualizando: já passou o horário previsto (${clock}).`
+}
+
 export const FULL_READING_SOURCE_LABEL =
   'Leitura completa'
 
@@ -169,6 +206,12 @@ export type FullReadingPanelStatusInput = {
   force_debounced?: boolean
   force_available_at?: string | null
   nothing_new_since?: string | null
+  // Rodada 9.
+  pending_update_at?: string | null
+  seller_replied_at?: string | null
+  running_review?: { at: string; motivo: string } | null
+  review_at?: string | null
+  daily_cap_reached?: boolean
 }
 
 export type FullReadingRefreshControl = {
@@ -178,7 +221,18 @@ export type FullReadingRefreshControl = {
   disabled: boolean
   // "Atualizar" caiu na espera de 60 s.
   hint: string | null
+  // Rodada 9 (E2): opção discreta "Ler a conversa inteira".
+  full: {
+    label: string
+    mode: 'full'
+  } | null
 }
+
+export type FullReadingBandKind =
+  | 'burst'
+  | 'seller_replied'
+  | 'review'
+  | 'daily_cap'
 
 export type FullReadingStatusView = {
   running: 'first' | 'update' | null
@@ -193,6 +247,17 @@ export type FullReadingStatusView = {
   refresh: FullReadingRefreshControl
   // "Nada novo desde HH:MM" (+ "Ler de novo mesmo assim").
   nothing_new_since: string | null
+  // Rodada 9: faixa da economia (rajada, resposta do vendedor, horário,
+  // teto diário).
+  band: {
+    kind: FullReadingBandKind
+    text: string
+  } | null
+  // A mensagem pronta pode estar desatualizada (o vendedor já respondeu).
+  message_outdated: boolean
+  // A extensão relê nesses horários com o painel aberto.
+  pending_until: string | null
+  review_at: string | null
 }
 
 // MENSAGEM a partir da leitura: com a leitura disponível, o objetivo e a
@@ -215,6 +280,9 @@ export type FullReadingMessageView = {
   suggested_message: string | null
   // v5: o que revisar antes de enviar (ou por que não enviar).
   observation: string | null
+  // Rodada 9 (D2): o vendedor respondeu depois da leitura.
+  outdated?: boolean
+  outdated_notice?: string | null
   run_id: string
 }
 
@@ -606,6 +674,10 @@ function buildFailureNotice(
     return FULL_READING_CLOSED_CYCLE_NOTICE
   }
 
+  if (failureCode === 'DAILY_CAP_REACHED') {
+    return FULL_READING_DAILY_CAP_NOTICE
+  }
+
   const clock =
     formatClock(panel.failure_at)
 
@@ -628,7 +700,11 @@ function buildFailureDetail(
   failureCode: string | null,
   panel: FullReadingPanelStatusInput,
 ): string | null {
-  if (failureCode === 'EMPTY_CONVERSATION' || failureCode === 'CLOSED_CYCLE') {
+  if (
+    failureCode === 'EMPTY_CONVERSATION' ||
+    failureCode === 'CLOSED_CYCLE' ||
+    failureCode === 'DAILY_CAP_REACHED'
+  ) {
     return null
   }
 
@@ -681,6 +757,31 @@ function buildStatusView({
       ? null
       : Math.max(1, Math.ceil((availableAt - now) / 1000))
 
+  const capReached =
+    panel.daily_cap_reached === true ||
+    failureCode === 'DAILY_CAP_REACHED'
+
+  const repliedClock =
+    hasReading && state === 'ready'
+      ? formatClock(panel.seller_replied_at)
+      : null
+
+  const pendingUntil =
+    state === 'ready' && toTime(panel.pending_update_at ?? null) !== null
+      ? panel.pending_update_at ?? null
+      : null
+
+  const band: FullReadingStatusView['band'] =
+    state === 'running' && panel.running_review
+      ? { kind: 'review', text: reviewRunningNotice(panel.running_review) }
+      : capReached
+        ? { kind: 'daily_cap', text: FULL_READING_DAILY_CAP_NOTICE }
+        : pendingUntil
+          ? { kind: 'burst', text: FULL_READING_BURST_NOTICE }
+          : repliedClock
+            ? { kind: 'seller_replied', text: sellerRepliedNotice(repliedClock) }
+            : null
+
   return {
     running:
       state === 'running'
@@ -712,12 +813,41 @@ function buildStatusView({
             ? `Acabei de ler esta conversa. Tente de novo em ${waitSeconds} s.`
             : 'Acabei de ler esta conversa. Tente de novo em instantes.'
           : null,
+      full:
+        hasReading && state !== 'running' && !closed && !capReached
+          ? { label: FULL_READING_FULL_READ_LABEL, mode: 'full' }
+          : null,
     },
     nothing_new_since:
       state === 'ready'
         ? formatClock(panel.nothing_new_since)
         : null,
+    band,
+    message_outdated:
+      band?.kind === 'seller_replied',
+    pending_until: pendingUntil,
+    review_at:
+      state === 'ready' && hasReading
+        ? panel.review_at ?? null
+        : null,
   }
+}
+
+// Texto da faixa no topo de cada aba.
+export function buildPanelNotice(
+  status: FullReadingStatusView,
+): string | null {
+  if (status.running === 'first') {
+    return FULL_READING_RUNNING_NOTICE
+  }
+
+  if (status.running === 'update') {
+    return status.band?.kind === 'review'
+      ? status.band.text
+      : FULL_READING_UPDATING_NOTICE
+  }
+
+  return status.failure?.text ?? status.band?.text ?? null
 }
 
 function hashKey(
@@ -1392,11 +1522,7 @@ export function buildFullReadingAgoraView({
     CLOSED_STAGES.has(kanban.status)
 
   const notice =
-    status.running === 'first'
-      ? FULL_READING_RUNNING_NOTICE
-      : status.running === 'update'
-        ? FULL_READING_UPDATING_NOTICE
-        : status.failure?.text ?? null
+    buildPanelNotice(status)
 
   const sameStage =
     shownReading !== null &&
@@ -1413,7 +1539,7 @@ export function buildFullReadingAgoraView({
         ? 'encerrado'
         : null
 
-  const message =
+  const baseMessage =
     shownReading && main
       ? buildMessageView({
           reading: shownReading,
@@ -1421,6 +1547,16 @@ export function buildFullReadingAgoraView({
           locks,
         })
       : null
+
+  // D2: o vendedor já respondeu depois da leitura.
+  const message =
+    baseMessage && status.message_outdated && baseMessage.mode === 'send'
+      ? {
+          ...baseMessage,
+          outdated: true,
+          outdated_notice: FULL_READING_MESSAGE_OUTDATED_NOTICE,
+        }
+      : baseMessage
 
   const view: Omit<FullReadingAgoraView, 'view_key'> = {
     state,
@@ -1954,6 +2090,11 @@ export function parseFullReadingAnalysisSections(
 const TIMELINE_QUIET_AFTER_MS =
   3 * 3_600_000
 
+// "Nenhuma pendência…", "Sem pendência…", "Nada pendente…", "Nenhuma
+// pergunta … sem resposta".
+const NO_PENDING_WORDING =
+  /^(?:nenhum[a]?\b.*(?:pend|sem resposta|em aberto)|sem\s+pend[êe]ncia|nada\s+(?:pendente|em aberto)|n[ãa]o\s+h[áa]\s+(?:nada\s+)?(?:pend|em aberto))/i
+
 const PENDING_LABELS: Record<FullReadingPendingView['owner'], { label: string; tone: FullReadingPendingView['tone'] }> = {
   vendedor: { label: 'Sua', tone: 'attention' },
   cliente: { label: 'Do cliente', tone: 'neutral' },
@@ -2122,15 +2263,22 @@ function buildPending(
 
   return items
     .map((item) => {
+      const text =
+        humanizePanelText(item?.texto)
+
+      // F2 (rodada 9): "Nenhuma pendência…" não é de ninguém, mesmo que o
+      // modelo marque cliente ou vendedor.
       const owner =
-        item?.de === 'vendedor' || item?.de === 'cliente' || item?.de === 'nenhum'
-          ? item.de
-          : 'nenhum'
+        NO_PENDING_WORDING.test(text)
+          ? 'nenhum'
+          : item?.de === 'vendedor' || item?.de === 'cliente' || item?.de === 'nenhum'
+            ? item.de
+            : 'nenhum'
 
       return {
         owner,
         ...PENDING_LABELS[owner],
-        text: humanizePanelText(item?.texto),
+        text,
       }
     })
     .filter((item) => item.text.length > 0)
@@ -2212,11 +2360,7 @@ export function buildFullReadingAnalysisView({
   const view: Omit<FullReadingAnalysisView, 'view_key'> = {
     state,
     notice:
-      status.running === 'first'
-        ? FULL_READING_RUNNING_NOTICE
-        : status.running === 'update'
-          ? FULL_READING_UPDATING_NOTICE
-          : status.failure?.text ?? null,
+      buildPanelNotice(status),
     failure_code: state === 'failed' ? failureCode : null,
     has_reading: decision !== null,
     summary:

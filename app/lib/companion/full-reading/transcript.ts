@@ -16,6 +16,15 @@
 // - Áudio entra pela transcrição; mídia sem texto vira um marcador.
 // - Nada é inventado: o texto é o capturado, só com as quebras de linha
 //   trocadas por " / " para manter uma mensagem por linha.
+// - Rodada 9: evento interno do ManyChat gravado como mensagem do robô não
+//   é mensagem. Os úteis (atribuição, conversa fechada ou reaberta,
+//   automação pausada) viram uma linha EVENTO, sem autoria; os outros ficam
+//   fora. Evento nunca conta como mensagem.
+
+import {
+  classifyLedgerEvent,
+  type LedgerEventKind,
+} from './conversation-events'
 
 import type {
   NormalizedLedgerAuthorKind,
@@ -42,7 +51,9 @@ export type FullReadingTranscriptMessage = Pick<
   | 'audio_transcription'
   | 'is_deleted'
   | 'deletion_reason'
->
+> & {
+  message_key?: string
+}
 
 // Marco que não é mensagem (ex.: "Nova oportunidade aberta em ..."): entra
 // na ordem do tempo, numa linha própria, e não conta como mensagem.
@@ -213,32 +224,72 @@ function compareMessages(
   )
 }
 
-export function buildFullReadingTranscript(
+// Linha da transcrição: mensagem, evento do atendimento ou marco.
+export type FullReadingTranscriptEntry = {
+  line: string
+  occurred_at: string
+  kind: 'message' | 'event' | 'marker'
+  event_kind?: LedgerEventKind
+  message?: FullReadingTranscriptMessage
+}
+
+function isOpenCloseEvent(
+  kind: LedgerEventKind | undefined,
+): boolean {
+  return kind === 'closed' || kind === 'reopened'
+}
+
+// Linhas em ordem do tempo. describe permite marcar a linha (leitura de
+// continuação: "(atualizada)").
+export function buildFullReadingTranscriptEntries(
   messages: FullReadingTranscriptMessage[],
   options: {
     timeZone?: string
-    maxChars?: number
     markers?: FullReadingTranscriptMarker[]
+    decorate?: (message: FullReadingTranscriptMessage, content: string) => string
   } = {},
-): FullReadingTranscript {
+): FullReadingTranscriptEntry[] {
   const timeZone =
     options.timeZone ??
     FULL_READING_TRANSCRIPT_TIME_ZONE
 
-  const maxChars =
-    options.maxChars ??
-    FULL_READING_TRANSCRIPT_MAX_CHARS
-
   const ordered =
     [...messages].sort(compareMessages)
 
-  const lines: {
-    line: string
-    occurred_at: string
-    marker: boolean
-  }[] = []
+  const entries: FullReadingTranscriptEntry[] = []
 
   for (const message of ordered) {
+    const event =
+      classifyLedgerEvent(message)
+
+    if (event) {
+      if (!event.text || message.is_deleted) {
+        continue
+      }
+
+      // Fechada/reaberta seguidas (sem mensagem no meio): só a última.
+      const previous =
+        entries[entries.length - 1]
+
+      if (
+        isOpenCloseEvent(event.kind) &&
+        previous?.kind === 'event' &&
+        isOpenCloseEvent(previous.event_kind)
+      ) {
+        entries.pop()
+      }
+
+      entries.push({
+        line: `[${formatTranscriptTimestamp(message.occurred_at, timeZone)}] EVENTO: ${event.text}`,
+        occurred_at: message.occurred_at,
+        kind: 'event',
+        event_kind: event.kind,
+        message,
+      })
+
+      continue
+    }
+
     const content =
       describeMessageContent(message)
 
@@ -246,11 +297,16 @@ export function buildFullReadingTranscript(
       continue
     }
 
-    lines.push({
-      line: `[${formatTranscriptTimestamp(message.occurred_at, timeZone)}] ${authorLabel(message.author_kind, message.direction)}: ${content}`,
-      occurred_at:
-        message.occurred_at,
-      marker: false,
+    const shown =
+      options.decorate
+        ? options.decorate(message, content)
+        : content
+
+    entries.push({
+      line: `[${formatTranscriptTimestamp(message.occurred_at, timeZone)}] ${authorLabel(message.author_kind, message.direction)}: ${shown}`,
+      occurred_at: message.occurred_at,
+      kind: 'message',
+      message,
     })
   }
 
@@ -268,22 +324,43 @@ export function buildFullReadingTranscript(
     }
 
     const index =
-      lines.findIndex(
+      entries.findIndex(
         (item) => Date.parse(item.occurred_at) > markerTime,
       )
 
-    const entry = {
+    const entry: FullReadingTranscriptEntry = {
       line: `[${formatTranscriptTimestamp(marker.occurred_at, timeZone)}] —— ${text} ——`,
       occurred_at: marker.occurred_at,
-      marker: true,
+      kind: 'marker',
     }
 
     if (index === -1) {
-      lines.push(entry)
+      entries.push(entry)
     } else {
-      lines.splice(index, 0, entry)
+      entries.splice(index, 0, entry)
     }
   }
+
+  return entries
+}
+
+export function buildFullReadingTranscript(
+  messages: FullReadingTranscriptMessage[],
+  options: {
+    timeZone?: string
+    maxChars?: number
+    markers?: FullReadingTranscriptMarker[]
+  } = {},
+): FullReadingTranscript {
+  const maxChars =
+    options.maxChars ??
+    FULL_READING_TRANSCRIPT_MAX_CHARS
+
+  const lines =
+    buildFullReadingTranscriptEntries(messages, {
+      timeZone: options.timeZone,
+      markers: options.markers,
+    })
 
   // Mantém as mensagens mais recentes quando a conversa passa do teto.
   let totalChars = 0
@@ -305,10 +382,10 @@ export function buildFullReadingTranscript(
     lines.slice(startIndex)
 
   const keptMessages =
-    kept.filter((item) => !item.marker)
+    kept.filter((item) => item.kind === 'message')
 
   const omitted =
-    lines.filter((item) => !item.marker).length - keptMessages.length
+    lines.filter((item) => item.kind === 'message').length - keptMessages.length
 
   const body =
     kept.map((item) => item.line).join('\n')

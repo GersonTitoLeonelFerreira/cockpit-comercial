@@ -423,5 +423,6 @@ test('core: um controle só de atualizar, polling de 3 s nos primeiros 90 s, nov
 
   const controller = readSrc('companion-analysis-controller.js')
 
-  assert.equal((controller.match(/force_mode: 'if_changed'/g) || []).length, 2)
+  // Rodada 9: o modo vai como veio (if_changed ou full), nos dois pedidos.
+  assert.equal((controller.match(/options\.forceFullReadingMode === 'if_changed' \|\|\s*options\.forceFullReadingMode === 'full'\)\s*\?\s*\{ force_mode: options\.forceFullReadingMode \}/g) || []).length, 2)
 })

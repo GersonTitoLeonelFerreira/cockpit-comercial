@@ -266,7 +266,7 @@ test('o prompt de sistema pede só a decisão, entendendo antes de decidir', () 
   assert.match(system, /Responda com um único objeto JSON com o campo "decisao"/)
   assert.match(system, /primeiro entenda \(situação, cliente, pendências, contradições com o cadastro, como conduzir\), depois decida/)
   assert.match(system, /"Não fazer nada agora" é uma decisão válida/)
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v5')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v6')
 })
 
 test('o prompt do usuário leva referência, cadastro e conversa', () => {

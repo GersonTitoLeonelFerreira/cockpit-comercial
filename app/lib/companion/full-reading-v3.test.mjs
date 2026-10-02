@@ -140,7 +140,7 @@ function agora({ decisionOverrides = {}, markdown = MARKDOWN, kanbanOverrides = 
 // ---------------------------------------------------------------------------
 
 test('prompt v3: contradição com o cadastro que muda o que o cliente paga ou recebe entra na Ação', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v5')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v6')
 
   const system =
     buildFullReadingSystemPrompt()

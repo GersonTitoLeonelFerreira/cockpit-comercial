@@ -108,7 +108,7 @@ function kanban(overrides = {}) {
 // ---------------------------------------------------------------------------
 
 test('prompt: versão atual e regras genéricas do kanban no sistema', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v5')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v6')
 
   const system =
     buildFullReadingSystemPrompt()
@@ -121,7 +121,9 @@ test('prompt: versão atual e regras genéricas do kanban no sistema', () => {
   assert.match(system, /GANHO é venda confirmada pela equipe: venda_concluida é "confirmada"/)
   assert.match(system, /Nunca sugira retomar a negociação do que já foi vendido/)
   // c) Perdido/Cancelado: reabrir só com mensagem nova do cliente.
-  assert.match(system, /Só sugira reabrir se o cliente escreveu depois do encerramento/)
+  // Rodada 9 (F6): com mensagem nova depois do encerramento, a seção
+  // "Ciclo encerrado".
+  assert.match(system, /Sem mensagem do cliente depois do encerramento, não proponha ação comercial; com mensagem nova, siga a seção "Ciclo encerrado"/)
   // d) Agenda: compromisso com dia e hora aceito pelos dois; continua Agenda
   // depois do horário até o resultado ser conhecido.
   assert.match(system, /Agenda é quando existe um compromisso marcado \(visita, reunião, consulta, demonstração, ligação\), com dia e hora, aceito pelos dois lados/)
@@ -509,11 +511,12 @@ test('runner v2: o kanban vai no prompt e a decisão gravada leva kanban lido e 
 
   assert.equal(final.status, 'succeeded')
   assert.equal(final.decision.etapa_kanban_sugerida, 'ganho')
-  assert.deepEqual(final.decision.sistema, {
-    kanban_lido: { status: 'novo', stage_entered_at: '2026-09-20T12:00:00.000Z' },
-    alertas: [],
-    saida_estruturada: true,
-  })
+  // Rodada 9: sem o formato fixo (A1), e o registro do modo e do uso.
+  assert.deepEqual(final.decision.sistema.kanban_lido, { status: 'novo', stage_entered_at: '2026-09-20T12:00:00.000Z' })
+  assert.deepEqual(final.decision.sistema.alertas, [])
+  assert.equal(final.decision.sistema.saida_estruturada, false)
+  assert.equal(final.decision.sistema.modo, 'completa')
+  assert.equal(final.decision.sistema.leitura_base, null)
 })
 
 test('runner v2: etapa incoerente é gravada como "manter etapa" e a rodada continua bem-sucedida', async () => {

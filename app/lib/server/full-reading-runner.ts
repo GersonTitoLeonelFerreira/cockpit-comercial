@@ -10,6 +10,14 @@ import 'server-only'
 //
 // REGRA: executeFullReadingRun nunca lança. Toda falha vira status
 // 'failed' com um código, para a rodada nunca ficar presa em 'running'.
+//
+// Rodada 9: com uma leitura anterior válida (baseRun), a rodada é de
+// continuação — decisão anterior + 10 mensagens de contexto + as novas —,
+// a menos que um gatilho peça a conversa inteira (continuation.ts e os
+// motivos que o painel passa). A parte fixa do pedido vai para o cache de
+// prompt; o caminho sem formato fixo é o padrão; JSON inválido repete a
+// chamada uma vez. A decisão gravada registra sistema.modo,
+// sistema.leitura_base, o motivo e o uso de tokens.
 
 import {
   createClient,
@@ -39,11 +47,20 @@ import {
 } from './full-reading-cycle-chain'
 
 import {
+  buildFullReadingContinuationUserPrompt,
   buildFullReadingSystemPrompt,
   buildFullReadingUserPrompt,
   type FullReadingCommercialContext,
   type FullReadingKanbanContext,
 } from '../companion/full-reading/prompt'
+
+import {
+  CONTINUATION_MAX_CONSECUTIVE,
+  buildContinuationTranscripts,
+  continuationFullReason,
+  splitContinuationMessages,
+  type FullReadingFullReason,
+} from '../companion/full-reading/continuation'
 
 import {
   getSalesCycleLabel,
@@ -58,6 +75,7 @@ import {
   ClaudeProviderError,
   callClaudeReading,
   type ClaudeEffort,
+  type ClaudeReadingResponse,
 } from '../companion/full-reading/anthropic-client'
 
 import {
@@ -66,7 +84,10 @@ import {
   applyFullReadingCoherence,
   findRegistryContradictionAlerts,
   parseFullReadingOutput,
+  type FullReadingMode,
+  type FullReadingOutput,
   type FullReadingStoredDecision,
+  type FullReadingUsage,
 } from '../companion/full-reading/output'
 
 export const FULL_READING_RUNS_TABLE =
@@ -322,6 +343,19 @@ export function buildKanbanContextFromRow(
 export const FULL_READING_DEFAULT_TRIGGER_ROUTE =
   'full-reading-runner'
 
+// Leitura anterior usada como base da continuação (mesma versão do prompt).
+export type FullReadingBaseRun = {
+  run_id: string
+  reference_time: string
+  completed_at: string | null
+  decision: Record<string, unknown>
+}
+
+export type FullReadingRequestedMode =
+  | 'auto'
+  | 'completa'
+  | 'continuacao'
+
 export type FullReadingRunInput = {
   admin: SupabaseClient
   runId: string
@@ -337,6 +371,19 @@ export type FullReadingRunInput = {
   // Rota que levou à rodada (log de tokens por chamada, rodada 7).
   triggerRoute?: string
   logger?: (line: string) => void
+  // Rodada 9: leitura anterior para a continuação; sem ela, completa.
+  baseRun?: FullReadingBaseRun | null
+  // 'auto' (padrão com base): continuação, salvo gatilho de completa.
+  mode?: FullReadingRequestedMode
+  // Gatilhos de completa decididos por quem chama (ex.: pedido do vendedor).
+  fullReasons?: FullReadingFullReason[]
+  // Por que a leitura foi pedida (mensagem_nova, horario_passou...).
+  reasons?: string[]
+  loadChain?: (args: {
+    admin: SupabaseClient
+    companyId: string
+    cycleId: string
+  }) => Promise<string[]>
   loadKanban?: (args: {
     admin: SupabaseClient
     companyId: string
@@ -591,6 +638,146 @@ function logEvent(
   )
 }
 
+export async function loadFullReadingChainIds({
+  admin,
+  companyId,
+  cycleId,
+}: {
+  admin: SupabaseClient
+  companyId: string
+  cycleId: string
+}): Promise<string[]> {
+  const chain =
+    await loadFullReadingCycleChain({
+      admin,
+      companyId,
+      cycleId,
+    })
+
+  return chain.length > 0
+    ? chain.map((link) => link.id)
+    : [cycleId]
+}
+
+const CLOSED_KANBAN_STATUSES =
+  new Set(['ganho', 'perdido'])
+
+function readSystem(
+  decision: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const system =
+    decision?.sistema
+
+  return system && typeof system === 'object' && !Array.isArray(system)
+    ? system as Record<string, unknown>
+    : {}
+}
+
+function sameList(
+  left: string[],
+  right: string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    [...left].sort().join('|') === [...right].sort().join('|')
+  )
+}
+
+// Gatilhos de leitura completa que dependem só da leitura anterior.
+export function baseRunFullReason({
+  baseRun,
+  chainIds,
+  kanbanStatus,
+}: {
+  baseRun: FullReadingBaseRun
+  chainIds: string[]
+  kanbanStatus: string | null
+}): FullReadingFullReason | null {
+  const system =
+    readSystem(baseRun.decision)
+
+  const baseChain =
+    Array.isArray(system.cadeia)
+      ? (system.cadeia as unknown[]).filter((item): item is string => typeof item === 'string')
+      : null
+
+  if (baseChain && baseChain.length > 0 && !sameList(baseChain, chainIds)) {
+    return 'cadeia_mudou'
+  }
+
+  const kanbanRead =
+    system.kanban_lido && typeof system.kanban_lido === 'object'
+      ? (system.kanban_lido as { status?: unknown }).status
+      : null
+
+  if (
+    typeof kanbanRead === 'string' &&
+    CLOSED_KANBAN_STATUSES.has(kanbanRead) &&
+    kanbanStatus !== null &&
+    kanbanStatus !== kanbanRead &&
+    !CLOSED_KANBAN_STATUSES.has(kanbanStatus) &&
+    kanbanStatus !== 'cancelado'
+  ) {
+    return 'kanban_reaberto'
+  }
+
+  const consecutive =
+    system.modo === 'continuacao' && typeof system.continuacoes_seguidas === 'number'
+      ? system.continuacoes_seguidas
+      : 0
+
+  if (consecutive >= CONTINUATION_MAX_CONSECUTIVE) {
+    return 'continuacoes_seguidas'
+  }
+
+  return null
+}
+
+function baseConsecutive(
+  baseRun: FullReadingBaseRun,
+): number {
+  const system =
+    readSystem(baseRun.decision)
+
+  return system.modo === 'continuacao' && typeof system.continuacoes_seguidas === 'number'
+    ? system.continuacoes_seguidas
+    : 0
+}
+
+function addUsage(
+  usage: FullReadingUsage,
+  response: ClaudeReadingResponse,
+): FullReadingUsage {
+  const add = (left: number | null, right: number | null) =>
+    left === null && right === null
+      ? null
+      : (left ?? 0) + (right ?? 0)
+
+  return {
+    chamadas: usage.chamadas + 1,
+    entrada: add(usage.entrada, response.input_tokens),
+    saida: add(usage.saida, response.output_tokens),
+    cache_lido: add(usage.cache_lido, response.cache_read_input_tokens),
+    cache_gravado: add(usage.cache_gravado, response.cache_creation_input_tokens),
+  }
+}
+
+// Entrada total (sem cache + lida do cache + gravada no cache): a mesma
+// conta das rodadas anteriores ao cache.
+function totalInput(
+  usage: FullReadingUsage,
+): number | null {
+  if (usage.entrada === null && usage.cache_lido === null && usage.cache_gravado === null) {
+    return null
+  }
+
+  return (usage.entrada ?? 0) + (usage.cache_lido ?? 0) + (usage.cache_gravado ?? 0)
+}
+
+// Saída que não é JSON válido (ou vem incompleta): a chamada repete uma vez.
+const OUTPUT_RETRY_CODES =
+  new Set(['INVALID_MODEL_OUTPUT', 'EMPTY_PROVIDER_RESPONSE'])
+
 export async function executeFullReadingRun(
   input: FullReadingRunInput,
 ): Promise<FullReadingRunResult> {
@@ -610,8 +797,28 @@ export async function executeFullReadingRun(
   const loadKanban =
     input.loadKanban ?? loadFullReadingKanban
 
+  const loadChain =
+    input.loadChain ??
+    (input.loadMessages
+      ? async ({ cycleId }: { cycleId: string }) => [cycleId]
+      : loadFullReadingChainIds)
+
   let transcriptMessageCount: number | null =
     null
+
+  let mode: FullReadingMode =
+    'completa'
+
+  const reasons: string[] =
+    [...(input.reasons ?? [])]
+
+  let usage: FullReadingUsage = {
+    chamadas: 0,
+    entrada: null,
+    saida: null,
+    cache_lido: null,
+    cache_gravado: null,
+  }
 
   try {
     await input.admin
@@ -623,12 +830,16 @@ export async function executeFullReadingRun(
       .eq('run_id', input.runId)
       .eq('status', 'queued')
 
+    const messageArgs = {
+      admin: input.admin,
+      companyId: input.companyId,
+      cycleId: input.cycleId,
+      conversationKey: input.conversationKey,
+    }
+
     const messages =
       await loadMessages({
-        admin: input.admin,
-        companyId: input.companyId,
-        cycleId: input.cycleId,
-        conversationKey: input.conversationKey,
+        ...messageArgs,
         referenceTime: input.referenceTime,
       })
 
@@ -644,6 +855,20 @@ export async function executeFullReadingRun(
     } catch {
       // Sem o marco a leitura continua; só perde o aviso da oportunidade nova.
       markers = []
+    }
+
+    let chainIds: string[] =
+      [input.cycleId]
+
+    try {
+      chainIds =
+        await loadChain({
+          admin: input.admin,
+          companyId: input.companyId,
+          cycleId: input.cycleId,
+        })
+    } catch {
+      chainIds = [input.cycleId]
     }
 
     const transcript =
@@ -697,38 +922,206 @@ export async function executeFullReadingRun(
       })
     }
 
-    const response =
-      await callClaudeReading({
-        apiKey: input.apiKey,
-        model: input.model,
-        system: buildFullReadingSystemPrompt(),
-        userText: buildFullReadingUserPrompt({
-          transcriptText: transcript.text,
-          referenceTime: input.referenceTime,
-          commercialContext,
-          kanban,
-        }),
-        maxTokens: FULL_READING_MAX_TOKENS,
-        effort: input.effort,
-        outputSchema:
-          FULL_READING_OUTPUT_JSON_SCHEMA as unknown as Record<string, unknown>,
-        timeoutMs: FULL_READING_TIMEOUT_MS,
-        requireStructuredOutput: input.requireStructuredOutput === true,
-        fetchImpl: input.fetchImpl,
-        usageLog: {
-          route: input.triggerRoute ?? FULL_READING_DEFAULT_TRIGGER_ROUTE,
-          purpose: 'full_reading',
-          run_id: input.runId,
-        },
-        logger: input.logger,
+    // Completa ou continuação (rodada 9, E).
+    const requested: FullReadingRequestedMode =
+      input.mode ?? 'auto'
+
+    const baseRun =
+      input.baseRun ?? null
+
+    let fullReason: FullReadingFullReason | null =
+      requested === 'completa'
+        ? (input.fullReasons?.[0] ?? 'modo_pedido')
+        : !baseRun
+          ? 'sem_leitura_anterior'
+          : requested === 'auto'
+            ? (input.fullReasons?.[0] ??
+              baseRunFullReason({
+                baseRun,
+                chainIds,
+                kanbanStatus: kanban?.status ?? null,
+              }))
+            : null
+
+    let continuationPrompt: string | null =
+      null
+
+    if (fullReason === null && baseRun) {
+      const previous =
+        await loadMessages({
+          ...messageArgs,
+          referenceTime: baseRun.reference_time,
+        })
+
+      const split =
+        splitContinuationMessages({
+          previous,
+          current: messages,
+        })
+
+      const splitReason =
+        continuationFullReason(split)
+
+      // modo=continuacao (rota de teste) só cai na completa sem contexto.
+      fullReason =
+        requested === 'continuacao'
+          ? (split.context.length === 0 ? 'sem_leitura_anterior' : null)
+          : splitReason
+
+      if (fullReason === null) {
+        const parts =
+          buildContinuationTranscripts(split, { markers })
+
+        transcriptMessageCount =
+          parts.context_message_count + parts.new_message_count
+
+        continuationPrompt =
+          buildFullReadingContinuationUserPrompt({
+            referenceTime: input.referenceTime,
+            commercialContext,
+            kanban,
+            previousDecision: baseRun.decision,
+            previousReadingAt: baseRun.reference_time,
+            contextText: parts.context_text,
+            newText: parts.new_text,
+          })
+      }
+    }
+
+    const fullPrompt = () =>
+      buildFullReadingUserPrompt({
+        transcriptText: transcript.text,
+        referenceTime: input.referenceTime,
+        commercialContext,
+        kanban,
       })
 
-    const output =
-      parseFullReadingOutput(response.text, { format: 'v5' })
+    mode =
+      continuationPrompt ? 'continuacao' : 'completa'
+
+    if (fullReason) {
+      reasons.push(fullReason)
+    }
+
+    const callAndParse = async (
+      userText: string,
+      callMode: FullReadingMode,
+    ): Promise<{ output: FullReadingOutput; response: ClaudeReadingResponse }> => {
+      let attempt = 0
+
+      while (true) {
+        attempt += 1
+
+        const response =
+          await callClaudeReading({
+            apiKey: input.apiKey,
+            model: input.model,
+            system: buildFullReadingSystemPrompt(),
+            userText,
+            maxTokens: FULL_READING_MAX_TOKENS,
+            effort: input.effort,
+            outputSchema:
+              FULL_READING_OUTPUT_JSON_SCHEMA as unknown as Record<string, unknown>,
+            timeoutMs: FULL_READING_TIMEOUT_MS,
+            requireStructuredOutput: input.requireStructuredOutput === true,
+            // A1: o formato fixo só na rota de teste estrita.
+            preferStructuredOutput: input.requireStructuredOutput === true,
+            cacheSystemPrompt: true,
+            fetchImpl: input.fetchImpl,
+            usageLog: {
+              route: input.triggerRoute ?? FULL_READING_DEFAULT_TRIGGER_ROUTE,
+              purpose: 'full_reading',
+              run_id: input.runId,
+              mode: callMode,
+            },
+            logger: input.logger,
+          }).catch((error: unknown) => {
+            if (
+              attempt === 1 &&
+              error instanceof ClaudeProviderError &&
+              OUTPUT_RETRY_CODES.has(error.code)
+            ) {
+              return { retry: error.code } as const
+            }
+
+            throw error
+          })
+
+        if ('retry' in response) {
+          logEvent('output_retry', {
+            run_id: input.runId,
+            mode: callMode,
+            failure_code: response.retry,
+          })
+
+          continue
+        }
+
+        usage =
+          addUsage(usage, response)
+
+        try {
+          return {
+            output: parseFullReadingOutput(response.text, { format: 'v6' }),
+            response,
+          }
+        } catch (error) {
+          if (
+            attempt === 1 &&
+            error instanceof FullReadingOutputError &&
+            OUTPUT_RETRY_CODES.has(error.code)
+          ) {
+            logEvent('output_retry', {
+              run_id: input.runId,
+              mode: callMode,
+              failure_code: error.code,
+            })
+
+            continue
+          }
+
+          throw error
+        }
+      }
+    }
+
+    let result =
+      await callAndParse(continuationPrompt ?? fullPrompt(), mode)
+
+    let continuationAskedFull: string | null =
+      null
+
+    // A continuação pediu a conversa inteira: uma completa logo depois, uma
+    // vez só.
+    if (mode === 'continuacao' && result.output.decisao.precisa_ler_inteira === true) {
+      continuationAskedFull =
+        result.output.decisao.precisa_ler_inteira_motivo || 'sem motivo informado'
+
+      logEvent('continuation_asked_full', {
+        run_id: input.runId,
+      })
+
+      mode = 'completa'
+      reasons.push('continuacao_pediu')
+      transcriptMessageCount = transcript.message_count
+
+      result =
+        await callAndParse(fullPrompt(), 'completa')
+    }
+
+    const { output, response } =
+      result
+
+    // Na completa, o pedido de ler inteira não se aplica.
+    const decision = {
+      ...output.decisao,
+      precisa_ler_inteira: false,
+      precisa_ler_inteira_motivo: '',
+    }
 
     const coherence =
       applyFullReadingCoherence(
-        output.decisao,
+        decision,
         { currentStatus: kanban?.status ?? null },
       )
 
@@ -763,8 +1156,28 @@ export async function executeFullReadingRun(
           ...registryAlerts,
         ],
         saida_estruturada: response.used_structured_output,
+        modo: mode,
+        leitura_base:
+          mode === 'continuacao' && baseRun
+            ? baseRun.run_id
+            : null,
+        motivo: [...new Set(reasons)],
+        continuacoes_seguidas:
+          mode === 'continuacao' && baseRun
+            ? baseConsecutive(baseRun) + 1
+            : 0,
+        cadeia: chainIds,
+        continuacao_pediu_inteira: continuationAskedFull,
+        ciclo_encerrado:
+          kanban && ['ganho', 'perdido', 'cancelado'].includes(kanban.status)
+            ? kanban.status
+            : null,
+        uso: usage,
       },
     }
+
+    const durationMs =
+      Date.now() - startedAt
 
     const { error: persistError } =
       await input.admin
@@ -772,13 +1185,13 @@ export async function executeFullReadingRun(
         .update({
           status: 'succeeded',
           model: response.model ?? input.model,
-          // v5: null (a decisão traz tudo o que o painel mostra).
+          // v5+: null (a decisão traz tudo o que o painel mostra).
           analysis_markdown: output.analise_markdown,
           decision: storedDecision,
-          input_tokens: response.input_tokens,
-          output_tokens: response.output_tokens,
+          input_tokens: totalInput(usage),
+          output_tokens: usage.saida,
           transcript_message_count: transcriptMessageCount,
-          duration_ms: Date.now() - startedAt,
+          duration_ms: durationMs,
           completed_at: new Date().toISOString(),
         })
         .eq('run_id', input.runId)
@@ -792,9 +1205,15 @@ export async function executeFullReadingRun(
 
     logEvent('run_succeeded', {
       run_id: input.runId,
-      duration_ms: Date.now() - startedAt,
-      input_tokens: response.input_tokens,
-      output_tokens: response.output_tokens,
+      mode,
+      reasons: [...new Set(reasons)],
+      base_run_id: storedDecision.sistema.leitura_base ?? null,
+      duration_ms: durationMs,
+      calls: usage.chamadas,
+      input_tokens: usage.entrada,
+      output_tokens: usage.saida,
+      cache_read_input_tokens: usage.cache_lido,
+      cache_creation_input_tokens: usage.cache_gravado,
       structured_output: response.used_structured_output,
     })
 
@@ -806,6 +1225,14 @@ export async function executeFullReadingRun(
     logEvent('run_failed', {
       run_id: input.runId,
       failure_code: failure.code,
+      mode,
+      reasons: [...new Set(reasons)],
+      duration_ms: Date.now() - startedAt,
+      calls: usage.chamadas,
+      input_tokens: usage.entrada,
+      output_tokens: usage.saida,
+      cache_read_input_tokens: usage.cache_lido,
+      cache_creation_input_tokens: usage.cache_gravado,
     })
 
     try {
@@ -816,6 +1243,8 @@ export async function executeFullReadingRun(
           failure_code: failure.code,
           failure_detail: failure.detail.slice(0, MAX_FAILURE_DETAIL_LENGTH),
           transcript_message_count: transcriptMessageCount,
+          input_tokens: totalInput(usage),
+          output_tokens: usage.saida,
           duration_ms: Date.now() - startedAt,
           completed_at: new Date().toISOString(),
         })

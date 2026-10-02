@@ -347,6 +347,31 @@
     })
   }
 
+  // ------------------------------------------------------------------
+  // Linha de sistema (rodada 9, B1). O ManyChat mostra na conversa, além das
+  // bolhas, linhas do sistema de atendimento ("Conversa atribuída a ...",
+  // "Regra acionada", "Tag adicionada"). Elas chegam com as mesmas marcas
+  // de saída do bot (_typeOut_ + _botMessage_), mas não são mensagem. A
+  // estrutura que as separa é a classe do CSS module (ou data-test-id) de
+  // linha de sistema/evento no wrapper ou dentro dele. O texto
+  // (manychat-message-profile.js) é a reserva quando a estrutura não diz.
+  const SYSTEM_LINE_TOKEN =
+    /(?:^|[_-])(?:system|systemMessage|systemLine|systemEvent|event|eventMessage|eventLine|activity|activityMessage|notification|serviceMessage|liveChatEvent|timelineEvent|conversationEvent)(?:[_-]|$)/i
+
+  function isManyChatSystemLine(node) {
+    if (!node) {
+      return false
+    }
+
+    if (elementTokens(node).some((token) => SYSTEM_LINE_TOKEN.test(token))) {
+      return true
+    }
+
+    return findOutermost(node, (element) =>
+      elementTokens(element).some((token) => SYSTEM_LINE_TOKEN.test(token)),
+    ).length > 0
+  }
+
   function findSingleNativeContentNode(node) {
     const matches = queryAll(node, '[data-mid]')
     return Object.freeze({
@@ -529,6 +554,11 @@
       body: bubble.body,
       buttons: bubble.buttons,
       truncated: bubble.truncated,
+      // Rodada 9: linha de sistema pela estrutura, e o texto da linha com
+      // os links no lugar (o nome da regra ou da automação não é opção de
+      // menu).
+      system_line: isManyChatSystemLine(node),
+      line_text: collapse(textExcluding(contentNode, [], { blockBreaks: true })),
     })
   }
 
@@ -616,6 +646,7 @@
     SCHEMA_VERSION,
     extractManyChatMessageContent,
     extractManyChatAutomationContent,
+    isManyChatSystemLine,
     safeManyChatMessageContentView,
     summarizeManyChatMessageContent,
   })

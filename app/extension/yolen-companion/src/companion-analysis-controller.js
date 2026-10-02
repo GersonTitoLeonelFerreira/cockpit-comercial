@@ -511,8 +511,9 @@ function createCompanionAnalysisController(ctx) {
               : {}),
             // Rodada 8: "Atualizar" só relê se algo mudou.
             ...(options.forceFullReading === true &&
-            options.forceFullReadingMode === 'if_changed'
-              ? { force_mode: 'if_changed' }
+            (options.forceFullReadingMode === 'if_changed' ||
+              options.forceFullReadingMode === 'full')
+              ? { force_mode: options.forceFullReadingMode }
               : {}),
           })
 
@@ -1536,8 +1537,9 @@ function createCompanionAnalysisController(ctx) {
               : {}),
             // Rodada 8: "Atualizar" só relê se algo mudou.
             ...(options.forceFullReading === true &&
-            options.forceFullReadingMode === 'if_changed'
-              ? { force_mode: 'if_changed' }
+            (options.forceFullReadingMode === 'if_changed' ||
+              options.forceFullReadingMode === 'full')
+              ? { force_mode: options.forceFullReadingMode }
               : {}),
           })
 
