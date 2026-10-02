@@ -215,7 +215,7 @@ function freshRunAdmin() {
         cycle_id: CYCLE,
         conversation_key: CONVERSATION,
         status: 'succeeded',
-        prompt_version: 'full-reading-v3',
+        prompt_version: 'full-reading-v4',
         reference_time: '2026-09-30T12:00:00.000Z',
         created_at: '2026-09-30T12:00:00.000Z',
         started_at: '2026-09-30T12:00:00.000Z',
@@ -240,6 +240,14 @@ function freshRunAdmin() {
           afirmacoes_a_confirmar: [],
           alertas_de_captura: [],
           confianca_geral: 'alta',
+          proximo_passo_titulo: 'Confirmar o próximo passo com o cliente',
+          proximo_passo_complemento: 'Retomar a conversa pelo ponto em aberto.',
+          linha_do_tempo: [
+            { dia: '23/09', hora: '11:08', texto: 'Cliente pediu informações do plano' },
+            { dia: '23/09', hora: '11:20', texto: 'Vendedor enviou os valores' },
+          ],
+          pendencias: [{ de: 'vendedor', texto: 'Confirmar a condição oferecida' }],
+          conducao: { acertos: ['Respondeu rápido'], ajustes: ['Fazer uma pergunta de descoberta'] },
           sistema: { kanban_lido: { status: 'novo', stage_entered_at: '2026-09-20T12:00:00.000Z' }, alertas: [], saida_estruturada: true },
         },
       },
@@ -305,7 +313,11 @@ test('flag ligada em preview: a resposta de hoje ganha só `full_reading` (e per
     const { full_reading: analysisView, ...analysisRest } = analysis.data
 
     assert.deepEqual(analysisRest, ANALYSIS_FIXTURE)
-    assert.equal(analysisView.sections[0].title, 'Fase da relação')
+    // v4: a ANÁLISE vem dos campos estruturados (blocos de resumo), não do
+    // markdown.
+    assert.equal(analysisView.has_reading, true)
+    assert.deepEqual(analysisView.summary.map((block) => block.label), ['Fase', 'Método', 'Kanban', 'Venda'])
+    assert.deepEqual(analysisView.sections, [])
 
     // Rodada fresca: nenhuma escrita.
     assert.deepEqual(memory.writes, [])

@@ -34,6 +34,7 @@ import {
 
 import {
   buildFullReadingTranscript,
+  type FullReadingTranscriptMarker,
 } from '../companion/full-reading/transcript'
 
 import type {
@@ -46,6 +47,7 @@ import {
   loadFullReadingConfig,
   loadFullReadingKanban,
   loadFullReadingMessages,
+  loadFullReadingTranscriptMarkers,
   resolveFullReadingModel,
 } from './full-reading-runner'
 
@@ -170,6 +172,7 @@ export async function generateFullReadingMessage({
   fetchImpl,
   loadReading = loadLatestFullReading,
   loadMessages = loadFullReadingMessages,
+  loadMarkers,
   loadKanban = loadFullReadingKanban,
   loadConfig = loadFullReadingConfig,
 }: {
@@ -188,6 +191,13 @@ export async function generateFullReadingMessage({
     conversationKey: string
     referenceTime: string
   }) => Promise<NormalizedLedgerMessage[]>
+  // Marco "Nova oportunidade aberta em ..." (ciclo sucessor). Com
+  // loadMessages injetado e sem loadMarkers, nenhum marco.
+  loadMarkers?: (args: {
+    admin: SupabaseClient
+    companyId: string
+    cycleId: string
+  }) => Promise<FullReadingTranscriptMarker[]>
   loadKanban?: (args: {
     admin: SupabaseClient
     companyId: string
@@ -236,8 +246,29 @@ export async function generateFullReadingMessage({
       referenceTime: now,
     })
 
+  const readMarkers =
+    loadMarkers ??
+    (loadMessages === loadFullReadingMessages
+      ? loadFullReadingTranscriptMarkers
+      : async () => [])
+
+  let markers: FullReadingTranscriptMarker[] = []
+
+  try {
+    markers =
+      await readMarkers({
+        admin,
+        companyId: scope.company_id,
+        cycleId: scope.cycle_id,
+      })
+  } catch {
+    // Sem o marco a mensagem ainda sai; só perde onde a oportunidade
+    // nova começou.
+    markers = []
+  }
+
   const transcript =
-    buildFullReadingTranscript(messages)
+    buildFullReadingTranscript(messages, { markers })
 
   let kanban: FullReadingKanbanContext | null =
     null

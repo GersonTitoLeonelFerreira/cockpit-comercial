@@ -32,6 +32,321 @@
     }
   }
 
+  // ------------------------------------------------------------------
+  // Estrutura da bolha (rodada 6). O ManyChat mostra numa bolha só: a
+  // citação de outra mensagem (resposta a uma mensagem do bot ou do
+  // vendedor, com o rótulo de quem foi citado), o texto e, nas mensagens
+  // do bot, os botões. textContent junta tudo sem separador — era assim
+  // que "Bot" + texto do bot + escolha do cliente chegavam como fala do
+  // cliente. Aqui a citação, os botões e o controle "ver mais" saem do
+  // texto pela estrutura (tag, role, classes do CSS module e data-test-id).
+  // Sem nada disso na bolha, o texto é exatamente o textContent de antes
+  // (nenhuma mensagem já gravada muda de versão à toa).
+
+  const ELEMENT_NODE = 1
+  const TEXT_NODE = 3
+
+  const EXPAND_CONTROL_TEXT =
+    /^(?:ver mais|ler mais|mostrar mais|exibir mais|show more|read more|see more|more)$/i
+
+  function elementTokens(element) {
+    const tokens = []
+
+    try {
+      const className =
+        typeof element.getAttribute === 'function'
+          ? element.getAttribute('class')
+          : null
+
+      if (typeof className === 'string') {
+        tokens.push(...className.split(/\s+/).filter(Boolean))
+      }
+
+      for (const name of ['data-test-id', 'data-testid']) {
+        const value =
+          typeof element.getAttribute === 'function'
+            ? element.getAttribute(name)
+            : null
+
+        if (typeof value === 'string' && value) {
+          tokens.push(value)
+        }
+      }
+    } catch {
+      return tokens
+    }
+
+    return tokens
+  }
+
+  function tagName(element) {
+    return typeof element?.tagName === 'string'
+      ? element.tagName.toUpperCase()
+      : ''
+  }
+
+  function isQuoteElement(element) {
+    if (tagName(element) === 'BLOCKQUOTE') {
+      return true
+    }
+
+    return elementTokens(element).some((token) =>
+      /quot/i.test(token) ||
+      /(?:^|[_-])(?:reply|replyto|replied|repliedmessage|replymessage|messagereply|replycontext|context|contextmessage)(?:[_-]|$)/i.test(token),
+    )
+  }
+
+  function isButtonElement(element) {
+    const tag = tagName(element)
+
+    if (tag === 'BUTTON' || tag === 'A') {
+      return true
+    }
+
+    try {
+      if (element.getAttribute?.('role') === 'button') {
+        return true
+      }
+    } catch {
+      return false
+    }
+
+    return elementTokens(element).some((token) =>
+      /button|(?:^|[_-])btns?(?:[_-]|$)|quickrepl/i.test(token),
+    )
+  }
+
+  function isMetaElement(element) {
+    return elementTokens(element).some((token) =>
+      /(?:^|[_-])(?:time|timestamp|date|status|avatar|author|sender|name|username)(?:[_-]|$)/i.test(token),
+    )
+  }
+
+  function isTruncationElement(element) {
+    return elementTokens(element).some((token) =>
+      /truncat|ellips|(?:^|[_-])(?:clamp|clamped|collapsed)(?:[_-]|$)/i.test(token),
+    )
+  }
+
+  function childNodesOf(node) {
+    try {
+      return node && node.childNodes ? Array.from(node.childNodes) : null
+    } catch {
+      return null
+    }
+  }
+
+  // Elementos (fora de citações/botões já marcados) que casam com `match`,
+  // do mais externo para dentro: um botão dentro de uma citação fica na
+  // citação.
+  function findOutermost(node, match) {
+    const found = []
+
+    const visit = (current) => {
+      for (const child of childNodesOf(current) || []) {
+        if (child?.nodeType !== ELEMENT_NODE) {
+          continue
+        }
+
+        if (match(child)) {
+          found.push(child)
+          continue
+        }
+
+        visit(child)
+      }
+    }
+
+    visit(node)
+
+    return found
+  }
+
+  const BLOCK_TAGS =
+    new Set(['DIV', 'P', 'LI', 'UL', 'OL', 'BR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'SECTION', 'HEADER', 'FOOTER'])
+
+  // textContent sem os subárvores puladas (mesma concatenação, sem
+  // separador novo). blockBreaks: espaço entre blocos (só no texto do bot,
+  // que é novo; o texto humano continua idêntico ao textContent).
+  function textExcluding(node, skipped, { blockBreaks = false } = {}) {
+    if (skipped.length === 0 && !blockBreaks) {
+      return readText(node)
+    }
+
+    if (!childNodesOf(node)) {
+      return readText(node)
+    }
+
+    const parts = []
+
+    const visit = (current) => {
+      for (const child of childNodesOf(current) || []) {
+        if (child?.nodeType === TEXT_NODE) {
+          parts.push(typeof child.nodeValue === 'string' ? child.nodeValue : '')
+        } else if (child?.nodeType === ELEMENT_NODE && !skipped.includes(child)) {
+          const block = blockBreaks && BLOCK_TAGS.has(tagName(child))
+
+          if (block) parts.push(' ')
+          visit(child)
+          if (block) parts.push(' ')
+        }
+      }
+    }
+
+    visit(node)
+
+    return parts.join('')
+  }
+
+  function collapse(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim()
+  }
+
+  // Bolha humana (cliente ou vendedor): a citação sai do texto e fica à
+  // parte; o rótulo de quem foi citado ("Bot", nome da página) é o primeiro
+  // pedaço dela quando vem num elemento próprio.
+  function splitHumanBubble(contentNode) {
+    if (!childNodesOf(contentNode)) {
+      return null
+    }
+
+    const quotes = findOutermost(contentNode, isQuoteElement)
+
+    if (quotes.length === 0) {
+      return null
+    }
+
+    const reply = collapse(textExcluding(contentNode, quotes))
+
+    if (!reply) {
+      return null
+    }
+
+    const quoteNode = quotes[0]
+    const labelNode = findOutermost(quoteNode, isMetaElement)[0] ?? null
+
+    return Object.freeze({
+      text: reply,
+      quoted_text: collapse(textExcluding(quoteNode, labelNode ? [labelNode] : [])),
+      quote_label: labelNode ? collapse(readText(labelNode)) : null,
+    })
+  }
+
+  // Botões: o elemento de botão mais interno (um contêiner "_buttons_"
+  // com vários botões dentro não é um botão).
+  function findButtons(node) {
+    const found = []
+
+    const visit = (current) => {
+      for (const child of childNodesOf(current) || []) {
+        if (child?.nodeType !== ELEMENT_NODE) {
+          continue
+        }
+
+        if (isButtonElement(child) && findOutermost(child, isButtonElement).length === 0) {
+          found.push(child)
+          continue
+        }
+
+        visit(child)
+      }
+    }
+
+    visit(node)
+
+    return found
+  }
+
+  function readFullTextHint(contentNode, visible) {
+    const stem = visible.replace(/(?:…|\.\.\.)\s*$/, '').trim()
+
+    if (stem.length < 8) {
+      return null
+    }
+
+    const candidates = []
+
+    const visit = (current) => {
+      for (const attribute of ['title', 'aria-label', 'data-full-text']) {
+        try {
+          const value = current.getAttribute?.(attribute)
+
+          if (typeof value === 'string') {
+            candidates.push(collapse(value))
+          }
+        } catch {
+          // ignora atributo ilegível
+        }
+      }
+
+      for (const child of childNodesOf(current) || []) {
+        if (child?.nodeType === ELEMENT_NODE) {
+          visit(child)
+        }
+      }
+    }
+
+    visit(contentNode)
+
+    return candidates.find((value) => value.length > stem.length && value.startsWith(stem)) ?? null
+  }
+
+  // Bolha do bot: texto sem botões nem "ver mais", rótulos dos botões à
+  // parte, e se o texto veio cortado pelo ManyChat (com o texto inteiro
+  // quando ele existe no DOM).
+  function readAutomationBubble(contentNode) {
+    if (!contentNode) {
+      return null
+    }
+
+    const structured = Boolean(childNodesOf(contentNode))
+    const buttons = structured ? findButtons(contentNode) : []
+    const meta = structured ? findOutermost(contentNode, isMetaElement) : []
+    const labels = []
+    let expandable = false
+
+    for (const button of buttons) {
+      const label = collapse(readText(button))
+
+      if (!label) {
+        continue
+      }
+
+      if (EXPAND_CONTROL_TEXT.test(label)) {
+        expandable = true
+        continue
+      }
+
+      if (!labels.includes(label)) {
+        labels.push(label)
+      }
+    }
+
+    let body = collapse(textExcluding(contentNode, [...buttons, ...meta], { blockBreaks: true }))
+    const endsCut = /(?:…|\.\.\.)$/.test(body)
+    const cutByLayout =
+      endsCut &&
+      (expandable || (structured && findOutermost(contentNode, isTruncationElement).length > 0))
+
+    let truncated = false
+
+    if (endsCut && (cutByLayout || expandable)) {
+      const full = structured ? readFullTextHint(contentNode, body) : null
+
+      if (full) {
+        body = full
+      } else {
+        truncated = true
+      }
+    }
+
+    return Object.freeze({
+      body,
+      buttons: Object.freeze(labels),
+      truncated,
+    })
+  }
+
   function findSingleNativeContentNode(node) {
     const matches = queryAll(node, '[data-mid]')
     return Object.freeze({
@@ -154,15 +469,21 @@
     }
 
     if (hasText) {
+      // Resposta com citação: só a resposta vira o texto; a citação fica
+      // à parte (quoted_text), para a captura saber o que foi citado.
+      const bubble = splitHumanBubble(native.node)
+
       return Object.freeze({
         ...evidence,
         content_type: 'text',
-        text_content: text,
+        text_content: bubble ? bubble.text : text,
         audio_transcription: null,
         content_node_source: 'data-mid',
         content_node_count: 1,
         content_ready: true,
         reason: null,
+        quoted_text: bubble?.quoted_text || null,
+        quote_label: bubble?.quote_label || null,
       })
     }
 
@@ -171,6 +492,43 @@
       content_node_source: 'data-mid',
       content_node_count: 1,
       reason: 'empty_content_not_classified',
+    })
+  }
+
+  // Mensagem do bot para a captura (rodada 6): saída da empresa, autoria
+  // automation, nunca fala do cliente nem ação do vendedor. A evidência de
+  // diagnóstico (extractManyChatMessageContent) continua tratando
+  // automação como contexto.
+  function extractManyChatAutomationContent(node) {
+    const identity = identityApi().extractManyChatMessageIdentity(node)
+
+    if (identity.author_kind !== 'automation' || typeof identity.occurred_at !== 'string') {
+      return null
+    }
+
+    const native = findSingleNativeContentNode(node)
+    const contentNode = native.count === 1 && native.node ? native.node : node
+    const media = structuralMedia(contentNode)
+
+    if (media.audio > 0 || media.video > 0) {
+      return null
+    }
+
+    const bubble = readAutomationBubble(contentNode)
+
+    if (!bubble || (!bubble.body && bubble.buttons.length === 0)) {
+      return null
+    }
+
+    return Object.freeze({
+      occurred_at: identity.occurred_at,
+      native_message_id:
+        native.count === 1
+          ? (native.node?.getAttribute?.('data-mid') || '').trim() || null
+          : null,
+      body: bubble.body,
+      buttons: bubble.buttons,
+      truncated: bubble.truncated,
     })
   }
 
@@ -257,6 +615,7 @@
     PLATFORM,
     SCHEMA_VERSION,
     extractManyChatMessageContent,
+    extractManyChatAutomationContent,
     safeManyChatMessageContentView,
     summarizeManyChatMessageContent,
   })

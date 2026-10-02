@@ -261,6 +261,18 @@
             'can_create_successor_opportunity',
             null,
           ),
+
+        // Rodada 6 (HML): "O que é esta oportunidade?" só quando o backend
+        // manda (leitura completa ligada). Sem ela, a chave não existe.
+        ...(
+          readBoolean(
+            canonicalCapabilities,
+            'can_note_successor_opportunity',
+            null,
+          ) === true
+            ? { can_note_successor_opportunity: true }
+            : {}
+        ),
       })
 
     const flags =

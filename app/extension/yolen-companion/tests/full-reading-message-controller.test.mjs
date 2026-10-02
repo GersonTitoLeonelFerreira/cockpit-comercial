@@ -1,8 +1,10 @@
-// MENSAGEM com a leitura completa (HML). Com a leitura, o objetivo e a
-// mensagem do motor antigo não aparecem: "não enviar" vira aviso + seção
-// da análise; "responder" traz o objetivo e a mensagem da leitura; "Gerar
-// mensagem" chama a rota nova (Claude simulado aqui). Texto do modelo só
-// por textContent. Textos sintéticos.
+// MENSAGEM com a leitura completa (HML, rodada 6). Com a leitura, o
+// objetivo e a mensagem do motor antigo não aparecem. "responder" abre a
+// "Mensagem pronta" (Para: objetivo, campo editável, Incluir/Copiar);
+// "não enviar" vira "Nada a enviar agora" + motivo. "Escrever com outro
+// objetivo" fica recolhido e chama a rota nova (Claude simulado aqui). O
+// objetivo nunca aparece duas vezes. Texto do modelo só por textContent ou
+// value. Textos sintéticos.
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -95,6 +97,8 @@ async function settle() {
 function noSendView(overrides = {}) {
   return {
     mode: 'no_send',
+    objective: null,
+    no_send_reason: 'A cliente não deixou pergunta.',
     notice: 'A leitura recomenda não enviar nada agora',
     section_text: 'Não enviar nada agora. A cliente não deixou pergunta.',
     recommended_objective: null,
@@ -107,6 +111,8 @@ function noSendView(overrides = {}) {
 function sendView(overrides = {}) {
   return {
     mode: 'send',
+    objective: 'Confirmar que o acesso ao app foi liberado.',
+    no_send_reason: null,
     notice: null,
     section_text: 'Oi! O acesso já está liberado no app. Qualquer dúvida me chama.',
     recommended_objective: 'Confirmar que o acesso ao app foi liberado.',
@@ -116,60 +122,102 @@ function sendView(overrides = {}) {
   }
 }
 
-test('leitura "não enviar": aviso + seção, sem objetivo nem mensagem antigos; Gerar continua disponível', async () => {
+const EMOJI = /\p{Extended_Pictographic}/u
+
+test('leitura "não enviar": "Nada a enviar agora" + motivo; "Escrever mesmo assim" recolhido', async () => {
   const harness = createHarness()
 
   harness.controller.syncFullReading(PAYLOAD, noSendView())
   await settle()
 
   const box = harness.document.querySelector('[data-yolen-seller-message-box]')
+  const card = box.querySelector('[data-yolen-fr-card="no_send"]')
 
-  assert.ok(box)
-  assert.equal(
-    box.querySelector('[data-yolen-fr-text="notice"]').textContent,
-    'A leitura recomenda não enviar nada agora',
-  )
-  assert.equal(
-    box.querySelector('[data-yolen-fr-text="section"]').textContent,
-    'Não enviar nada agora. A cliente não deixou pergunta.',
-  )
-  assert.equal(box.querySelectorAll('[data-yolen-seller-message-preset]').length, 0)
-  assert.doesNotMatch(box.textContent, /Recomendado pela Yolen/)
+  assert.ok(card)
+  assert.equal(card.querySelector('.yolen-fr-title').textContent, 'Nada a enviar agora')
+  assert.equal(box.querySelector('[data-yolen-fr-text="reason"]').textContent, 'A cliente não deixou pergunta.')
   assert.equal(box.querySelector('[data-yolen-full-reading-message-result]'), null)
-  assert.ok(box.querySelector('[data-yolen-seller-message-intent]'))
+  assert.equal(box.querySelectorAll('[data-yolen-seller-message-preset]').length, 0)
+  assert.doesNotMatch(box.textContent, /Recomendado pela Yolen|Objetivo da mensagem/)
 
-  const generate = box.querySelector('[data-yolen-seller-message-action="generate"]')
+  const custom = box.querySelector('details[data-yolen-fr-custom]')
 
-  assert.ok(generate)
+  assert.equal(custom.open, false)
+  assert.equal(custom.querySelector('summary').textContent, 'Escrever mesmo assim')
+  assert.ok(custom.querySelector('[data-yolen-seller-message-intent]'))
+
+  const generate = custom.querySelector('[data-yolen-seller-message-action="generate"]')
+
   assert.equal(generate.disabled, true)
   assert.deepEqual(harness.runtimeCalls, [])
 })
 
-test('leitura "responder": objetivo recomendado = acao_resumo e mensagem pronta da leitura', async () => {
+test('leitura "responder": "Mensagem pronta" com "Para:", campo editável, Incluir e Copiar; objetivo uma vez só', async () => {
   const harness = createHarness()
 
   harness.controller.syncFullReading(PAYLOAD, sendView())
   await settle()
 
   const box = harness.document.querySelector('[data-yolen-seller-message-box]')
-  const preset = box.querySelector('[data-yolen-seller-message-preset="0"]')
+  const card = box.querySelector('[data-yolen-fr-card="message"]')
 
-  assert.match(preset.textContent, /^Recomendado pela leitura completa · Confirmar que o acesso ao app foi liberado\.$/)
-  assert.equal(
-    box.querySelector('[data-yolen-fr-text="message"]').textContent,
-    'Oi! O acesso já está liberado no app. Qualquer dúvida me chama.',
-  )
-  assert.match(box.textContent, /Mensagem sugerida pela leitura/)
+  assert.equal(card.querySelector('.yolen-fr-label').textContent, 'Mensagem pronta')
+  assert.equal(card.querySelector('.yolen-fr-pill').textContent, 'Da leitura')
+  assert.equal(card.querySelector('.yolen-fr-for').textContent, 'Para: confirmar que o acesso ao app foi liberado')
+
+  const draft = card.querySelector('textarea[data-yolen-fr-draft]')
+
+  assert.equal(draft.value, 'Oi! O acesso já está liberado no app. Qualquer dúvida me chama.')
+  assert.equal(card.querySelector('[data-yolen-seller-message-action="insert"]').textContent, 'Incluir no WhatsApp')
+  assert.equal(card.querySelector('[data-yolen-seller-message-action="copy"]').textContent, 'Copiar')
+  assert.equal(card.querySelector('.yolen-fr-note').textContent, 'A Yolen não envia sozinha. Revise antes de mandar.')
+
+  // O objetivo aparece uma vez (no "Para:"), nunca como atalho.
+  assert.equal(box.textContent.split('cesso ao app foi liberado').length - 1, 1)
+  assert.equal(box.querySelectorAll('[data-yolen-seller-message-preset]').length, 0)
+  assert.equal(box.querySelector('details[data-yolen-fr-custom] summary').textContent, 'Escrever com outro objetivo')
+  assert.doesNotMatch(box.textContent, EMOJI)
+
+  for (const button of box.querySelectorAll('button')) {
+    assert.equal(button.type, 'button')
+  }
 
   // Incluir no WhatsApp: nunca envia, só preenche o campo vazio.
-  box.querySelector('[data-yolen-seller-message-action="insert"]').click()
+  card.querySelector('[data-yolen-seller-message-action="insert"]').click()
   await settle()
 
   assert.equal(harness.composer.textContent, 'Oi! O acesso já está liberado no app. Qualquer dúvida me chama.')
   assert.deepEqual(harness.runtimeCalls, [])
 })
 
-test('"Gerar mensagem" com a leitura chama a rota nova com o objetivo do vendedor (nunca o motor antigo)', async () => {
+test('a edição do vendedor é a mensagem incluída, e um render de fundo não apaga o que ele escreveu', async () => {
+  const harness = createHarness()
+
+  harness.controller.syncFullReading(PAYLOAD, sendView())
+  await settle()
+
+  const draft = harness.document.querySelector('[data-yolen-fr-draft]')
+
+  draft.value = 'Oi! Já liberei seu acesso, me avisa se der certo.'
+  draft.dispatchEvent(new harness.window.Event('input', { bubbles: true }))
+
+  // Polling/AGORA chamam de novo com a mesma leitura.
+  harness.controller.syncFullReading(PAYLOAD, sendView())
+  harness.controller.render()
+  await settle()
+
+  const same = harness.document.querySelector('[data-yolen-fr-draft]')
+
+  assert.equal(same, draft)
+  assert.equal(same.value, 'Oi! Já liberei seu acesso, me avisa se der certo.')
+
+  same.closest('[data-yolen-seller-message-box]').querySelector('[data-yolen-seller-message-action="insert"]').click()
+  await settle()
+
+  assert.equal(harness.composer.textContent, 'Oi! Já liberei seu acesso, me avisa se der certo.')
+})
+
+test('"Escrever com outro objetivo" chama a rota nova com o objetivo do vendedor (nunca o motor antigo)', async () => {
   const harness = createHarness()
 
   harness.controller.syncFullReading(PAYLOAD, noSendView())
@@ -191,10 +239,14 @@ test('"Gerar mensagem" com a leitura chama a rota nova com o objetivo do vendedo
     conversation_key: PAYLOAD.conversation_key,
     seller_intent: 'Quero avisar que o acesso foi liberado.',
   })
-  assert.equal(
-    harness.document.querySelector('[data-yolen-fr-text="message"]').textContent,
-    'Oi! Seu acesso já está liberado.',
-  )
+
+  const card = harness.document.querySelector('[data-yolen-fr-card="message"]')
+
+  assert.equal(card.querySelector('[data-yolen-fr-draft]').value, 'Oi! Seu acesso já está liberado.')
+  assert.equal(card.querySelector('.yolen-fr-pill').textContent, 'Outro objetivo')
+  assert.equal(card.querySelector('.yolen-fr-for').textContent, 'Para: quero avisar que o acesso foi liberado')
+  // "Nada a enviar agora" continua acima: a leitura não muda.
+  assert.ok(harness.document.querySelector('[data-yolen-fr-card="no_send"]'))
   assert.equal(harness.runtimeCalls.some((call) => call.action === 'LOAD_METHOD_GUIDANCE'), false)
 })
 
@@ -203,6 +255,7 @@ test('texto do modelo nunca vira HTML', async () => {
 
   harness.controller.syncFullReading(PAYLOAD, sendView({
     section_text: `Seção ${HOSTILE}`,
+    objective: `Objetivo ${HOSTILE}`,
     recommended_objective: `Objetivo ${HOSTILE}`,
     suggested_message: `Mensagem ${HOSTILE}`,
   }))
@@ -211,7 +264,16 @@ test('texto do modelo nunca vira HTML', async () => {
   const box = harness.document.querySelector('[data-yolen-seller-message-box]')
 
   assert.equal(box.querySelectorAll('img').length, 0)
-  assert.match(box.querySelector('[data-yolen-fr-text="message"]').textContent, /<img src=x/)
+  assert.match(box.querySelector('[data-yolen-fr-draft]').value, /<img src=x/)
+  assert.match(box.querySelector('[data-yolen-fr-text="objective"]').textContent, /<img src=x/)
+
+  const noSend = createHarness()
+
+  noSend.controller.syncFullReading(PAYLOAD, noSendView({ no_send_reason: `Motivo ${HOSTILE}` }))
+  await settle()
+
+  assert.equal(noSend.document.querySelectorAll('img').length, 0)
+  assert.match(noSend.document.querySelector('[data-yolen-fr-text="reason"]').textContent, /<img src=x/)
 })
 
 test('sem leitura (null) o modo leitura sai e nada da leitura fica na tela', async () => {

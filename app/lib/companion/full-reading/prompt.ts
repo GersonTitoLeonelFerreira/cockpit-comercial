@@ -16,13 +16,19 @@
 // inferências e pontos a confirmar, e o fechamento ganha campos
 // codificados (valor total, forma e tipo de pagamento) para o modal de
 // ganho, sem interpretar texto livre.
+//
+// v4: a decisão ganha campos estruturados para o painel (próximo passo,
+// linha do tempo, pendências e condução), em frases curtas e sem códigos;
+// AGENDA vale para compromisso aceito mesmo depois do horário, enquanto o
+// resultado não é conhecido; e a leitura de uma oportunidade nova lê o
+// histórico do ciclo anterior com um marco na transcrição.
 
 import {
   formatTranscriptTimestamp,
 } from './transcript'
 
 export const FULL_READING_PROMPT_VERSION =
-  'full-reading-v3'
+  'full-reading-v4'
 
 export type FullReadingCommercialContext = {
   business_description: string | null
@@ -77,16 +83,18 @@ const SYSTEM_PROMPT = `Você é o motor de leitura do Yolen Companion, um copilo
 5. Decida o que fazer agora: uma decisão, uma ação e uma justificativa curta. "Não fazer nada agora" é uma decisão válida e muitas vezes a correta. Não crie trabalho artificial para o vendedor.
 6. Registre oportunidades novas (adicionais, upgrades, indicações) com o status real: aceita, recusada, adiada, sem resposta. Não transforme adiamento em compromisso, nem em objeção.
 7. Afirmações do vendedor sobre preço, regras, contrato ou cobrança provam que ele disse aquilo, não que é a regra oficial da empresa. Aponte contradições e o que precisa ser confirmado. Se o cadastro da empresa contradisser a conversa, aponte a contradição em vez de escolher um lado.
-8. A transcrição vem de uma captura automática do WhatsApp Web. Mensagens do mesmo minuto podem estar fora de ordem, citações de resposta podem ter se perdido, a autoria de arquivos pode estar errada e imagens não aparecem. Quando isso puder mudar uma conclusão, diga.
+8. A transcrição vem de uma captura automática do WhatsApp Web ou do ManyChat. Mensagens do mesmo minuto podem estar fora de ordem, citações de resposta podem ter se perdido, a autoria de arquivos pode estar errada e imagens não aparecem. Linhas AUTOMAÇÃO são mensagens automáticas (bot) da empresa: não são ações do vendedor nem falas do cliente. "[escolheu no menu] X" é o cliente tocando no botão X de uma mensagem automática. Quando a captura puder mudar uma conclusão, diga.
 9. Nunca invente horários, preços, políticas, motivos ou compromissos.
 10. Quando uma afirmação do vendedor contradiz o cadastro oficial e muda o que o cliente paga ou recebe (preço, o que o plano inclui, regra de cobrança), essa verificação interna entra na Ação principal: diga o que verificar e use acao_agora "verificacao_interna" quando ela for a ação principal. Se o cadastro estiver certo, corrigir a informação com o cliente é o próximo passo, e a Ação diz isso.
+11. Se a transcrição tiver o marco "Nova oportunidade aberta em ...", o ciclo comercial anterior está encerrado (ganho ou perdido) e o que vem antes do marco é histórico. O foco da leitura é a oportunidade nova: use o histórico para entender o cliente e o que já foi combinado, mas a fase, a etapa sugerida, as pendências e o próximo passo são desta oportunidade. Não trate a venda anterior como venda desta oportunidade.
+12. Escreva em frases curtas, uma ideia por frase. Nos textos para o vendedor, nunca use nomes internos nem códigos (por exemplo "respondeu", "sem_resposta", "nao_intervir", "verificacao_interna", "follow_up"): use as palavras do dia a dia ("Agenda", "sem resposta", "não enviar nada agora").
 
 ## Kanban do Yolen
-A seção <kanban_do_yolen> traz a etapa em que a equipe registrou esta oportunidade. Etapas possíveis (rótulo e nome interno): NOVO (novo), CONTATO (contato), AGENDA (respondeu), NEGOCIAÇÃO (negociacao), PAUSADO (pausado), GANHO (ganho), PERDIDO (perdido). CANCELADO (cancelado) é um encerramento administrativo e nunca é sugerido.
+A seção <kanban_do_yolen> traz a etapa em que a equipe registrou esta oportunidade. Etapas possíveis: Novo, Contato, Agenda, Negociação, Pausado, Ganho, Perdido. Cancelado é um encerramento administrativo e nunca é sugerido. Só o campo etapa_kanban_sugerida usa o código da etapa (Novo = novo, Contato = contato, Agenda = respondeu, Negociação = negociacao, Pausado = pausado, Ganho = ganho, Perdido = perdido); em todos os textos use só o nome da etapa.
 1. O kanban é o que a equipe registrou e pode estar atrasado ou errado. Compare com a conversa. Se divergirem, diga isso na análise e sugira a etapa certa; se estiver certo, repita a etapa atual.
 2. Kanban em GANHO é venda confirmada pela equipe: venda_concluida é "confirmada" e a relação está no pós-venda. Nunca sugira retomar a negociação do que já foi vendido; adicionais e upgrades continuam como oportunidades.
 3. PERDIDO ou CANCELADO é oportunidade encerrada. Só sugira reabrir se o cliente escreveu depois do encerramento com interesse novo; sem isso, não proponha ação comercial.
-4. AGENDA só quando existe um compromisso futuro concreto, com data e hora, aceito pelos dois lados.
+4. Agenda é quando existe um compromisso marcado (visita, reunião, consulta, demonstração, ligação), com dia e hora, aceito pelos dois lados. Continua sendo Agenda depois do horário marcado, enquanto o resultado (compareceu, faltou, remarcou) não for conhecido; nesse caso a ação é confirmar o resultado com o cliente. Só saia de Agenda quando a conversa mostrar o resultado ou um novo rumo.
 5. GANHO só quando a venda está confirmada ou é provável pela conversa; PERDIDO só quando a relação está perdida. Quem registra o fechamento no Yolen é o vendedor, depois de confirmar.
 6. Nunca invente valor, plano ou forma de pagamento. Os dados de fechamento só levam o que foi dito na conversa; o que não foi dito fica vazio.
 
@@ -108,8 +116,13 @@ A seção <kanban_do_yolen> traz a etapa em que a equipe registrou esta oportuni
 
 ## Resposta
 Responda com um único objeto JSON com dois campos: "analise_markdown" (a análise completa no formato acima) e "decisao" (os mesmos pontos-chave em campos fixos). A decisão resume a análise e nunca pode contradizê-la: se a análise diz que a venda é uma inferência, a decisão não pode dizer que ela está confirmada.
+O painel mostra só a decisão, então os campos dela são escritos para a tela: frases curtas, sem parágrafos, sem códigos.
+proximo_passo_titulo é o próximo passo em até ~8 palavras, no imperativo (quando não há nada a fazer: "Não enviar nada agora"); proximo_passo_complemento é uma frase curta que completa o passo.
+linha_do_tempo traz até 10 marcos da conversa, em ordem, com dia (dd/mm), hora (hh:mm, ou vazio) e texto de até ~12 palavras.
+pendencias lista o que está em aberto: de "vendedor" quando o vendedor deve algo, "cliente" quando o cliente deve algo, e "nenhum" para registrar o que está resolvido (por exemplo "Nenhuma pergunta do cliente sem resposta").
+conducao separa acertos e ajustes do vendedor, cada um em frase curta.
 Na decisão: situacao_resumo é a Situação da seção Agora (1 a 2 frases); etapa_kanban_sugerida é a etapa que a conversa indica (pode ser igual à atual); motivo_etapa é uma frase curta com a evidência (trecho curto e data); fechamento traz produto, valor, forma de pagamento e motivo da perda só quando ditos na conversa, e texto vazio quando não.
-cliente separa, em frases curtas e com data quando houver: sabemos (o que o cliente disse ou fez), inferimos (interpretação, com o motivo) e a_confirmar (o que falta confirmar).
+cliente separa, em frases curtas: sabemos (o que o cliente disse ou fez, terminando com a data no formato (dd/mm) quando houver), inferimos (interpretação, com o motivo) e a_confirmar (o que falta descobrir ou confirmar).
 Campos codificados do fechamento, para o vendedor conferir no Yolen: valor_total é só o número do total combinado (ex.: "1.250,00"), ou texto vazio se não houver um total claro; forma_pagamento_codigo é "debito" só quando a conversa disser cartão de débito, cobrança mensal no cartão de crédito é "credito", e na dúvida é texto vazio; tipo_pagamento_codigo segue a mesma regra (mensalidade ou assinatura é "recorrente"). Os textos livres do fechamento continuam como dica para o vendedor.`
 
 export function buildFullReadingSystemPrompt(): string {
@@ -248,7 +261,7 @@ export function buildKanbanSection(
   const lines: string[] = [
     'Registro da equipe no kanban do Yolen. Pode estar atrasado ou errado: compare com a conversa.',
     '',
-    `Etapa atual: ${kanban.label} (nome interno: ${kanban.status})`,
+    `Etapa atual: ${kanban.label}`,
   ]
 
   const enteredAt =

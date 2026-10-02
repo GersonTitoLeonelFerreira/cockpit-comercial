@@ -74,6 +74,14 @@ function decision(overrides = {}) {
     afirmacoes_a_confirmar: ['O vendedor disse que o plano inclui o adicional.'],
     alertas_de_captura: [],
     confianca_geral: 'alta',
+    proximo_passo_titulo: 'Confirmar o próximo passo com o cliente',
+    proximo_passo_complemento: 'Retomar a conversa pelo ponto em aberto.',
+    linha_do_tempo: [
+      { dia: '23/09', hora: '11:08', texto: 'Cliente pediu informações do plano' },
+      { dia: '23/09', hora: '11:20', texto: 'Vendedor enviou os valores' },
+    ],
+    pendencias: [{ de: 'vendedor', texto: 'Confirmar a condição oferecida' }],
+    conducao: { acertos: ['Respondeu rápido'], ajustes: ['Fazer uma pergunta de descoberta'] },
     sistema: {
       kanban_lido: { status: 'novo', stage_entered_at: null },
       alertas: [],
@@ -131,7 +139,7 @@ function agora({ decisionOverrides = {}, markdown = MARKDOWN, kanbanOverrides = 
 // ---------------------------------------------------------------------------
 
 test('prompt v3: contradição com o cadastro que muda o que o cliente paga ou recebe entra na Ação', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v3')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v4')
 
   const system =
     buildFullReadingSystemPrompt()
@@ -142,7 +150,7 @@ test('prompt v3: contradição com o cadastro que muda o que o cliente paga ou r
   assert.match(system, /Se o cadastro estiver certo, corrigir a informação com o cliente é o próximo passo/)
   // Códigos de pagamento sem adivinhar.
   assert.match(system, /"debito" só quando a conversa disser cartão de débito, cobrança mensal no cartão de crédito é "credito", e na dúvida é texto vazio/)
-  assert.match(system, /cliente separa, em frases curtas e com data quando houver: sabemos/)
+  assert.match(system, /cliente separa, em frases curtas: sabemos \(o que o cliente disse ou fez, terminando com a data no formato \(dd\/mm\) quando houver\)/)
   // Afirmações a confirmar ficam só no campo próprio.
   assert.match(system, /as afirmações a confirmar vão só no campo afirmacoes_a_confirmar/)
   assert.match(system, /### Mensagem sugerida\n\(somente o texto pronto para o vendedor enviar/)
@@ -152,9 +160,12 @@ test('prompt v3: regras genéricas, sem dicas do caso de teste', () => {
   const system =
     buildFullReadingSystemPrompt() + buildFullReadingMessageSystemPrompt()
 
-  for (const hint of [/academia/i, /209/, /74,95/, /muscula/i, /\bduo\b/i]) {
+  for (const hint of [/academia/i, /209/, /74,95/, /muscula/i, /\bduo\b/i, /\baula/i, /em dobro/i, /119,90/, /start anual/i]) {
     assert.doesNotMatch(system, hint)
   }
+
+  // O esquema também vai para o modelo: sem exemplo do caso de teste.
+  assert.doesNotMatch(JSON.stringify(FULL_READING_OUTPUT_JSON_SCHEMA), /\baula|em dobro|119,90|start anual/i)
 })
 
 test('esquema v3: cliente e códigos obrigatórios; códigos aceitam texto vazio', () => {
@@ -242,8 +253,17 @@ test('Confirmar venda: o modal recebe os códigos (e não deduz nada do texto)',
 // ---------------------------------------------------------------------------
 
 test('ANÁLISE: "Afirmações a confirmar" aparece uma vez só (fora de Condução do vendedor)', () => {
+  // Plano B (rodada sem os campos estruturados da v4): a ANÁLISE vem do
+  // markdown, sem repetir as afirmações.
+  const legacy =
+    reading()
+
+  for (const key of ['proximo_passo_titulo', 'proximo_passo_complemento', 'linha_do_tempo', 'pendencias', 'conducao']) {
+    delete legacy.decision[key]
+  }
+
   const view =
-    buildFullReadingAnalysisView({ state: 'ready', reading: reading(), failureCode: null })
+    buildFullReadingAnalysisView({ state: 'ready', reading: legacy, failureCode: null })
 
   const conduct =
     view.sections.find((section) => section.key === 'conducao')
@@ -290,6 +310,9 @@ test('MENSAGEM: leitura "não enviar" → aviso + seção, sem objetivo nem mens
 
   assert.deepEqual(view.message, {
     mode: 'no_send',
+    objective: null,
+    // O motivo é o que vem depois de "Não enviar nada agora." na seção.
+    no_send_reason: 'A cliente não deixou pergunta.',
     notice: FULL_READING_NO_SEND_NOTICE,
     section_text: 'Não enviar nada agora. A cliente não deixou pergunta.',
     recommended_objective: null,
@@ -322,6 +345,9 @@ test('MENSAGEM: leitura "responder" → objetivo = acao_resumo e mensagem = seç
 
   assert.equal(view.message.mode, 'send')
   assert.equal(view.message.notice, null)
+  // "Para: <objetivo>" aparece uma vez só, no card da mensagem pronta.
+  assert.equal(view.message.objective, 'Confirmar que o acesso ao app foi liberado.')
+  assert.equal(view.message.no_send_reason, null)
   assert.equal(view.message.recommended_objective, 'Confirmar que o acesso ao app foi liberado.')
   assert.equal(view.message.suggested_message, 'Oi! O acesso já está liberado no app. Qualquer dúvida me chama.')
   assert.deepEqual(view.attention, {
@@ -345,18 +371,22 @@ test('MENSAGEM: travas do kanban (Ganho sem retomada) também viram "não enviar
   assert.equal(view.attention, null)
 })
 
-test('resumo do lead, CLIENTE e ícone minimizado vêm da leitura', () => {
+test('CLIENTE e ícone minimizado vêm da leitura; o card "Resumo da leitura completa" saiu', () => {
   const view = agora()
 
-  assert.deepEqual(view.lead_summary, {
-    title: 'Resumo da leitura completa · 01/10/2026 11:05',
-    text: 'Cliente já usa o serviço.',
-  })
+  // A Situação aparece uma vez só (no AGORA): não há mais resumo do lead.
+  assert.equal('lead_summary' in view, false)
   assert.deepEqual(view.cliente, decision().cliente)
+  assert.deepEqual(view.client, {
+    // Data no meio da frase fica no texto.
+    said: [{ text: 'Usa o serviço desde 20/09.', date: null }],
+    seems: ['Deve renovar no fim do mês (pagamento recorrente).'],
+    missing: ['Se o plano inclui o adicional.'],
+  })
   // Não intervir, mas kanban atrasado: o ícone só informa.
   assert.deepEqual(view.attention, {
     level: 'information',
-    label: 'Kanban desatualizado: a conversa indica GANHO',
+    label: 'Kanban desatualizado: a conversa indica Ganho',
     key: 'full-reading:run-v3:etapa_ganho',
   })
 
@@ -369,7 +399,8 @@ test('resumo do lead, CLIENTE e ícone minimizado vêm da leitura', () => {
   const failed = agora({ state: 'failed' })
 
   assert.equal(failed.message, null)
-  assert.equal(failed.lead_summary, null)
+  assert.equal(failed.next_step, null)
+  assert.equal(failed.client, null)
   assert.equal(failed.cliente, null)
   assert.equal(failed.attention, null)
 })

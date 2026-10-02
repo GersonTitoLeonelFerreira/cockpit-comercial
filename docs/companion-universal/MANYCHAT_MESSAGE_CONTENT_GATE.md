@@ -70,3 +70,35 @@ A conversa autenticada observada corresponde ao seguinte perfil estrutural:
 ## Próximo gate
 
 O próximo passo é validar os tipos ainda não cobertos — principalmente imagem/attachment e comportamento do áudio para obtenção segura de fonte/transcrição — antes de transformar o extrator diagnóstico em `readMessage` do DOM reader e antes de qualquer ativação de captura/persistência.
+
+## Rodada 6 (HML, pacote homolog-manychat): fidelidade da bolha
+
+O que a captura do HML mostrou no ledger: respostas do cliente com citação
+chegavam com a citação colada (`Bot` + texto do bot + escolha; nome da
+página + texto do vendedor + resposta), e nenhuma mensagem do bot era
+gravada (o leitor descartava toda automação, `automation_content_context_only`
+— inclusive a primeira, de boas-vindas).
+
+Mudança (só leitura do DOM; o contrato de captura não muda):
+
+- Mensagem do bot (`_typeOut_` + `_botMessage_`): vira `outgoing` com
+  `author_kind = automation`. Sem `data-mid`, a chave é
+  `manychat:auto:<fnv1a(minuto | começo do texto)>`, com `:2`, `:3` para
+  textos iguais no mesmo minuto. Botões ficam fora do texto e entram como
+  `[opções: A · B]`; "Ver mais" nunca é opção. Texto cortado pelo layout:
+  inteiro quando está no DOM (`title`/`aria-label`), senão marcado com
+  `[texto cortado no ManyChat]`.
+- Resposta com citação (cliente ou vendedor): só a resposta vira o texto.
+  A citação sai pela estrutura (`blockquote`, classes/`data-test-id` com
+  `quote`/`reply`/`context`) ou, sem estrutura, pela mensagem citada que
+  está na tela (rótulo curto + texto dela, inteiro ou cortado com "…").
+- Botão tocado pelo cliente: `[escolheu no menu] X` quando a citação é de
+  uma mensagem do bot e X é uma das opções dela (ou, sem as opções na tela,
+  uma resposta curta).
+- Sem citação nem botão na bolha, o texto continua exatamente o
+  `textContent` de antes.
+
+As classes de citação e de botão não foram validadas ao vivo; o caminho
+pelo texto da mensagem citada cobre a falta delas. A evidência de
+diagnóstico (`extractManyChatMessageContent`, resumos e safe views)
+continua tratando automação como contexto.

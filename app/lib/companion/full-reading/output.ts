@@ -111,6 +111,33 @@ export type FullReadingCustomer = {
   a_confirmar: string[]
 }
 
+// v4: campos estruturados para o painel (a tela nunca interpreta o
+// markdown). Todos obrigatórios, sem união.
+export const FULL_READING_PENDING_OWNERS = [
+  'vendedor',
+  'cliente',
+  'nenhum',
+] as const
+
+export const FULL_READING_TIMELINE_MAX_ITEMS =
+  10
+
+export type FullReadingTimelineItem = {
+  dia: string
+  hora: string
+  texto: string
+}
+
+export type FullReadingPendingItem = {
+  de: (typeof FULL_READING_PENDING_OWNERS)[number]
+  texto: string
+}
+
+export type FullReadingCoaching = {
+  acertos: string[]
+  ajustes: string[]
+}
+
 export type FullReadingDecision = {
   fase_relacao: (typeof FULL_READING_RELATIONSHIP_PHASES)[number]
   etapa_metodo_atual: string
@@ -132,6 +159,11 @@ export type FullReadingDecision = {
   afirmacoes_a_confirmar: string[]
   alertas_de_captura: string[]
   confianca_geral: (typeof FULL_READING_CONFIDENCE_LEVELS)[number]
+  proximo_passo_titulo: string
+  proximo_passo_complemento: string
+  linha_do_tempo: FullReadingTimelineItem[]
+  pendencias: FullReadingPendingItem[]
+  conducao: FullReadingCoaching
 }
 
 export type FullReadingOutput = {
@@ -192,6 +224,11 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
         'afirmacoes_a_confirmar',
         'alertas_de_captura',
         'confianca_geral',
+        'proximo_passo_titulo',
+        'proximo_passo_complemento',
+        'linha_do_tempo',
+        'pendencias',
+        'conducao',
       ],
       properties: {
         fase_relacao: stringEnum(
@@ -348,6 +385,87 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
           FULL_READING_CONFIDENCE_LEVELS,
           'Confiança geral na leitura.',
         ),
+        proximo_passo_titulo: {
+          type: 'string',
+          description:
+            'O próximo passo do vendedor em até ~8 palavras, no imperativo, sem códigos (ex.: "Confirmar o horário da visita").',
+        },
+        proximo_passo_complemento: {
+          type: 'string',
+          description:
+            'Uma frase curta que completa o próximo passo (o que fazer em seguida, ou o cuidado principal).',
+        },
+        linha_do_tempo: {
+          type: 'array',
+          description:
+            'Até 10 marcos da conversa em ordem, cada um em até ~12 palavras, sem códigos.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: [
+              'dia',
+              'hora',
+              'texto',
+            ],
+            properties: {
+              dia: {
+                type: 'string',
+                description:
+                  'Dia no formato dd/mm.',
+              },
+              hora: {
+                type: 'string',
+                description:
+                  'Hora no formato hh:mm, ou texto vazio quando não houver.',
+              },
+              texto: {
+                type: 'string',
+                description:
+                  'O que aconteceu, em frase curta.',
+              },
+            },
+          },
+        },
+        pendencias: {
+          type: 'array',
+          description:
+            'Pendências em frases curtas. de: vendedor (o vendedor deve algo), cliente (o cliente deve algo) ou nenhum (registro de que algo está resolvido, ex.: nenhuma pergunta sem resposta).',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: [
+              'de',
+              'texto',
+            ],
+            properties: {
+              de: stringEnum(
+                FULL_READING_PENDING_OWNERS,
+                'De quem é a pendência.',
+              ),
+              texto: {
+                type: 'string',
+              },
+            },
+          },
+        },
+        conducao: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            'Condução do vendedor em frases curtas.',
+          required: [
+            'acertos',
+            'ajustes',
+          ],
+          properties: {
+            acertos: stringArray(
+              'O que o vendedor fez bem, com evidência curta.',
+            ),
+            ajustes: stringArray(
+              'O que o vendedor deve ajustar.',
+            ),
+          },
+        },
       },
     },
   },
@@ -581,6 +699,62 @@ export function parseFullReadingOutput(
     fail(`${path}.cliente`, 'deveria ser um objeto')
   }
 
+  const timelineRaw =
+    decisionRaw.linha_do_tempo
+
+  if (!Array.isArray(timelineRaw)) {
+    fail(`${path}.linha_do_tempo`, 'deveria ser uma lista')
+  }
+
+  const linha_do_tempo =
+    timelineRaw
+      .map((item, index) => {
+        if (!isRecord(item)) {
+          fail(`${path}.linha_do_tempo[${index}]`, 'deveria ser um objeto')
+        }
+
+        return {
+          dia: readString(item, 'dia', `${path}.linha_do_tempo[${index}]`, { allowEmpty: true }),
+          hora: readString(item, 'hora', `${path}.linha_do_tempo[${index}]`, { allowEmpty: true }),
+          texto: readString(item, 'texto', `${path}.linha_do_tempo[${index}]`, { allowEmpty: true }),
+        }
+      })
+      .filter((item) => item.texto.length > 0)
+      .slice(0, FULL_READING_TIMELINE_MAX_ITEMS)
+
+  const pendingRaw =
+    decisionRaw.pendencias
+
+  if (!Array.isArray(pendingRaw)) {
+    fail(`${path}.pendencias`, 'deveria ser uma lista')
+  }
+
+  const pendencias =
+    pendingRaw
+      .map((item, index) => {
+        if (!isRecord(item)) {
+          fail(`${path}.pendencias[${index}]`, 'deveria ser um objeto')
+        }
+
+        return {
+          de: readEnum(
+            item,
+            'de',
+            FULL_READING_PENDING_OWNERS,
+            `${path}.pendencias[${index}]`,
+          ),
+          texto: readString(item, 'texto', `${path}.pendencias[${index}]`, { allowEmpty: true }),
+        }
+      })
+      .filter((item) => item.texto.length > 0)
+
+  const coachingRaw =
+    decisionRaw.conducao
+
+  if (!isRecord(coachingRaw)) {
+    fail(`${path}.conducao`, 'deveria ser um objeto')
+  }
+
   return {
     analise_markdown: analysis,
     decisao: {
@@ -672,6 +846,19 @@ export function parseFullReadingOutput(
         FULL_READING_CONFIDENCE_LEVELS,
         path,
       ),
+      proximo_passo_titulo: readString(decisionRaw, 'proximo_passo_titulo', path),
+      proximo_passo_complemento: readString(
+        decisionRaw,
+        'proximo_passo_complemento',
+        path,
+        { allowEmpty: true },
+      ),
+      linha_do_tempo,
+      pendencias,
+      conducao: {
+        acertos: readStringArray(coachingRaw, 'acertos', `${path}.conducao`),
+        ajustes: readStringArray(coachingRaw, 'ajustes', `${path}.conducao`),
+      },
     },
   }
 }

@@ -2979,3 +2979,506 @@ html.yolen-companion-collapsed #app {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Leitura completa v4 no painel (HML, rodada 6): decisão primeiro, cada
+   informação uma vez por aba. Conteúdo do modelo só por textContent. */
+#yolen-companion-panel {
+  --yolen-ux-card: #142033;
+  --yolen-ux-card-highlight: #16243a;
+  --yolen-ux-card-highlight-border: rgba(121, 180, 255, 0.35);
+  --yolen-ux-attention: #f5b94a;
+  --yolen-ux-attention-bg: rgba(245, 185, 74, 0.1);
+  --yolen-ux-attention-border: rgba(245, 185, 74, 0.35);
+  --yolen-ux-success: #6ee7a8;
+  --yolen-ux-success-bg: rgba(34, 197, 94, 0.12);
+  --yolen-ux-info-bg: rgba(121, 180, 255, 0.14);
+}
+
+#yolen-companion-panel .yolen-fr {
+  display: grid;
+  gap: 10px;
+}
+
+#yolen-companion-panel .yolen-fr-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--yolen-ux-border);
+  border-radius: 12px;
+  background: var(--yolen-ux-card);
+  color: var(--yolen-ux-text);
+}
+
+#yolen-companion-panel .yolen-fr-card + .yolen-fr-card,
+#yolen-companion-panel .yolen-fr-card + .yolen-fr-collapse,
+#yolen-companion-panel .yolen-fr-collapse + .yolen-fr-collapse {
+  margin-top: 10px;
+}
+
+#yolen-companion-panel .yolen-fr > .yolen-fr-card + .yolen-fr-card,
+#yolen-companion-panel .yolen-fr > * + .yolen-fr-collapse {
+  margin-top: 0;
+}
+
+#yolen-companion-panel .yolen-fr-card--highlight {
+  background: var(--yolen-ux-card-highlight);
+  border-color: var(--yolen-ux-card-highlight-border);
+}
+
+#yolen-companion-panel .yolen-fr-card--attention {
+  background: var(--yolen-ux-attention-bg);
+  border-color: var(--yolen-ux-attention-border);
+}
+
+#yolen-companion-panel .yolen-fr-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#yolen-companion-panel .yolen-fr-label,
+#yolen-companion-panel .yolen-fr-cell-label,
+#yolen-companion-panel .yolen-fr-day {
+  color: var(--yolen-ux-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+#yolen-companion-panel .yolen-fr-label--attention {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--yolen-ux-attention);
+}
+
+#yolen-companion-panel .yolen-fr-title {
+  color: var(--yolen-ux-text);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+#yolen-companion-panel .yolen-fr-body,
+#yolen-companion-panel .yolen-fr-list,
+#yolen-companion-panel .yolen-fr-for,
+#yolen-companion-panel .yolen-fr-timeline {
+  color: var(--yolen-ux-text-secondary);
+  font-size: 13.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+#yolen-companion-panel .yolen-fr-why {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--yolen-ux-text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+#yolen-companion-panel .yolen-fr-why .yolen-fr-icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+#yolen-companion-panel .yolen-fr-nosend {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--yolen-ux-border);
+}
+
+#yolen-companion-panel .yolen-fr-nosend-title {
+  color: var(--yolen-ux-text);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+#yolen-companion-panel .yolen-fr-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 3px 9px;
+  border: 1px solid var(--yolen-ux-border);
+  border-radius: 999px;
+  background: rgba(181, 196, 220, 0.08);
+  color: var(--yolen-ux-text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#yolen-companion-panel .yolen-fr-pill--info {
+  border-color: rgba(121, 180, 255, 0.35);
+  background: var(--yolen-ux-info-bg);
+  color: var(--yolen-ux-accent);
+}
+
+#yolen-companion-panel .yolen-fr-pill--attention {
+  border-color: var(--yolen-ux-attention-border);
+  background: var(--yolen-ux-attention-bg);
+  color: var(--yolen-ux-attention);
+}
+
+#yolen-companion-panel .yolen-fr-pill--ok {
+  border-color: rgba(110, 231, 168, 0.35);
+  background: var(--yolen-ux-success-bg);
+  color: var(--yolen-ux-success);
+}
+
+#yolen-companion-panel .yolen-fr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#yolen-companion-panel .yolen-fr-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    filter var(--yolen-ux-motion-fast) ease,
+    background var(--yolen-ux-motion-fast) ease,
+    border-color var(--yolen-ux-motion-fast) ease;
+}
+
+#yolen-companion-panel .yolen-fr-actions .yolen-fr-button {
+  flex: 1 1 auto;
+}
+
+#yolen-companion-panel .yolen-fr-button--primary {
+  background: var(--yolen-ux-action);
+  color: #ffffff;
+}
+
+#yolen-companion-panel .yolen-fr-button--primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+#yolen-companion-panel .yolen-fr-button--secondary,
+#yolen-companion-panel .yolen-fr-button--outline {
+  border-color: rgba(121, 180, 255, 0.35);
+  background: transparent;
+  color: var(--yolen-ux-text);
+}
+
+#yolen-companion-panel .yolen-fr-button--secondary:hover:not(:disabled),
+#yolen-companion-panel .yolen-fr-button--outline:hover:not(:disabled) {
+  background: rgba(121, 180, 255, 0.08);
+}
+
+#yolen-companion-panel .yolen-fr-button--link {
+  min-height: 40px;
+  padding: 0 4px;
+  background: transparent;
+  color: var(--yolen-ux-accent);
+  font-size: 12.5px;
+}
+
+#yolen-companion-panel .yolen-fr-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+#yolen-companion-panel .yolen-fr-status,
+#yolen-companion-panel .yolen-fr-note {
+  color: var(--yolen-ux-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+#yolen-companion-panel .yolen-fr-stage-pills {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--yolen-ux-text-muted);
+}
+
+#yolen-companion-panel .yolen-fr-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#yolen-companion-panel .yolen-fr-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--yolen-ux-border);
+  border-radius: 10px;
+  background: var(--yolen-ux-card);
+}
+
+#yolen-companion-panel .yolen-fr-relationship .yolen-fr-cell {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+}
+
+#yolen-companion-panel .yolen-fr-cell-label {
+  font-size: 10.5px;
+}
+
+#yolen-companion-panel .yolen-fr-cell-value {
+  color: var(--yolen-ux-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+#yolen-companion-panel .yolen-fr-list,
+#yolen-companion-panel .yolen-fr-timeline {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#yolen-companion-panel .yolen-fr-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+#yolen-companion-panel .yolen-fr-list-item > .yolen-fr-icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+#yolen-companion-panel .yolen-fr-list-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#yolen-companion-panel .yolen-fr-list-text strong {
+  color: var(--yolen-ux-text);
+  font-weight: 600;
+}
+
+#yolen-companion-panel .yolen-fr-list-aside {
+  flex: 0 0 auto;
+  color: var(--yolen-ux-text-muted);
+  font-size: 12px;
+}
+
+#yolen-companion-panel .yolen-fr-list-item > .yolen-fr-pill {
+  flex: 0 0 auto;
+}
+
+#yolen-companion-panel .yolen-fr-icon--attention {
+  color: var(--yolen-ux-attention);
+}
+
+#yolen-companion-panel .yolen-fr-icon--ok {
+  color: var(--yolen-ux-success);
+}
+
+#yolen-companion-panel .yolen-fr-icon--neutral,
+#yolen-companion-panel .yolen-fr-icon--todo {
+  color: var(--yolen-ux-text-muted);
+}
+
+#yolen-companion-panel .yolen-fr-sublabel {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#yolen-companion-panel .yolen-fr-sublabel--ok {
+  color: var(--yolen-ux-success);
+}
+
+#yolen-companion-panel .yolen-fr-sublabel--attention {
+  color: var(--yolen-ux-attention);
+}
+
+#yolen-companion-panel .yolen-fr-timeline-item {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 8px;
+}
+
+#yolen-companion-panel .yolen-fr-time {
+  color: var(--yolen-ux-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#yolen-companion-panel .yolen-fr-timeline-item--quiet .yolen-fr-timeline-text {
+  color: var(--yolen-ux-text);
+  font-weight: 600;
+}
+
+#yolen-companion-panel .yolen-fr-collapse {
+  border: 1px solid var(--yolen-ux-border);
+  border-radius: 12px;
+  background: var(--yolen-ux-card);
+}
+
+#yolen-companion-panel .yolen-fr-collapse-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  color: var(--yolen-ux-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+#yolen-companion-panel .yolen-fr-collapse-summary::-webkit-details-marker {
+  display: none;
+}
+
+#yolen-companion-panel .yolen-fr-collapse-summary .yolen-fr-chevron {
+  margin-left: auto;
+  color: var(--yolen-ux-text-muted);
+  transition: transform var(--yolen-ux-motion-fast) ease;
+}
+
+#yolen-companion-panel .yolen-fr-collapse[open] .yolen-fr-chevron {
+  transform: rotate(180deg);
+}
+
+#yolen-companion-panel .yolen-fr-count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(181, 196, 220, 0.12);
+  color: var(--yolen-ux-text-secondary);
+  font-size: 11px;
+}
+
+#yolen-companion-panel .yolen-fr-collapse-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+#yolen-companion-panel .yolen-fr-draft {
+  width: 100%;
+  min-height: 150px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--yolen-ux-border);
+  border-radius: 10px;
+  background: rgba(11, 18, 32, 0.7);
+  color: var(--yolen-ux-text);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+#yolen-companion-panel .yolen-fr-for-label {
+  color: var(--yolen-ux-text-muted);
+}
+
+#yolen-companion-panel .yolen-fr-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--yolen-ux-text-muted);
+  font-size: 12px;
+}
+
+#yolen-companion-panel .yolen-fr-notice {
+  margin: 0;
+}
+
+/* Cabeçalho do contato com a leitura completa. */
+#yolen-companion-panel .yolen-contact-card--full-reading {
+  display: grid;
+  gap: 8px;
+}
+
+#yolen-companion-panel .yolen-fr-contact-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+#yolen-companion-panel .yolen-fr-contact-copy {
+  min-width: 0;
+}
+
+#yolen-companion-panel .yolen-fr-contact-subline {
+  color: var(--yolen-ux-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+#yolen-companion-panel .yolen-fr-contact-open {
+  flex: 0 0 auto;
+  min-height: 32px;
+}
+
+#yolen-companion-panel .yolen-fr-contact-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* HML: o selo do pacote (HML + ManyChat · versão · commit) quebra linha em
+   vez de passar por baixo do "Conectada". Só existe no pacote homolog. */
+#yolen-companion-panel .yolen-build-badge-hml,
+#yolen-companion-panel .yolen-build-badge-backend {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Nova oportunidade: "O que é esta oportunidade?" (rodada 6, HML). */
+#yolen-companion-panel .yolen-successor-note {
+  display: grid;
+  gap: 4px;
+}
+
+#yolen-companion-panel .yolen-successor-note-label {
+  color: var(--yolen-ux-text-secondary, #5b6475);
+  font-size: 12px;
+}
+
+#yolen-companion-panel .yolen-successor-optional {
+  color: var(--yolen-ux-text-muted, #7b8496);
+}
+
+#yolen-companion-panel .yolen-successor-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--yolen-ux-border, rgba(126, 153, 194, 0.24));
+  border-radius: 8px;
+  background: rgba(11, 18, 32, 0.6);
+  color: var(--yolen-ux-text, #1f2430);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}

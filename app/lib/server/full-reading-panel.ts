@@ -38,6 +38,14 @@ import {
 } from '../companion/full-reading/prompt'
 
 import {
+  isFullReadingPanelEnabled,
+} from './full-reading-flag'
+
+import {
+  loadFullReadingCycleChain,
+} from './full-reading-cycle-chain'
+
+import {
   RESUME_WORDING,
   buildFullReadingAgoraView,
   buildFullReadingAnalysisView,
@@ -95,14 +103,9 @@ const UUID_PATTERN =
 type EnvLike =
   Record<string, string | undefined>
 
-export function isFullReadingPanelEnabled(
-  env: EnvLike = process.env,
-): boolean {
-  return (
-    env.COMPANION_FULL_READING_PANEL === 'on' &&
-    env.VERCEL_ENV === 'preview'
-  )
-}
+// A flag mora num módulo leve (rotas que só precisam dela não carregam a
+// leitura inteira); daqui ela continua exportada.
+export { isFullReadingPanelEnabled }
 
 export type FullReadingPanelRunRow = {
   run_id: string
@@ -465,6 +468,10 @@ export type FullReadingPanelSnapshot = {
   failure_code: string | null
   kanban: FullReadingPanelKanban
   last_customer_message_at: string | null
+  // Última mensagem da conversa (qualquer lado): "Último contato".
+  last_message_at?: string | null
+  // Oportunidade nova lendo o histórico do ciclo anterior.
+  successor?: boolean
   started_run_id: string | null
 }
 
@@ -513,18 +520,21 @@ async function readRuns(
   return (data ?? []) as unknown as FullReadingPanelRunRow[]
 }
 
+// cycleIds: o ciclo e, numa oportunidade nova, os ciclos de origem (a
+// mesma conversa continua gravada no ciclo fechado).
 async function readLatestTimestamp(
   admin: SupabaseClient,
   scope: FullReadingPanelScope,
   column: 'observed_at' | 'occurred_at',
   incomingOnly: boolean,
+  cycleIds: string[] = [scope.cycle_id],
 ): Promise<string | null> {
   let query =
     admin
       .from('conversation_messages')
       .select(column)
       .eq('company_id', scope.company_id)
-      .eq('cycle_id', scope.cycle_id)
+      .in('cycle_id', cycleIds)
       .eq('conversation_key', scope.conversation_key)
 
   if (incomingOnly) {
@@ -720,15 +730,28 @@ export async function resolveFullReadingPanel({
     return null
   }
 
-  const [runs, latestObservedAt] =
+  const chain =
+    await loadFullReadingCycleChain({
+      admin,
+      companyId: scope.company_id,
+      cycleId: scope.cycle_id,
+    })
+
+  const chainCycleIds =
+    chain.length > 0
+      ? chain.map((link) => link.id)
+      : [scope.cycle_id]
+
+  const [runs, latestObservedAt, lastMessageAt] =
     await Promise.all([
       readRuns(admin, scope),
-      readLatestTimestamp(admin, scope, 'observed_at', false),
+      readLatestTimestamp(admin, scope, 'observed_at', false, chainCycleIds),
+      readLatestTimestamp(admin, scope, 'occurred_at', false, chainCycleIds),
     ])
 
   const lastCustomerMessageAt =
     kanban.status === 'perdido' || kanban.status === 'cancelado'
-      ? await readLatestTimestamp(admin, scope, 'occurred_at', true)
+      ? await readLatestTimestamp(admin, scope, 'occurred_at', true, chainCycleIds)
       : null
 
   const plan =
@@ -750,6 +773,8 @@ export async function resolveFullReadingPanel({
     stale_reasons: plan.stale_reasons,
     kanban,
     last_customer_message_at: lastCustomerMessageAt,
+    last_message_at: lastMessageAt,
+    successor: chain.length > 1,
   }
 
   if (plan.action === 'use') {
@@ -848,6 +873,7 @@ export function buildAgoraFullReadingView(
     kanban: snapshot.kanban,
     cycleId,
     lastCustomerMessageAt: snapshot.last_customer_message_at,
+    lastMessageAt: snapshot.last_message_at ?? null,
   })
 }
 
@@ -858,6 +884,8 @@ export function buildAnalysisFullReadingView(
     state: snapshot.state,
     reading: snapshot.reading,
     failureCode: snapshot.failure_code,
+    kanban: snapshot.kanban,
+    lastMessageAt: snapshot.last_message_at ?? null,
   })
 }
 

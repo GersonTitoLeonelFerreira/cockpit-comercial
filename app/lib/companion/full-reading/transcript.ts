@@ -44,6 +44,13 @@ export type FullReadingTranscriptMessage = Pick<
   | 'deletion_reason'
 >
 
+// Marco que não é mensagem (ex.: "Nova oportunidade aberta em ..."): entra
+// na ordem do tempo, numa linha própria, e não conta como mensagem.
+export type FullReadingTranscriptMarker = {
+  occurred_at: string
+  text: string
+}
+
 export type FullReadingTranscript = {
   text: string
   message_count: number
@@ -211,6 +218,7 @@ export function buildFullReadingTranscript(
   options: {
     timeZone?: string
     maxChars?: number
+    markers?: FullReadingTranscriptMarker[]
   } = {},
 ): FullReadingTranscript {
   const timeZone =
@@ -227,6 +235,7 @@ export function buildFullReadingTranscript(
   const lines: {
     line: string
     occurred_at: string
+    marker: boolean
   }[] = []
 
   for (const message of ordered) {
@@ -241,7 +250,39 @@ export function buildFullReadingTranscript(
       line: `[${formatTranscriptTimestamp(message.occurred_at, timeZone)}] ${authorLabel(message.author_kind, message.direction)}: ${content}`,
       occurred_at:
         message.occurred_at,
+      marker: false,
     })
+  }
+
+  // Marcos entram depois das mensagens do mesmo instante (ou antes da
+  // primeira mensagem posterior a eles).
+  for (const marker of options.markers ?? []) {
+    const markerTime =
+      Date.parse(marker.occurred_at)
+
+    const text =
+      readText(marker.text)
+
+    if (Number.isNaN(markerTime) || !text) {
+      continue
+    }
+
+    const index =
+      lines.findIndex(
+        (item) => Date.parse(item.occurred_at) > markerTime,
+      )
+
+    const entry = {
+      line: `[${formatTranscriptTimestamp(marker.occurred_at, timeZone)}] —— ${text} ——`,
+      occurred_at: marker.occurred_at,
+      marker: true,
+    }
+
+    if (index === -1) {
+      lines.push(entry)
+    } else {
+      lines.splice(index, 0, entry)
+    }
   }
 
   // Mantém as mensagens mais recentes quando a conversa passa do teto.
@@ -263,8 +304,11 @@ export function buildFullReadingTranscript(
   const kept =
     lines.slice(startIndex)
 
+  const keptMessages =
+    kept.filter((item) => !item.marker)
+
   const omitted =
-    lines.length - kept.length
+    lines.filter((item) => !item.marker).length - keptMessages.length
 
   const body =
     kept.map((item) => item.line).join('\n')
@@ -276,11 +320,11 @@ export function buildFullReadingTranscript(
 
   return {
     text,
-    message_count: kept.length,
+    message_count: keptMessages.length,
     omitted_message_count: omitted,
     first_message_at:
-      kept[0]?.occurred_at ?? null,
+      keptMessages[0]?.occurred_at ?? null,
     last_message_at:
-      kept[kept.length - 1]?.occurred_at ?? null,
+      keptMessages[keptMessages.length - 1]?.occurred_at ?? null,
   }
 }

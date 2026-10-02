@@ -27,6 +27,11 @@ function createCompanionLeadCreationController(ctx) {
   const SUCCESSOR_RESOLVE_RETRY_DELAYS_MS =
     [400, 900, 1600]
 
+  // "O que é esta oportunidade?" (opcional): vai para a nota do evento de
+  // criação e para a leitura completa do ciclo novo.
+  const SUCCESSOR_NOTE_MAX_LENGTH =
+    300
+
   const successorInFlightKeys =
     new Set()
   // Idempotência determinística de createLead por conversa: nenhum clique
@@ -266,6 +271,16 @@ function createCompanionLeadCreationController(ctx) {
         <div class="yolen-successor-options" role="radiogroup" aria-label="Tipo da nova oportunidade">
           ${options}
         </div>
+        ${resolution?.capabilities?.can_note_successor_opportunity === true ? `<label class="yolen-successor-note">
+          <span class="yolen-successor-note-label">O que é esta oportunidade? <span class="yolen-successor-optional">(opcional)</span></span>
+          <textarea
+            class="yolen-successor-note-input"
+            data-yolen-successor-note
+            rows="2"
+            maxlength="${SUCCESSOR_NOTE_MAX_LENGTH}"
+            placeholder="Ex.: quer passar para o plano anual"
+          >${escapeHtml(current.note || '')}</textarea>
+        </label>` : ''}
         ${current.step === 'error' && current.error ? getSuccessorStatusHtml(current.error, 'error') : ''}
         <div class="yolen-successor-actions">
           <button
@@ -302,8 +317,24 @@ function createCompanionLeadCreationController(ctx) {
       key,
       step: 'choosing',
       type: null,
+      note: '',
       error: null,
     })
+
+    return true
+  }
+
+  // A digitação fica no estado sem redesenhar (o painel adia o redesenho
+  // enquanto o campo está em foco e depois o refaz com o texto).
+  function updateSuccessorNote(value) {
+    const current = getCurrentSuccessorState()
+
+    if (current?.step !== 'choosing' && current?.step !== 'error') {
+      return false
+    }
+
+    current.note =
+      String(value ?? '').slice(0, SUCCESSOR_NOTE_MAX_LENGTH)
 
     return true
   }
@@ -415,6 +446,12 @@ function createCompanionLeadCreationController(ctx) {
         await window.YolenCompanionApi.createSuccessorOpportunity({
           cycle_id: resolution.cycle.id,
           opportunity_type: current.type,
+          ...(
+            resolution.capabilities?.can_note_successor_opportunity === true &&
+            String(current.note || '').trim()
+              ? { note: String(current.note).trim().slice(0, SUCCESSOR_NOTE_MAX_LENGTH) }
+              : {}
+          ),
           confirmed_by_human: true,
         })
 
@@ -749,6 +786,7 @@ function createCompanionLeadCreationController(ctx) {
     openSuccessorChooser,
     cancelSuccessorChooser,
     selectSuccessorType,
+    updateSuccessorNote,
     confirmSuccessorOpportunity,
   }
 }

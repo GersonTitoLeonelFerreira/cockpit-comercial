@@ -2348,10 +2348,9 @@
   // marcador com a chave da view, e o conteúdo é montado depois por
   // hydrateFullReadingSlots, com createElement e textContent.
   const FULL_READING_SLOT_KINDS =
-    new Set(['agora', 'analysis', 'client', 'lead_summary'])
+    new Set(['agora', 'analysis', 'client'])
 
-  // client e lead_summary vêm da view da AGORA (decisao.cliente e
-  // situacao_resumo da mesma leitura).
+  // client vem da view da AGORA (decisao.cliente da mesma leitura).
   function getFullReadingSlotView(kind, views) {
     if (kind === 'analysis') {
       return views?.analysis || null
@@ -2373,7 +2372,7 @@
     }
 
     return (
-      '<div class="yolen-card yolen-seller-area-card yolen-full-reading"' +
+      '<div class="yolen-full-reading yolen-fr"' +
       ` data-yolen-full-reading="${escapeHtml(kind)}"` +
       ` data-yolen-full-reading-key="${escapeHtml(view.view_key)}"` +
       ` data-yolen-full-reading-state="${escapeHtml(String(view.state || ''))}"` +
@@ -2385,6 +2384,12 @@
     return typeof value === 'string'
       ? value.replace(/\s+/g, ' ').trim()
       : ''
+  }
+
+  function fullReadingList(items) {
+    return Array.isArray(items)
+      ? items.map(fullReadingText).filter(Boolean)
+      : []
   }
 
   function createTextElement(doc, tag, className, value) {
@@ -2399,6 +2404,113 @@
     return node
   }
 
+  // Ícones de traço (sem emoji), desenhados com o namespace SVG: nada de
+  // HTML montado a partir de texto.
+  const SVG_NS = 'http://www.w3.org/2000/svg'
+
+  const FULL_READING_ICONS = Object.freeze({
+    clock: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7v5l3 2' }]],
+    arrow: [['path', { d: 'M5 12h14' }], ['path', { d: 'M13 6l6 6-6 6' }]],
+    alert: [['path', { d: 'M12 3.5l9 16H3z' }], ['path', { d: 'M12 10v4' }], ['path', { d: 'M12 17h.01' }]],
+    attention: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 8v5' }], ['path', { d: 'M12 16h.01' }]],
+    waiting: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M8 12h.01' }], ['path', { d: 'M12 12h.01' }], ['path', { d: 'M16 12h.01' }]],
+    ok: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M8 12.5l2.5 2.5L16 9.5' }]],
+    check: [['path', { d: 'M5 12.5l4.5 4.5L19 7' }]],
+    adjust: [['path', { d: 'M7 17L17 7' }], ['path', { d: 'M9 7h8v8' }]],
+    todo: [['circle', { cx: 12, cy: 12, r: 8 }]],
+    refresh: [['path', { d: 'M20 11a8 8 0 1 0-2.3 5.7' }], ['path', { d: 'M20 5v6h-6' }]],
+    chevron: [['path', { d: 'M6 9l6 6 6-6' }]],
+  })
+
+  function createIcon(doc, name, className) {
+    const shapes = FULL_READING_ICONS[name]
+    const svg = doc.createElementNS(SVG_NS, 'svg')
+
+    svg.setAttribute('viewBox', '0 0 24 24')
+    svg.setAttribute('width', '16')
+    svg.setAttribute('height', '16')
+    svg.setAttribute('fill', 'none')
+    svg.setAttribute('stroke', 'currentColor')
+    svg.setAttribute('stroke-width', '1.8')
+    svg.setAttribute('stroke-linecap', 'round')
+    svg.setAttribute('stroke-linejoin', 'round')
+    svg.setAttribute('aria-hidden', 'true')
+    svg.setAttribute('focusable', 'false')
+    svg.setAttribute('class', `yolen-fr-icon${className ? ` ${className}` : ''}`)
+    svg.setAttribute('data-yolen-fr-icon', name)
+
+    for (const [tag, attributes] of shapes || []) {
+      const shape = doc.createElementNS(SVG_NS, tag)
+
+      for (const [key, value] of Object.entries(attributes)) {
+        shape.setAttribute(key, String(value))
+      }
+
+      svg.appendChild(shape)
+    }
+
+    return svg
+  }
+
+  function createCard(doc, { key, tone, label, pill, pillTone }) {
+    const card = doc.createElement('section')
+    card.className = `yolen-fr-card${tone ? ` yolen-fr-card--${tone}` : ''}`
+
+    if (key) {
+      card.setAttribute('data-yolen-fr-card', key)
+    }
+
+    if (label || pill) {
+      const head = doc.createElement('div')
+      head.className = 'yolen-fr-card-head'
+
+      if (label) {
+        head.appendChild(
+          typeof label === 'string'
+            ? createTextElement(doc, 'div', 'yolen-fr-label', label)
+            : label,
+        )
+      }
+
+      if (pill) {
+        head.appendChild(createPill(doc, pill, pillTone || 'info'))
+      }
+
+      card.appendChild(head)
+    }
+
+    return card
+  }
+
+  function createPill(doc, text, tone) {
+    const pill = createTextElement(doc, 'span', `yolen-fr-pill yolen-fr-pill--${tone || 'neutral'}`, text)
+    pill.setAttribute('data-yolen-fr-pill', tone || 'neutral')
+
+    return pill
+  }
+
+  function createButton(doc, { label, action, variant, icon, iconAfter }) {
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.className = `yolen-fr-button yolen-fr-button--${variant || 'secondary'}`
+
+    if (action) {
+      button.setAttribute('data-yolen-action', action)
+    }
+
+    if (icon) {
+      button.appendChild(createIcon(doc, icon))
+    }
+
+    button.appendChild(doc.createTextNode(fullReadingText(label)))
+
+    if (iconAfter) {
+      button.appendChild(createIcon(doc, iconAfter))
+    }
+
+    return button
+  }
+
   function appendFullReadingNotice(doc, nodes, view) {
     const notice = fullReadingText(view.notice)
 
@@ -2409,8 +2521,8 @@
     const line = doc.createElement('div')
     line.className =
       view.state === 'failed'
-        ? 'yolen-full-reading-notice yolen-status-warning'
-        : 'yolen-inline-loading-status yolen-full-reading-notice'
+        ? 'yolen-full-reading-notice yolen-fr-notice yolen-status-warning'
+        : 'yolen-inline-loading-status yolen-full-reading-notice yolen-fr-notice'
     line.setAttribute('role', 'status')
     line.setAttribute('aria-live', 'polite')
     line.setAttribute('data-yolen-full-reading-notice', String(view.state || ''))
@@ -2426,243 +2538,524 @@
     nodes.push(line)
   }
 
-  function buildAgoraFullReadingNodes(doc, view, options) {
-    const nodes = []
+  // "Leitura completa · 01/10, 20:07" uma vez por aba (+ Atualizar).
+  function appendFullReadingFooter(doc, nodes, view, { refresh = false } = {}) {
+    const footer = fullReadingText(view.footer)
 
-    nodes.push(createTextElement(doc, 'div', 'yolen-section-label', 'Agora'))
-
-    const kanbanLine = fullReadingText(view.kanban_line)
-
-    if (kanbanLine) {
-      const kanban = createTextElement(doc, 'div', 'yolen-full-reading-kanban', kanbanLine)
-      kanban.setAttribute('data-yolen-full-reading-kanban', String(view.kanban?.status || ''))
-      nodes.push(kanban)
+    if (!footer) {
+      return
     }
 
-    appendFullReadingNotice(doc, nodes, view)
+    const row = doc.createElement('div')
+    row.className = 'yolen-fr-footer'
+    row.appendChild(createTextElement(doc, 'span', 'yolen-full-reading-footer', footer))
+
+    if (refresh) {
+      row.appendChild(
+        createButton(doc, {
+          label: 'Atualizar',
+          action: 'full-reading-refresh',
+          variant: 'link',
+          icon: 'refresh',
+        }),
+      )
+    }
+
+    nodes.push(row)
+  }
+
+  const NOTHING_TO_SEND_TITLE =
+    'Nada a enviar agora'
+
+  // Próximo passo: a v4 traz título curto e complemento; uma leitura
+  // antiga só tem a Ação e o Por quê.
+  function readNextStep(view) {
+    const next = view.next_step && typeof view.next_step === 'object' ? view.next_step : null
+
+    if (next) {
+      return next
+    }
 
     const main = view.main && typeof view.main === 'object' ? view.main : null
 
-    if (main) {
-      const card = doc.createElement('div')
-      card.className = 'yolen-full-reading-main'
-      card.setAttribute('data-yolen-full-reading-main', '')
+    if (!main) {
+      return null
+    }
 
-      for (const [label, value, key] of [
-        ['Situação', main.situacao, 'situacao'],
-        ['Ação', main.acao, 'acao'],
-        ['Por quê', main.por_que, 'por_que'],
-      ]) {
-        const text = fullReadingText(value)
+    const send = view.message?.mode === 'send'
 
-        if (!text) {
-          continue
-        }
+    return {
+      turn: '',
+      turn_label: '',
+      title: main.acao,
+      complement: '',
+      why: main.por_que,
+      send,
+      no_send_reason: send ? null : main.por_que,
+    }
+  }
 
-        const block = doc.createElement('div')
-        block.className = 'yolen-decision-block'
-        block.setAttribute('data-yolen-full-reading-field', key)
-        block.appendChild(createTextElement(doc, 'div', 'yolen-decision-kicker', label))
-        block.appendChild(createTextElement(doc, 'div', 'yolen-decision-copy', text))
-        card.appendChild(block)
+  function buildNextStepCard(doc, next) {
+    const card = createCard(doc, {
+      key: 'next_step',
+      tone: 'highlight',
+      label: 'Próximo passo',
+      pill: fullReadingText(next.turn_label) || null,
+      pillTone: 'info',
+    })
+
+    card.setAttribute('data-yolen-full-reading-main', '')
+
+    const send = next.send === true
+    const title = fullReadingText(next.title)
+    const reason = fullReadingText(next.no_send_reason)
+    const why = fullReadingText(next.why)
+    const complement = fullReadingText(next.complement)
+
+    if (title) {
+      card.appendChild(createTextElement(doc, 'div', 'yolen-fr-title', title))
+    }
+
+    if (complement && complement !== title) {
+      card.appendChild(createTextElement(doc, 'div', 'yolen-fr-body', complement))
+    }
+
+    // O motivo de não enviar e o porquê costumam ser a mesma frase: uma
+    // vez só.
+    if (why && why !== complement && (send || why !== reason)) {
+      const line = doc.createElement('div')
+      line.className = 'yolen-fr-why'
+      line.setAttribute('data-yolen-full-reading-field', 'por_que')
+      line.appendChild(createIcon(doc, 'clock'))
+      line.appendChild(createTextElement(doc, 'span', '', why))
+      card.appendChild(line)
+    }
+
+    if (send) {
+      const actions = doc.createElement('div')
+      actions.className = 'yolen-fr-actions'
+      actions.appendChild(
+        createButton(doc, {
+          label: 'Ver mensagem pronta',
+          action: 'full-reading-open-message',
+          variant: 'primary',
+          iconAfter: 'arrow',
+        }),
+      )
+      card.appendChild(actions)
+    } else {
+      const block = doc.createElement('div')
+      block.className = 'yolen-fr-nosend'
+      block.setAttribute('data-yolen-full-reading-no-send', '')
+
+      if (title !== NOTHING_TO_SEND_TITLE) {
+        block.appendChild(createTextElement(doc, 'div', 'yolen-fr-nosend-title', NOTHING_TO_SEND_TITLE))
       }
 
-      nodes.push(card)
+      if (reason) {
+        block.appendChild(createTextElement(doc, 'div', 'yolen-fr-body', reason))
+      }
+
+      if (block.childNodes.length > 0) {
+        card.appendChild(block)
+      }
     }
+
+    return card
+  }
+
+  function buildStageCard(doc, stage, options) {
+    const card = createCard(doc, { key: 'stage', label: 'Etapa no kanban' })
+    card.classList.add('yolen-full-reading-stage')
+    card.setAttribute('data-yolen-full-reading-stage-kind', String(stage.kind || ''))
+
+    const pills = doc.createElement('div')
+    pills.className = 'yolen-fr-stage-pills'
+    pills.appendChild(createPill(doc, stage.current_label, 'neutral'))
+    pills.appendChild(createIcon(doc, 'arrow', 'yolen-fr-stage-arrow'))
+    pills.appendChild(createPill(doc, stage.suggested_label, 'info'))
+    card.appendChild(pills)
+
+    if (fullReadingText(stage.reason)) {
+      card.appendChild(createTextElement(doc, 'div', 'yolen-fr-body yolen-full-reading-stage-reason', stage.reason))
+    }
+
+    const button = createButton(doc, {
+      label: stage.button_label,
+      action: 'full-reading-stage',
+      variant: 'outline',
+    })
+    button.setAttribute('data-yolen-full-reading-stage-kind', String(stage.kind || ''))
+
+    if (options?.stageBusy === true) {
+      button.disabled = true
+    }
+
+    const actions = doc.createElement('div')
+    actions.className = 'yolen-fr-actions'
+    actions.appendChild(button)
+    card.appendChild(actions)
+
+    const status = fullReadingText(options?.stageStatus)
+
+    if (status) {
+      const statusLine = createTextElement(doc, 'div', 'yolen-fr-status', status)
+      statusLine.setAttribute('data-yolen-full-reading-stage-status', '')
+      statusLine.setAttribute('role', 'status')
+      card.appendChild(statusLine)
+    }
+
+    return card
+  }
+
+  function buildFactsGrid(doc, facts, key) {
+    const grid = doc.createElement('div')
+    grid.className = 'yolen-fr-grid'
+    grid.setAttribute('data-yolen-fr-grid', key)
+
+    for (const fact of facts) {
+      const label = fullReadingText(fact?.label)
+      const value = fullReadingText(fact?.value)
+
+      if (!label || !value) {
+        continue
+      }
+
+      const cell = doc.createElement('div')
+      cell.className = 'yolen-fr-cell'
+      cell.setAttribute('data-yolen-fr-fact', String(fact.key || ''))
+      cell.appendChild(createTextElement(doc, 'div', 'yolen-fr-cell-label', label))
+      cell.appendChild(createTextElement(doc, 'div', 'yolen-fr-cell-value', value))
+      grid.appendChild(cell)
+    }
+
+    return grid
+  }
+
+  function buildIconList(doc, items, { icon, iconClass, className } = {}) {
+    const list = doc.createElement('ul')
+    list.className = `yolen-fr-list${className ? ` ${className}` : ''}`
+
+    for (const item of items) {
+      const text = fullReadingText(typeof item === 'string' ? item : item?.text)
+
+      if (!text) {
+        continue
+      }
+
+      const row = doc.createElement('li')
+      row.className = 'yolen-fr-list-item'
+
+      const itemIcon = typeof item === 'object' && item?.icon ? item.icon : icon
+
+      if (itemIcon) {
+        row.appendChild(createIcon(doc, itemIcon, typeof item === 'object' && item?.iconClass ? item.iconClass : iconClass))
+      }
+
+      const content = doc.createElement('span')
+      content.className = 'yolen-fr-list-text'
+
+      if (typeof item === 'object' && fullReadingText(item?.prefix)) {
+        content.appendChild(createTextElement(doc, 'strong', '', `${fullReadingText(item.prefix)}:`))
+        content.appendChild(doc.createTextNode(' '))
+      }
+
+      content.appendChild(doc.createTextNode(text))
+      row.appendChild(content)
+
+      if (typeof item === 'object' && fullReadingText(item?.aside)) {
+        row.appendChild(createTextElement(doc, 'span', 'yolen-fr-list-aside', item.aside))
+      }
+
+      if (typeof item === 'object' && item?.pill) {
+        row.appendChild(createPill(doc, item.pill, item.pillTone))
+      }
+
+      list.appendChild(row)
+    }
+
+    return list
+  }
+
+  function buildAgoraFullReadingNodes(doc, view, options) {
+    const nodes = []
+
+    appendFullReadingNotice(doc, nodes, view)
+
+    const next = readNextStep(view)
+
+    if (!next) {
+      return nodes
+    }
+
+    nodes.push(buildNextStepCard(doc, next))
 
     const stage = view.stage_card && typeof view.stage_card === 'object' ? view.stage_card : null
 
     if (stage) {
-      const card = doc.createElement('div')
-      card.className = 'yolen-decision-block yolen-full-reading-stage'
-      card.setAttribute('data-yolen-full-reading-stage-kind', String(stage.kind || ''))
-      card.appendChild(createTextElement(doc, 'div', 'yolen-decision-kicker', 'Etapa'))
-      card.appendChild(createTextElement(doc, 'div', 'yolen-decision-copy yolen-full-reading-stage-title', stage.title))
+      nodes.push(buildStageCard(doc, stage, options))
+    }
 
-      if (fullReadingText(stage.reason)) {
-        card.appendChild(createTextElement(doc, 'div', 'yolen-decision-copy yolen-full-reading-stage-reason', stage.reason))
-      }
+    const facts = Array.isArray(view.facts) ? view.facts : []
 
-      const button = doc.createElement('button')
-      button.type = 'button'
-      button.className = 'yolen-primary-button'
-      button.setAttribute('data-yolen-action', 'full-reading-stage')
-      button.setAttribute('data-yolen-full-reading-stage-kind', String(stage.kind || ''))
-      button.textContent = fullReadingText(stage.button_label)
+    if (facts.length > 0) {
+      nodes.push(buildFactsGrid(doc, facts, 'agora'))
+    }
 
-      if (options?.stageBusy === true) {
-        button.disabled = true
-      }
+    const beforeSend = fullReadingList(view.before_send).slice(0, 2)
 
-      const actions = doc.createElement('div')
-      actions.className = 'yolen-inline-actions'
-      actions.appendChild(button)
-      card.appendChild(actions)
+    if (beforeSend.length > 0) {
+      const label = doc.createElement('div')
+      label.className = 'yolen-fr-label yolen-fr-label--attention'
+      label.appendChild(createIcon(doc, 'alert'))
+      label.appendChild(doc.createTextNode('Antes de enviar'))
 
-      const status = fullReadingText(options?.stageStatus)
-
-      if (status) {
-        const statusLine = createTextElement(doc, 'div', 'yolen-card-description', status)
-        statusLine.setAttribute('data-yolen-full-reading-stage-status', '')
-        statusLine.setAttribute('role', 'status')
-        card.appendChild(statusLine)
-      }
-
+      const card = createCard(doc, { key: 'before_send', tone: 'attention', label })
+      card.appendChild(buildIconList(doc, beforeSend))
       nodes.push(card)
     }
 
-    const footer = fullReadingText(view.footer)
-
-    if (footer) {
-      nodes.push(createTextElement(doc, 'div', 'yolen-message-footnote yolen-full-reading-footer', footer))
-    }
+    appendFullReadingFooter(doc, nodes, view, { refresh: true })
 
     return nodes
   }
 
-  function appendFullReadingList(doc, section, items) {
-    const list = doc.createElement('ul')
-    list.className = 'yolen-seller-text-list'
+  // Seção recolhida "Título (N)".
+  function buildCollapsedList(doc, key, title, items) {
+    const details = doc.createElement('details')
+    details.className = 'yolen-fr-collapse'
+    details.setAttribute('data-yolen-fr-collapse', key)
 
-    for (const item of items) {
-      const text = fullReadingText(item)
+    const summary = doc.createElement('summary')
+    summary.className = 'yolen-fr-collapse-summary'
+    summary.appendChild(createTextElement(doc, 'span', '', title))
+    summary.appendChild(createTextElement(doc, 'span', 'yolen-fr-count', String(items.length)))
+    summary.appendChild(createIcon(doc, 'chevron', 'yolen-fr-chevron'))
+    details.appendChild(summary)
 
-      if (text) {
-        list.appendChild(createTextElement(doc, 'li', '', text))
-      }
-    }
+    const body = doc.createElement('div')
+    body.className = 'yolen-fr-collapse-body'
+    body.appendChild(buildIconList(doc, items))
+    details.appendChild(body)
 
-    if (list.childNodes.length > 0) {
-      section.appendChild(list)
-    }
+    return details
   }
 
-  function createFullReadingSection(doc, key, title) {
-    const section = doc.createElement('section')
-    section.className = 'yolen-seller-section yolen-full-reading-section'
-    section.setAttribute('data-yolen-full-reading-section', key)
-    section.appendChild(createTextElement(doc, 'h3', '', title))
-
-    return section
-  }
-
-  function buildAnalysisFullReadingNodes(doc, view) {
+  // Plano B: rodada sem os campos estruturados mostra as seções do texto.
+  function buildMarkdownSections(doc, sections) {
     const nodes = []
-
-    nodes.push(createTextElement(doc, 'div', 'yolen-section-label', 'Análise'))
-
-    appendFullReadingNotice(doc, nodes, view)
-
-    const sections = Array.isArray(view.sections) ? view.sections : []
 
     for (const entry of sections) {
       if (!entry || typeof entry !== 'object') {
         continue
       }
 
-      const section = createFullReadingSection(doc, String(entry.key || ''), fullReadingText(entry.title))
+      const card = createCard(doc, { key: String(entry.key || ''), label: fullReadingText(entry.title) })
+      card.setAttribute('data-yolen-full-reading-section', String(entry.key || ''))
       const blocks = Array.isArray(entry.blocks) ? entry.blocks : []
 
       for (const block of blocks) {
-        const items = Array.isArray(block?.items) ? block.items : []
+        const items = fullReadingList(block?.items)
 
         if (block?.type === 'list') {
-          appendFullReadingList(doc, section, items)
+          if (items.length > 0) {
+            card.appendChild(buildIconList(doc, items, { className: 'yolen-fr-list--plain' }))
+          }
         } else {
           for (const item of items) {
-            if (fullReadingText(item)) {
-              section.appendChild(createTextElement(doc, 'div', 'yolen-seller-detail-copy', item))
-            }
+            card.appendChild(createTextElement(doc, 'div', 'yolen-fr-body', item))
           }
         }
       }
 
-      nodes.push(section)
-    }
-
-    for (const [key, title, items] of [
-      ['afirmacoes_a_confirmar', 'Afirmações a confirmar', view.afirmacoes_a_confirmar],
-      ['alertas_de_captura', 'Alertas de captura', view.alertas_de_captura],
-    ]) {
-      const list = Array.isArray(items) ? items.filter((item) => fullReadingText(item)) : []
-
-      if (list.length === 0) {
-        continue
-      }
-
-      const section = createFullReadingSection(doc, key, title)
-      appendFullReadingList(doc, section, list)
-      nodes.push(section)
-    }
-
-    const footer = fullReadingText(view.footer)
-
-    if (footer) {
-      nodes.push(createTextElement(doc, 'div', 'yolen-message-footnote yolen-full-reading-footer', footer))
+      nodes.push(card)
     }
 
     return nodes
+  }
+
+  const PENDING_ICONS = {
+    attention: { icon: 'attention', iconClass: 'yolen-fr-icon--attention' },
+    neutral: { icon: 'waiting', iconClass: 'yolen-fr-icon--neutral' },
+    ok: { icon: 'ok', iconClass: 'yolen-fr-icon--ok' },
+  }
+
+  function buildAnalysisFullReadingNodes(doc, view) {
+    const nodes = []
+
+    appendFullReadingNotice(doc, nodes, view)
+
+    const summary = Array.isArray(view.summary) ? view.summary : []
+
+    if (summary.length > 0) {
+      nodes.push(buildFactsGrid(doc, summary, 'analysis'))
+    }
+
+    const timeline = Array.isArray(view.timeline) ? view.timeline : []
+
+    if (timeline.length > 0) {
+      const card = createCard(doc, { key: 'timeline', label: 'Linha do tempo' })
+
+      for (const day of timeline) {
+        const items = Array.isArray(day?.items) ? day.items : []
+
+        if (items.length === 0) {
+          continue
+        }
+
+        if (fullReadingText(day.day)) {
+          card.appendChild(createTextElement(doc, 'div', 'yolen-fr-day', day.day))
+        }
+
+        const list = doc.createElement('ol')
+        list.className = 'yolen-fr-timeline'
+
+        for (const item of items) {
+          const text = fullReadingText(item?.text)
+
+          if (!text) {
+            continue
+          }
+
+          const row = doc.createElement('li')
+          row.className = `yolen-fr-timeline-item${item.time === 'depois' ? ' yolen-fr-timeline-item--quiet' : ''}`
+          row.appendChild(createTextElement(doc, 'span', 'yolen-fr-time', item.time))
+          row.appendChild(createTextElement(doc, 'span', 'yolen-fr-timeline-text', text))
+          list.appendChild(row)
+        }
+
+        card.appendChild(list)
+      }
+
+      nodes.push(card)
+    }
+
+    const pending = Array.isArray(view.pending) ? view.pending : []
+
+    if (pending.length > 0) {
+      const card = createCard(doc, { key: 'pending', label: 'Pendências' })
+      card.appendChild(
+        buildIconList(
+          doc,
+          pending.map((item) => ({
+            text: item?.text,
+            prefix: item?.label,
+            ...(PENDING_ICONS[item?.tone] || PENDING_ICONS.neutral),
+          })),
+        ),
+      )
+      nodes.push(card)
+    }
+
+    const opportunities = Array.isArray(view.opportunities) ? view.opportunities : []
+
+    if (opportunities.length > 0) {
+      const card = createCard(doc, { key: 'opportunities', label: 'Oportunidades' })
+      card.appendChild(
+        buildIconList(
+          doc,
+          opportunities.map((item) => ({
+            text: item?.text,
+            pill: fullReadingText(item?.status_label) || null,
+            pillTone: item?.tone,
+          })),
+          { className: 'yolen-fr-list--plain' },
+        ),
+      )
+      nodes.push(card)
+    }
+
+    const acertos = fullReadingList(view.coaching?.acertos)
+    const ajustes = fullReadingList(view.coaching?.ajustes)
+
+    if (acertos.length > 0 || ajustes.length > 0) {
+      const card = createCard(doc, { key: 'coaching', label: 'Condução do vendedor' })
+
+      if (acertos.length > 0) {
+        card.appendChild(createTextElement(doc, 'div', 'yolen-fr-sublabel yolen-fr-sublabel--ok', 'Acertos'))
+        card.appendChild(buildIconList(doc, acertos, { icon: 'check', iconClass: 'yolen-fr-icon--ok' }))
+      }
+
+      if (ajustes.length > 0) {
+        card.appendChild(createTextElement(doc, 'div', 'yolen-fr-sublabel yolen-fr-sublabel--attention', 'Ajustes'))
+        card.appendChild(buildIconList(doc, ajustes, { icon: 'adjust', iconClass: 'yolen-fr-icon--attention' }))
+      }
+
+      nodes.push(card)
+    }
+
+    const sections = Array.isArray(view.sections) ? view.sections : []
+
+    nodes.push(...buildMarkdownSections(doc, sections))
+
+    const confirm = fullReadingList(view.afirmacoes_a_confirmar)
+    const capture = fullReadingList(view.alertas_de_captura)
+
+    if (confirm.length > 0) {
+      nodes.push(buildCollapsedList(doc, 'afirmacoes_a_confirmar', 'Confirmar no cadastro', confirm))
+    }
+
+    if (capture.length > 0) {
+      nodes.push(buildCollapsedList(doc, 'alertas_de_captura', 'Avisos da captura', capture))
+    }
+
+    appendFullReadingFooter(doc, nodes, view)
+
+    return nodes
+  }
+
+  // CLIENTE: o que ele disse (data à direita), o que parece (inferência)
+  // e o que falta descobrir.
+  function readClientView(view) {
+    if (view.client && typeof view.client === 'object') {
+      return {
+        said: Array.isArray(view.client.said) ? view.client.said : [],
+        seems: fullReadingList(view.client.seems),
+        missing: fullReadingList(view.client.missing),
+      }
+    }
+
+    const customer = view.cliente && typeof view.cliente === 'object' ? view.cliente : {}
+
+    return {
+      said: fullReadingList(customer.sabemos).map((text) => ({ text, date: null })),
+      seems: fullReadingList(customer.inferimos),
+      missing: fullReadingList(customer.a_confirmar),
+    }
   }
 
   function buildClientFullReadingNodes(doc, view) {
     const nodes = []
-    const customer = view.cliente && typeof view.cliente === 'object' ? view.cliente : {}
+    const client = readClientView(view)
 
-    const heading = doc.createElement('div')
-    heading.className = 'yolen-client-intelligence-heading'
-    heading.appendChild(createTextElement(doc, 'div', 'yolen-section-label', 'Fatos, inferências e pontos a confirmar'))
-    heading.appendChild(createTextElement(doc, 'h3', '', 'Cliente'))
-    nodes.push(heading)
+    const said = client.said
+      .map((item) => ({ text: fullReadingText(item?.text), aside: fullReadingText(item?.date) }))
+      .filter((item) => item.text)
 
-    let shown = 0
-
-    for (const [key, title, items] of [
-      ['sabemos', 'Sabemos', customer.sabemos],
-      ['inferimos', 'Inferimos', customer.inferimos],
-      ['a_confirmar', 'A confirmar', customer.a_confirmar],
-    ]) {
-      const list = Array.isArray(items) ? items.filter((item) => fullReadingText(item)) : []
-
-      if (list.length === 0) {
-        continue
-      }
-
-      const section = createFullReadingSection(doc, key, title)
-      appendFullReadingList(doc, section, list)
-      nodes.push(section)
-      shown += 1
+    if (said.length > 0) {
+      const card = createCard(doc, { key: 'said', label: 'O que ele disse' })
+      card.setAttribute('data-yolen-full-reading-section', 'sabemos')
+      card.appendChild(buildIconList(doc, said, { className: 'yolen-fr-list--plain' }))
+      nodes.push(card)
     }
 
-    if (shown === 0) {
+    if (client.seems.length > 0) {
+      const card = createCard(doc, { key: 'seems', label: 'O que parece', pill: 'Inferência', pillTone: 'neutral' })
+      card.setAttribute('data-yolen-full-reading-section', 'inferimos')
+      card.appendChild(buildIconList(doc, client.seems, { className: 'yolen-fr-list--plain' }))
+      nodes.push(card)
+    }
+
+    if (client.missing.length > 0) {
+      const card = createCard(doc, { key: 'missing', label: 'Falta descobrir' })
+      card.setAttribute('data-yolen-full-reading-section', 'a_confirmar')
+      card.appendChild(buildIconList(doc, client.missing, { icon: 'todo', iconClass: 'yolen-fr-icon--todo', className: 'yolen-fr-checklist' }))
+      nodes.push(card)
+    }
+
+    if (nodes.length === 0) {
       nodes.push(createTextElement(doc, 'div', 'yolen-seller-empty-state', 'A leitura completa não trouxe dados sobre o cliente.'))
     }
-
-    const footer = fullReadingText(view.footer)
-
-    if (footer) {
-      nodes.push(createTextElement(doc, 'div', 'yolen-message-footnote yolen-full-reading-footer', footer))
-    }
-
-    return nodes
-  }
-
-  function buildLeadSummaryFullReadingNodes(doc, view) {
-    const summary = view.lead_summary && typeof view.lead_summary === 'object' ? view.lead_summary : {}
-    const nodes = [
-      createTextElement(doc, 'div', 'yolen-section-label', summary.title || 'Resumo da leitura completa'),
-      createTextElement(doc, 'div', 'yolen-decision-copy yolen-full-reading-summary-text', summary.text),
-    ]
-
-    const button = doc.createElement('button')
-    button.type = 'button'
-    button.className = 'yolen-tertiary-button'
-    button.setAttribute('data-yolen-action', 'full-reading-open-analysis')
-    button.textContent = 'Ver resumo completo'
-
-    const actions = doc.createElement('div')
-    actions.className = 'yolen-inline-actions'
-    actions.appendChild(button)
-    nodes.push(actions)
 
     return nodes
   }
@@ -2711,9 +3104,7 @@
             ? buildAgoraFullReadingNodes(doc, view, options)
             : kind === 'client'
               ? buildClientFullReadingNodes(doc, view)
-              : kind === 'lead_summary'
-                ? buildLeadSummaryFullReadingNodes(doc, view)
-                : buildAnalysisFullReadingNodes(doc, view)
+              : buildAnalysisFullReadingNodes(doc, view)
 
         slot.replaceChildren(...nodes)
         slot.setAttribute('data-yolen-full-reading-hydrated', signature)

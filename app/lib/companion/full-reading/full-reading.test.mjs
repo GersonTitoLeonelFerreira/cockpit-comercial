@@ -85,6 +85,14 @@ function validDecision(overrides = {}) {
     afirmacoes_a_confirmar: ['Regra de renovação'],
     alertas_de_captura: ['Mensagens do mesmo minuto fora de ordem'],
     confianca_geral: 'alta',
+    proximo_passo_titulo: 'Confirmar o próximo passo com o cliente',
+    proximo_passo_complemento: 'Retomar a conversa pelo ponto em aberto.',
+    linha_do_tempo: [
+      { dia: '23/09', hora: '11:08', texto: 'Cliente pediu informações do plano' },
+      { dia: '23/09', hora: '11:20', texto: 'Vendedor enviou os valores' },
+    ],
+    pendencias: [{ de: 'vendedor', texto: 'Confirmar a condição oferecida' }],
+    conducao: { acertos: ['Respondeu rápido'], ajustes: ['Fazer uma pergunta de descoberta'] },
     ...overrides,
   }
 }
@@ -251,7 +259,7 @@ test('o prompt de sistema pede a análise e a decisão consistentes', () => {
   assert.match(system, /analise_markdown/)
   assert.match(system, /nunca pode contradizê-la/)
   assert.match(system, /"Não fazer nada agora" é uma decisão válida/)
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v3')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v4')
 })
 
 test('o prompt do usuário leva referência, cadastro e conversa', () => {

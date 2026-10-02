@@ -541,6 +541,97 @@
     )
   }
 
+  // Leitura completa (HML): Relacionamento em grade de duas colunas, um
+  // dado por célula, e "Ver histórico do lead". Só dados do sistema.
+  const COMPACT_WAITING_LABELS = {
+    customer_waiting_for_seller: 'Você',
+    seller_waiting_for_customer: 'O cliente',
+    no_pending_response: 'Ninguém',
+  }
+
+  function sinceIso(isoValue, now) {
+    if (!isoValue) {
+      return null
+    }
+
+    const time =
+      new Date(isoValue).getTime()
+
+    if (Number.isNaN(time)) {
+      return null
+    }
+
+    return formatRelativeDuration(
+      (typeof now === 'number' ? now : Date.now()) - time,
+    )
+  }
+
+  function renderCompactRelationshipCard(
+    state,
+    now,
+  ) {
+    const status =
+      state?.status ||
+      'idle'
+
+    if (status === 'loading') {
+      return renderLoadingState()
+    }
+
+    if (status === 'error') {
+      return renderErrorState(
+        state?.error,
+      )
+    }
+
+    const context =
+      status === 'ready'
+        ? state?.data
+        : null
+
+    if (!context) {
+      return renderEmptyState()
+    }
+
+    const relationship =
+      context.relationship || {}
+
+    const stageStatus =
+      context.identity?.current_status
+
+    const cells = [
+      ['Primeiro contato', formatAbsoluteDate(relationship.first_known_interaction_at)],
+      [
+        'Interações',
+        typeof relationship.known_interaction_count === 'number' &&
+        relationship.known_interaction_count > 0
+          ? String(relationship.known_interaction_count)
+          : null,
+      ],
+      ['Última do cliente', sinceIso(relationship.latest_customer_message_at, now)],
+      ['Última sua', sinceIso(relationship.latest_seller_message_at, now)],
+      ['Etapa', stageStatus ? LEAD_STATUS_LABELS[stageStatus] || stageStatus : null],
+      ['Aguardando', COMPACT_WAITING_LABELS[context.waiting?.state] || null],
+    ].filter(([, value]) => value)
+
+    if (cells.length === 0) {
+      return renderEmptyState()
+    }
+
+    return (
+      '<div class="yolen-fr-grid yolen-fr-relationship" data-yolen-fr-grid="relationship">' +
+      cells
+        .map(([label, value]) =>
+          '<div class="yolen-fr-cell">' +
+          `<div class="yolen-fr-cell-label">${escapeHtml(label)}</div>` +
+          `<div class="yolen-fr-cell-value">${escapeHtml(value)}</div>` +
+          '</div>',
+        )
+        .join('') +
+      '</div>'
+    )
+  }
+
   function renderClientContextSection(
     state,
     now,
@@ -574,6 +665,7 @@
 
   const api = Object.freeze({
     renderClientContextSection,
+    renderCompactRelationshipCard,
     renderRelationshipCard,
     formatRelativeDuration,
     formatAbsoluteDate,

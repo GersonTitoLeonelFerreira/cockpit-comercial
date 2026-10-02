@@ -365,10 +365,11 @@ test('a criação só sai do clique de confirmação (nunca automática) e vai p
   )
   assert.match(background, /'CREATE_SUCCESSOR_OPPORTUNITY'[\s\S]{0,120}'\/api\/companion\/successor-opportunity'/)
   assert.match(api, /sendToBackground\('CREATE_SUCCESSOR_OPPORTUNITY', payload\)/)
-  // O pedido leva só o ciclo fechado, o tipo e a confirmação.
+  // O pedido leva só o ciclo fechado, o tipo, a confirmação e (rodada 6,
+  // só com a capability do backend) a nota opcional.
   assert.match(
     controllerSource,
-    /createSuccessorOpportunity\(\{\s*cycle_id: resolution\.cycle\.id,\s*opportunity_type: current\.type,\s*confirmed_by_human: true,\s*\}\)/,
+    /createSuccessorOpportunity\(\{\s*cycle_id: resolution\.cycle\.id,\s*opportunity_type: current\.type,\s*\.\.\.\(\s*resolution\.capabilities\?\.can_note_successor_opportunity === true &&[\s\S]*?\),\s*confirmed_by_human: true,\s*\}\)/,
   )
 })
 
@@ -382,4 +383,64 @@ test('WhatsApp e ManyChat carregam o MESMO controller e o MESMO Core', () => {
   for (const entry of panels) {
     assert.ok(entry.js.includes('src/companion-lead-creation-controller.js'))
   }
+})
+
+// Rodada 6: "O que é esta oportunidade?" (opcional) só com a capability do
+// backend (leitura completa ligada). Sem ela, o fluxo é o da rodada 5.
+test('sem a capability da nota: nenhum campo e o pedido é igual ao de antes', async () => {
+  const harness = createHarness()
+
+  harness.controller.openSuccessorChooser()
+  assert.equal(harness.query('[data-yolen-successor-note]'), null)
+  assert.equal(harness.controller.updateSuccessorNote('Plano anual'), true)
+
+  harness.controller.selectSuccessorType('upgrade')
+  await harness.controller.confirmSuccessorOpportunity()
+
+  assert.deepEqual(JSON.parse(JSON.stringify(harness.apiCalls[0])), {
+    cycle_id: CLOSED_CYCLE_ID,
+    opportunity_type: 'upgrade',
+    confirmed_by_human: true,
+  })
+})
+
+test('com a capability da nota: campo opcional "O que é esta oportunidade?" vai no pedido (aparado, sem HTML)', async () => {
+  const harness = createHarness()
+
+  harness.getState().leadResolutionViewModel.capabilities.can_note_successor_opportunity = true
+  harness.controller.openSuccessorChooser()
+
+  const field = harness.query('textarea[data-yolen-successor-note]')
+
+  assert.ok(field)
+  assert.match(harness.query('.yolen-successor-note-label').textContent, /^O que é esta oportunidade\? \(opcional\)$/)
+  assert.equal(field.getAttribute('maxlength'), '300')
+
+  // A digitação fica no estado; o redesenho seguinte mantém o texto.
+  harness.controller.updateSuccessorNote('  Quer o plano anual <b>já</b>  ')
+  harness.controller.selectSuccessorType('upgrade')
+
+  assert.equal(harness.query('textarea[data-yolen-successor-note]').value, '  Quer o plano anual <b>já</b>  ')
+  assert.equal(harness.panel().querySelectorAll('b').length, 0)
+
+  await harness.controller.confirmSuccessorOpportunity()
+
+  assert.deepEqual(JSON.parse(JSON.stringify(harness.apiCalls[0])), {
+    cycle_id: CLOSED_CYCLE_ID,
+    opportunity_type: 'upgrade',
+    note: 'Quer o plano anual <b>já</b>',
+    confirmed_by_human: true,
+  })
+})
+
+test('nota vazia não vai no pedido', async () => {
+  const harness = createHarness()
+
+  harness.getState().leadResolutionViewModel.capabilities.can_note_successor_opportunity = true
+  harness.controller.openSuccessorChooser()
+  harness.controller.updateSuccessorNote('   ')
+  harness.controller.selectSuccessorType('renovacao')
+  await harness.controller.confirmSuccessorOpportunity()
+
+  assert.equal('note' in harness.apiCalls[0], false)
 })

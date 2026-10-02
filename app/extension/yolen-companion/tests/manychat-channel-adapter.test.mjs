@@ -191,9 +191,12 @@ test('mensagens: autoria, identidade nativa escopada pela conversa, automação 
     [
       [`${key}::manychat:m-1`, 'incoming', 'customer', 'Quero saber o preço.', false],
       [`${key}::manychat:m-2`, 'outgoing', 'human_agent', 'Custa R$ 100.', false],
+      // Rodada 6: a mensagem do bot entra como saída da empresa (automation),
+      // nunca como fala do cliente nem ação do vendedor.
+      [`${key}::manychat:m-3`, 'outgoing', 'automation', 'Mensagem automática', false],
       [`${key}::manychat:m-4`, 'incoming', 'customer', '', true],
     ],
-    'automação fica fora; áudio vira mensagem com hasAudio',
+    'automação entra como automation; áudio vira mensagem com hasAudio',
   )
   assert.equal(entries[0].message.sender, null)
   assert.ok(Number.isFinite(entries[0].message.timestampMs))

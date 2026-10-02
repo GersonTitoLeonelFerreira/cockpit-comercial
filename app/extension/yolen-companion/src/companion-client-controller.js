@@ -544,12 +544,36 @@ function createCompanionClientController(ctx) {
     }
   }
 
-  function getCompanionClientRelationshipCardHtml() {
+  function getCompanionClientRelationshipCardHtml({
+    compact = false,
+  } = {}) {
     if (
       ctx.state.companionClientContext
         ?.status === 'idle'
     ) {
       return ''
+    }
+
+    // Leitura completa (HML): grade compacta + histórico no Yolen.
+    if (compact) {
+      return `
+        <section class="yolen-fr-card yolen-client-relationship-card" data-yolen-fr-card="relationship">
+          <div class="yolen-fr-card-head">
+            <div class="yolen-fr-label">Relacionamento</div>
+          </div>
+
+          ${clientContextViewTools.renderCompactRelationshipCard(
+            ctx.state.companionClientContext,
+            Date.now(),
+          )}
+
+          <div class="yolen-fr-actions">
+            <button class="yolen-fr-button yolen-fr-button--outline" type="button" data-yolen-action="full-reading-open-cycle">
+              Ver histórico do lead
+            </button>
+          </div>
+        </section>
+      `
     }
 
     return `

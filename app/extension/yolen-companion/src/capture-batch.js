@@ -278,9 +278,12 @@
         return {
           message_key: messageKey,
           direction,
+          // Mensagem do Core (ManyChat) traz authorKind; sem ele (WhatsApp),
+          // deriva da direção como sempre. Sem isso a mensagem do bot
+          // (automation) chegaria ao ledger como do vendedor.
           author_kind:
             normalizeAuthorKind(
-              message.author_kind,
+              message.author_kind ?? message.authorKind,
               direction,
             ),
           occurred_at: occurredAt,

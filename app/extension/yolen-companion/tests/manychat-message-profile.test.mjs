@@ -102,7 +102,7 @@ test('mensagem de áudio elegível vira content_type audio sem transcrição', (
   assert.equal(message.audio_transcription, null)
 })
 
-test('automação (typeOut + botMessage) nunca vira mensagem canônica', () => {
+test('automação (typeOut + botMessage) sem texto nem botões não vira mensagem', () => {
   const message = profile.readManyChatMessage(
     messageNode({
       classes: ['_wrapper_hash', '_typeOut_hash', '_botMessage_hash'],

@@ -28,7 +28,15 @@ import {
 
 import {
   buildFullReadingTranscript,
+  type FullReadingTranscriptMarker,
 } from '../companion/full-reading/transcript'
+
+import {
+  buildSuccessorMarkers,
+  loadFullReadingCycleChain,
+  loadSuccessorNotes,
+  mergeChainMessages,
+} from './full-reading-cycle-chain'
 
 import {
   buildFullReadingSystemPrompt,
@@ -311,6 +319,11 @@ export type FullReadingRunInput = {
     conversationKey: string
     referenceTime: string
   }) => Promise<NormalizedLedgerMessage[]>
+  loadMarkers?: (args: {
+    admin: SupabaseClient
+    companyId: string
+    cycleId: string
+  }) => Promise<FullReadingTranscriptMarker[]>
   loadConfig?: (args: {
     admin: SupabaseClient
     companyId: string
@@ -334,17 +347,71 @@ export async function loadFullReadingMessages({
   conversationKey: string
   referenceTime: string
 }): Promise<NormalizedLedgerMessage[]> {
-  const ledger =
-    await loadCanonicalLedgerAtReferenceTime({
-      client:
-        admin as unknown as StatefulCopilotRealContextSupabaseClient,
+  // Oportunidade nova: a mesma conversa nos ciclos de origem entra como
+  // histórico (as mensagens antigas continuam gravadas no ciclo fechado).
+  const chain =
+    await loadFullReadingCycleChain({
+      admin,
       companyId,
       cycleId,
-      conversationKey,
-      referenceTime,
     })
 
-  return ledger.canonicalMessages
+  const cycleIds =
+    chain.length > 0
+      ? chain.map((link) => link.id)
+      : [cycleId]
+
+  const lists: NormalizedLedgerMessage[][] = []
+
+  for (const chainCycleId of cycleIds) {
+    const ledger =
+      await loadCanonicalLedgerAtReferenceTime({
+        client:
+          admin as unknown as StatefulCopilotRealContextSupabaseClient,
+        companyId,
+        cycleId: chainCycleId,
+        conversationKey,
+        referenceTime,
+      })
+
+    lists.push(ledger.canonicalMessages)
+  }
+
+  return mergeChainMessages(lists)
+}
+
+// Marco "Nova oportunidade aberta em ..." para cada elo da cadeia.
+export async function loadFullReadingTranscriptMarkers({
+  admin,
+  companyId,
+  cycleId,
+}: {
+  admin: SupabaseClient
+  companyId: string
+  cycleId: string
+}): Promise<FullReadingTranscriptMarker[]> {
+  const chain =
+    await loadFullReadingCycleChain({
+      admin,
+      companyId,
+      cycleId,
+    })
+
+  const successors =
+    chain.filter((link) => link.origin_cycle_id)
+
+  if (successors.length === 0) {
+    return []
+  }
+
+  const notes =
+    await loadSuccessorNotes({
+      admin,
+      companyId,
+      cycleIds: successors.map((link) => link.id),
+    })
+
+  return buildSuccessorMarkers(successors, notes)
 }
 
 export async function loadFullReadingKanban({
@@ -476,6 +543,10 @@ export async function executeFullReadingRun(
   const loadMessages =
     input.loadMessages ?? loadFullReadingMessages
 
+  const loadMarkers =
+    input.loadMarkers ??
+    (input.loadMessages ? async () => [] : loadFullReadingTranscriptMarkers)
+
   const loadConfig =
     input.loadConfig ?? loadFullReadingConfig
 
@@ -504,8 +575,22 @@ export async function executeFullReadingRun(
         referenceTime: input.referenceTime,
       })
 
+    let markers: FullReadingTranscriptMarker[] = []
+
+    try {
+      markers =
+        await loadMarkers({
+          admin: input.admin,
+          companyId: input.companyId,
+          cycleId: input.cycleId,
+        })
+    } catch {
+      // Sem o marco a leitura continua; só perde o aviso da oportunidade nova.
+      markers = []
+    }
+
     const transcript =
-      buildFullReadingTranscript(messages)
+      buildFullReadingTranscript(messages, { markers })
 
     transcriptMessageCount =
       transcript.message_count

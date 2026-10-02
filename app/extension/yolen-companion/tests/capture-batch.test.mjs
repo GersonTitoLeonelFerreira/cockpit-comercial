@@ -772,3 +772,27 @@ test('mesmo minuto: janela e plano de captura seguem a ordem da conversa, não a
     expectedKeys,
   )
 })
+
+// Rodada 6: mensagem do Core com authorKind (ManyChat) mantém a autoria; a
+// do bot chega ao ledger como automation, nunca como do vendedor. Sem
+// authorKind (WhatsApp), deriva da direção como sempre.
+test('autoria: authorKind do Core vale (automation fica automation); sem ele, deriva da direção', () => {
+  const messages = buildCaptureMessages({
+    activeMessages: [
+      activeMessage({ id: 'bot-1', direction: 'outgoing', authorKind: 'automation', text: 'Escolha uma opção.' }),
+      activeMessage({ id: 'seller-1', direction: 'outgoing', authorKind: 'human_agent', text: 'Oi!' }),
+      activeMessage({ id: 'wa-out', direction: 'outgoing', text: 'Bom dia' }),
+      activeMessage({ id: 'wa-in', direction: 'incoming', text: 'Oi' }),
+    ],
+  })
+
+  assert.deepEqual(
+    messages.map((message) => [message.message_key, message.direction, message.author_kind]),
+    [
+      ['bot-1', 'outgoing', 'automation'],
+      ['seller-1', 'outgoing', 'human_agent'],
+      ['wa-out', 'outgoing', 'human_agent'],
+      ['wa-in', 'incoming', 'customer'],
+    ],
+  )
+})

@@ -580,6 +580,7 @@ function createCompanionCore(ctx) {
     openSuccessorChooser,
     cancelSuccessorChooser,
     selectSuccessorType,
+    updateSuccessorNote,
     confirmSuccessorOpportunity,
   } = leadCreationController
 
@@ -7053,8 +7054,13 @@ function createCompanionCore(ctx) {
     if (
       state.analysisViewModel?.status === 'ready' &&
       fullReadingAnalysis &&
-      Array.isArray(fullReadingAnalysis.sections) &&
-      fullReadingAnalysis.sections.length > 0
+      (
+        fullReadingAnalysis.has_reading === true ||
+        (
+          Array.isArray(fullReadingAnalysis.sections) &&
+          fullReadingAnalysis.sections.length > 0
+        )
+      )
     ) {
       return `
         ${sellerInformationViewTools.renderFullReadingSlot(
@@ -7259,15 +7265,30 @@ function createCompanionCore(ctx) {
     const fullReadingClientView =
       getCurrentFullReadingViews().agora
 
-    if (fullReadingClientView?.cliente) {
-      // Leitura completa (HML): Sabemos / Inferimos / A confirmar vêm da
-      // leitura; o bloco antigo (inclusive "O que falta descobrir") sai.
-      // "Relacionamento e histórico" continua abaixo, como hoje.
-      commercialHtml =
-        sellerInformationViewTools.renderFullReadingSlot(
+    if (
+      fullReadingClientView?.client ||
+      fullReadingClientView?.cliente
+    ) {
+      // Leitura completa (HML): o que ele disse / o que parece / falta
+      // descobrir vêm da leitura; o bloco antigo sai. Relacionamento vira
+      // a grade compacta, e o rodapé da leitura aparece uma vez, no fim.
+      const footer =
+        typeof fullReadingClientView.footer === 'string'
+          ? fullReadingClientView.footer
+          : ''
+
+      return `
+        ${sellerInformationViewTools.renderFullReadingSlot(
           'client',
           fullReadingClientView,
-        )
+        )}
+        ${getCompanionClientRelationshipCardHtml({ compact: true })}
+        ${
+          footer
+            ? `<div class="yolen-fr-footer"><span class="yolen-full-reading-footer">${escapeHtml(footer)}</span></div>`
+            : ''
+        }
+      `
     } else if (
       state.customerViewModel?.status === 'ready' &&
       isCurrentCustomerViewModelContext
@@ -7460,17 +7481,17 @@ function createCompanionCore(ctx) {
     )
   }
 
-  // Card do resumo na AGORA: com a leitura, mostra a situação dela (e não
-  // o resumo salvo antigo, que não é regravado no HML).
+  // Card do resumo na AGORA: com a leitura completa (pronta ou rodando) o
+  // card sai — a Situação já está no próximo passo e o resumo salvo antigo
+  // (que o HML não regrava, e numa oportunidade nova é do ciclo anterior)
+  // não aparece. O marcador oculto só impede o card "preparando". Na
+  // falha, o painel volta ao de hoje, com o resumo salvo.
   function getFullReadingLeadSummaryCardHtml() {
     const view =
       getCurrentFullReadingViews().agora
 
-    return view?.lead_summary
-      ? sellerInformationViewTools.renderFullReadingSlot(
-          'lead_summary',
-          view,
-        )
+    return view && view.state !== 'failed'
+      ? '<div hidden data-yolen-full-reading-no-summary></div>'
       : ''
   }
 
@@ -7707,26 +7728,17 @@ function createCompanionCore(ctx) {
     const fullReadingAgora =
       getCurrentFullReadingViews().agora
 
-    // Leitura completa (HML): o card principal e a etapa vêm dela. Sem
-    // leitura pronta (rodando sem leitura anterior, ou falha), o AGORA de
-    // hoje continua embaixo do aviso. Os sinais secundários (já sem o SLA
-    // da etapa quando o kanban está atrasado) continuam.
+    // Leitura completa (HML): com leitura pronta, a AGORA é só ela
+    // (próximo passo, etapa, grade e "Antes de enviar"); os sinais de hoje
+    // repetiriam a mesma informação. Sem leitura pronta (rodando sem
+    // leitura anterior, ou falha), o AGORA de hoje continua embaixo do
+    // aviso.
     if (fullReadingAgora) {
-      const agoraData =
-        state.agoraDecisionState.data
-
       const legacyHtml =
         fullReadingAgora.main
-          ? sellerInformationViewTools.renderAgoraViewModelSnapshot({
-              ...agoraData,
-              primary: null,
-              reasoning: null,
-              silent:
-                !Array.isArray(agoraData.secondary) ||
-                agoraData.secondary.length === 0,
-            })
+          ? ''
           : sellerInformationViewTools.renderAgoraViewModelSnapshot(
-              agoraData,
+              state.agoraDecisionState.data,
             )
 
       return (
@@ -9210,7 +9222,100 @@ function createCompanionCore(ctx) {
     ].join('')
   }
 
+  // Cabeçalho do contato com a leitura completa (HML): nome, canal e
+  // carteira numa linha, "Kanban: <etapa>" e dono em pílulas, "Abrir no
+  // Yolen" à direita. Sem a leitura, o card de hoje.
+  function getFullReadingContactCardHtml() {
+    const view =
+      getCurrentFullReadingViews().agora
+
+    const resolution =
+      state.leadResolutionViewModel
+
+    if (
+      !view ||
+      !isSellerWorkspaceReady() ||
+      resolution?.status !== 'OWNED_BY_ME'
+    ) {
+      return ''
+    }
+
+    const stage =
+      resolution.cycle?.status
+        ? getStageLabel(resolution.cycle.status)
+        : null
+
+    const ownerName =
+      resolution.ownership_display?.owner_name || null
+
+    const subline = [
+      platformDisplayName || null,
+      'na sua carteira',
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    const canOpen =
+      resolution.capabilities?.can_open_cycle === true &&
+      Boolean(resolution.cycle?.id)
+
+    return [
+      '<div class="yolen-card yolen-contact-card yolen-contact-card--compact yolen-contact-card--full-reading ' +
+        getLeadStatusClass() +
+      '" data-yolen-full-reading-contact>',
+        '<div class="yolen-fr-contact-row">',
+          '<div class="yolen-fr-contact-copy">',
+            '<div class="yolen-lead-name">',
+              escapeHtml(getCompactConversationName()),
+            '</div>',
+            '<div class="yolen-fr-contact-subline">',
+              escapeHtml(subline),
+            '</div>',
+          '</div>',
+          canOpen
+            ? [
+                '<button class="yolen-fr-button yolen-fr-button--link yolen-fr-contact-open" type="button" data-yolen-action="full-reading-open-cycle">',
+                  'Abrir no Yolen',
+                  getFullReadingExternalIconHtml(),
+                '</button>',
+              ].join('')
+            : '',
+        '</div>',
+        stage || ownerName
+          ? [
+              '<div class="yolen-fr-contact-pills">',
+                stage
+                  ? '<span class="yolen-fr-pill yolen-fr-pill--info" data-yolen-full-reading-kanban="' +
+                      escapeHtml(resolution.cycle.status) +
+                    '">' +
+                      escapeHtml(`Kanban: ${stage}`) +
+                    '</span>'
+                  : '',
+                ownerName
+                  ? '<span class="yolen-fr-pill yolen-fr-pill--neutral">' +
+                      escapeHtml(ownerName) +
+                    '</span>'
+                  : '',
+              '</div>',
+            ].join('')
+          : '',
+      '</div>',
+    ].join('')
+  }
+
+  // Ícone fixo (sem texto do modelo), em traço.
+  function getFullReadingExternalIconHtml() {
+    return '<svg class="yolen-fr-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 4h6v6"/><path d="M10 14L20 4"/><path d="M19 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6"/></svg>'
+  }
+
   function getContactCardHtml() {
+    const fullReadingContactHtml =
+      getFullReadingContactCardHtml()
+
+    if (fullReadingContactHtml) {
+      return fullReadingContactHtml
+    }
+
     return [
       '<div class="yolen-card yolen-contact-card yolen-contact-card--compact ' +
         getLeadStatusClass() +
@@ -9282,14 +9387,27 @@ function createCompanionCore(ctx) {
     syncFullReadingPolling()
     syncFullReadingMessage()
 
+    // "Ver mensagem pronta" no próximo passo abre a MENSAGEM.
     panel
       .querySelectorAll(
-        '[data-yolen-action="full-reading-open-analysis"]',
+        '[data-yolen-action="full-reading-open-message"]',
       )
       .forEach((button) => {
         wireOnce(button, 'click', () => {
-          setActiveSellerArea('analysis', {
+          setActiveSellerArea('message', {
             focus: true,
+          })
+        })
+      })
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="full-reading-refresh"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          requestFullReadingRefresh({
+            force: true,
           })
         })
       })
@@ -9547,6 +9665,14 @@ function createCompanionCore(ctx) {
       },
     )
 
+    wireOnce(
+      panel.querySelector('[data-yolen-successor-note]'),
+      'input',
+      (event) => {
+        updateSuccessorNote(event.currentTarget.value)
+      },
+    )
+
     panel
       .querySelectorAll('[data-yolen-successor-type]')
       .forEach((input) => {
@@ -9585,6 +9711,31 @@ function createCompanionCore(ctx) {
         )
       },
     )
+
+    // Leitura completa (HML): "Abrir no Yolen" do cabeçalho compacto e
+    // "Ver histórico do lead" do CLIENTE abrem o mesmo ciclo, pelo mesmo
+    // ViewModel canônico.
+    panel
+      .querySelectorAll('[data-yolen-action="full-reading-open-cycle"]')
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          const resolution =
+            state.leadResolutionViewModel
+
+          const cycleId =
+            resolution
+              ?.capabilities
+              ?.can_open_cycle === true
+              ? resolution.cycle?.id ?? null
+              : null
+
+          openYolen(
+            cycleId !== null
+              ? `/sales-cycles/${encodeURIComponent(String(cycleId))}`
+              : '/leads',
+          )
+        })
+      })
 
     panel
       .querySelectorAll(

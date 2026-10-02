@@ -158,6 +158,9 @@
         ? options.surfaceProvider
         : () => surfaceApi.getCurrentConversationSurface()
 
+    // Coleção da leitura em andamento (ver profile.readMessage abaixo).
+    let messageCollection = null
+
     const reader = readerApi.createManyChatDomReader({
       document: documentRef,
       MutationObserver: options.MutationObserver,
@@ -170,8 +173,19 @@
       surfaceProvider,
       profile: Object.freeze({
         selectors: VALIDATED_SELECTORS,
-        readMessage: (node, index, surface) =>
-          messageProfileApi.readManyChatMessage(node, index, surface),
+        // Uma coleção por leitura (o reader começa no índice 0): chaves do
+        // bot sem colisão e o que cada bolha citava.
+        readMessage: (node, index, surface) => {
+          if (typeof messageProfileApi.createManyChatCollection !== 'function') {
+            return messageProfileApi.readManyChatMessage(node, index, surface)
+          }
+
+          if (index === 0 || !messageCollection) {
+            messageCollection = messageProfileApi.createManyChatCollection()
+          }
+
+          return messageCollection.read(node)
+        },
       }),
     })
 
@@ -492,7 +506,21 @@
       }
 
       try {
-        return { conversationKey: surface.conversation_key, messages: reader.collectVisibleMessages(surface) }
+        messageCollection = null
+
+        const messages = reader.collectVisibleMessages(surface)
+
+        // Citação colada e escolha em botão do bot (rodada 6).
+        return {
+          conversationKey: surface.conversation_key,
+          messages:
+            typeof messageProfileApi.reconcileManyChatMessages === 'function'
+              ? messageProfileApi.reconcileManyChatMessages(
+                  messages,
+                  messageCollection?.details ?? new Map(),
+                )
+              : messages,
+        }
       } catch {
         // Perfil fail-closed (ex.: message_key duplicada): nenhuma mensagem
         // parcial chega ao Core.

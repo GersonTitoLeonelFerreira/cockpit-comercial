@@ -44,6 +44,34 @@ export function isSuccessorOpportunityType(
 // Predicado da Yolen e do índice idx_sales_cycles_lead_active_unique:
 // qualquer status fora de ganho/perdido conta como oportunidade aberta
 // (inclusive cancelado).
+// "O que é esta oportunidade?" (opcional, rodada 6). Mesmo teto da RPC
+// (left(btrim(p_note), 2000)); meia surrogate vira U+FFFD para o corpo do
+// PostgREST nunca ser recusado (PGRST102). Desligado (sem a leitura
+// completa), a nota é ignorada como antes: p_note null.
+export const SUCCESSOR_NOTE_MAX_LENGTH = 2000
+
+const LONE_SURROGATE_IN_NOTE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
+export function readSuccessorNote(
+  value: unknown,
+  enabled: boolean,
+): string | null {
+  if (!enabled || typeof value !== 'string') {
+    return null
+  }
+
+  // O corte no teto pode partir um emoji: a limpeza vem depois dele.
+  const note = value
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, SUCCESSOR_NOTE_MAX_LENGTH)
+    .replace(LONE_SURROGATE_IN_NOTE, '\uFFFD')
+    .trim()
+
+  return note || null
+}
+
 const SUCCESSOR_SOURCE_STATUSES = ['ganho', 'perdido']
 
 function normalizeStatus(value: unknown) {

@@ -6,8 +6,10 @@ import {
   evaluateSuccessorOpportunityEligibility,
   getSuccessorErrorHttpStatus,
   isSuccessorOpportunityType,
+  readSuccessorNote,
 } from '@/app/lib/companion/successor-opportunity'
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
+import { isFullReadingPanelEnabled } from '@/app/lib/server/full-reading-flag'
 
 // "Nova oportunidade" pelo Companion (decisão do Controle Mestre,
 // 01/10/2026): cria um ciclo sucessor a partir de um ciclo Ganho/Perdido,
@@ -22,8 +24,10 @@ import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
 type SuccessorBody = {
   cycle_id?: unknown
   opportunity_type?: unknown
+  note?: unknown
   confirmed_by_human?: unknown
 }
+
 
 type CycleRow = {
   id: string
@@ -253,7 +257,8 @@ export async function POST(request: Request) {
         p_actor_user_id: tokenPayload.sub,
         p_source_cycle_id: sourceCycle.id,
         p_opportunity_type: body.opportunity_type,
-        p_note: null,
+        // "O que é esta oportunidade?": só com a leitura completa ligada.
+        p_note: readSuccessorNote(body.note, isFullReadingPanelEnabled()),
       },
     )
 

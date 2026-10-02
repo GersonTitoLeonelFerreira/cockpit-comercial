@@ -41,7 +41,7 @@ export const FULL_READING_RUNNING_NOTICE =
   'Lendo a conversa inteira…'
 
 export const FULL_READING_SOURCE_LABEL =
-  'Leitura completa · Claude'
+  'Leitura completa'
 
 const OPEN_STAGES =
   new Set(['novo', 'contato', 'respondeu', 'negociacao', 'pausado'])
@@ -146,6 +146,10 @@ export type FullReadingAgoraMain = {
 // mensagem do motor antigo não aparecem.
 export type FullReadingMessageView = {
   mode: 'no_send' | 'send'
+  // "Para: <objetivo curto>" no card da mensagem pronta.
+  objective: string | null
+  // Motivo do "Nada a enviar agora".
+  no_send_reason: string | null
   // 'A leitura recomenda não enviar nada agora' (só em no_send).
   notice: string | null
   // Texto da seção "Mensagem sugerida" da análise.
@@ -159,9 +163,34 @@ export type FullReadingMessageView = {
   run_id: string
 }
 
-export type FullReadingLeadSummaryView = {
+// v4 (rodada 6): a tela de cada aba vem pronta daqui, em rótulos de
+// português, sem código cru e cada informação uma vez por aba.
+export type FullReadingNextStep = {
+  turn: 'vendedor' | 'cliente' | 'ninguem'
+  turn_label: string
   title: string
+  complement: string
+  why: string
+  // false = a leitura manda não enviar nada agora.
+  send: boolean
+  no_send_reason: string | null
+}
+
+export type FullReadingFact = {
+  key: 'aguardando' | 'venda' | 'ultimo_contato' | 'confianca'
+  label: string
+  value: string
+}
+
+export type FullReadingClientSaid = {
   text: string
+  date: string | null
+}
+
+export type FullReadingClientView = {
+  said: FullReadingClientSaid[]
+  seems: string[]
+  missing: string[]
 }
 
 // Ícone do painel minimizado.
@@ -195,8 +224,11 @@ export type FullReadingAgoraView = {
   footer: string | null
   run_id: string | null
   message: FullReadingMessageView | null
-  lead_summary: FullReadingLeadSummaryView | null
   cliente: FullReadingCustomer | null
+  client: FullReadingClientView | null
+  next_step: FullReadingNextStep | null
+  facts: FullReadingFact[]
+  before_send: string[]
   attention: FullReadingAttention | null
   // Muda sempre que o conteúdo muda: a extensão só redesenha quando muda.
   view_key: string
@@ -213,10 +245,51 @@ export type FullReadingAnalysisSection = {
   blocks: FullReadingAnalysisBlock[]
 }
 
+export type FullReadingSummaryBlock = {
+  key: 'fase' | 'metodo' | 'kanban' | 'venda'
+  label: string
+  value: string
+}
+
+export type FullReadingTimelineDay = {
+  day: string
+  items: {
+    time: string
+    text: string
+  }[]
+}
+
+export type FullReadingPendingView = {
+  owner: 'vendedor' | 'cliente' | 'nenhum'
+  // "Sua" / "Do cliente" / "" (resolvido não leva prefixo).
+  label: string
+  tone: 'attention' | 'neutral' | 'ok'
+  text: string
+}
+
+export type FullReadingOpportunityView = {
+  text: string
+  status: string
+  status_label: string
+  tone: 'ok' | 'attention' | 'neutral' | 'info'
+}
+
 export type FullReadingAnalysisView = {
   state: FullReadingPanelState
   notice: string | null
   failure_code: string | null
+  // Há leitura estruturada para mostrar (v4).
+  has_reading: boolean
+  summary: FullReadingSummaryBlock[]
+  timeline: FullReadingTimelineDay[]
+  pending: FullReadingPendingView[]
+  opportunities: FullReadingOpportunityView[]
+  coaching: {
+    acertos: string[]
+    ajustes: string[]
+  }
+  // Plano B: rodada sem os campos estruturados mostra o markdown, sem as
+  // seções que têm aba própria (Mensagem sugerida e Cliente).
   sections: FullReadingAnalysisSection[]
   afirmacoes_a_confirmar: string[]
   alertas_de_captura: string[]
@@ -225,10 +298,11 @@ export type FullReadingAnalysisView = {
   view_key: string
 }
 
+// Na tela, o nome da etapa como o vendedor fala ("Agenda", "Negociação").
 function stageLabel(
   status: string,
 ): string {
-  return getSalesCycleLabel(status as LeadStatus)
+  return STAGE_CODE_LABELS[status] ?? getSalesCycleLabel(status as LeadStatus)
 }
 
 function clean(
@@ -237,6 +311,119 @@ function clean(
   return typeof value === 'string'
     ? value.replace(/\s+/g, ' ').trim()
     : ''
+}
+
+// ---------------------------------------------------------------------------
+// Rótulos (nenhum código cru na tela)
+// ---------------------------------------------------------------------------
+
+export const FULL_READING_PHASE_LABELS: Record<string, string> = {
+  primeiro_contato: 'Primeiro contato',
+  descoberta: 'Descoberta',
+  apresentacao: 'Apresentação',
+  negociacao: 'Negociação',
+  decisao: 'Decisão',
+  formalizacao: 'Formalização',
+  cliente_ativo: 'Cliente ativo',
+  perdido: 'Perdido',
+  indeterminada: 'Indefinida',
+}
+
+export const FULL_READING_SALE_LABELS: Record<string, string> = {
+  confirmada: 'Confirmada',
+  provavel: 'Provável',
+  nao: 'Ainda não',
+  indeterminado: 'Indefinida',
+}
+
+export const FULL_READING_TURN_LABELS: Record<string, string> = {
+  vendedor: 'Vez do vendedor',
+  cliente: 'Vez do cliente',
+  ninguem: 'Vez de ninguém',
+}
+
+export const FULL_READING_CONFIDENCE_LABELS: Record<string, string> = {
+  alta: 'Alta',
+  media: 'Média',
+  baixa: 'Baixa',
+}
+
+export const FULL_READING_OPPORTUNITY_LABELS: Record<string, string> = {
+  aceita: 'Aceita',
+  recusada: 'Recusada',
+  adiada: 'Adiada',
+  sem_resposta: 'Sem resposta',
+  em_aberto: 'Em aberto',
+}
+
+const OPPORTUNITY_TONES: Record<string, FullReadingOpportunityView['tone']> = {
+  aceita: 'ok',
+  recusada: 'neutral',
+  adiada: 'attention',
+  sem_resposta: 'attention',
+  em_aberto: 'info',
+}
+
+const STAGE_CODE_LABELS: Record<string, string> = {
+  novo: 'Novo',
+  contato: 'Contato',
+  respondeu: 'Agenda',
+  negociacao: 'Negociação',
+  pausado: 'Pausado',
+  ganho: 'Ganho',
+  perdido: 'Perdido',
+  cancelado: 'Cancelado',
+}
+
+const TEXT_CODE_LABELS: Record<string, string> = {
+  sem_resposta: 'sem resposta',
+  em_aberto: 'em aberto',
+  nao_intervir: 'não enviar nada agora',
+  verificacao_interna: 'verificação interna',
+  follow_up: 'acompanhamento',
+  primeiro_contato: 'primeiro contato',
+  cliente_ativo: 'cliente ativo',
+  novo_produto: 'novo produto',
+  entrada_parcelas: 'entrada + parcelas',
+  parcelado_sem_entrada: 'parcelado sem entrada',
+}
+
+const STAGE_WITH_CODE =
+  /\b(NOVO|CONTATO|AGENDA|NEGOCIA[ÇC][ÃA]O|PAUSADO|GANHO|PERDIDO|CANCELADO|Novo|Contato|Agenda|Negocia[çc][ãa]o|Pausado|Ganho|Perdido|Cancelado)\s*\((novo|contato|respondeu|negociacao|pausado|ganho|perdido|cancelado)\)/g
+
+const INTERNAL_NAME_NOTE =
+  /\s*\((?:nome interno|c[oó]digo)\s*:\s*[a-z_]+\)/gi
+
+const TEXT_CODES =
+  new RegExp(`\\b(${Object.keys(TEXT_CODE_LABELS).join('|')})\\b`, 'g')
+
+const STAGE_CODE_AFTER_WORD =
+  /\b(etapa|kanban|para|em)\s+(respondeu|negociacao)\b/gi
+
+// Texto do modelo para a tela: tira nomes internos e códigos que
+// escaparam do prompt ("AGENDA (respondeu)", "sem_resposta").
+export function humanizePanelText(
+  value: unknown,
+): string {
+  return clean(value)
+    .replace(INTERNAL_NAME_NOTE, '')
+    .replace(STAGE_WITH_CODE, (_match, _label: string, code: string) =>
+      STAGE_CODE_LABELS[code] ?? _label,
+    )
+    .replace(STAGE_CODE_AFTER_WORD, (_match, word: string, code: string) =>
+      `${word} ${STAGE_CODE_LABELS[code.toLowerCase()] ?? code}`,
+    )
+    .replace(TEXT_CODES, (code: string) => TEXT_CODE_LABELS[code] ?? code)
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function humanizeList(
+  values: unknown,
+): string[] {
+  return Array.isArray(values)
+    ? values.map(humanizePanelText).filter((value) => value.length > 0)
+    : []
 }
 
 function toTime(
@@ -254,11 +441,27 @@ function toTime(
     : parsed
 }
 
+// "Leitura completa · 01/10, 20:07" (horário de Brasília).
+export function formatShortStamp(
+  value: string,
+): string {
+  const full =
+    formatTranscriptTimestamp(value)
+
+  // "01/10/2026 20:07" → "01/10, 20:07"
+  const match =
+    /^(\d{2}\/\d{2})\/\d{4} (\d{2}:\d{2})$/.exec(full)
+
+  return match
+    ? `${match[1]}, ${match[2]}`
+    : full
+}
+
 function buildFooter(
   completedAt: string | null,
 ): string | null {
   return completedAt && toTime(completedAt) !== null
-    ? `${FULL_READING_SOURCE_LABEL} · ${formatTranscriptTimestamp(completedAt)}`
+    ? `${FULL_READING_SOURCE_LABEL} · ${formatShortStamp(completedAt)}`
     : FULL_READING_SOURCE_LABEL
 }
 
@@ -458,8 +661,8 @@ function buildStageCard({
     buildClosingPrefill(decision.fechamento)
 
   const reason =
-    clean(decision.motivo_etapa) ||
-    clean(decision.por_que)
+    humanizePanelText(decision.motivo_etapa) ||
+    humanizePanelText(decision.por_que)
 
   const base = {
     current_status: current,
@@ -511,7 +714,7 @@ function buildStageCard({
   return {
     ...base,
     kind: 'apply',
-    button_label: 'Aplicar',
+    button_label: 'Aplicar no kanban',
     cycle_path: null,
     apply_request: {
       cycle_id: cycleId,
@@ -553,10 +756,10 @@ function buildMain({
   locks: string[]
 }): FullReadingAgoraMain {
   let acao =
-    clean(decision.acao_resumo)
+    humanizePanelText(decision.acao_resumo)
 
   let porQue =
-    clean(decision.por_que)
+    humanizePanelText(decision.por_que)
 
   if (
     kanban.status === 'ganho' &&
@@ -588,9 +791,192 @@ function buildMain({
   }
 
   return {
-    situacao: clean(decision.situacao_resumo),
+    situacao: humanizePanelText(decision.situacao_resumo),
     acao,
     por_que: porQue,
+  }
+}
+
+// "há 3 h", "há 1 dia". Granularidade de hora para a chave da view não
+// mudar a cada polling.
+export function formatSince(
+  value: string | null,
+  now: number,
+): string | null {
+  const time =
+    toTime(value)
+
+  if (time === null) {
+    return null
+  }
+
+  const hours =
+    Math.max(0, Math.floor((now - time) / 3_600_000))
+
+  if (hours < 1) {
+    return 'há menos de 1 h'
+  }
+
+  if (hours < 24) {
+    return `há ${hours} h`
+  }
+
+  const days =
+    Math.floor(hours / 24)
+
+  return days === 1 ? 'há 1 dia' : `há ${days} dias`
+}
+
+export const FULL_READING_NOTHING_TO_SEND_TITLE =
+  'Nada a enviar agora'
+
+const NO_SEND_TITLE =
+  /^\s*(?:n[aã]o\s+(?:enviar|envie|mandar|mande)\s+nada|nada\s+a\s+enviar)\b/i
+
+function buildNextStep({
+  decision,
+  main,
+  message,
+  locks,
+}: {
+  decision: FullReadingPanelReading['decision']
+  main: FullReadingAgoraMain
+  message: FullReadingMessageView | null
+  locks: string[]
+}): FullReadingNextStep {
+  const locked =
+    locks.includes('ganho_sem_retomada') ||
+    locks.includes('encerrado_sem_acao')
+
+  const turn =
+    decision.vez_de === 'cliente' || decision.vez_de === 'ninguem'
+      ? decision.vez_de
+      : 'vendedor'
+
+  const send =
+    message?.mode === 'send'
+
+  // Com trava do kanban o título é o da trava, nunca o do modelo.
+  const rawTitle =
+    (!locked && humanizePanelText(decision.proximo_passo_titulo)) ||
+    main.acao
+
+  // "Não enviar nada agora" vira o mesmo rótulo do bloco sem mensagem,
+  // para a tela não repetir a ideia com duas frases.
+  const title =
+    !send && NO_SEND_TITLE.test(rawTitle)
+      ? FULL_READING_NOTHING_TO_SEND_TITLE
+      : rawTitle
+
+  const complement =
+    locked
+      ? ''
+      : humanizePanelText(decision.proximo_passo_complemento)
+
+  return {
+    turn,
+    turn_label: FULL_READING_TURN_LABELS[turn],
+    title,
+    complement: complement === title ? '' : complement,
+    why: main.por_que,
+    send,
+    no_send_reason:
+      send
+        ? null
+        : message?.no_send_reason || main.por_que || null,
+  }
+}
+
+function buildFacts({
+  decision,
+  lastMessageAt,
+  now,
+}: {
+  decision: FullReadingPanelReading['decision']
+  lastMessageAt: string | null
+  now: number
+}): FullReadingFact[] {
+  return [
+    {
+      key: 'aguardando',
+      label: 'Cliente aguardando',
+      value: decision.pendencia_do_vendedor ? 'Sim' : 'Não',
+    },
+    {
+      key: 'venda',
+      label: 'Venda',
+      value: FULL_READING_SALE_LABELS[decision.venda_concluida] ?? 'Indefinida',
+    },
+    {
+      key: 'ultimo_contato',
+      label: 'Último contato',
+      value: formatSince(lastMessageAt, now) ?? '—',
+    },
+    {
+      key: 'confianca',
+      label: 'Confiança da leitura',
+      value: FULL_READING_CONFIDENCE_LABELS[decision.confianca_geral] ?? 'Indefinida',
+    },
+  ]
+}
+
+// "Antes de enviar": só afirmações que mudam o que a mensagem pode dizer
+// (preço, plano, condição). No máximo 2.
+const MESSAGE_AFFECTING_CLAIM =
+  /R\$|\bpre[çc]o|\bvalor|\bplano|\bcondi[çc]|\bparcel|\bdesconto|\btaxa|\bmensalidade|\bcobran|\bcontrato|\bprazo|\bcat[aá]logo|\bpromo|\bgr[aá]tis|\bfidelidade/i
+
+function buildBeforeSend(
+  decision: FullReadingPanelReading['decision'],
+  message: FullReadingMessageView | null,
+): string[] {
+  if (message?.mode !== 'send') {
+    return []
+  }
+
+  return humanizeList(decision.afirmacoes_a_confirmar)
+    .filter((item) => MESSAGE_AFFECTING_CLAIM.test(item))
+    .slice(0, 2)
+}
+
+// "Pediu orçamento pelo site (12/09)" → texto + data à direita.
+// Só a data em parênteses ou depois de um separador sai do texto: em
+// "Usa o serviço desde 20/09" a data faz parte da frase.
+const TRAILING_DATE =
+  /\s*(?:\((\d{1,2}\/\d{1,2})(?:\/\d{2,4})?\)|[-–—,]\s*(\d{1,2}\/\d{1,2})(?:\/\d{2,4})?)\s*\.?$/
+
+function splitTrailingDate(
+  value: string,
+): FullReadingClientSaid {
+  const match =
+    TRAILING_DATE.exec(value)
+
+  if (!match || match.index === 0) {
+    return { text: value, date: null }
+  }
+
+  const [day, month] =
+    (match[1] ?? match[2]).split('/')
+
+  return {
+    text: value.slice(0, match.index).replace(/[\s,;:–—-]+$/, '').trim(),
+    date: `${day.padStart(2, '0')}/${month.padStart(2, '0')}`,
+  }
+}
+
+function buildClientView(
+  decision: FullReadingPanelReading['decision'],
+): FullReadingClientView | null {
+  const customer =
+    (decision as { cliente?: Partial<FullReadingCustomer> }).cliente
+
+  if (!customer || typeof customer !== 'object') {
+    return null
+  }
+
+  return {
+    said: humanizeList(customer.sabemos).map(splitTrailingDate),
+    seems: humanizeList(customer.inferimos),
+    missing: humanizeList(customer.a_confirmar),
   }
 }
 
@@ -601,6 +987,8 @@ export function buildFullReadingAgoraView({
   kanban,
   cycleId,
   lastCustomerMessageAt,
+  lastMessageAt = null,
+  now = Date.now(),
 }: {
   state: FullReadingPanelState
   reading: FullReadingPanelReading | null
@@ -608,6 +996,8 @@ export function buildFullReadingAgoraView({
   kanban: FullReadingPanelKanban
   cycleId: string
   lastCustomerMessageAt: string | null
+  lastMessageAt?: string | null
+  now?: number
 }): FullReadingAgoraView {
   const kanbanLabel =
     stageLabel(kanban.status)
@@ -667,6 +1057,15 @@ export function buildFullReadingAgoraView({
         ? 'encerrado'
         : null
 
+  const message =
+    shownReading && main
+      ? buildMessageView({
+          reading: shownReading,
+          main,
+          locks,
+        })
+      : null
+
   const view: Omit<FullReadingAgoraView, 'view_key'> = {
     state,
     notice,
@@ -684,27 +1083,36 @@ export function buildFullReadingAgoraView({
     locks,
     footer: shownReading ? buildFooter(shownReading.completed_at) : null,
     run_id: shownReading?.run_id ?? null,
-    message:
-      shownReading && main
-        ? buildMessageView({
-            reading: shownReading,
-            main,
-            locks,
-          })
-        : null,
-    lead_summary:
-      shownReading && main?.situacao
-        ? {
-            title: shownReading.completed_at && toTime(shownReading.completed_at) !== null
-              ? `Resumo da leitura completa · ${formatTranscriptTimestamp(shownReading.completed_at)}`
-              : 'Resumo da leitura completa',
-            text: main.situacao,
-          }
-        : null,
+    message,
     cliente:
       shownReading
         ? buildCustomerView(shownReading.decision)
         : null,
+    client:
+      shownReading
+        ? buildClientView(shownReading.decision)
+        : null,
+    next_step:
+      shownReading && main
+        ? buildNextStep({
+            decision: shownReading.decision,
+            main,
+            message,
+            locks,
+          })
+        : null,
+    facts:
+      shownReading
+        ? buildFacts({
+            decision: shownReading.decision,
+            lastMessageAt,
+            now,
+          })
+        : [],
+    before_send:
+      shownReading
+        ? buildBeforeSend(shownReading.decision, message)
+        : [],
     attention:
       shownReading && main
         ? buildAttention({
@@ -774,8 +1182,15 @@ function buildMessageView({
     locks.includes('encerrado_sem_acao')
 
   if (noSend) {
+    // O motivo é a explicação depois de "Não enviar nada agora." na seção,
+    // ou o porquê da decisão.
+    const sectionReason =
+      humanizePanelText(text.replace(NO_SEND_WORDING, '').replace(/^[^.!?]*?nada agora[.!]?/i, ''))
+
     return {
       mode: 'no_send',
+      objective: null,
+      no_send_reason: sectionReason || main.por_que || null,
       notice: FULL_READING_NO_SEND_NOTICE,
       section_text: text,
       recommended_objective: null,
@@ -786,6 +1201,8 @@ function buildMessageView({
 
   return {
     mode: 'send',
+    objective: main.acao || null,
+    no_send_reason: null,
     notice: null,
     section_text: text,
     recommended_objective: main.acao || null,
@@ -1122,19 +1539,245 @@ export function parseFullReadingAnalysisSections(
 }
 
 
+// "Nenhuma mensagem desde então" no fim da linha do tempo quando a
+// conversa parou há pelo menos este tempo.
+const TIMELINE_QUIET_AFTER_MS =
+  3 * 3_600_000
+
+const PENDING_LABELS: Record<FullReadingPendingView['owner'], { label: string; tone: FullReadingPendingView['tone'] }> = {
+  vendedor: { label: 'Sua', tone: 'attention' },
+  cliente: { label: 'Do cliente', tone: 'neutral' },
+  nenhum: { label: '', tone: 'ok' },
+}
+
+function hasStructuredReading(
+  decision: FullReadingPanelReading['decision'],
+): boolean {
+  const record =
+    decision as unknown as Record<string, unknown>
+
+  return (
+    Array.isArray(record.linha_do_tempo) &&
+    Array.isArray(record.pendencias) &&
+    Boolean(record.conducao) &&
+    typeof record.conducao === 'object'
+  )
+}
+
+// "Etapa do método AVANÇAR: Descoberta incompleta" → "Descoberta
+// incompleta": o rótulo do bloco já diz que é o método.
+const METHOD_STAGE_PREFIX =
+  /^(?:etapa\s+(?:do|no)\s+m[ée]todo|m[ée]todo)(?:\s+[A-ZÀ-Ý][A-ZÀ-Ý0-9-]*)?\s*[:\-–—]\s*/i
+
+export function methodStageLabel(
+  value: unknown,
+): string {
+  const text =
+    humanizePanelText(value).replace(METHOD_STAGE_PREFIX, '')
+
+  return text
+    ? text.charAt(0).toUpperCase() + text.slice(1)
+    : ''
+}
+
+function buildSummaryBlocks({
+  decision,
+  kanban,
+}: {
+  decision: FullReadingPanelReading['decision']
+  kanban: FullReadingPanelKanban | null
+}): FullReadingSummaryBlock[] {
+  const current =
+    kanban?.status ?? null
+
+  const suggested =
+    decision.etapa_kanban_sugerida
+
+  const kanbanValue =
+    current
+      ? suggested && suggested !== current && isFullReadingKanbanStage(suggested) && findStageCoherenceProblem(decision) === null
+        ? `${stageLabel(current)} → ${stageLabel(suggested)}`
+        : stageLabel(current)
+      : isFullReadingKanbanStage(suggested)
+        ? stageLabel(suggested)
+        : '—'
+
+  return [
+    {
+      key: 'fase',
+      label: 'Fase',
+      value: FULL_READING_PHASE_LABELS[decision.fase_relacao] ?? 'Indefinida',
+    },
+    {
+      key: 'metodo',
+      label: 'Método',
+      value: methodStageLabel(decision.etapa_metodo_atual) || '—',
+    },
+    {
+      key: 'kanban',
+      label: 'Kanban',
+      value: kanbanValue,
+    },
+    {
+      key: 'venda',
+      label: 'Venda',
+      value: FULL_READING_SALE_LABELS[decision.venda_concluida] ?? 'Indefinida',
+    },
+  ]
+}
+
+function normalizeDay(
+  value: unknown,
+): string {
+  const match =
+    /(\d{1,2})\/(\d{1,2})/.exec(clean(value))
+
+  return match
+    ? `${match[1].padStart(2, '0')}/${match[2].padStart(2, '0')}`
+    : ''
+}
+
+function normalizeHour(
+  value: unknown,
+): string {
+  const match =
+    /(\d{1,2}):(\d{2})/.exec(clean(value))
+
+  return match
+    ? `${match[1].padStart(2, '0')}:${match[2]}`
+    : ''
+}
+
+function buildTimeline({
+  decision,
+  lastMessageAt,
+  now,
+}: {
+  decision: FullReadingPanelReading['decision']
+  lastMessageAt: string | null
+  now: number
+}): FullReadingTimelineDay[] {
+  const items =
+    Array.isArray(decision.linha_do_tempo)
+      ? decision.linha_do_tempo
+      : []
+
+  const days: FullReadingTimelineDay[] = []
+
+  for (const item of items) {
+    const text =
+      humanizePanelText(item?.texto)
+
+    if (!text) {
+      continue
+    }
+
+    const day =
+      normalizeDay(item?.dia)
+
+    let group =
+      days[days.length - 1]
+
+    if (!group || group.day !== day) {
+      group = { day, items: [] }
+      days.push(group)
+    }
+
+    group.items.push({
+      time: normalizeHour(item?.hora),
+      text,
+    })
+  }
+
+  const last =
+    toTime(lastMessageAt)
+
+  if (days.length > 0 && last !== null && now - last >= TIMELINE_QUIET_AFTER_MS) {
+    days[days.length - 1].items.push({
+      time: 'depois',
+      text: 'Nenhuma mensagem desde então',
+    })
+  }
+
+  return days
+}
+
+function buildPending(
+  decision: FullReadingPanelReading['decision'],
+): FullReadingPendingView[] {
+  const items =
+    Array.isArray(decision.pendencias)
+      ? decision.pendencias
+      : []
+
+  return items
+    .map((item) => {
+      const owner =
+        item?.de === 'vendedor' || item?.de === 'cliente' || item?.de === 'nenhum'
+          ? item.de
+          : 'nenhum'
+
+      return {
+        owner,
+        ...PENDING_LABELS[owner],
+        text: humanizePanelText(item?.texto),
+      }
+    })
+    .filter((item) => item.text.length > 0)
+}
+
+function buildOpportunities(
+  decision: FullReadingPanelReading['decision'],
+): FullReadingOpportunityView[] {
+  const items =
+    Array.isArray(decision.oportunidades)
+      ? decision.oportunidades
+      : []
+
+  return items
+    .map((item) => {
+      const status =
+        clean(item?.status)
+
+      return {
+        text: humanizePanelText(item?.descricao),
+        status,
+        status_label: FULL_READING_OPPORTUNITY_LABELS[status] ?? 'Em aberto',
+        tone: OPPORTUNITY_TONES[status] ?? 'info',
+      }
+    })
+    .filter((item) => item.text.length > 0)
+}
+
+// Seções que têm aba própria não entram na ANÁLISE.
+const OWN_TAB_SECTIONS =
+  new Set(['mensagem', 'cliente'])
+
 export function buildFullReadingAnalysisView({
   state,
   reading,
   failureCode,
+  kanban = null,
+  lastMessageAt = null,
+  now = Date.now(),
 }: {
   state: FullReadingPanelState
   reading: FullReadingPanelReading | null
   failureCode: string | null
+  kanban?: FullReadingPanelKanban | null
+  lastMessageAt?: string | null
+  now?: number
 }): FullReadingAnalysisView {
   const shownReading =
     state === 'failed'
       ? null
       : reading
+
+  const decision =
+    shownReading?.decision ?? null
+
+  const structured =
+    decision !== null && hasStructuredReading(decision)
 
   const view: Omit<FullReadingAnalysisView, 'view_key'> = {
     state,
@@ -1145,17 +1788,42 @@ export function buildFullReadingAnalysisView({
           ? buildFailureNotice(failureCode)
           : null,
     failure_code: state === 'failed' ? failureCode : null,
+    has_reading: decision !== null,
+    summary:
+      decision
+        ? buildSummaryBlocks({ decision, kanban })
+        : [],
+    timeline:
+      decision && structured
+        ? buildTimeline({ decision, lastMessageAt, now })
+        : [],
+    pending:
+      decision && structured
+        ? buildPending(decision)
+        : [],
+    opportunities:
+      decision
+        ? buildOpportunities(decision)
+        : [],
+    coaching:
+      decision && structured
+        ? {
+            acertos: humanizeList(decision.conducao?.acertos),
+            ajustes: humanizeList(decision.conducao?.ajustes),
+          }
+        : { acertos: [], ajustes: [] },
     sections:
-      shownReading
+      shownReading && !structured
         ? parseFullReadingAnalysisSections(shownReading.analysis_markdown)
+            .filter((section) => !OWN_TAB_SECTIONS.has(section.key))
         : [],
     afirmacoes_a_confirmar:
-      shownReading
-        ? cleanList(shownReading.decision.afirmacoes_a_confirmar)
+      decision
+        ? humanizeList(decision.afirmacoes_a_confirmar)
         : [],
     alertas_de_captura:
-      shownReading
-        ? cleanList(shownReading.decision.alertas_de_captura)
+      decision
+        ? humanizeList(decision.alertas_de_captura)
         : [],
     footer: shownReading ? buildFooter(shownReading.completed_at) : null,
     run_id: shownReading?.run_id ?? null,

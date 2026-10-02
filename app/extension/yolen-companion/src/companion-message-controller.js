@@ -748,9 +748,48 @@ function createCompanionMessageController({
     )
   }
 
+  // Ícones fixos (traço, sem emoji) do composer da leitura completa.
+  const FULL_READING_COPY_ICON =
+    '<svg class="yolen-fr-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>'
+
+  const FULL_READING_CHEVRON_ICON =
+    '<svg class="yolen-fr-icon yolen-fr-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg>'
+
+  const FULL_READING_DRAFT_SELECTOR =
+    '[data-yolen-fr-draft]'
+
+  // "Para: confirmar o horário da visita" — objetivo curto, sem ponto final.
+  function toObjectiveLine(value) {
+    const text =
+      String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[.!]+$/, '')
+
+    if (text.length > 1 && /[a-zà-ÿ]/.test(text.charAt(1))) {
+      return text.charAt(0).toLocaleLowerCase('pt-BR') + text.slice(1)
+    }
+
+    return text
+  }
+
+  function setFullReadingMessage(state, message, source, objective) {
+    state.status = 'ready'
+    state.message = message
+    state.messageSource = source
+    state.messageObjective = objective
+    state.messageVersion = (state.messageVersion || 0) + 1
+    state.error = null
+  }
+
   // Composer da leitura completa. O HTML leva só marcadores; o texto do
-  // modelo (aviso da seção, objetivo recomendado, mensagem) entra depois
-  // com textContent — nunca como HTML.
+  // modelo (motivo, objetivo, mensagem) entra depois com textContent ou
+  // value — nunca como HTML.
+  //
+  //   send:    Mensagem pronta (Para: ..., editável, Incluir/Copiar) e,
+  //            recolhido, "Escrever com outro objetivo".
+  //   no_send: Nada a enviar agora (motivo) e, recolhido, "Escrever mesmo
+  //            assim".
   function renderFullReadingComposer() {
     const context = getFullReadingContext()
 
@@ -796,46 +835,69 @@ function createCompanionMessageController({
       typeof view.suggested_message === 'string' &&
       view.suggested_message.trim()
     ) {
-      state.status = 'ready'
-      state.message = view.suggested_message.trim()
-      state.messageSource = 'reading'
+      setFullReadingMessage(
+        state,
+        view.suggested_message.trim(),
+        'reading',
+        view.objective || view.recommended_objective || '',
+      )
     }
 
-    const presets = getFullReadingPresets(view)
     const trimmedIntent = state.intent.trim()
     const noSend = view.mode === 'no_send'
+    const ready = state.status === 'ready' && typeof state.message === 'string'
+    const objective = ready ? toObjectiveLine(state.messageObjective) : ''
 
-    const noticeHtml = noSend
+    const noSendHtml = noSend
       ? [
-          '<div class="yolen-message-status" data-yolen-full-reading-message-notice>',
-          '<span data-yolen-fr-text="notice"></span>',
-          '</div>',
-          '<div class="yolen-message-objective-help" data-yolen-fr-text="section"></div>',
+          '<section class="yolen-fr-card" data-yolen-fr-card="no_send" data-yolen-full-reading-message-notice>',
+          '<div class="yolen-fr-card-head"><div class="yolen-fr-label">Mensagem</div></div>',
+          '<div class="yolen-fr-title">Nada a enviar agora</div>',
+          '<div class="yolen-fr-body" data-yolen-fr-text="reason"></div>',
+          '</section>',
         ].join('')
       : ''
 
-    const objectiveHtml = [
-      '<div class="yolen-message-objective-card">',
-      '<div class="yolen-message-objective-title">Objetivo da mensagem</div>',
-      `<div class="yolen-message-objective-help">${
-        noSend
-          ? 'Se quiser escrever mesmo assim, descreva o que você quer comunicar.'
-          : 'Use o objetivo da leitura ou descreva o que você quer comunicar.'
-      }</div>`,
-      presets.length > 0
-        ? [
-            '<div class="yolen-message-presets">',
-            presets.map((preset, index) =>
-              `<button type="button" class="yolen-message-preset${preset === trimmedIntent ? ' yolen-message-preset--active' : ''}" data-yolen-seller-message-preset="${index}"><span class="yolen-message-preset-recommended">Recomendado pela leitura completa · </span><span data-yolen-fr-text="preset-${index}"></span></button>`,
-            ).join(''),
-            '</div>',
-          ].join('')
-        : '',
+    const messageHtml = ready
+      ? [
+          '<section class="yolen-fr-card yolen-fr-card--highlight" data-yolen-fr-card="message" data-yolen-full-reading-message-result>',
+          '<div class="yolen-fr-card-head">',
+          '<div class="yolen-fr-label">Mensagem pronta</div>',
+          `<span class="yolen-fr-pill yolen-fr-pill--info">${
+            state.messageSource === 'reading' ? 'Da leitura' : 'Outro objetivo'
+          }</span>`,
+          '</div>',
+          objective
+            ? '<div class="yolen-fr-for"><span class="yolen-fr-for-label">Para:</span> <span data-yolen-fr-text="objective"></span></div>'
+            : '',
+          '<textarea class="yolen-fr-draft" data-yolen-fr-draft rows="7" aria-label="Mensagem pronta (você pode editar)"></textarea>',
+          '<div class="yolen-fr-actions">',
+          `<button type="button" class="yolen-fr-button yolen-fr-button--primary" data-yolen-seller-message-action="insert">Incluir no ${escapeHtml(platformDisplayName)}</button>`,
+          `<button type="button" class="yolen-fr-button yolen-fr-button--secondary" data-yolen-seller-message-action="copy">${FULL_READING_COPY_ICON}Copiar</button>`,
+          '</div>',
+          '<div class="yolen-fr-note">A Yolen não envia sozinha. Revise antes de mandar.</div>',
+          '</section>',
+        ].join('')
+      : ''
+
+    const statusHtml =
+      state.status === 'loading'
+        ? '<div class="yolen-message-status"><span class="yolen-message-spinner" aria-hidden="true"></span>Gerando mensagem…</div>'
+        : state.status === 'error'
+          ? `<div class="yolen-message-status yolen-message-status--error">${escapeHtml(state.error || 'Não foi possível gerar a mensagem.')}</div>`
+          : ''
+
+    const customHtml = [
+      `<details class="yolen-fr-collapse" data-yolen-fr-custom${state.customOpen ? ' open' : ''}>`,
+      `<summary class="yolen-fr-collapse-summary"><span>${
+        noSend ? 'Escrever mesmo assim' : 'Escrever com outro objetivo'
+      }</span>${FULL_READING_CHEVRON_ICON}</summary>`,
+      '<div class="yolen-fr-collapse-body">',
       '<div class="yolen-message-intent-field">',
-      `<textarea class="yolen-message-intent" data-yolen-seller-message-intent maxlength="${INTENT_MAX_LENGTH}" placeholder="Ex.: Quero responder ao ponto específico que o cliente trouxe."></textarea>`,
+      `<textarea class="yolen-message-intent" data-yolen-seller-message-intent maxlength="${INTENT_MAX_LENGTH}" aria-label="O que você quer comunicar" placeholder="Ex.: Quero responder ao ponto específico que o cliente trouxe."></textarea>`,
       `<div class="yolen-message-intent-counter" data-yolen-seller-message-counter>${state.intent.length} / ${INTENT_MAX_LENGTH}</div>`,
       '</div>',
-      '<button type="button" class="yolen-primary-button yolen-message-generate" data-yolen-seller-message-action="generate"',
+      '<button type="button" class="yolen-fr-button yolen-fr-button--primary yolen-message-generate" data-yolen-seller-message-action="generate"',
       !trimmedIntent || state.status === 'loading' ? ' disabled' : '',
       '>',
       state.status === 'loading'
@@ -843,56 +905,28 @@ function createCompanionMessageController({
         : 'Gerar mensagem',
       '</button>',
       '</div>',
+      '</details>',
     ].join('')
-
-    const resultHtml =
-      state.status === 'ready' && state.message
-        ? [
-            '<div class="yolen-message-result-card" data-yolen-full-reading-message-result>',
-            `<div class="yolen-message-result-label">${
-              state.messageSource === 'reading'
-                ? '✨ Mensagem sugerida pela leitura'
-                : '✨ Mensagem sugerida'
-            }</div>`,
-            '<div class="yolen-message-result-scroll">',
-            '<div class="yolen-message-result-text" data-yolen-fr-text="message"></div>',
-            '</div>',
-            '<div class="yolen-message-actions">',
-            '<button type="button" class="yolen-primary-button" data-yolen-seller-message-action="insert">Incluir no ' + escapeHtml(platformDisplayName) + '</button>',
-            '<button type="button" class="yolen-secondary-button" data-yolen-seller-message-action="copy">Copiar</button>',
-            '</div>',
-            '<div class="yolen-message-footnote">A Yolen não envia mensagens automaticamente. Revise antes de enviar.</div>',
-            '</div>',
-          ].join('')
-        : state.status === 'loading'
-          ? '<div class="yolen-message-status"><span class="yolen-message-spinner" aria-hidden="true"></span>Gerando mensagem…</div>'
-          : state.status === 'error'
-            ? `<div class="yolen-message-status yolen-message-status--error">${escapeHtml(state.error || 'Não foi possível gerar a mensagem.')}</div>`
-            : ''
 
     const feedbackHtml = state.feedback
       ? `<div class="yolen-message-feedback">${escapeHtml(state.feedback)}</div>`
       : ''
 
     const html = [
-      noticeHtml,
-      objectiveHtml,
-      resultHtml,
+      noSendHtml,
+      messageHtml,
       feedbackHtml,
+      statusHtml,
+      customHtml,
     ].join('')
 
     const texts = {
-      notice: noSend ? String(view.notice || '') : '',
-      section: noSend ? String(view.section_text || '') : '',
-      message: state.status === 'ready' ? String(state.message || '') : '',
+      reason: noSend ? String(view.no_send_reason || view.section_text || '') : '',
+      objective,
     }
 
-    presets.forEach((preset, index) => {
-      texts[`preset-${index}`] = preset
-    })
-
     const renderKey = hashText(
-      `${html}::${JSON.stringify(texts)}`,
+      `${html}::${JSON.stringify(texts)}::${state.messageVersion || 0}`,
     )
 
     if (
@@ -921,6 +955,27 @@ function createCompanionMessageController({
       if (target && target.textContent !== value) {
         target.textContent = value
       }
+    }
+
+    // A mensagem é editável: o valor do campo só é reposto quando chega
+    // uma mensagem nova (da leitura ou gerada) ou quando o campo foi
+    // recriado; a edição do vendedor fica no estado a cada tecla.
+    const draft = box.querySelector(
+      FULL_READING_DRAFT_SELECTOR,
+    )
+
+    if (
+      draft &&
+      (
+        draft.__yolenMessageVersion !== state.messageVersion ||
+        (
+          draft.value !== state.message &&
+          draft.ownerDocument.activeElement !== draft
+        )
+      )
+    ) {
+      draft.value = state.message || ''
+      draft.__yolenMessageVersion = state.messageVersion
     }
 
     const field = box.querySelector(
@@ -1150,10 +1205,12 @@ function createCompanionMessageController({
       return
     }
 
-    state.status = 'ready'
-    state.message = generation.message.trim()
-    state.messageSource = 'generated'
-    state.error = null
+    setFullReadingMessage(
+      state,
+      generation.message.trim(),
+      'generated',
+      state.intent.trim(),
+    )
     queueRender()
   }
 
@@ -1622,6 +1679,55 @@ function createCompanionMessageController({
 
       if (counter) {
         counter.textContent = `${state.intent.length} / ${INTENT_MAX_LENGTH}`
+      }
+    },
+    true,
+  )
+
+  // Mensagem pronta editável (leitura completa): a edição vai para o
+  // estado sem redesenhar (redesenhar derrubaria o cursor), e é ela que
+  // Incluir/Copiar usam.
+  document.addEventListener(
+    'input',
+    (event) => {
+      const draft = event.target?.closest?.(
+        FULL_READING_DRAFT_SELECTOR,
+      )
+
+      if (!draft) {
+        return
+      }
+
+      const state = getState(getFullReadingContext())
+
+      if (!state || state.status !== 'ready') {
+        return
+      }
+
+      state.message = String(draft.value || '')
+      state.feedback = null
+    },
+    true,
+  )
+
+  // "Escrever com outro objetivo" aberto continua aberto entre renders.
+  document.addEventListener(
+    'toggle',
+    (event) => {
+      const details = event.target
+
+      if (
+        !details ||
+        typeof details.matches !== 'function' ||
+        !details.matches('[data-yolen-fr-custom]')
+      ) {
+        return
+      }
+
+      const state = getState(getFullReadingContext())
+
+      if (state) {
+        state.customOpen = details.open === true
       }
     },
     true,

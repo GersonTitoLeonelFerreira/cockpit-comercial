@@ -27,6 +27,9 @@ import {
   FULL_READING_RUNNING_NOTICE,
   buildFullReadingAgoraView,
   buildFullReadingAnalysisView,
+  formatSince,
+  humanizePanelText,
+  methodStageLabel,
   parseFullReadingAnalysisSections,
 } from '../server/full-reading-panel-view.ts'
 
@@ -71,6 +74,14 @@ function storedDecision(overrides = {}, kanbanStatus = 'novo') {
     afirmacoes_a_confirmar: ['Regra de renovação dita pelo vendedor'],
     alertas_de_captura: ['Imagem não capturada'],
     confianca_geral: 'alta',
+    proximo_passo_titulo: 'Confirmar o próximo passo com o cliente',
+    proximo_passo_complemento: 'Retomar a conversa pelo ponto em aberto.',
+    linha_do_tempo: [
+      { dia: '23/09', hora: '11:08', texto: 'Cliente pediu informações do plano' },
+      { dia: '23/09', hora: '11:20', texto: 'Vendedor enviou os valores' },
+    ],
+    pendencias: [{ de: 'vendedor', texto: 'Confirmar a condição oferecida' }],
+    conducao: { acertos: ['Respondeu rápido'], ajustes: ['Fazer uma pergunta de descoberta'] },
     sistema: {
       kanban_lido: { status: kanbanStatus, stage_entered_at: minutesBefore(600) },
       alertas: [],
@@ -164,8 +175,8 @@ test('frescor: "Atualizar análise" (force) cria rodada nova, mas não duas segu
   assert.equal(plan({ runs: [recent], force: true }).action, 'use')
 })
 
-test('frescor: rodada de prompt antigo (v1, v2) não serve: a v3 roda sozinha', () => {
-  assert.equal(plan({ runs: [run({ prompt_version: 'full-reading-v2' })] }).action, 'start')
+test('frescor: rodada de prompt antigo (v1, v2, v3) não serve: a v4 roda sozinha', () => {
+  assert.equal(plan({ runs: [run({ prompt_version: 'full-reading-v3' })] }).action, 'start')
 
   const result = plan({ runs: [run({ prompt_version: 'full-reading-v1' })] })
 
@@ -415,7 +426,7 @@ test('painel: mensagem nova cria UMA rodada (trigger permitido pela constraint) 
   assert.equal(inserted[0].payload.trigger_source, FULL_READING_PANEL_TRIGGER_SOURCE)
   assert.ok(['manual_preview', 'analysis_job'].includes(FULL_READING_PANEL_TRIGGER_SOURCE))
   assert.equal(inserted[0].payload.prompt_version, FULL_READING_PROMPT_VERSION)
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v3')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v4')
   assert.equal(inserted[0].payload.status, 'queued')
 
   // Só companion_full_reading_runs recebe escrita.
@@ -562,7 +573,7 @@ function agora({ decisionOverrides = {}, kanbanOverrides = {}, state = 'ready', 
 test('AGORA: ganho sugerido → "Confirmar venda" abrindo o fechamento pré-preenchido, sem card de SLA', () => {
   const view = agora()
 
-  assert.equal(view.kanban_line, 'Etapa no kanban: NOVO')
+  assert.equal(view.kanban_line, 'Etapa no kanban: Novo')
   assert.deepEqual(view.main, {
     situacao: 'Cliente já usa o serviço.',
     acao: 'Não enviar nada agora.',
@@ -570,7 +581,9 @@ test('AGORA: ganho sugerido → "Confirmar venda" abrindo o fechamento pré-pree
   })
   assert.equal(view.stage_card.kind, 'confirm_won')
   assert.equal(view.stage_card.button_label, 'Confirmar venda')
-  assert.equal(view.stage_card.title, 'Kanban: NOVO → a conversa indica GANHO')
+  assert.equal(view.stage_card.title, 'Kanban: Novo → a conversa indica Ganho')
+  assert.equal(view.stage_card.current_label, 'Novo')
+  assert.equal(view.stage_card.suggested_label, 'Ganho')
   assert.equal(view.stage_card.reason, 'Pediu acesso ao aplicativo em 29/09.')
   assert.equal(view.stage_card.apply_request, null)
   assert.equal(
@@ -579,7 +592,7 @@ test('AGORA: ganho sugerido → "Confirmar venda" abrindo o fechamento pré-pree
   )
   assert.equal(view.kanban_late, true)
   assert.equal(view.hide_stage_sla, true)
-  assert.equal(view.footer, 'Leitura completa · Claude · 01/10/2026 11:05')
+  assert.equal(view.footer, 'Leitura completa · 01/10, 11:05')
 })
 
 test('AGORA: perdido sugerido → "Confirmar perda" com o motivo, nunca fecha sozinho', () => {
@@ -599,7 +612,7 @@ test('AGORA: perdido sugerido → "Confirmar perda" com o motivo, nunca fecha so
   assert.equal(view.stage_card.cycle_path, `/sales-cycles/${CYCLE}?fechar=perdido&motivo=Fechou+com+concorrente`)
 })
 
-test('AGORA: etapa aberta → "Aplicar" com o corpo exato da rota apply-suggestion', () => {
+test('AGORA: etapa aberta → "Aplicar no kanban" com o corpo exato da rota apply-suggestion', () => {
   const view = agora({
     decisionOverrides: { fase_relacao: 'negociacao', venda_concluida: 'nao', etapa_kanban_sugerida: 'negociacao' },
     kanbanOverrides: {
@@ -610,7 +623,7 @@ test('AGORA: etapa aberta → "Aplicar" com o corpo exato da rota apply-suggesti
   })
 
   assert.equal(view.stage_card.kind, 'apply')
-  assert.equal(view.stage_card.button_label, 'Aplicar')
+  assert.equal(view.stage_card.button_label, 'Aplicar no kanban')
   assert.equal(view.stage_card.cycle_path, null)
   assert.equal(view.stage_card.apply_request.applied_status, 'negociacao')
   assert.equal(view.stage_card.apply_request.source, 'whatsapp_companion')
@@ -655,7 +668,7 @@ test('AGORA: kanban já em Ganho → nada de retomar, nada de card, sem "estagna
     kanbanOverrides: { status: 'ganho' },
   })
 
-  assert.equal(view.kanban_line, 'Etapa no kanban: GANHO')
+  assert.equal(view.kanban_line, 'Etapa no kanban: Ganho')
   assert.equal(view.stage_card, null)
   assert.doesNotMatch(`${view.main.acao} ${view.main.por_que}`, /retom|follow|estagnad/i)
   assert.match(view.main.acao, /Acompanhar o pós-venda/)
@@ -793,18 +806,123 @@ test('AGORA pelo snapshot da orquestração usa o kanban atual do ciclo', () => 
       { cycleId: CYCLE, referenceTime: NOW },
     )
 
-  assert.equal(view.kanban_line, 'Etapa no kanban: AGENDA')
-  assert.equal(view.stage_card.title, 'Kanban: AGENDA → a conversa indica GANHO')
+  assert.equal(view.kanban_line, 'Etapa no kanban: Agenda')
+  assert.equal(view.stage_card.title, 'Kanban: Agenda → a conversa indica Ganho')
 })
 
 // ---------------------------------------------------------------------------
 // ANÁLISE
 // ---------------------------------------------------------------------------
 
-test('ANÁLISE: seções da análise, afirmações a confirmar e alertas de captura à parte', () => {
+test('ANÁLISE: blocos de resumo, linha do tempo por dia, pendências, oportunidades e condução vêm dos campos estruturados', () => {
   const view =
-    buildFullReadingAnalysisView({ state: 'ready', reading: reading(), failureCode: null })
+    buildFullReadingAnalysisView({
+      state: 'ready',
+      reading: reading({
+        etapa_metodo_atual: 'Etapa do método AVANÇAR: Descoberta incompleta',
+        oportunidades: [
+          { descricao: 'Plano anual', status: 'sem_resposta' },
+          { descricao: 'Indicação de amiga', status: 'aceita' },
+        ],
+        linha_do_tempo: [
+          { dia: '15/09', hora: '11:07', texto: 'Entrou pelo bot e pediu uma demonstração' },
+          { dia: '15/09', hora: '11:22', texto: 'Perguntou os planos' },
+          { dia: '1/10', hora: '', texto: 'Vendedor mandou os valores' },
+        ],
+        pendencias: [
+          { de: 'vendedor', texto: 'Confirmar se a demonstração aconteceu' },
+          { de: 'cliente', texto: 'Ainda não escolheu o plano' },
+          { de: 'nenhum', texto: 'Nenhuma pergunta do cliente sem resposta' },
+        ],
+        conducao: { acertos: ['Respondeu em cerca de 5 minutos'], ajustes: ['Nenhuma pergunta de descoberta'] },
+      }),
+      failureCode: null,
+      kanban: kanban({ status: 'novo' }),
+      lastMessageAt: '2026-10-01T12:00:00.000Z',
+      now: Date.parse(NOW),
+    })
 
+  assert.equal(view.has_reading, true)
+  assert.deepEqual(view.summary, [
+    { key: 'fase', label: 'Fase', value: 'Cliente ativo' },
+    { key: 'metodo', label: 'Método', value: 'Descoberta incompleta' },
+    { key: 'kanban', label: 'Kanban', value: 'Novo → Ganho' },
+    { key: 'venda', label: 'Venda', value: 'Provável' },
+  ])
+  // Linha do tempo agrupada por dia, hora à esquerda; a conversa parou há
+  // 3 h: última linha "Nenhuma mensagem desde então".
+  assert.deepEqual(view.timeline, [
+    {
+      day: '15/09',
+      items: [
+        { time: '11:07', text: 'Entrou pelo bot e pediu uma demonstração' },
+        { time: '11:22', text: 'Perguntou os planos' },
+      ],
+    },
+    {
+      day: '01/10',
+      items: [
+        { time: '', text: 'Vendedor mandou os valores' },
+        { time: 'depois', text: 'Nenhuma mensagem desde então' },
+      ],
+    },
+  ])
+  assert.deepEqual(view.pending, [
+    { owner: 'vendedor', label: 'Sua', tone: 'attention', text: 'Confirmar se a demonstração aconteceu' },
+    { owner: 'cliente', label: 'Do cliente', tone: 'neutral', text: 'Ainda não escolheu o plano' },
+    { owner: 'nenhum', label: '', tone: 'ok', text: 'Nenhuma pergunta do cliente sem resposta' },
+  ])
+  // Status em português, nunca o código.
+  assert.deepEqual(view.opportunities, [
+    { text: 'Plano anual', status: 'sem_resposta', status_label: 'Sem resposta', tone: 'attention' },
+    { text: 'Indicação de amiga', status: 'aceita', status_label: 'Aceita', tone: 'ok' },
+  ])
+  assert.deepEqual(view.coaching, { acertos: ['Respondeu em cerca de 5 minutos'], ajustes: ['Nenhuma pergunta de descoberta'] })
+  // Com os campos estruturados, o markdown não vira tela.
+  assert.deepEqual(view.sections, [])
+  assert.deepEqual(view.afirmacoes_a_confirmar, ['Regra de renovação dita pelo vendedor'])
+  assert.deepEqual(view.alertas_de_captura, ['Imagem não capturada'])
+  assert.equal(view.footer, 'Leitura completa · 01/10, 11:05')
+
+  // Conversa recente: sem "Nenhuma mensagem desde então".
+  const recent =
+    buildFullReadingAnalysisView({
+      state: 'ready',
+      reading: reading(),
+      failureCode: null,
+      kanban: kanban(),
+      lastMessageAt: minutesBefore(30),
+      now: Date.parse(NOW),
+    })
+
+  assert.ok(!JSON.stringify(recent.timeline).includes('Nenhuma mensagem desde então'))
+
+  const failed =
+    buildFullReadingAnalysisView({ state: 'failed', reading: reading(), failureCode: 'INVALID_MODEL_OUTPUT' })
+
+  assert.equal(failed.has_reading, false)
+  assert.deepEqual(failed.sections, [])
+  assert.deepEqual(failed.summary, [])
+  assert.match(failed.notice, /INVALID_MODEL_OUTPUT/)
+
+  const attached = attachFullReadingToAnalysis({ coaching_diagnosis: { id: 'x' } }, view)
+
+  // MENSAGEM continua lendo o mesmo coaching_diagnosis.
+  assert.deepEqual(attached.coaching_diagnosis, { id: 'x' })
+})
+
+test('ANÁLISE plano B: rodada sem os campos estruturados mostra o markdown, sem Agora, Mensagem sugerida e Cliente', () => {
+  const legacy =
+    reading()
+
+  for (const key of ['proximo_passo_titulo', 'proximo_passo_complemento', 'linha_do_tempo', 'pendencias', 'conducao']) {
+    delete legacy.decision[key]
+  }
+
+  const view =
+    buildFullReadingAnalysisView({ state: 'ready', reading: legacy, failureCode: null, kanban: kanban() })
+
+  assert.equal(view.has_reading, true)
   assert.deepEqual(
     view.sections.map((section) => section.title),
     [
@@ -812,30 +930,16 @@ test('ANÁLISE: seções da análise, afirmações a confirmar e alertas de capt
       'Linha do tempo',
       'Pendências',
       'Oportunidades',
-      'Cliente: fatos e inferências',
       'Condução do vendedor',
-      'Mensagem sugerida',
     ],
   )
-  // A seção Agora fica só no AGORA.
-  assert.ok(!view.sections.some((section) => section.title === 'Agora'))
   // Markdown inline sai: o texto vai para textContent.
   assert.deepEqual(view.sections[0].blocks, [{ type: 'paragraph', items: ['Cliente ativa. O kanban está atrasado.'] }])
   assert.deepEqual(view.sections[1].blocks, [{ type: 'list', items: ['20/09: primeiro contato', '29/09: pediu acesso'] }])
-  assert.deepEqual(view.afirmacoes_a_confirmar, ['Regra de renovação dita pelo vendedor'])
-  assert.deepEqual(view.alertas_de_captura, ['Imagem não capturada'])
-  assert.equal(view.footer, 'Leitura completa · Claude · 01/10/2026 11:05')
-
-  const failed =
-    buildFullReadingAnalysisView({ state: 'failed', reading: reading(), failureCode: 'INVALID_MODEL_OUTPUT' })
-
-  assert.deepEqual(failed.sections, [])
-  assert.match(failed.notice, /INVALID_MODEL_OUTPUT/)
-
-  const attached = attachFullReadingToAnalysis({ coaching_diagnosis: { id: 'x' } }, view)
-
-  // MENSAGEM continua lendo o mesmo coaching_diagnosis.
-  assert.deepEqual(attached.coaching_diagnosis, { id: 'x' })
+  assert.deepEqual(view.timeline, [])
+  assert.deepEqual(view.pending, [])
+  // Os blocos de resumo vêm da decisão, que existe nas duas versões.
+  assert.equal(view.summary.length, 4)
 })
 
 test('ANÁLISE: fora do formato, mostra o texto inteiro numa seção', () => {
@@ -958,4 +1062,246 @@ test('painel: conversa vazia nunca agenda o Claude nem grava rodada; aviso de me
     buildFullReadingAnalysisView({ state: 'failed', reading: null, failureCode: 'EMPTY_CONVERSATION' }).notice,
     'As mensagens desta conversa ainda não chegaram à Yolen.',
   )
+})
+
+// ---------------------------------------------------------------------------
+// Rodada 6: oportunidade nova (ciclo sucessor) lê o histórico da origem
+// ---------------------------------------------------------------------------
+
+const ORIGIN_CYCLE = '20000000-0000-4000-8000-0000000000aa'
+
+function successorSeed({ runs = [] } = {}) {
+  const base = seed({ runs, messages: [] })
+
+  base.sales_cycles[0].origin_cycle_id = ORIGIN_CYCLE
+  base.sales_cycles[0].created_at = minutesBefore(60)
+  base.sales_cycles[0].opportunity_type = 'renovacao'
+  base.sales_cycles.push({
+    id: ORIGIN_CYCLE,
+    company_id: COMPANY,
+    status: 'ganho',
+    origin_cycle_id: null,
+    created_at: minutesBefore(60 * 24 * 30),
+    opportunity_type: null,
+  })
+  // As mensagens ficaram gravadas no ciclo de origem.
+  base.conversation_messages = [
+    message({ id: 1, cycle_id: ORIGIN_CYCLE, occurred_at: minutesBefore(600), observed_at: minutesBefore(590) }),
+    message({ id: 2, cycle_id: ORIGIN_CYCLE, direction: 'outgoing', occurred_at: minutesBefore(300), observed_at: minutesBefore(290) }),
+  ]
+
+  return base
+}
+
+test('oportunidade nova sem mensagem própria: o histórico da origem conta; a primeira abertura roda a leitura e não diz "não chegaram"', async () => {
+  const memory = createMemoryAdmin(successorSeed())
+  const { promise, scheduled } = resolveWith(memory)
+  const snapshot = await promise
+
+  assert.equal(snapshot.state, 'running')
+  assert.notEqual(snapshot.failure_code, 'EMPTY_CONVERSATION')
+  assert.equal(snapshot.successor, true)
+  assert.equal(snapshot.last_message_at, minutesBefore(300))
+  assert.equal(scheduled.length, 1)
+
+  const view = buildAgoraFullReadingView(snapshot, { cycleId: CYCLE })
+
+  assert.equal(view.notice, FULL_READING_RUNNING_NOTICE)
+  assert.doesNotMatch(String(view.notice), /não chegaram/)
+
+  // Só a tabela de rodadas recebe escrita.
+  assert.deepEqual([...new Set(memory.writes.map((write) => write.table))], ['companion_full_reading_runs'])
+})
+
+test('oportunidade nova: a leitura do ciclo de origem não serve para o ciclo novo', async () => {
+  const originRun = run({ run_id: 'run-origin', cycle_id: ORIGIN_CYCLE })
+  const memory = createMemoryAdmin(successorSeed({ runs: [originRun] }))
+  const { promise, scheduled } = resolveWith(memory)
+  const snapshot = await promise
+
+  assert.equal(snapshot.state, 'running')
+  assert.equal(scheduled.length, 1)
+  assert.equal(snapshot.reading, null)
+})
+
+test('ciclo sem origem e sem mensagem continua EMPTY_CONVERSATION (a cadeia não inventa histórico)', async () => {
+  const memory = createMemoryAdmin(seed({ messages: [message({ cycle_id: OTHER_CYCLE })] }))
+  const { promise, scheduled } = resolveWith(memory)
+  const snapshot = await promise
+
+  assert.equal(snapshot.failure_code, 'EMPTY_CONVERSATION')
+  assert.equal(snapshot.successor, false)
+  assert.equal(scheduled.length, 0)
+})
+
+// ---------------------------------------------------------------------------
+// Rodada 6: AGORA decide primeiro, nada repetido, nenhum código cru
+// ---------------------------------------------------------------------------
+
+function agoraAt({ decisionOverrides = {}, kanbanOverrides = {}, markdown = null, lastMessageAt = minutesBefore(60 * 26) } = {}) {
+  const base = reading(decisionOverrides)
+
+  return buildFullReadingAgoraView({
+    state: 'ready',
+    reading: markdown ? { ...base, analysis_markdown: markdown } : base,
+    failureCode: null,
+    kanban: kanban(kanbanOverrides),
+    cycleId: CYCLE,
+    lastCustomerMessageAt: null,
+    lastMessageAt,
+    now: Date.parse(NOW),
+  })
+}
+
+const SEND_MARKDOWN = [
+  '### Agora',
+  '- Situação: x',
+  '### Mensagem sugerida',
+  'Oi! Conseguiu ver a demonstração ontem? O que achou?',
+].join('\n')
+
+test('AGORA: próximo passo com título curto, complemento, vez em português e o porquê; "Ver mensagem pronta" quando há mensagem', () => {
+  const view = agoraAt({
+    markdown: SEND_MARKDOWN,
+    decisionOverrides: {
+      acao_agora: 'responder',
+      vez_de: 'vendedor',
+      acao_resumo: 'Perguntar como foi a demonstração.',
+      proximo_passo_titulo: 'Perguntar como foi a demonstração',
+      proximo_passo_complemento: 'Se não aconteceu, oferecer outro horário.',
+      por_que: 'A demonstração era 15/09 às 10h e não houve resposta depois.',
+      etapa_kanban_sugerida: 'novo',
+    },
+  })
+
+  assert.deepEqual(view.next_step, {
+    turn: 'vendedor',
+    turn_label: 'Vez do vendedor',
+    title: 'Perguntar como foi a demonstração',
+    complement: 'Se não aconteceu, oferecer outro horário.',
+    why: 'A demonstração era 15/09 às 10h e não houve resposta depois.',
+    send: true,
+    no_send_reason: null,
+  })
+  // Mesma etapa: sem card de etapa.
+  assert.equal(view.stage_card, null)
+  // "Para:" fica só na MENSAGEM.
+  assert.equal(view.message.objective, 'Perguntar como foi a demonstração.')
+})
+
+test('AGORA: leitura "não enviar" → "Nada a enviar agora" com o motivo, sem botão de mensagem', () => {
+  const view = agoraAt()
+
+  assert.equal(view.next_step.send, false)
+  assert.equal(view.next_step.turn_label, 'Vez do cliente')
+  assert.equal(view.next_step.no_send_reason, 'Não há pergunta em aberto.')
+  assert.equal(view.message.mode, 'no_send')
+})
+
+test('AGORA: trava do kanban (Ganho) manda no título; o complemento do modelo não aparece', () => {
+  const view = agoraAt({
+    decisionOverrides: { acao_agora: 'retomar', acao_resumo: 'Retomar a negociação.', proximo_passo_titulo: 'Retomar a negociação', venda_concluida: 'confirmada', etapa_kanban_sugerida: 'ganho' },
+    kanbanOverrides: { status: 'ganho' },
+  })
+
+  assert.equal(view.next_step.title, 'Acompanhar o pós-venda. A negociação do que já foi vendido está encerrada.')
+  assert.equal(view.next_step.complement, '')
+  assert.equal(view.next_step.send, false)
+})
+
+test('AGORA: grade 2×2 em português (aguardando, venda, último contato, confiança)', () => {
+  const view = agoraAt({ decisionOverrides: { pendencia_do_vendedor: true, venda_concluida: 'nao', confianca_geral: 'media' } })
+
+  assert.deepEqual(view.facts, [
+    { key: 'aguardando', label: 'Cliente aguardando', value: 'Sim' },
+    { key: 'venda', label: 'Venda', value: 'Ainda não' },
+    { key: 'ultimo_contato', label: 'Último contato', value: 'há 1 dia' },
+    { key: 'confianca', label: 'Confiança da leitura', value: 'Média' },
+  ])
+
+  assert.equal(formatSince(minutesBefore(20), Date.parse(NOW)), 'há menos de 1 h')
+  assert.equal(formatSince(minutesBefore(185), Date.parse(NOW)), 'há 3 h')
+  assert.equal(formatSince(minutesBefore(60 * 72), Date.parse(NOW)), 'há 3 dias')
+  assert.equal(formatSince(null, Date.parse(NOW)), null)
+  assert.equal(agoraAt({ lastMessageAt: null }).facts[2].value, '—')
+})
+
+test('AGORA: "Antes de enviar" só com afirmação que muda a mensagem (preço, plano, condição), no máximo 2, e só quando há mensagem', () => {
+  const claims = [
+    'O Plano Anual Plus (12x R$ 99,00) não está no catálogo.',
+    'O vendedor disse que a demonstração é às 10h.',
+    'Condição de adesão grátis citada pelo vendedor.',
+    'Desconto de 10% para pagamento à vista.',
+  ]
+
+  const send = agoraAt({
+    markdown: SEND_MARKDOWN,
+    decisionOverrides: { acao_agora: 'responder', afirmacoes_a_confirmar: claims },
+  })
+
+  assert.deepEqual(send.before_send, [
+    'O Plano Anual Plus (12x R$ 99,00) não está no catálogo.',
+    'Condição de adesão grátis citada pelo vendedor.',
+  ])
+
+  // Sem mensagem para enviar, não há "antes de enviar".
+  assert.deepEqual(agoraAt({ decisionOverrides: { afirmacoes_a_confirmar: claims } }).before_send, [])
+  // Nada que afete a mensagem: card some.
+  assert.deepEqual(
+    agoraAt({ markdown: SEND_MARKDOWN, decisionOverrides: { acao_agora: 'responder', afirmacoes_a_confirmar: ['O vendedor disse que a demonstração é às 10h.'] } }).before_send,
+    [],
+  )
+})
+
+test('AGORA: o card "Resumo da leitura completa" saiu; o texto do card de etapa sai sem código', () => {
+  const view = agoraAt({
+    decisionOverrides: {
+      etapa_kanban_sugerida: 'respondeu',
+      fase_relacao: 'descoberta',
+      venda_concluida: 'nao',
+      motivo_etapa: 'Ele respondeu e marcou a demonstração (15/09): mudar para AGENDA (respondeu).',
+    },
+    kanbanOverrides: { status: 'novo' },
+  })
+
+  assert.equal('lead_summary' in view, false)
+  assert.equal(view.stage_card.kind, 'apply')
+  assert.equal(view.stage_card.current_label, 'Novo')
+  assert.equal(view.stage_card.suggested_label, 'Agenda')
+  assert.equal(view.stage_card.reason, 'Ele respondeu e marcou a demonstração (15/09): mudar para Agenda.')
+  assert.equal(view.stage_card.button_label, 'Aplicar no kanban')
+  assert.doesNotMatch(JSON.stringify(view), /sem_resposta|nao_intervir|\(respondeu\)|nome interno/)
+})
+
+test('textos do modelo para a tela: sem nome interno nem código, sem mexer no português', () => {
+  assert.equal(humanizePanelText('Mudar para AGENDA (respondeu) hoje'), 'Mudar para Agenda hoje')
+  assert.equal(humanizePanelText('Agenda (nome interno: respondeu)'), 'Agenda')
+  assert.equal(humanizePanelText('Oferta ficou sem_resposta'), 'Oferta ficou sem resposta')
+  assert.equal(humanizePanelText('Kanban em respondeu'), 'Kanban em Agenda')
+  assert.equal(humanizePanelText('O cliente respondeu ontem'), 'O cliente respondeu ontem')
+  assert.equal(humanizePanelText('Vou negociar o valor'), 'Vou negociar o valor')
+  assert.equal(methodStageLabel('Etapa do método AVANÇAR: Descoberta incompleta'), 'Descoberta incompleta')
+  assert.equal(methodStageLabel('Pós-venda'), 'Pós-venda')
+})
+
+test('CLIENTE: o que ele disse com a data à direita; data no meio da frase fica no texto', () => {
+  const view = agoraAt({
+    decisionOverrides: {
+      cliente: {
+        sabemos: ['Pediu uma demonstração pelo bot (15/09)', 'Quer começar ainda este mês — 15/09', 'Usa o app desde 20/09'],
+        inferimos: ['Interesse alto: pediu horário para a mesma semana.'],
+        a_confirmar: ['Se a demonstração aconteceu'],
+      },
+    },
+  })
+
+  assert.deepEqual(view.client, {
+    said: [
+      { text: 'Pediu uma demonstração pelo bot', date: '15/09' },
+      { text: 'Quer começar ainda este mês', date: '15/09' },
+      { text: 'Usa o app desde 20/09', date: null },
+    ],
+    seems: ['Interesse alto: pediu horário para a mesma semana.'],
+    missing: ['Se a demonstração aconteceu'],
+  })
 })

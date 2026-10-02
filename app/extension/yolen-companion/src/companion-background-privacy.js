@@ -140,6 +140,7 @@
         'can_open_pool',
         'can_open_cycle',
         'can_create_successor_opportunity',
+        'can_note_successor_opportunity',
       ]),
       actions: booleanFlags(payload.actions, [
         'can_analyze_conversation',

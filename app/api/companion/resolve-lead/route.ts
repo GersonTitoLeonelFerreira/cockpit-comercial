@@ -7,6 +7,7 @@ import {
 } from '@/app/lib/server/companion-token'
 import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
 import { evaluateSuccessorOpportunityEligibility } from '@/app/lib/companion/successor-opportunity'
+import { isFullReadingPanelEnabled } from '@/app/lib/server/full-reading-flag'
 
 type ResolveLeadBody = {
   phone?: unknown
@@ -469,6 +470,16 @@ function buildResolutionPayload({
       can_create_successor_opportunity:
         status === 'CLOSED_CYCLE' &&
         canCreateSuccessorOpportunity === true,
+      // Rodada 6 (HML): "O que é esta oportunidade?" só existe com a
+      // leitura completa ligada (COMPANION_FULL_READING_PANEL=on em
+      // preview). Desligada, a chave nem aparece e a resposta é a de hoje.
+      ...(
+        status === 'CLOSED_CYCLE' &&
+        canCreateSuccessorOpportunity === true &&
+        isFullReadingPanelEnabled()
+          ? { can_note_successor_opportunity: true }
+          : {}
+      ),
     },
     actions: {
       can_analyze_conversation: canAnalyzeConversation,

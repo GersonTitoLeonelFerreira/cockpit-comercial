@@ -929,3 +929,44 @@ test('capability Nova oportunidade: nunca aparece fora de CLOSED_CYCLE (ciclo ab
   assert.equal(payload.status, 'OWNED_BY_ME')
   assert.equal(payload.capabilities.can_create_successor_opportunity, false)
 })
+
+// Rodada 6: "O que é esta oportunidade?" só aparece com a leitura completa
+// ligada (COMPANION_FULL_READING_PANEL=on em preview). Desligada, a chave
+// nem existe e a resposta é igual à de antes (os cenários acima).
+test('resolve-lead: can_note_successor_opportunity só com a leitura completa ligada, e só onde Nova oportunidade existe', async () => {
+  const closed = ACTION_CONTRACT_SCENARIOS.find((scenario) => scenario.status === 'CLOSED_CYCLE')
+  const owned = ACTION_CONTRACT_SCENARIOS.find((scenario) => scenario.status === 'OWNED_BY_ME')
+  const previous = {
+    COMPANION_FULL_READING_PANEL: process.env.COMPANION_FULL_READING_PANEL,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+  }
+
+  const resolve = async (scenario) => {
+    useAdmin(scenario.steps())
+    const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+    return readJson(await POST(postRequest({ token, body: scenario.body })))
+  }
+
+  try {
+    process.env.COMPANION_FULL_READING_PANEL = 'on'
+    process.env.VERCEL_ENV = 'preview'
+
+    assert.deepEqual((await resolve(closed)).capabilities, {
+      ...closed.capabilities,
+      can_note_successor_opportunity: true,
+    })
+    assert.deepEqual((await resolve(owned)).capabilities, owned.capabilities)
+
+    process.env.VERCEL_ENV = 'production'
+    assert.deepEqual((await resolve(closed)).capabilities, closed.capabilities)
+
+    delete process.env.COMPANION_FULL_READING_PANEL
+    process.env.VERCEL_ENV = 'preview'
+    assert.deepEqual((await resolve(closed)).capabilities, closed.capabilities)
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})

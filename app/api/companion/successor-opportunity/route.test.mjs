@@ -244,3 +244,61 @@ test('sem token válido: 401', async () => {
 
   assert.equal(response.status, 401)
 })
+
+// Rodada 6: "O que é esta oportunidade?" vai para p_note só com a leitura
+// completa ligada (COMPANION_FULL_READING_PANEL=on em preview).
+async function withFlag(values, run) {
+  const previous = {
+    COMPANION_FULL_READING_PANEL: process.env.COMPANION_FULL_READING_PANEL,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+  }
+
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+
+  try {
+    return await run()
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+test('nota da oportunidade: com a flag ligada em preview vai para p_note (limpa); desligada, p_note null como antes', async () => {
+  const body = { ...VALID, note: '  Quer   passar para o plano anual \uD83D ' }
+
+  await withFlag({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'preview' }, async () => {
+    const admin = fakeAdmin()
+    const { response } = await post(body, admin)
+
+    assert.equal(response.status, 200)
+    assert.equal(admin.calls.rpc[0].args.p_note, 'Quer passar para o plano anual �')
+  })
+
+  for (const env of [
+    { COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'preview' },
+    { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production' },
+  ]) {
+    await withFlag(env, async () => {
+      const admin = fakeAdmin()
+      const { response } = await post(body, admin)
+
+      assert.equal(response.status, 200)
+      assert.equal(admin.calls.rpc[0].args.p_note, null)
+    })
+  }
+
+  // Nota vazia ou de outro tipo: p_note null.
+  await withFlag({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'preview' }, async () => {
+    for (const note of ['   ', 42, null]) {
+      const admin = fakeAdmin()
+
+      await post({ ...VALID, note }, admin)
+      assert.equal(admin.calls.rpc[0].args.p_note, null)
+    }
+  })
+})

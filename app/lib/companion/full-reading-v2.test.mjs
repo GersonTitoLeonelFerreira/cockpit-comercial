@@ -65,6 +65,14 @@ function decision(overrides = {}) {
     afirmacoes_a_confirmar: [],
     alertas_de_captura: [],
     confianca_geral: 'alta',
+    proximo_passo_titulo: 'Confirmar o próximo passo com o cliente',
+    proximo_passo_complemento: 'Retomar a conversa pelo ponto em aberto.',
+    linha_do_tempo: [
+      { dia: '23/09', hora: '11:08', texto: 'Cliente pediu informações do plano' },
+      { dia: '23/09', hora: '11:20', texto: 'Vendedor enviou os valores' },
+    ],
+    pendencias: [{ de: 'vendedor', texto: 'Confirmar a condição oferecida' }],
+    conducao: { acertos: ['Respondeu rápido'], ajustes: ['Fazer uma pergunta de descoberta'] },
     ...overrides,
   }
 }
@@ -96,7 +104,7 @@ function kanban(overrides = {}) {
 // ---------------------------------------------------------------------------
 
 test('prompt: versão atual e regras genéricas do kanban no sistema', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v3')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v4')
 
   const system =
     buildFullReadingSystemPrompt()
@@ -110,8 +118,10 @@ test('prompt: versão atual e regras genéricas do kanban no sistema', () => {
   assert.match(system, /Nunca sugira retomar a negociação do que já foi vendido/)
   // c) Perdido/Cancelado: reabrir só com mensagem nova do cliente.
   assert.match(system, /Só sugira reabrir se o cliente escreveu depois do encerramento/)
-  // d) AGENDA só com compromisso com data e hora aceito pelos dois.
-  assert.match(system, /AGENDA só quando existe um compromisso futuro concreto, com data e hora, aceito pelos dois lados/)
+  // d) Agenda: compromisso com dia e hora aceito pelos dois; continua Agenda
+  // depois do horário até o resultado ser conhecido.
+  assert.match(system, /Agenda é quando existe um compromisso marcado \(visita, reunião, consulta, demonstração, ligação\), com dia e hora, aceito pelos dois lados/)
+  assert.match(system, /Continua sendo Agenda depois do horário marcado, enquanto o resultado \(compareceu, faltou, remarcou\) não for conhecido; nesse caso a ação é confirmar o resultado com o cliente/)
   // e) Nunca inventar fechamento.
   assert.match(system, /Nunca invente valor, plano ou forma de pagamento/)
   assert.match(system, /etapa_kanban_sugerida/)
@@ -127,7 +137,7 @@ test('prompt v2: a seção do kanban vai no prompt do usuário, com o rótulo vi
       kanban: kanban({ status: 'respondeu', label: 'AGENDA' }),
     })
 
-  assert.match(user, /<kanban_do_yolen>\n[\s\S]*Etapa atual: AGENDA \(nome interno: respondeu\)[\s\S]*<\/kanban_do_yolen>/)
+  assert.match(user, /<kanban_do_yolen>\n[\s\S]*Etapa atual: AGENDA\n[\s\S]*<\/kanban_do_yolen>/)
   assert.match(user, /Nessa etapa desde: 20\/09\/2026 09:00/)
   assert.match(user, /Próxima ação registrada: nenhuma/)
   assert.ok(user.indexOf('<kanban_do_yolen>') < user.indexOf('<conversa>'))
@@ -487,7 +497,7 @@ test('runner v2: o kanban vai no prompt e a decisão gravada leva kanban lido e 
     })
 
   assert.deepEqual(result, { status: 'succeeded' })
-  assert.match(sentBody.messages[0].content, /<kanban_do_yolen>[\s\S]*Etapa atual: NOVO \(nome interno: novo\)/)
+  assert.match(sentBody.messages[0].content, /<kanban_do_yolen>[\s\S]*Etapa atual: NOVO(?! \(nome interno)/)
 
   const final = updates[updates.length - 1].values
 
