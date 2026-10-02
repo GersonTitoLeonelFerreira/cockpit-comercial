@@ -45,6 +45,8 @@ type AnalysisViewModelBody = {
   cycle_id?: unknown
   conversation_key?: unknown
   force_reanalysis?: unknown
+  // Rodada 8: "if_changed" quando o "Atualizar" só relê se algo mudou.
+  force_mode?: unknown
 }
 
 function getCorsHeaders(
@@ -227,6 +229,8 @@ export async function POST(
           body.conversation_key,
         force:
           body.force_reanalysis,
+        forceMode:
+          body.force_mode,
         referenceTime,
         route: '/api/companion/analysis-view-model',
         schedule:

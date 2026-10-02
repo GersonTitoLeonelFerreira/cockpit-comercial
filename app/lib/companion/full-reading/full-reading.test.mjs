@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  toV5Output,
+} from '../e2-test-support/full-reading-v5-fixture.mjs'
+
+import {
   buildFullReadingTranscript,
   describeMessageContent,
   formatTranscriptTimestamp,
@@ -252,14 +256,17 @@ test('acima do teto mantém as mensagens mais recentes e declara o corte', () =>
 // Prompt
 // ---------------------------------------------------------------------------
 
-test('o prompt de sistema pede a análise e a decisão consistentes', () => {
+// Rodada 8 (v5): sem analise_markdown; a decisão traz tudo, na ordem em que
+// o modelo entende antes de decidir.
+test('o prompt de sistema pede só a decisão, entendendo antes de decidir', () => {
   const system =
     buildFullReadingSystemPrompt()
 
-  assert.match(system, /analise_markdown/)
-  assert.match(system, /nunca pode contradizê-la/)
+  assert.doesNotMatch(system, /analise_markdown/)
+  assert.match(system, /Responda com um único objeto JSON com o campo "decisao"/)
+  assert.match(system, /primeiro entenda \(situação, cliente, pendências, contradições com o cadastro, como conduzir\), depois decida/)
   assert.match(system, /"Não fazer nada agora" é uma decisão válida/)
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v4')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v5')
 })
 
 test('o prompt do usuário leva referência, cadastro e conversa', () => {
@@ -336,8 +343,16 @@ test('recusa valores fora do permitido e campos ausentes', () => {
     (error) => error instanceof FullReadingOutputError && /venda_concluida/.test(error.message),
   )
 
+  // Sem analise_markdown a resposta é lida como v5: uma decisão v4 (ajustes
+  // em texto, sem os campos novos) é recusada.
   assert.throws(
     () => parseFullReadingOutput(JSON.stringify({ decisao: validDecision() })),
+    (error) => error instanceof FullReadingOutputError && /conducao\.ajustes|como_conduzir|contradicoes_cadastro/.test(error.message),
+  )
+
+  // Formato pedido explicitamente: v4 exige analise_markdown.
+  assert.throws(
+    () => parseFullReadingOutput(JSON.stringify({ decisao: validDecision() }), { format: 'v4' }),
     (error) => error instanceof FullReadingOutputError && /analise_markdown/.test(error.message),
   )
 
@@ -587,7 +602,8 @@ test('monta o contexto comercial só com o que está ativo', () => {
   assert.equal(context.method_name, null)
   assert.deepEqual(context.method_steps.map((step) => step.name), ['Descoberta', 'Tour'])
   assert.deepEqual(context.facts, ['Fato ativo'])
-  assert.deepEqual(context.products, [{ name: 'Duo', category: 'Duas pessoas' }])
+  // v5: o preço base vai junto (null quando o cadastro não tem).
+  assert.deepEqual(context.products, [{ name: 'Duo', category: 'Duas pessoas', base_price: null }])
 })
 
 test('rodada completa grava sucesso com análise e decisão', async () => {
@@ -607,7 +623,8 @@ test('rodada completa grava sucesso com análise e decisão', async () => {
       apiKey: 'sk-ant-teste',
       loadMessages: async () => [message()],
       loadConfig: async () => ({ bundle: null, products: [] }),
-      fetchImpl: async () => okResponse(claudePayload(JSON.stringify(validOutput()))),
+      // Rodada 8: o runner pede o formato v5 (sem analise_markdown).
+      fetchImpl: async () => okResponse(claudePayload(JSON.stringify(toV5Output(validOutput())))),
     })
 
   assert.deepEqual(result, { status: 'succeeded' })
@@ -619,7 +636,10 @@ test('rodada completa grava sucesso com análise e decisão', async () => {
 
   assert.equal(final.status, 'succeeded')
   assert.equal(final.decision.acao_agora, 'nao_intervir')
-  assert.match(final.analysis_markdown, /### Agora/)
+  // v5: a leitura é só a decisão.
+  assert.equal(final.analysis_markdown, null)
+  assert.equal(final.decision.mensagem_sugerida, '')
+  assert.deepEqual(final.decision.conducao.ajustes, [{ houve: 'Fazer uma pergunta de descoberta', melhor: '' }])
   assert.equal(final.transcript_message_count, 1)
   assert.equal(final.input_tokens, 5000)
 })

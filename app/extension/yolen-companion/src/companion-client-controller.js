@@ -544,8 +544,12 @@ function createCompanionClientController(ctx) {
     }
   }
 
+  // turn (rodada 8): com a leitura completa, "Aguardando" vem da vez dela
+  // ('vendedor' | 'cliente' | 'ninguem'; null = sem leitura, a célula sai).
+  // Sem a chave, a grade é a de hoje.
   function getCompanionClientRelationshipCardHtml({
     compact = false,
+    ...options
   } = {}) {
     if (
       ctx.state.companionClientContext
@@ -565,6 +569,9 @@ function createCompanionClientController(ctx) {
           ${clientContextViewTools.renderCompactRelationshipCard(
             ctx.state.companionClientContext,
             Date.now(),
+            'turn' in options
+              ? { turn: options.turn }
+              : undefined,
           )}
 
           <div class="yolen-fr-actions">

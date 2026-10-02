@@ -15,9 +15,17 @@ import 'server-only'
 //    análise" (force_reanalysis);
 // 3. velha ou ausente: cria uma rodada e a executa depois da resposta
 //    (after). No máximo uma rodada na fila ou rodando por conversa; o
-//    polling nunca dispara rodadas em série (uma falha só é repetida se
-//    algo mudou desde ela, ou com force);
+//    polling nunca dispara rodadas em série (uma falha determinística só é
+//    repetida se algo mudou desde ela, ou com force);
 // 4. rodada na fila/rodando há mais de 5 minutos conta como falha.
+//
+// Rodada 8: falta de crédito e falhas passageiras (tempo esgotado, rede,
+// API indisponível ou limite de uso) não grudam. O painel tenta de novo
+// sozinho quando houve uma leitura com sucesso depois da falha (em
+// qualquer conversa: prova que a API voltou) ou quando passa a espera (5
+// min para crédito, 2 min para falha passageira), no máximo 3 vezes por
+// conversa por hora. A espera global de crédito acaba no primeiro sucesso
+// depois da última falha de crédito.
 //
 // Escreve SOMENTE em companion_full_reading_runs. sales_cycles e o
 // ledger são só lidos.
@@ -60,6 +68,7 @@ import {
   type FullReadingPanelKanban,
   type FullReadingPanelReading,
   type FullReadingPanelState,
+  type FullReadingPanelStatusInput,
 } from './full-reading-panel-view'
 
 // A constraint de trigger_source só aceita 'manual_preview' e
@@ -99,10 +108,49 @@ const RUN_COLUMNS =
   'run_id, cycle_id, status, prompt_version, reference_time, created_at, ' +
   'started_at, completed_at, failure_code, failure_detail, analysis_markdown, decision'
 
-// Rodada 7: sem crédito na API, nenhuma rodada nova por este tempo (em
-// nenhuma conversa: o crédito é da chave). Só "Atualizar" tenta de novo.
+// Sem crédito na API, nenhuma rodada nova por este tempo (em nenhuma
+// conversa: o crédito é da chave), a menos que uma leitura dê certo depois
+// da falha. "Tentar de novo" sempre tenta.
 export const FULL_READING_CREDIT_COOLDOWN_MS =
-  30 * 60 * 1000
+  5 * 60 * 1000
+
+// Falha passageira: nova tentativa sozinha depois disso.
+export const FULL_READING_TRANSIENT_RETRY_MS =
+  2 * 60 * 1000
+
+// Tentativas automáticas por conversa por hora.
+export const FULL_READING_AUTO_RETRY_LIMIT =
+  3
+
+export const FULL_READING_AUTO_RETRY_WINDOW_MS =
+  60 * 60 * 1000
+
+// Rodada presa (RUN_EXPIRED) fica fora: uma conversa que sempre estoura o
+// tempo repetiria sozinha gastando crédito.
+export const FULL_READING_TRANSIENT_FAILURE_CODES =
+  new Set([
+    'PROVIDER_TIMEOUT',
+    'PROVIDER_NETWORK_ERROR',
+    'PROVIDER_UNAVAILABLE',
+    'PROVIDER_RATE_LIMITED',
+  ])
+
+export type FullReadingFailureKind =
+  | 'credit'
+  | 'transient'
+  | 'deterministic'
+
+export function classifyRunFailure(
+  failureCode: string | null | undefined,
+): FullReadingFailureKind {
+  if (failureCode === PROVIDER_CREDIT_EXHAUSTED_CODE) {
+    return 'credit'
+  }
+
+  return failureCode && FULL_READING_TRANSIENT_FAILURE_CODES.has(failureCode)
+    ? 'transient'
+    : 'deterministic'
+}
 
 // Rodadas gravadas antes do código próprio: 400 com o texto da Anthropic.
 export function normalizeRunFailureCode(
@@ -151,11 +199,28 @@ export type FullReadingPanelRunRow = {
 export type FullReadingPanelPlan = {
   action: 'use' | 'wait' | 'start' | 'show_failure' | 'skip'
   reading: FullReadingPanelRunRow | null
+  // Rodada 8: última leitura boa de uma versão anterior do prompt. Só para
+  // mostrar enquanto a leitura atual roda ou falhou; nunca conta como
+  // leitura fresca.
+  fallback_reading?: FullReadingPanelRunRow | null
   active_run: FullReadingPanelRunRow | null
   failed_run: FullReadingPanelRunRow | null
   expired_run_ids: string[]
   stale_reasons: string[]
   skip_reason?: string
+  failure_kind?: FullReadingFailureKind | null
+  // Quando a falha aconteceu (para o aviso "às HH:MM").
+  failure_at?: string | null
+  // Quando o painel tenta de novo sozinho (null: não tenta).
+  retry_at?: string | null
+  // O aviso de crédito só aparece se a falha de crédito não teve nenhum
+  // sucesso depois.
+  credit_notice?: boolean
+  // "Atualizar" caiu na espera de 60 s depois da última rodada.
+  force_debounced?: boolean
+  force_available_at?: string | null
+  // "Atualizar" sem nada novo desde a leitura (rodada 8, B4).
+  nothing_new?: boolean
 }
 
 function toTime(
@@ -177,6 +242,45 @@ function isActive(
   run: FullReadingPanelRunRow,
 ): boolean {
   return run.status === 'queued' || run.status === 'running'
+}
+
+// Rodada com leitura que o painel sabe mostrar: v5 grava só a decisão
+// (analysis_markdown nulo); v4 e anteriores têm o texto.
+export function isUsableReadingRun(
+  run: FullReadingPanelRunRow,
+): boolean {
+  if (
+    run.status !== 'succeeded' ||
+    !isUsableStoredDecision(run.decision)
+  ) {
+    return false
+  }
+
+  return (
+    typeof run.analysis_markdown === 'string' ||
+    typeof (run.decision as { mensagem_sugerida?: unknown }).mensagem_sugerida === 'string'
+  )
+}
+
+// Rodadas de medição (prompt_version "...-eval") nunca aparecem no painel.
+function isEvalRun(
+  run: FullReadingPanelRunRow,
+): boolean {
+  return typeof run.prompt_version === 'string' && run.prompt_version.endsWith('-eval')
+}
+
+function failedAt(
+  run: FullReadingPanelRunRow,
+): number | null {
+  return toTime(run.completed_at) ?? toTime(run.created_at)
+}
+
+function toIso(
+  value: number | null,
+): string | null {
+  return value === null
+    ? null
+    : new Date(value).toISOString()
 }
 
 function readKanbanAtRun(
@@ -230,28 +334,37 @@ export function planFullReadingPanel({
   kanban,
   latestObservedAt,
   force,
+  forceMode = 'always',
   now,
   promptVersion = FULL_READING_PROMPT_VERSION,
   creditExhaustedAt = null,
+  lastClaudeSuccessAt = null,
 }: {
   runs: FullReadingPanelRunRow[]
   cycleId: string
   kanban: FullReadingPanelKanban
   latestObservedAt: string | null
   force: boolean
+  // 'if_changed' (rodada 8, B4): "Atualizar" sem nada novo desde a
+  // leitura não relê; o painel diz "Nada novo desde HH:MM".
+  forceMode?: 'always' | 'if_changed'
   now: string
   promptVersion?: string
   // Última falha por falta de crédito na API (qualquer conversa).
   creditExhaustedAt?: string | null
+  // Última leitura com sucesso (qualquer conversa).
+  lastClaudeSuccessAt?: string | null
 }): FullReadingPanelPlan {
   const nowTime =
     toTime(now) ?? Date.now()
 
   const ordered =
-    [...runs].sort(
-      (left, right) =>
-        (toTime(right.created_at) ?? 0) - (toTime(left.created_at) ?? 0),
-    )
+    [...runs]
+      .filter((run) => !isEvalRun(run))
+      .sort(
+        (left, right) =>
+          (toTime(right.created_at) ?? 0) - (toTime(left.created_at) ?? 0),
+      )
 
   const expired =
     ordered.filter(
@@ -270,6 +383,11 @@ export function planFullReadingPanel({
       (run) => isActive(run) && !expiredIds.has(run.run_id),
     ) ?? null
 
+  const withExpiry = (run: FullReadingPanelRunRow) =>
+    expiredIds.has(run.run_id)
+      ? { ...run, status: 'failed', failure_code: RUN_EXPIRED_FAILURE_CODE }
+      : run
+
   const cycleRuns =
     ordered
       .filter(
@@ -278,25 +396,46 @@ export function planFullReadingPanel({
           run.prompt_version === promptVersion &&
           run.failure_code !== DUPLICATE_RUN_FAILURE_CODE,
       )
-      .map((run) =>
-        expiredIds.has(run.run_id)
-          ? { ...run, status: 'failed', failure_code: RUN_EXPIRED_FAILURE_CODE }
-          : run,
-      )
+      .map(withExpiry)
 
   const reading =
-    cycleRuns.find(
-      (run) =>
-        run.status === 'succeeded' &&
-        typeof run.analysis_markdown === 'string' &&
-        isUsableStoredDecision(run.decision),
-    ) ?? null
+    cycleRuns.find(isUsableReadingRun) ?? null
+
+  // Sem leitura da versão atual, a última boa de uma versão anterior fica
+  // na tela enquanto a nova roda ou se ela falhar.
+  const fallbackReading =
+    reading
+      ? null
+      : ordered.find(
+          (run) =>
+            run.cycle_id === cycleId &&
+            run.prompt_version !== promptVersion &&
+            isUsableReadingRun(run),
+        ) ?? null
+
+  const newestAttempt =
+    cycleRuns[0] ?? null
+
+  const debounced =
+    force &&
+    newestAttempt !== null &&
+    nowTime - (toTime(newestAttempt.created_at) ?? 0) <
+      FULL_READING_FORCE_DEBOUNCE_MS
+
+  const forced =
+    force && !debounced
 
   const plan = {
     reading,
+    fallback_reading: fallbackReading,
     active_run: active,
     failed_run: null as FullReadingPanelRunRow | null,
     expired_run_ids: [...expiredIds],
+    force_debounced: debounced,
+    force_available_at:
+      debounced && newestAttempt
+        ? toIso((toTime(newestAttempt.created_at) ?? nowTime) + FULL_READING_FORCE_DEBOUNCE_MS)
+        : null,
   }
 
   if (active) {
@@ -332,16 +471,23 @@ export function planFullReadingPanel({
     }
   }
 
-  const newestAttempt =
-    cycleRuns[0] ?? null
-
-  const forced =
-    force &&
-    !(
-      newestAttempt &&
-      nowTime - (toTime(newestAttempt.created_at) ?? 0) <
-        FULL_READING_FORCE_DEBOUNCE_MS
-    )
+  // B4: "Atualizar" com a leitura em dia não relê (a mesma entrada pode dar
+  // outra leitura, e cada rodada gasta crédito). "Ler de novo mesmo assim"
+  // e "Tentar de novo" mandam forceMode 'always'.
+  if (
+    forced &&
+    forceMode === 'if_changed' &&
+    reading !== null &&
+    newestAttempt === reading &&
+    staleReasons.length === 0
+  ) {
+    return {
+      ...plan,
+      action: 'use',
+      stale_reasons: [],
+      nothing_new: true,
+    }
+  }
 
   if (forced) {
     staleReasons.push('forcado')
@@ -368,39 +514,110 @@ export function planFullReadingPanel({
       action: 'skip',
       skip_reason: skipReason,
       stale_reasons: staleReasons,
+      failure_kind: 'deterministic',
     }
   }
 
-  // A tentativa mais recente falhou depois da última leitura boa: só
-  // tenta de novo se algo mudou desde a falha (ou com force). Sem isso o
-  // polling do painel dispararia uma rodada atrás da outra.
+  const successTime =
+    toTime(lastClaudeSuccessAt)
+
+  // A tentativa mais recente falhou depois da última leitura boa.
   if (
     newestAttempt &&
     newestAttempt.status === 'failed' &&
     newestAttempt !== reading &&
-    !forced &&
-    changedAfter({
-      referenceTime: newestAttempt.reference_time,
-      latestObservedAt,
-      kanban,
-    }).length === 0
+    !forced
   ) {
-    return {
-      ...plan,
-      action: 'show_failure',
-      failed_run: newestAttempt,
-      stale_reasons: staleReasons,
+    const kind =
+      classifyRunFailure(newestAttempt.failure_code)
+
+    const failureTime =
+      failedAt(newestAttempt)
+
+    const changed =
+      changedAfter({
+        referenceTime: newestAttempt.reference_time,
+        latestObservedAt,
+        kanban,
+      }).length > 0
+
+    // Determinística (conversa vazia, saída inválida...): só repete se algo
+    // mudou desde ela. Sem isso o polling dispararia uma rodada atrás da
+    // outra.
+    if (kind === 'deterministic') {
+      if (!changed) {
+        return {
+          ...plan,
+          action: 'show_failure',
+          failed_run: newestAttempt,
+          stale_reasons: staleReasons,
+          failure_kind: kind,
+          failure_at: toIso(failureTime),
+          retry_at: null,
+          credit_notice: false,
+        }
+      }
+    } else {
+      const successAfter =
+        successTime !== null &&
+        failureTime !== null &&
+        successTime > failureTime
+
+      const waitMs =
+        kind === 'credit'
+          ? FULL_READING_CREDIT_COOLDOWN_MS
+          : FULL_READING_TRANSIENT_RETRY_MS
+
+      const retryTime =
+        failureTime === null
+          ? null
+          : failureTime + waitMs
+
+      const waited =
+        retryTime === null ||
+        nowTime >= retryTime
+
+      // Falhas que se repetem sozinhas, na conversa, na última hora: a
+      // primeira mais até 3 tentativas automáticas.
+      const recentRetryableFailures =
+        ordered.filter(
+          (run) =>
+            run.prompt_version === promptVersion &&
+            withExpiry(run).status === 'failed' &&
+            classifyRunFailure(withExpiry(run).failure_code) !== 'deterministic' &&
+            nowTime - (toTime(run.created_at) ?? 0) < FULL_READING_AUTO_RETRY_WINDOW_MS,
+        ).length
+
+      const limitReached =
+        recentRetryableFailures > FULL_READING_AUTO_RETRY_LIMIT
+
+      if (limitReached || !(successAfter || waited || changed)) {
+        return {
+          ...plan,
+          action: 'show_failure',
+          failed_run: newestAttempt,
+          stale_reasons: staleReasons,
+          failure_kind: kind,
+          failure_at: toIso(failureTime),
+          retry_at: limitReached ? null : toIso(retryTime),
+          credit_notice: kind === 'credit' && !successAfter,
+        }
+      }
+
+      staleReasons.push('nova_tentativa')
     }
   }
 
-  // Sem crédito na API há pouco: nenhuma rodada nova (nem por mensagem
-  // nova, nem pelo polling) até a espera passar; só "Atualizar" tenta.
+  // Sem crédito na API há pouco e nenhum sucesso depois: nenhuma rodada
+  // nova (nem por mensagem nova, nem pelo polling) até a espera passar;
+  // "Tentar de novo" tenta.
   const creditTime =
     toTime(creditExhaustedAt)
 
   if (
     !forced &&
     creditTime !== null &&
+    (successTime === null || successTime < creditTime) &&
     nowTime - creditTime < FULL_READING_CREDIT_COOLDOWN_MS
   ) {
     return {
@@ -408,6 +625,10 @@ export function planFullReadingPanel({
       action: 'skip',
       skip_reason: PROVIDER_CREDIT_EXHAUSTED_CODE,
       stale_reasons: staleReasons,
+      failure_kind: 'credit',
+      failure_at: toIso(creditTime),
+      retry_at: toIso(creditTime + FULL_READING_CREDIT_COOLDOWN_MS),
+      credit_notice: true,
     }
   }
 
@@ -513,7 +734,20 @@ export type FullReadingPanelSnapshot = {
   plan_action: FullReadingPanelPlan['action']
   stale_reasons: string[]
   reading: FullReadingPanelReading | null
+  // Rodada 8: a leitura na tela é de uma versão anterior do prompt
+  // (enquanto a atual roda ou depois que ela falhou).
+  reading_is_fallback?: boolean
   failure_code: string | null
+  failure_kind?: FullReadingFailureKind | null
+  failure_at?: string | null
+  retry_at?: string | null
+  credit_notice?: boolean
+  // Desde quando a leitura atual roda (o painel mostra os segundos).
+  running_since?: string | null
+  force_debounced?: boolean
+  force_available_at?: string | null
+  // "Atualizar" sem nada novo: a hora da leitura em dia.
+  nothing_new_since?: string | null
   kanban: FullReadingPanelKanban
   last_customer_message_at: string | null
   // Última mensagem da conversa (qualquer lado): "Último contato".
@@ -531,7 +765,7 @@ function toReading(
 ): FullReadingPanelReading | null {
   if (
     !run ||
-    typeof run.analysis_markdown !== 'string' ||
+    !isUsableReadingRun(run) ||
     !isUsableStoredDecision(run.decision)
   ) {
     return null
@@ -540,7 +774,10 @@ function toReading(
   return {
     run_id: run.run_id,
     completed_at: run.completed_at,
-    analysis_markdown: run.analysis_markdown,
+    analysis_markdown:
+      typeof run.analysis_markdown === 'string'
+        ? run.analysis_markdown
+        : null,
     decision: run.decision,
   }
 }
@@ -572,52 +809,77 @@ async function readRuns(
     }))
 }
 
-// Última falha por falta de crédito (qualquer conversa) dentro da espera.
-async function readRecentCreditExhaustion(
-  admin: SupabaseClient,
-  now: string,
-): Promise<string | null> {
-  const since =
-    new Date(Date.parse(now) - FULL_READING_CREDIT_COOLDOWN_MS).toISOString()
+// Estado global das chamadas ao Claude (qualquer conversa): a última
+// leitura com sucesso e a última falha por falta de crédito. Rodada 8: a
+// espera de crédito acaba no primeiro sucesso depois da falha.
+export type FullReadingGlobalClaudeState = {
+  last_success_at: string | null
+  last_credit_failure_at: string | null
+}
 
-  let data: unknown = null
+async function readGlobalClaudeState(
+  admin: SupabaseClient,
+): Promise<FullReadingGlobalClaudeState> {
+  const state: FullReadingGlobalClaudeState = {
+    last_success_at: null,
+    last_credit_failure_at: null,
+  }
 
   try {
-    const result =
+    const success =
       await admin
         .from(FULL_READING_RUNS_TABLE)
-        .select('created_at, failure_code, failure_detail')
+        .select('created_at, completed_at')
+        .eq('status', 'succeeded')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+    const row =
+      success.error
+        ? null
+        : (success.data as { created_at?: unknown; completed_at?: unknown } | null)
+
+    state.last_success_at =
+      rowText(row?.completed_at) ?? rowText(row?.created_at)
+  } catch {
+    // Sem a consulta, nada prova que a API voltou: vale a espera.
+  }
+
+  try {
+    const credit =
+      await admin
+        .from(FULL_READING_RUNS_TABLE)
+        .select('created_at, completed_at, failure_code, failure_detail')
         .in('failure_code', [PROVIDER_CREDIT_EXHAUSTED_CODE, 'PROVIDER_REQUEST_REJECTED'])
-        .gte('created_at', since)
         .order('created_at', { ascending: false })
         .limit(5)
 
-    if (result.error) {
-      return null
-    }
+    const rows =
+      !credit.error && Array.isArray(credit.data)
+        ? (credit.data as {
+            created_at?: unknown
+            completed_at?: unknown
+            failure_code?: unknown
+            failure_detail?: unknown
+          }[])
+        : []
 
-    data = result.data
-  } catch {
-    // Sem a consulta, o painel segue como antes (a rodada tenta).
-    return null
-  }
-
-  if (!Array.isArray(data)) {
-    return null
-  }
-
-  const hit =
-    (data as { created_at?: unknown; failure_code?: unknown; failure_detail?: unknown }[])
-      .find((row) =>
+    const hit =
+      rows.find((row) =>
         normalizeRunFailureCode(
           typeof row.failure_code === 'string' ? row.failure_code : null,
           typeof row.failure_detail === 'string' ? row.failure_detail : null,
         ) === PROVIDER_CREDIT_EXHAUSTED_CODE,
       )
 
-  return typeof hit?.created_at === 'string'
-    ? hit.created_at
-    : null
+    state.last_credit_failure_at =
+      rowText(hit?.completed_at) ?? rowText(hit?.created_at)
+  } catch {
+    // Sem a consulta, o painel segue (a rodada tenta).
+  }
+
+  return state
 }
 
 // cycleIds: o ciclo e, numa oportunidade nova, os ciclos de origem (a
@@ -801,6 +1063,7 @@ export async function resolveFullReadingPanel({
   admin,
   scope,
   force,
+  forceMode = 'always',
   now,
   apiKey,
   schedule,
@@ -811,6 +1074,7 @@ export async function resolveFullReadingPanel({
   admin: SupabaseClient
   scope: FullReadingPanelScope
   force: boolean
+  forceMode?: 'always' | 'if_changed'
   now: string
   apiKey: string
   schedule: FullReadingRunScheduler
@@ -859,33 +1123,50 @@ export async function resolveFullReadingPanel({
       ? await readLatestTimestamp(admin, scope, 'occurred_at', true, chainCycleIds)
       : null
 
-  // Só consulta a falta de crédito quando uma rodada poderia começar.
-  const draftPlan =
-    planFullReadingPanel({
-      runs,
-      cycleId: scope.cycle_id,
-      kanban,
-      latestObservedAt,
-      force,
-      now,
-    })
+  const planInput = {
+    runs,
+    cycleId: scope.cycle_id,
+    kanban,
+    latestObservedAt,
+    force,
+    forceMode,
+    now,
+  }
 
-  const plan =
-    draftPlan.action === 'start'
-      ? planFullReadingPanel({
-          runs,
-          cycleId: scope.cycle_id,
-          kanban,
-          latestObservedAt,
-          force,
-          now,
-          creditExhaustedAt: await readRecentCreditExhaustion(admin, now),
-        })
-      : draftPlan
+  // O estado global do Claude só é lido quando uma rodada poderia começar
+  // ou quando a falha mostrada pode ter sido resolvida em outra conversa.
+  const draftPlan =
+    planFullReadingPanel(planInput)
+
+  let plan =
+    draftPlan
+
+  if (
+    draftPlan.action === 'start' ||
+    (draftPlan.action === 'show_failure' && draftPlan.failure_kind !== 'deterministic')
+  ) {
+    const global =
+      await readGlobalClaudeState(admin)
+
+    plan =
+      planFullReadingPanel({
+        ...planInput,
+        creditExhaustedAt: global.last_credit_failure_at,
+        lastClaudeSuccessAt: global.last_success_at,
+      })
+  }
 
   if (plan.expired_run_ids.length > 0) {
     await expireRuns(admin, plan.expired_run_ids, now)
   }
+
+  // Leitura da versão atual; sem ela, a última boa de uma versão anterior
+  // (só para mostrar).
+  const currentReading =
+    toReading(plan.reading)
+
+  const shownReading =
+    currentReading ?? toReading(plan.fallback_reading ?? null)
 
   const base = {
     plan_action: plan.action,
@@ -894,15 +1175,30 @@ export async function resolveFullReadingPanel({
     last_customer_message_at: lastCustomerMessageAt,
     last_message_at: lastMessageAt,
     successor: chain.length > 1,
+    reading_is_fallback: currentReading === null && shownReading !== null,
+    force_debounced: plan.force_debounced === true,
+    force_available_at: plan.force_available_at ?? null,
+  }
+
+  const failureFields = {
+    failure_kind: plan.failure_kind ?? null,
+    failure_at: plan.failure_at ?? null,
+    retry_at: plan.retry_at ?? null,
+    credit_notice: plan.credit_notice === true,
   }
 
   if (plan.action === 'use') {
     return {
       ...base,
       state: 'ready',
-      reading: toReading(plan.reading),
+      reading: currentReading,
+      reading_is_fallback: false,
       failure_code: null,
       started_run_id: null,
+      nothing_new_since:
+        plan.nothing_new === true
+          ? plan.reading?.reference_time ?? null
+          : null,
     }
   }
 
@@ -910,17 +1206,20 @@ export async function resolveFullReadingPanel({
     return {
       ...base,
       state: 'running',
-      reading: toReading(plan.reading),
+      reading: shownReading,
       failure_code: null,
       started_run_id: null,
+      running_since:
+        plan.active_run?.started_at ?? plan.active_run?.created_at ?? null,
     }
   }
 
   if (plan.action === 'show_failure') {
     return {
       ...base,
+      ...failureFields,
       state: 'failed',
-      reading: toReading(plan.reading),
+      reading: shownReading,
       failure_code: plan.failed_run?.failure_code ?? 'FULL_READING_FAILED',
       started_run_id: null,
     }
@@ -929,8 +1228,9 @@ export async function resolveFullReadingPanel({
   if (plan.action === 'skip') {
     return {
       ...base,
+      ...failureFields,
       state: 'failed',
-      reading: toReading(plan.reading),
+      reading: shownReading,
       failure_code: plan.skip_reason ?? EMPTY_CONVERSATION_SKIP_CODE,
       started_run_id: null,
     }
@@ -940,8 +1240,10 @@ export async function resolveFullReadingPanel({
     return {
       ...base,
       state: 'failed',
-      reading: toReading(plan.reading),
+      reading: shownReading,
       failure_code: 'ANTHROPIC_API_KEY_MISSING',
+      failure_kind: 'deterministic',
+      failure_at: now,
       started_run_id: null,
     }
   }
@@ -962,8 +1264,10 @@ export async function resolveFullReadingPanel({
     return {
       ...base,
       state: 'failed',
-      reading: toReading(plan.reading),
+      reading: shownReading,
       failure_code: started.failure_code,
+      failure_kind: 'transient',
+      failure_at: now,
       started_run_id: null,
     }
   }
@@ -971,9 +1275,10 @@ export async function resolveFullReadingPanel({
   return {
     ...base,
     state: 'running',
-    reading: toReading(plan.reading),
+    reading: shownReading,
     failure_code: null,
     started_run_id: started.run_id,
+    running_since: now,
   }
 }
 
@@ -994,7 +1299,24 @@ export function buildAgoraFullReadingView(
     cycleId,
     lastCustomerMessageAt: snapshot.last_customer_message_at,
     lastMessageAt: snapshot.last_message_at ?? null,
+    panel: panelStatusInput(snapshot),
   })
+}
+
+function panelStatusInput(
+  snapshot: FullReadingPanelSnapshot,
+): FullReadingPanelStatusInput {
+  return {
+    failure_kind: snapshot.failure_kind ?? null,
+    failure_at: snapshot.failure_at ?? null,
+    retry_at: snapshot.retry_at ?? null,
+    credit_notice: snapshot.credit_notice === true,
+    running_since: snapshot.running_since ?? null,
+    reading_is_fallback: snapshot.reading_is_fallback === true,
+    force_debounced: snapshot.force_debounced === true,
+    force_available_at: snapshot.force_available_at ?? null,
+    nothing_new_since: snapshot.nothing_new_since ?? null,
+  }
 }
 
 export function buildAnalysisFullReadingView(
@@ -1006,6 +1328,7 @@ export function buildAnalysisFullReadingView(
     failureCode: snapshot.failure_code,
     kanban: snapshot.kanban,
     lastMessageAt: snapshot.last_message_at ?? null,
+    panel: panelStatusInput(snapshot),
   })
 }
 
@@ -1109,6 +1432,7 @@ export async function loadFullReadingPanelForRequest({
   cycleId,
   conversationKey,
   force,
+  forceMode,
   referenceTime,
   schedule,
   createRunId,
@@ -1120,6 +1444,9 @@ export async function loadFullReadingPanelForRequest({
   cycleId: unknown
   conversationKey: unknown
   force: unknown
+  // "if_changed" (Atualizar com a leitura em dia não relê); qualquer outro
+  // valor relê.
+  forceMode?: unknown
   referenceTime: string
   schedule: FullReadingRunScheduler
   createRunId: () => string
@@ -1151,6 +1478,7 @@ export async function loadFullReadingPanelForRequest({
         admin,
         scope,
         force: force === true,
+        forceMode: forceMode === 'if_changed' ? 'if_changed' : 'always',
         now: referenceTime,
         apiKey: env.ANTHROPIC_API_KEY ?? '',
         schedule,

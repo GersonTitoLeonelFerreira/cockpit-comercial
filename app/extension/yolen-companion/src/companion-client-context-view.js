@@ -549,6 +549,14 @@
     no_pending_response: 'Ninguém',
   }
 
+  // Rodada 8 (E2): com a leitura completa, "Aguardando" vem da vez dela —
+  // a mesma pergunta respondida sem ambiguidade.
+  const READING_TURN_WAITING_LABELS = {
+    vendedor: 'Sua resposta',
+    cliente: 'Resposta do cliente',
+    ninguem: 'Ninguém',
+  }
+
   function sinceIso(isoValue, now) {
     if (!isoValue) {
       return null
@@ -569,6 +577,7 @@
   function renderCompactRelationshipCard(
     state,
     now,
+    options,
   ) {
     const status =
       state?.status ||
@@ -611,7 +620,12 @@
       ['Última do cliente', sinceIso(relationship.latest_customer_message_at, now)],
       ['Última sua', sinceIso(relationship.latest_seller_message_at, now)],
       ['Etapa', stageStatus ? LEAD_STATUS_LABELS[stageStatus] || stageStatus : null],
-      ['Aguardando', COMPACT_WAITING_LABELS[context.waiting?.state] || null],
+      [
+        'Aguardando',
+        options && 'turn' in options
+          ? READING_TURN_WAITING_LABELS[options.turn] || null
+          : COMPACT_WAITING_LABELS[context.waiting?.state] || null,
+      ],
     ].filter(([, value]) => value)
 
     if (cells.length === 0) {

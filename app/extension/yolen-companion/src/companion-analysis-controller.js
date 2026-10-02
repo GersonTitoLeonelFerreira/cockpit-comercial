@@ -509,6 +509,11 @@ function createCompanionAnalysisController(ctx) {
             ...(options.forceFullReading === true
               ? { force_reanalysis: true }
               : {}),
+            // Rodada 8: "Atualizar" só relê se algo mudou.
+            ...(options.forceFullReading === true &&
+            options.forceFullReadingMode === 'if_changed'
+              ? { force_mode: 'if_changed' }
+              : {}),
           })
 
       if (!isStillCurrentContext()) {
@@ -1528,6 +1533,11 @@ function createCompanionAnalysisController(ctx) {
             // Leitura completa (HML): ver loadAnalysisViewModel acima.
             ...(options.forceFullReading === true
               ? { force_reanalysis: true }
+              : {}),
+            // Rodada 8: "Atualizar" só relê se algo mudou.
+            ...(options.forceFullReading === true &&
+            options.forceFullReadingMode === 'if_changed'
+              ? { force_mode: 'if_changed' }
               : {}),
           })
 

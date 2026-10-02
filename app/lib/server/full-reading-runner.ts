@@ -64,6 +64,7 @@ import {
   FULL_READING_OUTPUT_JSON_SCHEMA,
   FullReadingOutputError,
   applyFullReadingCoherence,
+  findRegistryContradictionAlerts,
   parseFullReadingOutput,
   type FullReadingStoredDecision,
 } from '../companion/full-reading/output'
@@ -155,6 +156,10 @@ export function buildCommercialContextFromConfig(
       .map((product) => ({
         name: product.name,
         category: product.category ?? '',
+        base_price:
+          typeof product.base_price === 'number' && Number.isFinite(product.base_price)
+            ? product.base_price
+            : null,
       }))
 
   if (!bundle && products.length === 0) {
@@ -197,9 +202,17 @@ export function buildCommercialContextFromConfig(
 export const FULL_READING_KANBAN_COLUMNS =
   'id, status, stage_entered_at, next_action, next_action_date, ' +
   'won_at, won_total, product_id, payment_method, payment_type, installments_count, ' +
-  'lost_at, lost_reason, paused_reason, canceled_at, canceled_reason'
+  'lost_at, lost_reason, paused_reason, canceled_at, canceled_reason, ' +
+  'created_at, origin_cycle_id, lead_id'
+
+// leads.source gravado pelo Companion ao criar o lead.
+const COMPANION_LEAD_SOURCE =
+  'whatsapp_companion'
 
 type KanbanRow = {
+  created_at?: unknown
+  origin_cycle_id?: unknown
+  lead_id?: unknown
   status?: unknown
   stage_entered_at?: unknown
   next_action?: unknown
@@ -247,6 +260,7 @@ function rowNumber(
 export function buildKanbanContextFromRow(
   row: KanbanRow,
   productName: string | null,
+  leadSource: string | null | undefined = undefined,
 ): FullReadingKanbanContext | null {
   const status =
     rowText(row.status)
@@ -261,6 +275,15 @@ export function buildKanbanContextFromRow(
     stage_entered_at: rowText(row.stage_entered_at),
     next_action: rowText(row.next_action),
     next_action_date: rowText(row.next_action_date),
+    created_at: rowText(row.created_at),
+    // undefined = origem não lida (nada é dito sobre por onde).
+    created_via:
+      leadSource === undefined
+        ? null
+        : leadSource === COMPANION_LEAD_SOURCE
+          ? 'companion'
+          : 'yolen',
+    successor: Boolean(rowText(row.origin_cycle_id)),
     won:
       status === 'ganho'
         ? {
@@ -471,7 +494,34 @@ export async function loadFullReadingKanban({
       rowText((product as { name?: unknown } | null)?.name)
   }
 
-  return buildKanbanContextFromRow(row, productName)
+  // Por onde a oportunidade foi criada (v5, F3). Sem a leitura do lead, a
+  // linha só diz quando.
+  let leadSource: string | null | undefined =
+    undefined
+
+  const leadId =
+    rowText(row.lead_id)
+
+  if (leadId) {
+    try {
+      const { data: lead, error: leadError } =
+        await admin
+          .from('leads')
+          .select('source')
+          .eq('id', leadId)
+          .eq('company_id', companyId)
+          .maybeSingle()
+
+      if (!leadError && lead) {
+        leadSource =
+          rowText((lead as { source?: unknown }).source)
+      }
+    } catch {
+      leadSource = undefined
+    }
+  }
+
+  return buildKanbanContextFromRow(row, productName, leadSource)
 }
 
 export async function loadFullReadingConfig({
@@ -674,7 +724,7 @@ export async function executeFullReadingRun(
       })
 
     const output =
-      parseFullReadingOutput(response.text)
+      parseFullReadingOutput(response.text, { format: 'v5' })
 
     const coherence =
       applyFullReadingCoherence(
@@ -689,6 +739,18 @@ export async function executeFullReadingRun(
       })
     }
 
+    // F2: contradição com o cadastro que muda o que o cliente paga ou
+    // recebe sem verificação interna vira alerta (o texto não muda).
+    const registryAlerts =
+      findRegistryContradictionAlerts(coherence.decision)
+
+    if (registryAlerts.length > 0) {
+      logEvent('registry_contradiction_without_check', {
+        run_id: input.runId,
+        acao_agora: coherence.decision.acao_agora,
+      })
+    }
+
     const storedDecision: FullReadingStoredDecision = {
       ...coherence.decision,
       sistema: {
@@ -696,7 +758,10 @@ export async function executeFullReadingRun(
           status: kanban?.status ?? null,
           stage_entered_at: kanban?.stage_entered_at ?? null,
         },
-        alertas: coherence.alerts,
+        alertas: [
+          ...coherence.alerts,
+          ...registryAlerts,
+        ],
         saida_estruturada: response.used_structured_output,
       },
     }
@@ -707,6 +772,7 @@ export async function executeFullReadingRun(
         .update({
           status: 'succeeded',
           model: response.model ?? input.model,
+          // v5: null (a decisão traz tudo o que o painel mostra).
           analysis_markdown: output.analise_markdown,
           decision: storedDecision,
           input_tokens: response.input_tokens,

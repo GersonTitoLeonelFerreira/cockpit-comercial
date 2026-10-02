@@ -2348,9 +2348,10 @@
   // marcador com a chave da view, e o conteúdo é montado depois por
   // hydrateFullReadingSlots, com createElement e textContent.
   const FULL_READING_SLOT_KINDS =
-    new Set(['agora', 'analysis', 'client', 'message_notice'])
+    new Set(['agora', 'analysis', 'client', 'message_notice', 'notice', 'footer'])
 
-  // client e message_notice vêm da view da AGORA (a mesma leitura).
+  // client, message_notice e footer vêm da view da AGORA (a mesma
+  // leitura).
   function getFullReadingSlotView(kind, views) {
     if (kind === 'analysis') {
       return views?.analysis || null
@@ -2511,7 +2512,28 @@
     return button
   }
 
+  // Estado da leitura (rodada 8): a view traz `status` pronto do servidor.
+  // Views antigas (sem status) caem no aviso simples.
+  function readFullReadingStatus(view) {
+    return view && view.status && typeof view.status === 'object'
+      ? view.status
+      : null
+  }
+
+  function formatElapsedSeconds(since, now) {
+    const time = Date.parse(String(since || ''))
+
+    if (Number.isNaN(time)) {
+      return ''
+    }
+
+    const seconds = Math.max(0, Math.floor(((typeof now === 'number' ? now : Date.now()) - time) / 1000))
+
+    return `${seconds} s`
+  }
+
   function appendFullReadingNotice(doc, nodes, view) {
+    const status = readFullReadingStatus(view)
     const notice = fullReadingText(view.notice)
 
     if (!notice) {
@@ -2519,10 +2541,10 @@
     }
 
     const line = doc.createElement('div')
-    line.className =
-      view.state === 'failed'
-        ? 'yolen-full-reading-notice yolen-fr-notice yolen-status-warning'
-        : 'yolen-inline-loading-status yolen-full-reading-notice yolen-fr-notice'
+    const failed = view.state === 'failed'
+    line.className = failed
+      ? 'yolen-full-reading-notice yolen-fr-notice yolen-status-warning'
+      : 'yolen-inline-loading-status yolen-full-reading-notice yolen-fr-notice'
     line.setAttribute('role', 'status')
     line.setAttribute('aria-live', 'polite')
     line.setAttribute('data-yolen-full-reading-notice', String(view.state || ''))
@@ -2534,34 +2556,144 @@
       line.appendChild(spinner)
     }
 
-    line.appendChild(doc.createTextNode(notice))
+    line.appendChild(createTextElement(doc, 'span', 'yolen-fr-notice-text', notice))
+
+    // Primeira leitura: os segundos passando e quanto costuma levar.
+    if (status?.running === 'first') {
+      line.setAttribute('data-yolen-fr-running', 'first')
+      const since = fullReadingText(status.running_since)
+
+      if (since) {
+        const elapsed = createTextElement(doc, 'span', 'yolen-fr-elapsed', formatElapsedSeconds(since))
+        elapsed.setAttribute('data-yolen-fr-elapsed-since', since)
+        line.appendChild(doc.createTextNode(' '))
+        line.appendChild(elapsed)
+      }
+
+      line.appendChild(createTextElement(doc, 'span', 'yolen-fr-notice-detail', 'costuma levar até 1 minuto'))
+    }
+
+    if (status?.running === 'update') {
+      line.setAttribute('data-yolen-fr-running', 'update')
+    }
+
+    const detail = failed ? fullReadingText(status?.failure?.detail) : ''
+
+    if (detail) {
+      line.appendChild(createTextElement(doc, 'span', 'yolen-fr-notice-detail', detail))
+    }
+
     nodes.push(line)
   }
 
-  // "Leitura completa · 01/10, 20:07" uma vez por aba (+ Atualizar).
-  function appendFullReadingFooter(doc, nodes, view, { refresh = false } = {}) {
-    const footer = fullReadingText(view.footer)
+  // Controle único de atualizar (rodada 8, E4): o mesmo no rodapé de todas
+  // as abas, desabilitado enquanto a leitura roda; em falha vira "Tentar de
+  // novo" e fica logo abaixo do aviso.
+  function readRefreshControl(view) {
+    const status = readFullReadingStatus(view)
+    const refresh = status?.refresh
 
-    if (!footer) {
-      return
+    if (refresh && typeof refresh === 'object') {
+      return {
+        label: fullReadingText(refresh.label) || 'Atualizar',
+        mode: refresh.mode === 'if_changed' ? 'if_changed' : 'always',
+        disabled: refresh.disabled === true,
+        hint: fullReadingText(refresh.hint),
+      }
     }
+
+    return {
+      label: 'Atualizar',
+      mode: 'always',
+      disabled: view.state === 'running',
+      hint: '',
+    }
+  }
+
+  function createRefreshButton(doc, control) {
+    const button = createButton(doc, {
+      label: control.label,
+      action: 'full-reading-refresh',
+      variant: 'link',
+      icon: 'refresh',
+    })
+    button.setAttribute('data-yolen-fr-mode', control.mode)
+
+    if (control.disabled) {
+      button.disabled = true
+      button.setAttribute('aria-disabled', 'true')
+    }
+
+    return button
+  }
+
+  // "Leitura completa · 01/10, 20:07" + o controle, uma vez por aba.
+  function appendFullReadingFooter(doc, nodes, view) {
+    const failed = view.state === 'failed'
+    const rawFooter = fullReadingText(view.footer)
+    // Em falha, a leitura que aparece abaixo é a última boa.
+    const footer = failed && rawFooter
+      ? rawFooter.replace(/^Leitura completa/, 'Última leitura')
+      : rawFooter
+    const control = readRefreshControl(view)
+    const status = readFullReadingStatus(view)
 
     const row = doc.createElement('div')
     row.className = 'yolen-fr-footer'
-    row.appendChild(createTextElement(doc, 'span', 'yolen-full-reading-footer', footer))
+    row.setAttribute('data-yolen-fr-footer', String(view.state || ''))
 
-    if (refresh) {
-      row.appendChild(
-        createButton(doc, {
-          label: 'Atualizar',
-          action: 'full-reading-refresh',
-          variant: 'link',
-          icon: 'refresh',
-        }),
-      )
+    if (footer) {
+      row.appendChild(createTextElement(doc, 'span', 'yolen-full-reading-footer', footer))
     }
 
+    row.appendChild(createRefreshButton(doc, control))
     nodes.push(row)
+
+    // "Atualizar" sem nada novo: diz desde quando e oferece reler mesmo
+    // assim (o segundo clique força).
+    const nothingNew = fullReadingText(status?.nothing_new_since)
+
+    if (nothingNew) {
+      const line = doc.createElement('div')
+      line.className = 'yolen-fr-status yolen-fr-nothing-new'
+      line.setAttribute('role', 'status')
+      line.setAttribute('data-yolen-fr-nothing-new', '')
+      line.appendChild(createTextElement(doc, 'span', '', `Nada novo desde ${nothingNew}.`))
+      const again = createButton(doc, {
+        label: 'Ler de novo mesmo assim',
+        action: 'full-reading-refresh',
+        variant: 'link',
+      })
+      again.setAttribute('data-yolen-fr-mode', 'always')
+      line.appendChild(again)
+      nodes.push(line)
+    }
+
+    if (control.hint) {
+      const hint = createTextElement(doc, 'div', 'yolen-fr-status yolen-fr-refresh-hint', control.hint)
+      hint.setAttribute('role', 'status')
+      hint.setAttribute('data-yolen-fr-refresh-hint', '')
+      nodes.push(hint)
+    }
+  }
+
+  // Aviso no topo; em falha, o controle vem logo abaixo dele e a última
+  // leitura boa depois (o painel nunca fica com uma linha só).
+  function wrapWithStatus(doc, view, contentNodes) {
+    const nodes = []
+
+    appendFullReadingNotice(doc, nodes, view)
+
+    if (view.state === 'failed') {
+      appendFullReadingFooter(doc, nodes, view)
+      nodes.push(...contentNodes)
+      return nodes
+    }
+
+    nodes.push(...contentNodes)
+    appendFullReadingFooter(doc, nodes, view)
+
+    return nodes
   }
 
   const NOTHING_TO_SEND_TITLE =
@@ -2777,18 +2909,94 @@
     return list
   }
 
+  // v5 (C3): "Como conduzir", compacto, logo depois do próximo passo.
+  function buildConductCard(doc, conduct) {
+    const moment = fullReadingText(conduct?.moment)
+    const steps = (Array.isArray(conduct?.steps) ? conduct.steps : [])
+      .map((step) => ({
+        technique: fullReadingText(step?.technique),
+        how: fullReadingText(step?.how),
+        example: fullReadingText(step?.example),
+      }))
+      .filter((step) => step.technique || step.how)
+      .slice(0, 3)
+    const avoid = fullReadingList(conduct?.avoid).slice(0, 2)
+
+    if (!moment && steps.length === 0 && avoid.length === 0) {
+      return null
+    }
+
+    const card = createCard(doc, { key: 'conduct', label: 'Como conduzir' })
+
+    if (moment) {
+      card.appendChild(createTextElement(doc, 'div', 'yolen-fr-body yolen-fr-conduct-moment', moment))
+    }
+
+    if (steps.length > 0) {
+      const list = doc.createElement('ol')
+      list.className = 'yolen-fr-list yolen-fr-conduct-steps'
+
+      for (const step of steps) {
+        const row = doc.createElement('li')
+        row.className = 'yolen-fr-list-item yolen-fr-conduct-step'
+        row.setAttribute('data-yolen-fr-conduct-step', '')
+
+        const text = doc.createElement('div')
+        text.className = 'yolen-fr-list-text'
+
+        if (step.technique) {
+          text.appendChild(createTextElement(doc, 'strong', '', step.technique))
+        }
+
+        if (step.technique && step.how) {
+          text.appendChild(doc.createTextNode(' — '))
+        }
+
+        if (step.how) {
+          text.appendChild(doc.createTextNode(step.how))
+        }
+
+        row.appendChild(text)
+
+        if (step.example) {
+          const example = createTextElement(doc, 'div', 'yolen-fr-conduct-example', step.example)
+          example.setAttribute('data-yolen-fr-conduct-example', '')
+          row.appendChild(example)
+        }
+
+        list.appendChild(row)
+      }
+
+      card.appendChild(list)
+    }
+
+    if (avoid.length > 0) {
+      const line = createTextElement(doc, 'div', 'yolen-fr-conduct-avoid', `Evite: ${avoid.join(' ')}`)
+      line.setAttribute('data-yolen-fr-conduct-avoid', '')
+      card.appendChild(line)
+    }
+
+    return card
+  }
+
   function buildAgoraFullReadingNodes(doc, view, options) {
     const nodes = []
-
-    appendFullReadingNotice(doc, nodes, view)
 
     const next = readNextStep(view)
 
     if (!next) {
-      return nodes
+      return wrapWithStatus(doc, view, nodes)
     }
 
     nodes.push(buildNextStepCard(doc, next))
+
+    const conduct = view.conduct && typeof view.conduct === 'object'
+      ? buildConductCard(doc, view.conduct)
+      : null
+
+    if (conduct) {
+      nodes.push(conduct)
+    }
 
     const stage = view.stage_card && typeof view.stage_card === 'object' ? view.stage_card : null
 
@@ -2815,9 +3023,7 @@
       nodes.push(card)
     }
 
-    appendFullReadingFooter(doc, nodes, view, { refresh: true })
-
-    return nodes
+    return wrapWithStatus(doc, view, nodes)
   }
 
   // Seção recolhida "Título (N)".
@@ -2882,8 +3088,6 @@
 
   function buildAnalysisFullReadingNodes(doc, view) {
     const nodes = []
-
-    appendFullReadingNotice(doc, nodes, view)
 
     const summary = Array.isArray(view.summary) ? view.summary : []
 
@@ -2967,8 +3171,15 @@
 
     const acertos = fullReadingList(view.coaching?.acertos)
     const ajustes = fullReadingList(view.coaching?.ajustes)
+    // v5: cada ajuste com "Houve" e "Melhor".
+    const adjustments = (Array.isArray(view.coaching?.adjustments) ? view.coaching.adjustments : [])
+      .map((item) => ({
+        happened: fullReadingText(item?.happened),
+        better: fullReadingText(item?.better),
+      }))
+      .filter((item) => item.happened || item.better)
 
-    if (acertos.length > 0 || ajustes.length > 0) {
+    if (acertos.length > 0 || ajustes.length > 0 || adjustments.length > 0) {
       const card = createCard(doc, { key: 'coaching', label: 'Condução do vendedor' })
 
       if (acertos.length > 0) {
@@ -2976,11 +3187,57 @@
         card.appendChild(buildIconList(doc, acertos, { icon: 'check', iconClass: 'yolen-fr-icon--ok' }))
       }
 
-      if (ajustes.length > 0) {
+      if (ajustes.length > 0 || adjustments.length > 0) {
         card.appendChild(createTextElement(doc, 'div', 'yolen-fr-sublabel yolen-fr-sublabel--attention', 'Ajustes'))
+      }
+
+      if (ajustes.length > 0) {
         card.appendChild(buildIconList(doc, ajustes, { icon: 'adjust', iconClass: 'yolen-fr-icon--attention' }))
       }
 
+      if (adjustments.length > 0) {
+        const list = doc.createElement('ul')
+        list.className = 'yolen-fr-list yolen-fr-adjustments'
+
+        for (const item of adjustments) {
+          const row = doc.createElement('li')
+          row.className = 'yolen-fr-list-item yolen-fr-adjustment'
+          row.setAttribute('data-yolen-fr-adjustment', '')
+          row.appendChild(createIcon(doc, 'adjust', 'yolen-fr-icon--attention'))
+
+          const content = doc.createElement('div')
+          content.className = 'yolen-fr-list-text'
+
+          if (item.happened) {
+            const line = doc.createElement('div')
+            line.appendChild(createTextElement(doc, 'strong', '', 'Houve:'))
+            line.appendChild(doc.createTextNode(` ${item.happened}`))
+            content.appendChild(line)
+          }
+
+          if (item.better) {
+            const line = doc.createElement('div')
+            line.appendChild(createTextElement(doc, 'strong', '', 'Melhor:'))
+            line.appendChild(doc.createTextNode(` ${item.better}`))
+            content.appendChild(line)
+          }
+
+          row.appendChild(content)
+          list.appendChild(row)
+        }
+
+        card.appendChild(list)
+      }
+
+      nodes.push(card)
+    }
+
+    // v5: "Para o gestor" (risco ou falha de processo).
+    const managerNotes = fullReadingList(view.manager_notes).slice(0, 2)
+
+    if (managerNotes.length > 0) {
+      const card = createCard(doc, { key: 'manager', label: 'Para o gestor' })
+      card.appendChild(buildIconList(doc, managerNotes, { icon: 'attention', iconClass: 'yolen-fr-icon--attention' }))
       nodes.push(card)
     }
 
@@ -2992,16 +3249,14 @@
     const capture = fullReadingList(view.alertas_de_captura)
 
     if (confirm.length > 0) {
-      nodes.push(buildCollapsedList(doc, 'afirmacoes_a_confirmar', 'Confirmar no cadastro', confirm))
+      nodes.push(buildCollapsedList(doc, 'afirmacoes_a_confirmar', 'A confirmar', confirm))
     }
 
     if (capture.length > 0) {
       nodes.push(buildCollapsedList(doc, 'alertas_de_captura', 'Avisos da captura', capture))
     }
 
-    appendFullReadingFooter(doc, nodes, view)
-
-    return nodes
+    return wrapWithStatus(doc, view, nodes)
   }
 
   // CLIENTE: o que ele disse (data à direita), o que parece (inferência)
@@ -3025,7 +3280,7 @@
   }
 
   // MENSAGEM sem a mensagem da leitura (rodando ou em falha): só o aviso
-  // dela (rodada 7: nunca o composer antigo).
+  // dela (rodada 7: nunca o composer antigo) e o controle de atualizar.
   function buildMessageNoticeNodes(doc, view) {
     const nodes = []
     const card = createCard(doc, { key: 'message_notice', label: 'Mensagem' })
@@ -3039,6 +3294,32 @@
 
     inner.forEach((node) => card.appendChild(node))
     nodes.push(card)
+    appendFullReadingFooter(doc, nodes, view)
+
+    return nodes
+  }
+
+  // MENSAGEM com a mensagem da leitura (o composer fica entre os dois
+  // slots): o aviso em cima — em falha, com o controle logo abaixo — e o
+  // rodapé embaixo nos outros estados. Um controle só por aba.
+  function buildNoticeNodes(doc, view) {
+    const nodes = []
+
+    appendFullReadingNotice(doc, nodes, view)
+
+    if (view.state === 'failed') {
+      appendFullReadingFooter(doc, nodes, view)
+    }
+
+    return nodes
+  }
+
+  function buildFooterNodes(doc, view) {
+    const nodes = []
+
+    if (view.state !== 'failed') {
+      appendFullReadingFooter(doc, nodes, view)
+    }
 
     return nodes
   }
@@ -3052,7 +3333,7 @@
       .filter((item) => item.text)
 
     if (said.length > 0) {
-      const card = createCard(doc, { key: 'said', label: 'O que ele disse' })
+      const card = createCard(doc, { key: 'said', label: 'O que foi dito' })
       card.setAttribute('data-yolen-full-reading-section', 'sabemos')
       card.appendChild(buildIconList(doc, said, { className: 'yolen-fr-list--plain' }))
       nodes.push(card)
@@ -3072,16 +3353,14 @@
       nodes.push(card)
     }
 
-    if (nodes.length === 0) {
-      // Rodando ou em falha: o aviso da leitura (rodada 7).
-      appendFullReadingNotice(doc, nodes, view)
-    }
-
-    if (nodes.length === 0) {
+    // Leitura pronta sem nada sobre o cliente.
+    if (nodes.length === 0 && view.state === 'ready') {
       nodes.push(createTextElement(doc, 'div', 'yolen-seller-empty-state', 'A leitura completa não trouxe dados sobre o cliente.'))
     }
 
-    return nodes
+    // Rodando ou em falha: o aviso da leitura em cima; o controle de
+    // atualizar como nas outras abas (rodada 8).
+    return wrapWithStatus(doc, view, nodes)
   }
 
   // Preenche os marcadores da leitura completa dentro de `container`. Só
@@ -3130,7 +3409,11 @@
               ? buildClientFullReadingNodes(doc, view)
               : kind === 'message_notice'
                 ? buildMessageNoticeNodes(doc, view)
-                : buildAnalysisFullReadingNodes(doc, view)
+                : kind === 'footer'
+                  ? buildFooterNodes(doc, view)
+                  : kind === 'notice'
+                    ? buildNoticeNodes(doc, view)
+                    : buildAnalysisFullReadingNodes(doc, view)
 
         slot.replaceChildren(...nodes)
         slot.setAttribute('data-yolen-full-reading-hydrated', signature)
@@ -3165,11 +3448,12 @@
     }
 
     // view_key muda junto: a hidratação do slot compara a assinatura e
-    // re-renderiza quando o alerta de captura aparece ou muda.
+    // re-renderiza quando o alerta de captura aparece ou muda. Rodada 8
+    // (E5): o código da falha fica só na chave, nunca no texto.
     return {
       ...view,
       view_key: `${view.view_key}|capture:${code}`,
-      notice: `${CAPTURE_PENDING_NOTICE} (falha na captura: ${code})`,
+      notice: `${CAPTURE_PENDING_NOTICE}: a captura desta conversa está sendo recusada.`,
     }
   }
 

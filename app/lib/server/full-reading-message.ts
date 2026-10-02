@@ -4,8 +4,8 @@ import 'server-only'
 // COMPANION_FULL_READING_PANEL).
 //
 // Uma chamada ao Claude com a transcrição, a leitura completa mais recente
-// do ciclo (analise_markdown + decisao), o kanban, o cadastro e o objetivo
-// do vendedor. Mesmo modelo da leitura, com esforço menor para responder
+// do ciclo (a decisão; v4 também tinha analise_markdown), o kanban, o
+// cadastro e o objetivo do vendedor. Mesmo modelo da leitura, com esforço menor para responder
 // rápido. Só lê o banco: nenhuma telemetria, nenhuma escrita. A mensagem
 // nunca é enviada sozinha; a extensão só oferece Incluir/Copiar.
 
@@ -101,7 +101,8 @@ export type FullReadingMessageScope = {
 
 type StoredReading = {
   run_id: string
-  analysis_markdown: string
+  // v5: null (a leitura é só a decisão).
+  analysis_markdown: string | null
   decision: Record<string, unknown>
 }
 
@@ -139,7 +140,6 @@ export async function loadLatestFullReading({
   if (
     !row ||
     typeof row.run_id !== 'string' ||
-    typeof row.analysis_markdown !== 'string' ||
     !row.decision ||
     typeof row.decision !== 'object'
   ) {
@@ -148,7 +148,10 @@ export async function loadLatestFullReading({
 
   return {
     run_id: row.run_id,
-    analysis_markdown: row.analysis_markdown,
+    analysis_markdown:
+      typeof row.analysis_markdown === 'string'
+        ? row.analysis_markdown
+        : null,
     decision: row.decision as Record<string, unknown>,
   }
 }

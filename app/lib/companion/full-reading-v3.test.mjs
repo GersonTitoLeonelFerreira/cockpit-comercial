@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  EXPERT_CONDUCT_SECTION,
   FULL_READING_PROMPT_VERSION,
   buildFullReadingSystemPrompt,
 } from './full-reading/prompt.ts'
@@ -139,7 +140,7 @@ function agora({ decisionOverrides = {}, markdown = MARKDOWN, kanbanOverrides = 
 // ---------------------------------------------------------------------------
 
 test('prompt v3: contradição com o cadastro que muda o que o cliente paga ou recebe entra na Ação', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v4')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v5')
 
   const system =
     buildFullReadingSystemPrompt()
@@ -151,14 +152,23 @@ test('prompt v3: contradição com o cadastro que muda o que o cliente paga ou r
   // Códigos de pagamento sem adivinhar.
   assert.match(system, /"debito" só quando a conversa disser cartão de débito, cobrança mensal no cartão de crédito é "credito", e na dúvida é texto vazio/)
   assert.match(system, /cliente separa, em frases curtas: sabemos \(o que o cliente disse ou fez, terminando com a data no formato \(dd\/mm\) quando houver\)/)
-  // Afirmações a confirmar ficam só no campo próprio.
-  assert.match(system, /as afirmações a confirmar vão só no campo afirmacoes_a_confirmar/)
-  assert.match(system, /### Mensagem sugerida\n\(somente o texto pronto para o vendedor enviar/)
+  // v5: afirmações a confirmar no campo próprio; a mensagem pronta vem na
+  // decisão (não há mais a seção "Mensagem sugerida" do texto).
+  assert.match(system, /afirmacoes_a_confirmar traz o que precisa de confirmação oficial/)
+  assert.match(system, /mensagem_sugerida é o texto pronto para o vendedor enviar agora/)
 })
 
 test('prompt v3: regras genéricas, sem dicas do caso de teste', () => {
+  // A seção "Como um especialista conduz" é texto do produto, como está
+  // (rodada 8: traz "aula experimental" como exemplo genérico de próximo
+  // passo); o resto do prompt não pode ter dica do caso de teste.
+  const fullSystem =
+    buildFullReadingSystemPrompt()
+
+  assert.ok(fullSystem.includes(EXPERT_CONDUCT_SECTION))
+
   const system =
-    buildFullReadingSystemPrompt() + buildFullReadingMessageSystemPrompt()
+    fullSystem.replace(EXPERT_CONDUCT_SECTION, '') + buildFullReadingMessageSystemPrompt()
 
   for (const hint of [/academia/i, /209/, /74,95/, /muscula/i, /\bduo\b/i, /\baula/i, /em dobro/i, /119,90/, /start anual/i]) {
     assert.doesNotMatch(system, hint)
@@ -317,11 +327,13 @@ test('MENSAGEM: leitura "não enviar" → aviso + seção, sem objetivo nem mens
     section_text: 'Não enviar nada agora. A cliente não deixou pergunta.',
     recommended_objective: null,
     suggested_message: null,
+    observation: null,
     run_id: 'run-v3',
   })
   assert.equal(FULL_READING_NO_SEND_NOTICE, 'A leitura recomenda não enviar nada agora')
 
-  // Verificação interna também é "não enviar agora".
+  // Rodada 8 (E1): verificação interna não é mais "não enviar" por si só;
+  // aqui a seção da leitura v4 diz para não enviar.
   assert.equal(agora({ decisionOverrides: { acao_agora: 'verificacao_interna', acao_resumo: 'Confirmar a regra no cadastro.' } }).message.mode, 'no_send')
 
   // A seção diz para não enviar, mesmo com acao_agora responder.
@@ -395,14 +407,16 @@ test('CLIENTE e ícone minimizado vêm da leitura; o card "Resumo da leitura com
     'attention',
   )
 
-  // Falha: nada disso vem da leitura (o painel volta ao de hoje).
+  // Rodada 8 (A4): em falha, o aviso vem em cima e a última leitura boa
+  // continua logo abaixo (o painel nunca fica com uma linha só).
   const failed = agora({ state: 'failed' })
 
-  assert.equal(failed.message, null)
-  assert.equal(failed.next_step, null)
-  assert.equal(failed.client, null)
-  assert.equal(failed.cliente, null)
-  assert.equal(failed.attention, null)
+  assert.match(failed.notice, /^Não consegui ler a conversa/)
+  assert.ok(failed.status.failure)
+  assert.deepEqual(failed.client, view.client)
+  assert.deepEqual(failed.cliente, view.cliente)
+  assert.ok(failed.next_step)
+  assert.ok(failed.message)
 })
 
 // ---------------------------------------------------------------------------

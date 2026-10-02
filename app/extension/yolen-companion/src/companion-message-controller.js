@@ -850,6 +850,14 @@ function createCompanionMessageController({
     const noSend = view.mode === 'no_send'
     const ready = state.status === 'ready' && typeof state.message === 'string'
     const objective = ready ? toObjectiveLine(state.messageObjective) : ''
+    // v5 (rodada 8): o que revisar antes de enviar, embaixo da mensagem da
+    // leitura (não da gerada com outro objetivo).
+    const observation =
+      ready &&
+      state.messageSource === 'reading' &&
+      typeof view.observation === 'string'
+        ? view.observation.trim()
+        : ''
 
     const noSendHtml = noSend
       ? [
@@ -878,6 +886,9 @@ function createCompanionMessageController({
           `<button type="button" class="yolen-fr-button yolen-fr-button--primary" data-yolen-seller-message-action="insert">Incluir no ${escapeHtml(platformDisplayName)}</button>`,
           `<button type="button" class="yolen-fr-button yolen-fr-button--secondary" data-yolen-seller-message-action="copy">${FULL_READING_COPY_ICON}Copiar</button>`,
           '</div>',
+          observation
+            ? '<div class="yolen-fr-body yolen-fr-observation" data-yolen-fr-text="observation" data-yolen-full-reading-message-observation></div>'
+            : '',
           '<div class="yolen-fr-note">A Yolen não envia sozinha. Revise antes de mandar.</div>',
           '</section>',
         ].join('')
@@ -926,6 +937,7 @@ function createCompanionMessageController({
     const texts = {
       reason: noSend ? String(view.no_send_reason || view.section_text || '') : '',
       objective,
+      observation,
     }
 
     const renderKey = hashText(

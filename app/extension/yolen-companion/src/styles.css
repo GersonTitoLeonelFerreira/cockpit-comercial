@@ -3412,6 +3412,68 @@ html.yolen-companion-collapsed #app {
   margin: 0;
 }
 
+/* Rodada 8: estado da leitura, controle único, "Como conduzir",
+   "Houve/Melhor" e observação da mensagem. */
+#yolen-companion-panel .yolen-fr-notice-detail {
+  display: block;
+  margin-top: 2px;
+  color: var(--yolen-ux-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+#yolen-companion-panel .yolen-fr-elapsed {
+  color: var(--yolen-ux-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#yolen-companion-panel .yolen-fr-nothing-new {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#yolen-companion-panel .yolen-fr-conduct-moment {
+  color: var(--yolen-ux-text);
+}
+
+#yolen-companion-panel .yolen-fr-conduct-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+#yolen-companion-panel .yolen-fr-conduct-step {
+  display: block;
+}
+
+#yolen-companion-panel .yolen-fr-conduct-example {
+  margin-top: 2px;
+  color: var(--yolen-ux-text-muted);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+#yolen-companion-panel .yolen-fr-conduct-avoid {
+  color: var(--yolen-ux-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+#yolen-companion-panel .yolen-fr-adjustment .yolen-fr-list-text {
+  display: grid;
+  gap: 2px;
+}
+
+#yolen-companion-panel .yolen-fr-observation {
+  color: var(--yolen-ux-text-muted);
+  font-size: 12.5px;
+}
+
 /* Cabeçalho do contato com a leitura completa. */
 #yolen-companion-panel .yolen-contact-card--full-reading {
   display: grid;

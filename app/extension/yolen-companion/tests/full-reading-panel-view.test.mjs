@@ -349,7 +349,7 @@ test('ANÁLISE: quatro blocos, linha do tempo por dia, pendências com ícone, o
   const collapsed = [...root.querySelectorAll('details.yolen-fr-collapse')]
 
   assert.deepEqual(collapsed.map((details) => details.getAttribute('data-yolen-fr-collapse')), ['afirmacoes_a_confirmar', 'alertas_de_captura'])
-  assert.deepEqual(collapsed.map((details) => details.querySelector('summary').textContent), ['Confirmar no cadastro2', 'Avisos da captura1'])
+  assert.deepEqual(collapsed.map((details) => details.querySelector('summary').textContent), ['A confirmar2', 'Avisos da captura1'])
   assert.ok(collapsed.every((details) => !details.open))
 
   // Mensagem sugerida e Cliente têm aba própria.
@@ -398,7 +398,7 @@ test('CLIENTE: o que ele disse com data à direita, o que parece com "Inferênci
 
   const root = hydrated('client', agora, { agora })
 
-  assert.deepEqual(texts(root, '[data-yolen-fr-card] > .yolen-fr-card-head .yolen-fr-label'), ['O que ele disse', 'O que parece', 'Falta descobrir'])
+  assert.deepEqual(texts(root, '[data-yolen-fr-card] > .yolen-fr-card-head .yolen-fr-label'), ['O que foi dito', 'O que parece', 'Falta descobrir'])
 
   const said = root.querySelector('[data-yolen-fr-card="said"]')
 
@@ -411,8 +411,10 @@ test('CLIENTE: o que ele disse com data à direita, o que parece com "Inferênci
   assert.deepEqual(texts(missing, '.yolen-fr-list-text'), ['Se a demonstração aconteceu', 'Orçamento disponível'])
   assert.equal(missing.querySelectorAll('svg[data-yolen-fr-icon="todo"]').length, 2)
 
-  // O rodapé do CLIENTE vem uma vez, depois do Relacionamento (core).
-  assert.equal(root.querySelector('.yolen-full-reading-footer'), null)
+  // Rodada 8 (E4): o rodapé da leitura (com o controle único de atualizar)
+  // vem uma vez, no fim do bloco da leitura; o core não repete.
+  assert.equal(root.querySelectorAll('.yolen-full-reading-footer').length, 1)
+  assert.equal(root.querySelectorAll('[data-yolen-action="full-reading-refresh"]').length, 1)
   assert.equal(root.querySelectorAll('img, script').length, 0)
 })
 
@@ -505,7 +507,8 @@ test('core: AGORA, resumo, CLIENTE, cabeçalho e ações seguem a leitura só qu
   // CLIENTE: leitura + Relacionamento compacto + rodapé uma vez.
   const client = slice('function getClientInformationAreaHtml()', 4000)
   assert.match(client, /renderFullReadingSlot\(\s*'client'/)
-  assert.match(client, /getCompanionClientRelationshipCardHtml\({ compact: true }\)/)
+  // Rodada 8 (E2): "Aguardando" do Relacionamento vem da vez da leitura.
+  assert.match(client, /getCompanionClientRelationshipCardHtml\({\s*compact: true,\s*turn: getFullReadingWaitingTurn\(fullReadingClientView\),\s*}\)/)
 
   // Cabeçalho compacto só com a view da leitura e lead na carteira.
   const contact = slice('function getFullReadingContactCardHtml()', 1200)

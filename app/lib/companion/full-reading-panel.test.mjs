@@ -230,11 +230,14 @@ test('rodada há mais de 5 minutos conta como falha; sem mudança, o polling nã
   assert.equal(alone.failed_run.failure_code, RUN_EXPIRED_FAILURE_CODE)
 })
 
-test('falha: só tenta de novo se algo mudou desde ela ou com force', () => {
+// Rodada 8: vale para falha determinística (A3). Falta de crédito e falha
+// passageira também tentam de novo sozinhas depois da espera
+// (full-reading-r8.test.mjs).
+test('falha determinística: só tenta de novo se algo mudou desde ela ou com force', () => {
   const failed = run({
     run_id: 'run-failed',
     status: 'failed',
-    failure_code: 'PROVIDER_UNAVAILABLE',
+    failure_code: 'INVALID_MODEL_OUTPUT',
     created_at: minutesBefore(3),
     reference_time: minutesBefore(3),
     completed_at: minutesBefore(2),
@@ -426,7 +429,7 @@ test('painel: mensagem nova cria UMA rodada (trigger permitido pela constraint) 
   assert.equal(inserted[0].payload.trigger_source, FULL_READING_PANEL_TRIGGER_SOURCE)
   assert.ok(['manual_preview', 'analysis_job'].includes(FULL_READING_PANEL_TRIGGER_SOURCE))
   assert.equal(inserted[0].payload.prompt_version, FULL_READING_PROMPT_VERSION)
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v4')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v5')
   assert.equal(inserted[0].payload.status, 'queued')
 
   // Só companion_full_reading_runs recebe escrita.
@@ -595,7 +598,7 @@ test('AGORA: ganho sugerido → "Confirmar venda" abrindo o fechamento pré-pree
   assert.equal(view.footer, 'Leitura completa · 01/10, 11:05')
 })
 
-test('AGORA: perdido sugerido → "Confirmar perda" com o motivo, nunca fecha sozinho', () => {
+test('AGORA: perdido sugerido → "Registrar no Yolen" com o motivo, nunca fecha sozinho', () => {
   const view = agora({
     decisionOverrides: {
       fase_relacao: 'perdido',
@@ -607,7 +610,8 @@ test('AGORA: perdido sugerido → "Confirmar perda" com o motivo, nunca fecha so
   })
 
   assert.equal(view.stage_card.kind, 'confirm_lost')
-  assert.equal(view.stage_card.button_label, 'Confirmar perda')
+  // Rodada 8 (D5): abre o LostDealModal com "Outro" e o motivo.
+  assert.equal(view.stage_card.button_label, 'Registrar no Yolen')
   assert.equal(view.stage_card.apply_request, null)
   assert.equal(view.stage_card.cycle_path, `/sales-cycles/${CYCLE}?fechar=perdido&motivo=Fechou+com+concorrente`)
 })
@@ -730,19 +734,23 @@ test('AGORA: rodada com alerta de coerência nunca mostra card de etapa', () => 
   assert.equal(incoherent.stage_card, null)
 })
 
-test('AGORA: rodando mostra "Lendo a conversa inteira…"; falha volta ao AGORA de hoje com o código', () => {
+// Rodada 8 (B3, A4): com leitura na tela, a faixa diz "Atualizando a
+// leitura…"; em falha, o aviso (sem código) e a última leitura boa embaixo.
+test('AGORA: rodando com leitura mostra "Atualizando a leitura…"; falha mostra o aviso sem código e a última leitura boa', () => {
   const running = agora({ state: 'running' })
 
-  assert.equal(running.notice, FULL_READING_RUNNING_NOTICE)
-  assert.equal(running.notice, 'Lendo a conversa inteira…')
+  assert.equal(running.notice, 'Atualizando a leitura…')
+  assert.equal(running.status.running, 'update')
+  assert.equal(running.status.refresh.disabled, true)
   assert.ok(running.main)
 
   const failed = agora({ state: 'failed', failureCode: 'PROVIDER_UNAVAILABLE' })
 
-  assert.equal(failed.main, null)
-  assert.equal(failed.stage_card, null)
+  assert.ok(failed.main)
   assert.equal(failed.failure_code, 'PROVIDER_UNAVAILABLE')
-  assert.match(failed.notice, /\(PROVIDER_UNAVAILABLE\)/)
+  assert.doesNotMatch(failed.notice, /PROVIDER_UNAVAILABLE/)
+  assert.equal(failed.notice, 'Não consegui ler a conversa agora.')
+  assert.equal(failed.status.refresh.label, 'Tentar de novo')
 
   const runningWithoutReading = buildFullReadingAgoraView({
     state: 'running',
@@ -755,7 +763,9 @@ test('AGORA: rodando mostra "Lendo a conversa inteira…"; falha volta ao AGORA 
   })
 
   assert.equal(runningWithoutReading.main, null)
+  assert.equal(runningWithoutReading.notice, FULL_READING_RUNNING_NOTICE)
   assert.equal(runningWithoutReading.notice, 'Lendo a conversa inteira…')
+  assert.equal(runningWithoutReading.status.running, 'first')
   assert.notEqual(runningWithoutReading.view_key, running.view_key)
 })
 
@@ -877,7 +887,8 @@ test('ANÁLISE: blocos de resumo, linha do tempo por dia, pendências, oportunid
     { text: 'Plano anual', status: 'sem_resposta', status_label: 'Sem resposta', tone: 'attention' },
     { text: 'Indicação de amiga', status: 'aceita', status_label: 'Aceita', tone: 'ok' },
   ])
-  assert.deepEqual(view.coaching, { acertos: ['Respondeu em cerca de 5 minutos'], ajustes: ['Nenhuma pergunta de descoberta'] })
+  // v4: ajustes em texto (v5 traz { houve, melhor } em adjustments).
+  assert.deepEqual(view.coaching, { acertos: ['Respondeu em cerca de 5 minutos'], ajustes: ['Nenhuma pergunta de descoberta'], adjustments: [] })
   // Com os campos estruturados, o markdown não vira tela.
   assert.deepEqual(view.sections, [])
   assert.deepEqual(view.afirmacoes_a_confirmar, ['Regra de renovação dita pelo vendedor'])
@@ -897,13 +908,17 @@ test('ANÁLISE: blocos de resumo, linha do tempo por dia, pendências, oportunid
 
   assert.ok(!JSON.stringify(recent.timeline).includes('Nenhuma mensagem desde então'))
 
+  // Rodada 8 (A4, E5): em falha, o aviso sem código e a última leitura
+  // boa embaixo.
   const failed =
     buildFullReadingAnalysisView({ state: 'failed', reading: reading(), failureCode: 'INVALID_MODEL_OUTPUT' })
 
-  assert.equal(failed.has_reading, false)
+  assert.equal(failed.has_reading, true)
   assert.deepEqual(failed.sections, [])
-  assert.deepEqual(failed.summary, [])
-  assert.match(failed.notice, /INVALID_MODEL_OUTPUT/)
+  assert.deepEqual(failed.summary.map((block) => block.label), ['Fase', 'Método', 'Kanban', 'Venda'])
+  assert.doesNotMatch(failed.notice, /INVALID_MODEL_OUTPUT/)
+  assert.equal(failed.notice, 'Não consegui ler a conversa agora.')
+  assert.equal(failed.status.failure.detail, null)
 
   const attached = attachFullReadingToAnalysis({ coaching_diagnosis: { id: 'x' } }, view)
 

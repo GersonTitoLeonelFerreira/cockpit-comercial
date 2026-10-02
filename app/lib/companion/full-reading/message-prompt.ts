@@ -28,6 +28,8 @@ const SYSTEM_PROMPT = `Você redige mensagens de WhatsApp para vendedores no Yol
 4. Siga o objetivo do vendedor quando ele for compatível com a leitura. Se não for, escreva a versão compatível mais próxima.
 5. Nunca invente preços, horários, condições, nomes ou fatos. Use só o que está na conversa, na leitura e no cadastro.
 6. Uma mensagem curta, no tom do WhatsApp, em português, sem assinatura, sem aspas e sem comentários para o vendedor.
+7. Quando a leitura traz como_conduzir, a mensagem aplica a técnica indicada e respeita o que ela diz para evitar.
+8. Nunca repita CPF, documento, cartão ou dados bancários.
 
 ## Resposta
 Responda com um único objeto JSON com o campo "mensagem" (o texto pronto para enviar).`
@@ -62,10 +64,16 @@ export function buildFullReadingMessageUserPrompt({
   referenceTime: string
   commercialContext: FullReadingCommercialContext | null
   kanban: FullReadingKanbanContext | null
-  analysisMarkdown: string
+  // v5: null (a leitura é só a decisão).
+  analysisMarkdown: string | null
   decision: Record<string, unknown>
   sellerIntent: string
 }): string {
+  const analysis =
+    typeof analysisMarkdown === 'string'
+      ? analysisMarkdown.trim()
+      : ''
+
   return [
     `Data e hora de referência (agora): ${formatTranscriptTimestamp(referenceTime)}, horário de Brasília.`,
     '',
@@ -78,8 +86,7 @@ export function buildFullReadingMessageUserPrompt({
     '</kanban_do_yolen>',
     '',
     '<leitura_completa>',
-    analysisMarkdown.trim(),
-    '',
+    ...(analysis ? [analysis, ''] : []),
     'Decisão da leitura (campos fixos):',
     JSON.stringify(decision, null, 2),
     '</leitura_completa>',

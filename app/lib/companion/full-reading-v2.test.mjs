@@ -7,6 +7,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  toV5Output,
+} from './e2-test-support/full-reading-v5-fixture.mjs'
+
+import {
   FULL_READING_PROMPT_VERSION,
   buildFullReadingSystemPrompt,
   buildFullReadingUserPrompt,
@@ -104,7 +108,7 @@ function kanban(overrides = {}) {
 // ---------------------------------------------------------------------------
 
 test('prompt: versão atual e regras genéricas do kanban no sistema', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v4')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v5')
 
   const system =
     buildFullReadingSystemPrompt()
@@ -378,7 +382,8 @@ test('coerência: perdido fora da fase perdido vira "manter etapa" com alerta', 
     )
 
   assert.equal(adjusted.etapa_kanban_sugerida, 'contato')
-  assert.equal(alerts[0].motivo, 'perdido sugerido com a relação fora da fase perdido')
+  // Rodada 8: Perdido vale nas fases perdido e nao_comercial.
+  assert.equal(alerts[0].motivo, 'perdido sugerido com a relação fora das fases perdido e não é venda')
 })
 
 test('coerência: ganho provável e perdido na fase perdido passam sem alerta', () => {
@@ -440,11 +445,12 @@ function fakeAdmin() {
   }
 }
 
+// O runner pede o formato v5 (rodada 8): a saída v4 dos testes é convertida.
 function claudeResponse(body) {
   return new Response(
     JSON.stringify({
       model: 'claude-sonnet-5-5',
-      content: [{ type: 'text', text: JSON.stringify(body) }],
+      content: [{ type: 'text', text: JSON.stringify(toV5Output(body)) }],
       stop_reason: 'end_turn',
       usage: { input_tokens: 10, output_tokens: 20 },
     }),

@@ -9,6 +9,9 @@
 //   [&reference_time=<ISO>]     (padrão: agora)
 //   [&require_structured_output=1]  (modo estrito: recusa do formato
 //                                    fixo vira falha, sem repetir sem ele)
+//   [&effort=low|medium|high]   (padrão: o esforço configurado)
+//   [&eval=1]                   (medição: grava com prompt_version
+//                                "<versão>-eval", que o painel nunca usa)
 //
 // Cria uma rodada em companion_full_reading_runs e executa a leitura
 // depois de responder (after). A resposta NÃO devolve conteúdo da
@@ -38,8 +41,13 @@ import {
 } from '@/app/lib/server/full-reading-runner'
 
 import {
+  FULL_READING_EVAL_PROMPT_VERSION,
   FULL_READING_PROMPT_VERSION,
 } from '@/app/lib/companion/full-reading/prompt'
+
+import {
+  CLAUDE_EFFORT_LEVELS,
+} from '@/app/lib/companion/full-reading/anthropic-client'
 
 export const maxDuration =
   300
@@ -131,6 +139,19 @@ export async function GET(
 
   const requireStructuredOutput =
     url.searchParams.get('require_structured_output') === '1'
+
+  const evalRun =
+    url.searchParams.get('eval') === '1'
+
+  const effortParam =
+    (url.searchParams.get('effort') ?? '').trim().toLowerCase()
+
+  if (
+    effortParam.length > 0 &&
+    !CLAUDE_EFFORT_LEVELS.some((level) => level === effortParam)
+  ) {
+    return badRequest('INVALID_EFFORT')
+  }
 
   if (!UUID_PATTERN.test(companyId)) {
     return badRequest('INVALID_COMPANY_ID')
@@ -260,7 +281,13 @@ export async function GET(
     resolveFullReadingModel()
 
   const effort =
+    CLAUDE_EFFORT_LEVELS.find((level) => level === effortParam) ??
     resolveFullReadingEffort()
+
+  const promptVersion =
+    evalRun
+      ? FULL_READING_EVAL_PROMPT_VERSION
+      : FULL_READING_PROMPT_VERSION
 
   const { error: insertError } =
     await admin
@@ -274,7 +301,7 @@ export async function GET(
         trigger_source: 'manual_preview',
         vercel_env: process.env.VERCEL_ENV ?? null,
         deployment_sha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
-        prompt_version: FULL_READING_PROMPT_VERSION,
+        prompt_version: promptVersion,
         model,
         effort,
         status: 'queued',
@@ -311,7 +338,7 @@ export async function GET(
     status: 'queued',
     model,
     effort,
-    prompt_version: FULL_READING_PROMPT_VERSION,
+    prompt_version: promptVersion,
     require_structured_output: requireStructuredOutput,
   })
 }

@@ -228,12 +228,22 @@ function createCompanionCore(ctx) {
 
   // Leitura completa no painel (HML): polling enquanto a rodada roda e o
   // estado do botão do card de etapa. Ver getCurrentFullReadingViews().
+  // Rodada 8 (B2): a cada 3 s nos primeiros 90 s da rodada, depois a cada
+  // 8 s. Em falha com nova tentativa marcada, relê na hora dela (no máximo
+  // a cada 60 s, para ver também um sucesso em outra conversa).
   const FULL_READING_POLL_INTERVAL_MS = 8000
+  const FULL_READING_FAST_POLL_INTERVAL_MS = 3000
+  const FULL_READING_FAST_POLL_WINDOW_MS = 90 * 1000
+  const FULL_READING_RETRY_POLL_MAX_MS = 60 * 1000
   const FULL_READING_POLL_MAX_MS = 6 * 60 * 1000
+  const FULL_READING_ELAPSED_TICK_MS = 1000
 
   let fullReadingPollTimerId = 0
   let fullReadingPollStartedAt = 0
   let fullReadingPollScope = null
+  let fullReadingRetryTimerId = 0
+  let fullReadingRetryKey = null
+  let fullReadingElapsedTimerId = 0
   let fullReadingStageAction = null
   // Rodada 7: a página já viu a capability full_reading_panel (ver
   // isFullReadingPanelMode).
@@ -6477,6 +6487,31 @@ function createCompanionCore(ctx) {
       `
     }
 
+    const transcribeAudioButton =
+      getTranscribeAudioButtonHtml()
+
+    if (
+      isCurrentAnalysisOutdated()
+    ) {
+      return `
+        ${transcribeAudioButton}
+
+        <button
+          class="yolen-primary-button"
+          type="button"
+          data-yolen-action="analyze-conversation"
+        >
+          Atualizar análise
+        </button>
+      `
+    }
+
+    return getAnalysisActionButtonTail(transcribeAudioButton)
+  }
+
+  // "Transcrever áudio N de M" (continua com a leitura completa no painel:
+  // a transcrição alimenta a leitura).
+  function getTranscribeAudioButtonHtml() {
     const totalAudioCount =
       Number(
         state.audioCount || 0,
@@ -6498,8 +6533,7 @@ function createCompanionCore(ctx) {
         transcribedAudioCount + 1,
       )
 
-    const transcribeAudioButton =
-      pendingAudioCount > 0
+    return pendingAudioCount > 0
         ? `
           <button
             class="yolen-secondary-button"
@@ -6521,23 +6555,9 @@ function createCompanionCore(ctx) {
           }
         `
         : ''
+  }
 
-    if (
-      isCurrentAnalysisOutdated()
-    ) {
-      return `
-        ${transcribeAudioButton}
-
-        <button
-          class="yolen-primary-button"
-          type="button"
-          data-yolen-action="analyze-conversation"
-        >
-          Atualizar análise
-        </button>
-      `
-    }
-
+  function getAnalysisActionButtonTail(transcribeAudioButton) {
     if (
       !state
         .conversationAnalysis
@@ -7077,15 +7097,25 @@ function createCompanionCore(ctx) {
         return getFullReadingPendingHtml('Análise')
       }
 
+      // Rodada 8 (E4): um controle só de atualizar (o do rodapé da
+      // leitura); o "Analisar agora/Atualizar análise" antigo não aparece.
+      // "Transcrever áudio" continua.
+      const transcribeAudioButton =
+        canAnalyzeCurrentConversation()
+          ? getTranscribeAudioButtonHtml()
+          : ''
+
       return `
         ${sellerInformationViewTools.renderFullReadingSlot(
           'analysis',
           fullReadingAnalysis,
         )}
 
-        <div class="yolen-inline-actions yolen-decision-actions">
-          ${getAnalysisActionButton()}
-        </div>
+        ${
+          transcribeAudioButton.trim()
+            ? `<div class="yolen-inline-actions yolen-decision-actions">${transcribeAudioButton}</div>`
+            : ''
+        }
       `
     }
 
@@ -7313,30 +7343,24 @@ function createCompanionCore(ctx) {
       // (rodando ou em falha, o aviso); nunca o bloco antigo.
       (fullReadingClientView && isFullReadingPanelMode())
     ) {
-      // Leitura completa (HML): o que ele disse / o que parece / falta
-      // descobrir vêm da leitura; o bloco antigo sai. Relacionamento vira
-      // a grade compacta, e o rodapé da leitura aparece uma vez, no fim.
-      const footer =
-        typeof fullReadingClientView.footer === 'string'
-          ? fullReadingClientView.footer
-          : ''
-
+      // Leitura completa (HML): o que foi dito / o que parece / falta
+      // descobrir vêm da leitura; o bloco antigo sai. O rodapé da leitura
+      // (com o controle de atualizar) fecha o bloco dela; o Relacionamento
+      // vira a grade compacta, com "Aguardando" vindo da vez da leitura.
       return `
         ${sellerInformationViewTools.renderFullReadingSlot(
           'client',
           fullReadingClientView,
         )}
-        ${getCompanionClientRelationshipCardHtml({ compact: true })}
-        ${
-          footer
-            ? `<div class="yolen-fr-footer"><span class="yolen-full-reading-footer">${escapeHtml(footer)}</span></div>`
-            : ''
-        }
+        ${getCompanionClientRelationshipCardHtml({
+          compact: true,
+          turn: getFullReadingWaitingTurn(fullReadingClientView),
+        })}
       `
     } else if (isFullReadingPanelMode()) {
       return `
         ${getFullReadingPendingHtml('Cliente')}
-        ${getCompanionClientRelationshipCardHtml({ compact: true })}
+        ${getCompanionClientRelationshipCardHtml({ compact: true, turn: null })}
       `
     } else if (
       state.customerViewModel?.status === 'ready' &&
@@ -7560,6 +7584,17 @@ function createCompanionCore(ctx) {
   // (que o HML não regrava, e numa oportunidade nova é do ciclo anterior)
   // não aparece. O marcador oculto só impede o card "preparando". Na
   // falha, o painel volta ao de hoje, com o resumo salvo.
+  // Rodada 8 (E2): no Relacionamento, "Aguardando" vem da vez da leitura
+  // (vendedor, cliente ou ninguém). Sem leitura na tela, a célula sai.
+  function getFullReadingWaitingTurn(view) {
+    const turn =
+      view?.next_step?.turn
+
+    return turn === 'vendedor' || turn === 'cliente' || turn === 'ninguem'
+      ? turn
+      : null
+  }
+
   function getFullReadingLeadSummaryCardHtml() {
     // Rodada 7: com a leitura completa no painel, nunca o resumo antigo —
     // nem com a leitura rodando ou em falha (o aviso dela fica no AGORA).
@@ -7568,26 +7603,42 @@ function createCompanionCore(ctx) {
       : ''
   }
 
+  // mode 'if_changed' (rodada 8, B4): o "Atualizar" com a leitura em dia
+  // não relê; o servidor responde "Nada novo desde HH:MM". 'always' relê
+  // ("Tentar de novo", "Ler de novo mesmo assim").
   function requestFullReadingRefresh({
     force = false,
+    mode = 'always',
   } = {}) {
     if (!isFullReadingPanelMode()) {
       return
     }
 
+    const forceFullReadingMode =
+      force && mode === 'if_changed'
+        ? 'if_changed'
+        : undefined
+
     void loadAgoraDecisionStateForCurrentCycle({
       force: true,
       forceFullReading: force,
+      forceFullReadingMode,
     })
 
     void loadAnalysisViewModelForCurrentCycle({
       force: true,
       forceFullReading: force,
+      forceFullReadingMode,
     })
   }
 
-  // Enquanto a leitura roda (≈45–50 s), AGORA/ANÁLISE são relidos a cada
-  // 8 s. O backend nunca dispara uma rodada nova por causa do polling.
+  function getFullReadingScopeKey() {
+    return `${state.companyId || ''}|${getCanonicalResolutionCycleId() || ''}|${getCaptureConversationKey() || ''}`
+  }
+
+  // Enquanto a leitura roda (≈30–50 s), AGORA/ANÁLISE são relidos a cada
+  // 3 s nos primeiros 90 s e depois a cada 8 s. O backend nunca dispara
+  // uma rodada nova por causa do polling.
   function syncFullReadingPolling() {
     const views =
       getCurrentFullReadingViews()
@@ -7597,7 +7648,9 @@ function createCompanionCore(ctx) {
       views.analysis?.state === 'running'
 
     const scope =
-      `${state.companyId || ''}|${getCanonicalResolutionCycleId() || ''}|${getCaptureConversationKey() || ''}`
+      getFullReadingScopeKey()
+
+    syncFullReadingRetry(views, scope)
 
     if (!running) {
       fullReadingPollStartedAt = 0
@@ -7610,10 +7663,12 @@ function createCompanionCore(ctx) {
       fullReadingPollStartedAt = Date.now()
     }
 
+    const elapsed =
+      Date.now() - fullReadingPollStartedAt
+
     if (
       fullReadingPollTimerId ||
-      Date.now() - fullReadingPollStartedAt >
-        FULL_READING_POLL_MAX_MS
+      elapsed > FULL_READING_POLL_MAX_MS
     ) {
       return
     }
@@ -7622,15 +7677,123 @@ function createCompanionCore(ctx) {
       window.setTimeout(() => {
         fullReadingPollTimerId = 0
 
-        const currentScope =
-          `${state.companyId || ''}|${getCanonicalResolutionCycleId() || ''}|${getCaptureConversationKey() || ''}`
-
-        if (currentScope !== scope) {
+        if (getFullReadingScopeKey() !== scope) {
           return
         }
 
         requestFullReadingRefresh()
-      }, FULL_READING_POLL_INTERVAL_MS)
+      }, elapsed < FULL_READING_FAST_POLL_WINDOW_MS
+        ? FULL_READING_FAST_POLL_INTERVAL_MS
+        : FULL_READING_POLL_INTERVAL_MS)
+  }
+
+  // Falha de crédito ou passageira (rodada 8, A1): o servidor diz quando
+  // tenta de novo sozinho (status.retry_at). O painel relê nessa hora — e,
+  // até lá, a cada 60 s, porque um sucesso em outra conversa já libera a
+  // nova tentativa. Sem retry_at (falha determinística ou limite de 3 por
+  // hora), nada é agendado.
+  function syncFullReadingRetry(views, scope) {
+    const retryAt =
+      views.agora?.state === 'failed'
+        ? views.agora?.status?.retry_at
+        : views.analysis?.state === 'failed'
+          ? views.analysis?.status?.retry_at
+          : null
+
+    const retryTime =
+      typeof retryAt === 'string'
+        ? Date.parse(retryAt)
+        : Number.NaN
+
+    const key =
+      Number.isNaN(retryTime)
+        ? null
+        : `${scope}|${retryAt}`
+
+    if (key === fullReadingRetryKey) {
+      return
+    }
+
+    if (fullReadingRetryTimerId) {
+      window.clearTimeout(fullReadingRetryTimerId)
+      fullReadingRetryTimerId = 0
+    }
+
+    fullReadingRetryKey = key
+
+    if (!key) {
+      return
+    }
+
+    // Mínimo de 5 s: com o relógio do navegador adiantado, a hora marcada
+    // pode já ter passado aqui e ainda não no servidor.
+    const delay =
+      Math.min(
+        FULL_READING_RETRY_POLL_MAX_MS,
+        Math.max(5000, retryTime - Date.now() + 1000),
+      )
+
+    fullReadingRetryTimerId =
+      window.setTimeout(() => {
+        fullReadingRetryTimerId = 0
+        fullReadingRetryKey = null
+
+        if (getFullReadingScopeKey() !== scope) {
+          return
+        }
+
+        requestFullReadingRefresh()
+      }, delay)
+  }
+
+  // "Lendo a conversa inteira… 12 s": só o texto dos segundos muda, sem
+  // redesenhar o painel.
+  function syncFullReadingElapsedTicker() {
+    const panel =
+      document.getElementById(PANEL_ID)
+
+    const hasCounter =
+      Boolean(panel?.querySelector('[data-yolen-fr-elapsed-since]'))
+
+    if (!hasCounter) {
+      if (fullReadingElapsedTimerId) {
+        window.clearInterval(fullReadingElapsedTimerId)
+        fullReadingElapsedTimerId = 0
+      }
+
+      return
+    }
+
+    if (fullReadingElapsedTimerId) {
+      return
+    }
+
+    fullReadingElapsedTimerId =
+      window.setInterval(() => {
+        const current =
+          document.getElementById(PANEL_ID)
+
+        const counters =
+          current
+            ? current.querySelectorAll('[data-yolen-fr-elapsed-since]')
+            : []
+
+        if (counters.length === 0) {
+          window.clearInterval(fullReadingElapsedTimerId)
+          fullReadingElapsedTimerId = 0
+          return
+        }
+
+        counters.forEach((node) => {
+          const since =
+            Date.parse(node.getAttribute('data-yolen-fr-elapsed-since') || '')
+
+          if (!Number.isNaN(since)) {
+            node.textContent =
+              `${Math.max(0, Math.floor((Date.now() - since) / 1000))} s`
+          }
+        })
+      }, FULL_READING_ELAPSED_TICK_MS)
   }
 
   async function handleFullReadingStageClick() {
@@ -8006,12 +8169,30 @@ function createCompanionCore(ctx) {
       `
     }
 
+    // Rodada 8 (A4, E4): com a leitura completa, o aviso dela fica em cima
+    // da mensagem e o controle de atualizar no rodapé, como nas outras abas.
+    const fullReadingMessageView =
+      isFullReadingPanelMode() &&
+      getCurrentFullReadingViews().agora?.message
+        ? getCurrentFullReadingViews().agora
+        : null
+
     return `
       <div
         class="yolen-seller-message-workspace"
         data-yolen-seller-message-workspace
       >
+        ${
+          fullReadingMessageView
+            ? sellerInformationViewTools.renderFullReadingSlot('notice', fullReadingMessageView)
+            : ''
+        }
         <div data-yolen-seller-message-mount></div>
+        ${
+          fullReadingMessageView
+            ? sellerInformationViewTools.renderFullReadingSlot('footer', fullReadingMessageView)
+            : ''
+        }
       </div>
     `
   }
@@ -9508,6 +9689,7 @@ function createCompanionCore(ctx) {
   function wirePanelInteractions(panel) {
     hydrateFullReadingSlots(panel)
     syncFullReadingPolling()
+    syncFullReadingElapsedTicker()
     syncFullReadingMessage()
 
     // "Ver mensagem pronta" no próximo passo abre a MENSAGEM.
@@ -9529,8 +9711,17 @@ function createCompanionCore(ctx) {
       )
       .forEach((button) => {
         wireOnce(button, 'click', () => {
+          // Desabilitado enquanto a leitura roda.
+          if (button.disabled) {
+            return
+          }
+
           requestFullReadingRefresh({
             force: true,
+            mode:
+              button.getAttribute('data-yolen-fr-mode') === 'if_changed'
+                ? 'if_changed'
+                : 'always',
           })
         })
       })

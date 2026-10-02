@@ -40,6 +40,14 @@ import type {
 export const FULL_READING_RUNNING_NOTICE =
   'Lendo a conversa inteira…'
 
+// Rodada 8 (B3): primeira leitura com os segundos passando; com leitura na
+// tela, só a faixa de atualização.
+export const FULL_READING_RUNNING_DETAIL =
+  'costuma levar até 1 minuto'
+
+export const FULL_READING_UPDATING_NOTICE =
+  'Atualizando a leitura…'
+
 export const FULL_READING_SOURCE_LABEL =
   'Leitura completa'
 
@@ -75,7 +83,8 @@ export type FullReadingPanelKanban = {
 export type FullReadingPanelReading = {
   run_id: string
   completed_at: string | null
-  analysis_markdown: string
+  // v5: null (a leitura é só a decisão).
+  analysis_markdown: string | null
   decision: FullReadingDecision & {
     sistema?: {
       alertas?: unknown[]
@@ -142,6 +151,50 @@ export type FullReadingAgoraMain = {
   por_que: string
 }
 
+// Estado da leitura comum às abas (rodada 8): rodando, falha (texto sem
+// código, com a hora), nova tentativa sozinha e o controle único de
+// atualizar do rodapé.
+export type FullReadingFailureKind =
+  | 'credit'
+  | 'transient'
+  | 'deterministic'
+
+export type FullReadingPanelStatusInput = {
+  failure_kind?: FullReadingFailureKind | null
+  failure_at?: string | null
+  retry_at?: string | null
+  credit_notice?: boolean
+  running_since?: string | null
+  reading_is_fallback?: boolean
+  force_debounced?: boolean
+  force_available_at?: string | null
+  nothing_new_since?: string | null
+}
+
+export type FullReadingRefreshControl = {
+  label: 'Atualizar' | 'Tentar de novo'
+  // 'if_changed': sem nada novo, o painel diz "Nada novo desde HH:MM".
+  mode: 'if_changed' | 'always'
+  disabled: boolean
+  // "Atualizar" caiu na espera de 60 s.
+  hint: string | null
+}
+
+export type FullReadingStatusView = {
+  running: 'first' | 'update' | null
+  running_since: string | null
+  failure: {
+    kind: FullReadingFailureKind
+    text: string
+    detail: string | null
+  } | null
+  // Quando o painel tenta de novo sozinho (a extensão relê nessa hora).
+  retry_at: string | null
+  refresh: FullReadingRefreshControl
+  // "Nada novo desde HH:MM" (+ "Ler de novo mesmo assim").
+  nothing_new_since: string | null
+}
+
 // MENSAGEM a partir da leitura: com a leitura disponível, o objetivo e a
 // mensagem do motor antigo não aparecem.
 export type FullReadingMessageView = {
@@ -157,10 +210,23 @@ export type FullReadingMessageView = {
   // Objetivo recomendado (acao_resumo) quando a leitura manda falar com o
   // cliente.
   recommended_objective: string | null
-  // Mensagem pronta da leitura (a seção "Mensagem sugerida"), para
-  // Incluir/Copiar, quando a leitura manda falar com o cliente.
+  // Mensagem pronta da leitura (v5: mensagem_sugerida; antes, a seção
+  // "Mensagem sugerida"), para Incluir/Copiar.
   suggested_message: string | null
+  // v5: o que revisar antes de enviar (ou por que não enviar).
+  observation: string | null
   run_id: string
+}
+
+// v5 (C3): cartão "Como conduzir" do AGORA.
+export type FullReadingConductView = {
+  moment: string
+  steps: {
+    technique: string
+    how: string
+    example: string
+  }[]
+  avoid: string[]
 }
 
 // v4 (rodada 6): a tela de cada aba vem pronta daqui, em rótulos de
@@ -230,6 +296,10 @@ export type FullReadingAgoraView = {
   facts: FullReadingFact[]
   before_send: string[]
   attention: FullReadingAttention | null
+  // v5: como conduzir o momento.
+  conduct: FullReadingConductView | null
+  // Rodada 8: estado da leitura e controle de atualizar.
+  status: FullReadingStatusView
   // Muda sempre que o conteúdo muda: a extensão só redesenha quando muda.
   view_key: string
 }
@@ -286,8 +356,16 @@ export type FullReadingAnalysisView = {
   opportunities: FullReadingOpportunityView[]
   coaching: {
     acertos: string[]
+    // v4: ajustes em texto.
     ajustes: string[]
+    // v5: "Houve: …" / "Melhor: …".
+    adjustments: {
+      happened: string
+      better: string
+    }[]
   }
+  // v5: "Para o gestor".
+  manager_notes: string[]
   // Plano B: rodada sem os campos estruturados mostra o markdown, sem as
   // seções que têm aba própria (Mensagem sugerida e Cliente).
   sections: FullReadingAnalysisSection[]
@@ -295,6 +373,7 @@ export type FullReadingAnalysisView = {
   alertas_de_captura: string[]
   footer: string | null
   run_id: string | null
+  status: FullReadingStatusView
   view_key: string
 }
 
@@ -326,6 +405,7 @@ export const FULL_READING_PHASE_LABELS: Record<string, string> = {
   formalizacao: 'Formalização',
   cliente_ativo: 'Cliente ativo',
   perdido: 'Perdido',
+  nao_comercial: 'Não é venda',
   indeterminada: 'Indefinida',
 }
 
@@ -334,6 +414,29 @@ export const FULL_READING_SALE_LABELS: Record<string, string> = {
   provavel: 'Provável',
   nao: 'Ainda não',
   indeterminado: 'Indefinida',
+}
+
+// v5 (D4): "Não se aplica" numa conversa sem venda, "Não" com a relação
+// perdida e "Ainda não" só nas fases abertas.
+export function saleLabel(
+  decision: Pick<FullReadingDecision, 'venda_concluida' | 'fase_relacao'>,
+): string {
+  const sale =
+    decision.venda_concluida
+
+  if (
+    decision.fase_relacao === 'nao_comercial' &&
+    sale !== 'confirmada' &&
+    sale !== 'provavel'
+  ) {
+    return 'Não se aplica'
+  }
+
+  if (sale === 'nao' && decision.fase_relacao === 'perdido') {
+    return 'Não'
+  }
+
+  return FULL_READING_SALE_LABELS[sale] ?? 'Indefinida'
 }
 
 export const FULL_READING_TURN_LABELS: Record<string, string> = {
@@ -383,6 +486,7 @@ const TEXT_CODE_LABELS: Record<string, string> = {
   follow_up: 'acompanhamento',
   primeiro_contato: 'primeiro contato',
   cliente_ativo: 'cliente ativo',
+  nao_comercial: 'não é venda',
   novo_produto: 'novo produto',
   entrada_parcelas: 'entrada + parcelas',
   parcelado_sem_entrada: 'parcelado sem entrada',
@@ -471,12 +575,28 @@ export const FULL_READING_EMPTY_CONVERSATION_NOTICE =
 export const FULL_READING_CLOSED_CYCLE_NOTICE =
   'Oportunidade encerrada: a leitura completa não roda para ciclo fechado.'
 
-// Rodada 7: a API do Claude sem crédito.
+// Rodada 7: a API do Claude sem crédito ("Gerar mensagem").
 export const FULL_READING_CREDIT_EXHAUSTED_NOTICE =
   'Leitura indisponível: créditos da IA esgotados'
 
+// "20:07" (horário de Brasília).
+export function formatClock(
+  value: string | null | undefined,
+): string | null {
+  if (!value || toTime(value) === null) {
+    return null
+  }
+
+  const match =
+    /(\d{2}:\d{2})$/.exec(formatTranscriptTimestamp(value))
+
+  return match ? match[1] : null
+}
+
+// Rodada 8 (A4, E5): nenhum código interno na tela; a hora da falha.
 function buildFailureNotice(
   failureCode: string | null,
+  panel: FullReadingPanelStatusInput = {},
 ): string {
   if (failureCode === 'EMPTY_CONVERSATION') {
     return FULL_READING_EMPTY_CONVERSATION_NOTICE
@@ -486,15 +606,118 @@ function buildFailureNotice(
     return FULL_READING_CLOSED_CYCLE_NOTICE
   }
 
-  if (failureCode === 'PROVIDER_CREDIT_EXHAUSTED') {
-    return FULL_READING_CREDIT_EXHAUSTED_NOTICE
+  const clock =
+    formatClock(panel.failure_at)
+
+  const credit =
+    failureCode === 'PROVIDER_CREDIT_EXHAUSTED' &&
+    panel.credit_notice !== false
+
+  if (credit) {
+    return clock
+      ? `A IA ficou sem crédito às ${clock}.`
+      : 'A IA ficou sem crédito.'
   }
 
-  // Com a leitura completa no painel, o caminho antigo não volta: o aviso
-  // só diz que a leitura não está disponível.
-  return failureCode
-    ? `Leitura completa indisponível agora (${failureCode}).`
-    : 'Leitura completa indisponível agora.'
+  return clock
+    ? `Não consegui ler a conversa às ${clock}.`
+    : 'Não consegui ler a conversa agora.'
+}
+
+function buildFailureDetail(
+  failureCode: string | null,
+  panel: FullReadingPanelStatusInput,
+): string | null {
+  if (failureCode === 'EMPTY_CONVERSATION' || failureCode === 'CLOSED_CYCLE') {
+    return null
+  }
+
+  const retryClock =
+    formatClock(panel.retry_at)
+
+  if (retryClock) {
+    return `Vou tentar de novo sozinho às ${retryClock}.`
+  }
+
+  if (panel.failure_kind === 'credit' || panel.failure_kind === 'transient') {
+    return 'Tente de novo daqui a pouco.'
+  }
+
+  return null
+}
+
+function buildStatusView({
+  state,
+  failureCode,
+  hasReading,
+  panel,
+  now,
+}: {
+  state: FullReadingPanelState
+  failureCode: string | null
+  hasReading: boolean
+  panel: FullReadingPanelStatusInput
+  now: number
+}): FullReadingStatusView {
+  const closed =
+    failureCode === 'CLOSED_CYCLE'
+
+  const failure =
+    state === 'failed'
+      ? {
+          kind:
+            panel.failure_kind ??
+            (failureCode === 'PROVIDER_CREDIT_EXHAUSTED' ? 'credit' : 'deterministic'),
+          text: buildFailureNotice(failureCode, panel),
+          detail: buildFailureDetail(failureCode, panel),
+        }
+      : null
+
+  const availableAt =
+    toTime(panel.force_available_at ?? null)
+
+  const waitSeconds =
+    availableAt === null
+      ? null
+      : Math.max(1, Math.ceil((availableAt - now) / 1000))
+
+  return {
+    running:
+      state === 'running'
+        ? (hasReading ? 'update' : 'first')
+        : null,
+    running_since:
+      state === 'running'
+        ? panel.running_since ?? null
+        : null,
+    failure,
+    retry_at:
+      state === 'failed'
+        ? panel.retry_at ?? null
+        : null,
+    refresh: {
+      label:
+        state === 'failed' && !closed
+          ? 'Tentar de novo'
+          : 'Atualizar',
+      mode:
+        state === 'ready'
+          ? 'if_changed'
+          : 'always',
+      disabled:
+        state === 'running' || closed,
+      hint:
+        panel.force_debounced === true
+          ? waitSeconds !== null
+            ? `Acabei de ler esta conversa. Tente de novo em ${waitSeconds} s.`
+            : 'Acabei de ler esta conversa. Tente de novo em instantes.'
+          : null,
+    },
+    nothing_new_since:
+      state === 'ready'
+        ? formatClock(panel.nothing_new_since)
+        : null,
+  }
 }
 
 function hashKey(
@@ -619,6 +842,53 @@ export function buildCycleClosingPath({
   return `/sales-cycles/${encodeURIComponent(cycleId)}${query ? `?${query}` : ''}`
 }
 
+function hasStageAlert(
+  decision: FullReadingPanelReading['decision'],
+): boolean {
+  const alerts =
+    decision.sistema?.alertas
+
+  return (
+    Array.isArray(alerts) &&
+    alerts.some((alert) =>
+      !alert ||
+      typeof alert !== 'object' ||
+      (alert as { campo?: unknown }).campo === undefined ||
+      (alert as { campo?: unknown }).campo === 'etapa_kanban_sugerida',
+    )
+  )
+}
+
+// v5 (D6): com a etapa sugerida igual à atual, nenhum texto fala em
+// ajustar o kanban.
+const KANBAN_CHANGE_WORDING =
+  /\b(?:ajust|atualiz|mov|mud|corrig)\w*[^.]{0,40}\bkanban\b|\bkanban\b[^.]{0,30}\b(?:desatualizad|atrasad)/i
+
+export function mentionsKanbanChange(
+  value: string,
+): boolean {
+  return KANBAN_CHANGE_WORDING.test(value)
+}
+
+function sameStageAsCurrent(
+  decision: FullReadingPanelReading['decision'],
+  kanban: FullReadingPanelKanban | null,
+): boolean {
+  return (
+    kanban !== null &&
+    decision.etapa_kanban_sugerida === kanban.status
+  )
+}
+
+function dropKanbanChangeTexts(
+  values: string[],
+  active: boolean,
+): string[] {
+  return active
+    ? values.filter((value) => !mentionsKanbanChange(value))
+    : values
+}
+
 function buildStageCard({
   decision,
   kanban,
@@ -641,10 +911,11 @@ function buildStageCard({
   }
 
   // A coerência já foi aplicada na rodada; aqui é a segunda trava, para
-  // uma rodada gravada que tenha escapado dela.
+  // uma rodada gravada que tenha escapado dela. Só os alertas da etapa
+  // contam (o alerta do cadastro, F2, não muda a etapa).
   if (
-    findStageCoherenceProblem(decision) !== null ||
-    (Array.isArray(decision.sistema?.alertas) && decision.sistema.alertas.length > 0)
+    findStageCoherenceProblem(decision, { currentStatus: current }) !== null ||
+    hasStageAlert(decision)
   ) {
     return null
   }
@@ -708,7 +979,8 @@ function buildStageCard({
     return {
       ...base,
       kind: 'confirm_lost',
-      button_label: 'Confirmar perda',
+      // v5 (D5): abre o LostDealModal com "Outro" e o motivo preenchidos.
+      button_label: 'Registrar no Yolen',
       cycle_path: buildCycleClosingPath({ cycleId, close: 'perdido', prefill }),
       apply_request: null,
     }
@@ -848,11 +1120,13 @@ function buildNextStep({
   main,
   message,
   locks,
+  sameStage = false,
 }: {
   decision: FullReadingPanelReading['decision']
   main: FullReadingAgoraMain
   message: FullReadingMessageView | null
   locks: string[]
+  sameStage?: boolean
 }): FullReadingNextStep {
   const locked =
     locks.includes('ganho_sem_retomada') ||
@@ -878,17 +1152,28 @@ function buildNextStep({
       ? FULL_READING_NOTHING_TO_SEND_TITLE
       : rawTitle
 
-  const complement =
+  const rawComplement =
     locked
       ? ''
       : humanizePanelText(decision.proximo_passo_complemento)
+
+  // D6: com a etapa igual à atual, nada de "ajustar o kanban".
+  const complement =
+    sameStage && mentionsKanbanChange(rawComplement)
+      ? ''
+      : rawComplement
+
+  const why =
+    sameStage && mentionsKanbanChange(main.por_que)
+      ? ''
+      : main.por_que
 
   return {
     turn,
     turn_label: FULL_READING_TURN_LABELS[turn],
     title,
     complement: complement === title ? '' : complement,
-    why: main.por_que,
+    why,
     send,
     no_send_reason:
       send
@@ -915,7 +1200,7 @@ function buildFacts({
     {
       key: 'venda',
       label: 'Venda',
-      value: FULL_READING_SALE_LABELS[decision.venda_concluida] ?? 'Indefinida',
+      value: saleLabel(decision),
     },
     {
       key: 'ultimo_contato',
@@ -973,6 +1258,53 @@ function splitTrailingDate(
   }
 }
 
+// v5 (C3): "Como conduzir" — leitura do momento, os passos ("técnica —
+// como", com o exemplo) e o que evitar.
+function buildConductView(
+  decision: FullReadingPanelReading['decision'],
+  locks: string[],
+): FullReadingConductView | null {
+  if (
+    locks.includes('ganho_sem_retomada') ||
+    locks.includes('encerrado_sem_acao')
+  ) {
+    return null
+  }
+
+  const conduct =
+    decision.como_conduzir
+
+  if (!conduct || typeof conduct !== 'object') {
+    return null
+  }
+
+  const steps =
+    (Array.isArray(conduct.passos) ? conduct.passos : [])
+      .map((step) => ({
+        technique: humanizePanelText(step?.tecnica),
+        how: humanizePanelText(step?.como),
+        example: humanizePanelText(step?.exemplo),
+      }))
+      .filter((step) => step.technique.length > 0 || step.how.length > 0)
+      .slice(0, 3)
+
+  const moment =
+    humanizePanelText(conduct.leitura_do_momento)
+
+  const avoid =
+    humanizeList(conduct.evitar).slice(0, 2)
+
+  if (!moment && steps.length === 0 && avoid.length === 0) {
+    return null
+  }
+
+  return {
+    moment,
+    steps,
+    avoid,
+  }
+}
+
 function buildClientView(
   decision: FullReadingPanelReading['decision'],
 ): FullReadingClientView | null {
@@ -999,6 +1331,7 @@ export function buildFullReadingAgoraView({
   lastCustomerMessageAt,
   lastMessageAt = null,
   now = Date.now(),
+  panel = {},
 }: {
   state: FullReadingPanelState
   reading: FullReadingPanelReading | null
@@ -1008,16 +1341,25 @@ export function buildFullReadingAgoraView({
   lastCustomerMessageAt: string | null
   lastMessageAt?: string | null
   now?: number
+  panel?: FullReadingPanelStatusInput
 }): FullReadingAgoraView {
   const kanbanLabel =
     stageLabel(kanban.status)
 
-  // Na falha o painel volta ao AGORA de hoje: a leitura antiga não é
-  // mostrada como se fosse atual.
+  // Rodada 8 (A4): em falha, a última leitura boa continua logo abaixo do
+  // aviso (o painel nunca fica com uma linha só); rodando, ela fica na
+  // tela com a faixa "Atualizando a leitura…".
   const shownReading =
-    state === 'failed'
-      ? null
-      : reading
+    reading
+
+  const status =
+    buildStatusView({
+      state,
+      failureCode,
+      hasReading: shownReading !== null,
+      panel,
+      now,
+    })
 
   const locks: string[] = []
 
@@ -1050,11 +1392,15 @@ export function buildFullReadingAgoraView({
     CLOSED_STAGES.has(kanban.status)
 
   const notice =
-    state === 'running'
+    status.running === 'first'
       ? FULL_READING_RUNNING_NOTICE
-      : state === 'failed'
-        ? buildFailureNotice(failureCode)
-        : null
+      : status.running === 'update'
+        ? FULL_READING_UPDATING_NOTICE
+        : status.failure?.text ?? null
+
+  const sameStage =
+    shownReading !== null &&
+    sameStageAsCurrent(shownReading.decision, kanban)
 
   const legacyLock: FullReadingAgoraView['legacy_lock'] =
     kanban.status === 'ganho'
@@ -1109,6 +1455,7 @@ export function buildFullReadingAgoraView({
             main,
             message,
             locks,
+            sameStage,
           })
         : null,
     facts:
@@ -1132,6 +1479,11 @@ export function buildFullReadingAgoraView({
             locks,
           })
         : null,
+    conduct:
+      shownReading
+        ? buildConductView(shownReading.decision, locks)
+        : null,
+    status,
   }
 
   return {
@@ -1147,8 +1499,11 @@ export function buildFullReadingAgoraView({
 export const FULL_READING_NO_SEND_NOTICE =
   'A leitura recomenda não enviar nada agora'
 
+// Rodada 8 (E1): verificação interna não é "nada a enviar" — com o
+// cliente esperando, a mensagem é um retorno de espera e a verificação
+// fica como próximo passo.
 const NO_SEND_ACTIONS =
-  new Set(['nao_intervir', 'verificacao_interna'])
+  new Set(['nao_intervir'])
 
 const NO_SEND_WORDING =
   /^\s*n[aã]o\s+(?:enviar|envie|mandar|mande)\b/i
@@ -1179,9 +1534,52 @@ function buildMessageView({
   main: FullReadingAgoraMain
   locks: string[]
 }): FullReadingMessageView {
+  const decision =
+    reading.decision
+
+  const locked =
+    locks.includes('ganho_sem_retomada') ||
+    locks.includes('encerrado_sem_acao')
+
+  // v5: a mensagem vem da decisão. "Nada a enviar agora" só quando ela vem
+  // vazia (ou com a trava do kanban).
+  if (typeof decision.mensagem_sugerida === 'string') {
+    const message =
+      decision.mensagem_sugerida.trim()
+
+    const observation =
+      humanizePanelText(decision.mensagem_observacao) || null
+
+    if (!message || locked) {
+      return {
+        mode: 'no_send',
+        objective: null,
+        no_send_reason: observation || main.por_que || null,
+        notice: FULL_READING_NO_SEND_NOTICE,
+        section_text: message,
+        recommended_objective: null,
+        suggested_message: null,
+        observation: null,
+        run_id: reading.run_id,
+      }
+    }
+
+    return {
+      mode: 'send',
+      objective: main.acao || null,
+      no_send_reason: null,
+      notice: null,
+      section_text: message,
+      recommended_objective: main.acao || null,
+      suggested_message: message,
+      observation,
+      run_id: reading.run_id,
+    }
+  }
+
   const text =
     sectionText(
-      parseFullReadingAnalysisSections(reading.analysis_markdown)
+      parseFullReadingAnalysisSections(reading.analysis_markdown ?? '')
         .find((section) => section.key === 'mensagem'),
     )
 
@@ -1205,6 +1603,7 @@ function buildMessageView({
       section_text: text,
       recommended_objective: null,
       suggested_message: null,
+      observation: null,
       run_id: reading.run_id,
     }
   }
@@ -1217,6 +1616,7 @@ function buildMessageView({
     section_text: text,
     recommended_objective: main.acao || null,
     suggested_message: text || null,
+    observation: null,
     run_id: reading.run_id,
   }
 }
@@ -1605,7 +2005,7 @@ function buildSummaryBlocks({
 
   const kanbanValue =
     current
-      ? suggested && suggested !== current && isFullReadingKanbanStage(suggested) && findStageCoherenceProblem(decision) === null
+      ? suggested && suggested !== current && isFullReadingKanbanStage(suggested) && findStageCoherenceProblem(decision, { currentStatus: current }) === null
         ? `${stageLabel(current)} → ${stageLabel(suggested)}`
         : stageLabel(current)
       : isFullReadingKanbanStage(suggested)
@@ -1631,7 +2031,7 @@ function buildSummaryBlocks({
     {
       key: 'venda',
       label: 'Venda',
-      value: FULL_READING_SALE_LABELS[decision.venda_concluida] ?? 'Indefinida',
+      value: saleLabel(decision),
     },
   ]
 }
@@ -1770,6 +2170,7 @@ export function buildFullReadingAnalysisView({
   kanban = null,
   lastMessageAt = null,
   now = Date.now(),
+  panel = {},
 }: {
   state: FullReadingPanelState
   reading: FullReadingPanelReading | null
@@ -1777,11 +2178,11 @@ export function buildFullReadingAnalysisView({
   kanban?: FullReadingPanelKanban | null
   lastMessageAt?: string | null
   now?: number
+  panel?: FullReadingPanelStatusInput
 }): FullReadingAnalysisView {
+  // Rodada 8 (A4): a última leitura boa continua abaixo do aviso de falha.
   const shownReading =
-    state === 'failed'
-      ? null
-      : reading
+    reading
 
   const decision =
     shownReading?.decision ?? null
@@ -1789,14 +2190,33 @@ export function buildFullReadingAnalysisView({
   const structured =
     decision !== null && hasStructuredReading(decision)
 
+  const status =
+    buildStatusView({
+      state,
+      failureCode,
+      hasReading: shownReading !== null,
+      panel,
+      now,
+    })
+
+  // D6: com a etapa igual à atual, nada de "ajustar o kanban".
+  const sameStage =
+    decision !== null &&
+    sameStageAsCurrent(decision, kanban)
+
+  const coaching =
+    decision && structured
+      ? buildCoaching(decision, sameStage)
+      : { acertos: [], ajustes: [], adjustments: [] }
+
   const view: Omit<FullReadingAnalysisView, 'view_key'> = {
     state,
     notice:
-      state === 'running'
+      status.running === 'first'
         ? FULL_READING_RUNNING_NOTICE
-        : state === 'failed'
-          ? buildFailureNotice(failureCode)
-          : null,
+        : status.running === 'update'
+          ? FULL_READING_UPDATING_NOTICE
+          : status.failure?.text ?? null,
     failure_code: state === 'failed' ? failureCode : null,
     has_reading: decision !== null,
     summary:
@@ -1809,21 +2229,21 @@ export function buildFullReadingAnalysisView({
         : [],
     pending:
       decision && structured
-        ? buildPending(decision)
+        ? buildPending(decision).filter(
+            (item) => !(sameStage && mentionsKanbanChange(item.text)),
+          )
         : [],
     opportunities:
       decision
         ? buildOpportunities(decision)
         : [],
-    coaching:
-      decision && structured
-        ? {
-            acertos: humanizeList(decision.conducao?.acertos),
-            ajustes: humanizeList(decision.conducao?.ajustes),
-          }
-        : { acertos: [], ajustes: [] },
+    coaching,
+    manager_notes:
+      decision
+        ? dropKanbanChangeTexts(humanizeList(decision.para_o_gestor), sameStage).slice(0, 2)
+        : [],
     sections:
-      shownReading && !structured
+      shownReading && !structured && typeof shownReading.analysis_markdown === 'string'
         ? parseFullReadingAnalysisSections(shownReading.analysis_markdown)
             .filter((section) => !OWN_TAB_SECTIONS.has(section.key))
         : [],
@@ -1837,11 +2257,61 @@ export function buildFullReadingAnalysisView({
         : [],
     footer: shownReading ? buildFooter(shownReading.completed_at) : null,
     run_id: shownReading?.run_id ?? null,
+    status,
   }
 
   return {
     ...view,
     view_key: hashKey(JSON.stringify(view)),
+  }
+}
+
+// Condução do vendedor: v5 traz cada ajuste como { houve, melhor }; v4,
+// texto.
+function buildCoaching(
+  decision: FullReadingPanelReading['decision'],
+  sameStage: boolean,
+): FullReadingAnalysisView['coaching'] {
+  const raw =
+    Array.isArray(decision.conducao?.ajustes)
+      ? decision.conducao.ajustes
+      : []
+
+  const ajustes: string[] = []
+  const adjustments: FullReadingAnalysisView['coaching']['adjustments'] = []
+
+  for (const item of raw) {
+    if (typeof item === 'string') {
+      const text =
+        humanizePanelText(item)
+
+      if (text && !(sameStage && mentionsKanbanChange(text))) {
+        ajustes.push(text)
+      }
+
+      continue
+    }
+
+    if (item && typeof item === 'object') {
+      const happened =
+        humanizePanelText((item as { houve?: unknown }).houve)
+
+      const better =
+        humanizePanelText((item as { melhor?: unknown }).melhor)
+
+      if (
+        (happened || better) &&
+        !(sameStage && mentionsKanbanChange(`${happened} ${better}`))
+      ) {
+        adjustments.push({ happened, better })
+      }
+    }
+  }
+
+  return {
+    acertos: dropKanbanChangeTexts(humanizeList(decision.conducao?.acertos), sameStage),
+    ajustes,
+    adjustments,
   }
 }
 

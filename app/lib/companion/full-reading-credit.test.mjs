@@ -285,17 +285,22 @@ function run(overrides = {}) {
 
 const KANBAN = { status: 'novo', stage_entered_at: minutesBefore(600), next_action: null, next_action_date: null, closed_at: null }
 
-test('painel: falha sem crédito recente bloqueia rodada nova até a espera passar; só "Atualizar" tenta', () => {
+// Rodada 8: a espera de crédito caiu de 30 para 5 min e acaba no primeiro
+// sucesso depois da falha (o planner novo está em full-reading-r8.test.mjs).
+test('painel: falha sem crédito recente bloqueia rodada nova até a espera passar; "Tentar de novo" tenta', () => {
   const base = { runs: [], cycleId: CYCLE, kanban: KANBAN, latestObservedAt: minutesBefore(1), now: NOW }
 
-  // Outra conversa ficou sem crédito há 5 min: esta não chama o Claude.
-  const blocked = planFullReadingPanel({ ...base, force: false, creditExhaustedAt: minutesBefore(5) })
+  assert.equal(FULL_READING_CREDIT_COOLDOWN_MS, 5 * 60 * 1000)
+
+  // Outra conversa ficou sem crédito há 3 min: esta não chama o Claude.
+  const blocked = planFullReadingPanel({ ...base, force: false, creditExhaustedAt: minutesBefore(3) })
 
   assert.equal(blocked.action, 'skip')
   assert.equal(blocked.skip_reason, PROVIDER_CREDIT_EXHAUSTED_CODE)
+  assert.equal(blocked.retry_at, new Date(Date.parse(minutesBefore(3)) + FULL_READING_CREDIT_COOLDOWN_MS).toISOString())
 
-  // "Atualizar": uma tentativa.
-  assert.equal(planFullReadingPanel({ ...base, force: true, creditExhaustedAt: minutesBefore(5) }).action, 'start')
+  // "Tentar de novo": uma tentativa.
+  assert.equal(planFullReadingPanel({ ...base, force: true, creditExhaustedAt: minutesBefore(3) }).action, 'start')
 
   // Depois da espera: tenta uma vez.
   assert.equal(
@@ -303,14 +308,27 @@ test('painel: falha sem crédito recente bloqueia rodada nova até a espera pass
     'start',
   )
 
+  // Uma leitura deu certo depois da falha: a espera acaba.
+  assert.equal(
+    planFullReadingPanel({ ...base, force: false, creditExhaustedAt: minutesBefore(3), lastClaudeSuccessAt: minutesBefore(1) }).action,
+    'start',
+  )
+
   // Sem falha de crédito: como antes.
   assert.equal(planFullReadingPanel({ ...base, force: false }).action, 'start')
 
-  // A própria conversa falhou sem crédito e nada mudou: mostra a falha.
-  const same = planFullReadingPanel({ ...base, runs: [run()], latestObservedAt: minutesBefore(20), force: false })
+  // A própria conversa falhou sem crédito há 2 min e nada mudou: mostra a
+  // falha, com a nova tentativa marcada.
+  const same = planFullReadingPanel({
+    ...base,
+    runs: [run({ created_at: minutesBefore(2), started_at: minutesBefore(2), completed_at: minutesBefore(2), reference_time: minutesBefore(2) })],
+    latestObservedAt: minutesBefore(20),
+    force: false,
+  })
 
   assert.equal(same.action, 'show_failure')
   assert.equal(same.failed_run.failure_code, PROVIDER_CREDIT_EXHAUSTED_CODE)
+  assert.equal(same.credit_notice, true)
 })
 
 test('rodadas antigas (PROVIDER_REQUEST_REJECTED com o texto da Anthropic) contam como sem crédito', () => {
@@ -377,7 +395,7 @@ test('painel ponta a ponta: crédito esgotado em outra conversa → aviso "créd
     sales_cycles: [{ id: CYCLE, company_id: COMPANY, status: 'novo', stage_entered_at: minutesBefore(600), next_action: null, next_action_date: null, lost_at: null, canceled_at: null, closed_at: null }],
     conversation_messages: [{ id: 1, company_id: COMPANY, cycle_id: CYCLE, conversation_key: CONVERSATION, direction: 'incoming', occurred_at: minutesBefore(2), observed_at: minutesBefore(1) }],
     companion_full_reading_runs: [
-      run({ run_id: 'run-other', company_id: '80000000-0000-4000-8000-000000000009', cycle_id: 'outro', conversation_key: 'phone:outro', failure_code: 'PROVIDER_REQUEST_REJECTED', failure_detail: `API respondeu 400: ${CREDIT_BODY.error.message}`, created_at: minutesBefore(5) }),
+      run({ run_id: 'run-other', company_id: '80000000-0000-4000-8000-000000000009', cycle_id: 'outro', conversation_key: 'phone:outro', failure_code: 'PROVIDER_REQUEST_REJECTED', failure_detail: `API respondeu 400: ${CREDIT_BODY.error.message}`, created_at: minutesBefore(4), started_at: minutesBefore(4), completed_at: minutesBefore(3) }),
     ],
   })
 
@@ -402,11 +420,16 @@ test('painel ponta a ponta: crédito esgotado em outra conversa → aviso "créd
 
   const agora = buildAgoraFullReadingView(snapshot, { cycleId: CYCLE })
 
-  assert.equal(agora.notice, 'Leitura indisponível: créditos da IA esgotados')
+  // Rodada 8: com a hora e sem código; "Gerar mensagem" mantém o aviso da
+  // rodada 7.
+  assert.match(agora.notice, /^A IA ficou sem crédito às \d{2}:\d{2}\.$/)
+  assert.equal(agora.status.failure.kind, 'credit')
+  assert.match(agora.status.failure.detail, /^Vou tentar de novo sozinho às \d{2}:\d{2}\.$/)
+  assert.equal(agora.status.refresh.label, 'Tentar de novo')
   assert.equal(FULL_READING_CREDIT_EXHAUSTED_NOTICE, 'Leitura indisponível: créditos da IA esgotados')
   assert.equal(
     buildFullReadingAnalysisView({ state: 'failed', reading: null, failureCode: PROVIDER_CREDIT_EXHAUSTED_CODE }).notice,
-    'Leitura indisponível: créditos da IA esgotados',
+    'A IA ficou sem crédito.',
   )
 
   // Polling seguido: continua sem chamar o Claude.
@@ -430,9 +453,9 @@ test('painel ponta a ponta: crédito esgotado em outra conversa → aviso "créd
   assert.deepEqual(memory.writes, [])
 })
 
-test('aviso genérico de falha não promete mais "a análise anterior" (o caminho antigo não volta)', () => {
+test('aviso genérico de falha não promete mais "a análise anterior" (o caminho antigo não volta) nem mostra código', () => {
   const view = buildFullReadingAnalysisView({ state: 'failed', reading: null, failureCode: 'PROVIDER_UNAVAILABLE' })
 
-  assert.equal(view.notice, 'Leitura completa indisponível agora (PROVIDER_UNAVAILABLE).')
-  assert.doesNotMatch(view.notice, /análise anterior/)
+  assert.equal(view.notice, 'Não consegui ler a conversa agora.')
+  assert.doesNotMatch(view.notice, /análise anterior|PROVIDER_|[A-Z]{3,}_[A-Z]/)
 })

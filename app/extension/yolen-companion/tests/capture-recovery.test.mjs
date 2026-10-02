@@ -265,7 +265,9 @@ test('texto com metade de emoji sai da extensão bem formado (U+FFFD), igual ao 
   assert.equal(captureBatch.toWellFormedText('\uDE00x'), '�x')
 })
 
-test('painel: conversa vazia por falha de captura mostra o aviso com o código', () => {
+// Rodada 8 (E5): nenhum código interno no texto do painel; o código da
+// falha só muda a chave da view (para o slot redesenhar).
+test('painel: conversa vazia por falha de captura mostra o aviso (sem o código no texto)', () => {
   const view = {
     view_key: 'k',
     state: 'failed',
@@ -275,7 +277,7 @@ test('painel: conversa vazia por falha de captura mostra o aviso com o código',
 
   assert.equal(
     sellerView.applyCaptureFailureNotice(view, 'CAPTURE_RPC_BODY_REJECTED').notice,
-    'As mensagens desta conversa ainda não chegaram à Yolen (falha na captura: CAPTURE_RPC_BODY_REJECTED)',
+    'As mensagens desta conversa ainda não chegaram à Yolen: a captura desta conversa está sendo recusada.',
   )
 
   // A chave da view muda junto (o slot já hidratado re-renderiza).
@@ -291,10 +293,10 @@ test('painel: conversa vazia por falha de captura mostra o aviso com o código',
   const other = { ...view, failure_code: 'RUN_EXPIRED', notice: 'x' }
   assert.equal(sellerView.applyCaptureFailureNotice(other, 'CAPTURE_RPC_BODY_REJECTED'), other)
 
-  // O código nunca carrega texto arbitrário.
-  assert.match(
-    sellerView.applyCaptureFailureNotice(view, 'HTTP_500<img>').notice,
-    /falha na captura: HTTP_500_img_\)$/,
+  // O código nunca carrega texto arbitrário (nem na chave).
+  assert.equal(
+    sellerView.applyCaptureFailureNotice(view, 'HTTP_500<img>').view_key,
+    'k|capture:HTTP_500_img_',
   )
 })
 
@@ -307,7 +309,7 @@ test('o Core grava o alerta de captura e usa o helper do painel (contrato de fon
   assert.match(core, /\.applyCaptureFailureNotice\(\s*view,\s*getCurrentCaptureAlert\(\)\?\.code,\s*\)/)
 })
 
-test('painel: o aviso com o código aparece no slot já hidratado com a view sem alerta', async () => {
+test('painel: o aviso da captura recusada aparece no slot já hidratado com a view sem alerta', async () => {
   const { JSDOM } = await import('jsdom')
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>')
   const root = dom.window.document.getElementById('root')
@@ -333,5 +335,6 @@ test('painel: o aviso com o código aparece no slot já hidratado com a view sem
   assert.match(root.textContent, /ainda não chegaram à Yolen\./)
 
   render(sellerView.applyCaptureFailureNotice(view, 'CAPTURE_RPC_BODY_REJECTED'))
-  assert.match(root.textContent, /ainda não chegaram à Yolen \(falha na captura: CAPTURE_RPC_BODY_REJECTED\)/)
+  assert.match(root.textContent, /ainda não chegaram à Yolen: a captura desta conversa está sendo recusada\./)
+  assert.doesNotMatch(root.textContent, /CAPTURE_RPC_BODY_REJECTED/)
 })
