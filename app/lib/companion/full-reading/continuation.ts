@@ -50,6 +50,8 @@ export type FullReadingFullReason =
   | 'continuacoes_seguidas'
   | 'pedido_do_vendedor'
   | 'modo_pedido'
+  // Rodada 10 (C1): a continuação não sairia mais barata.
+  | 'continuacao_mais_cara'
 
 function keyOf(
   message: FullReadingTranscriptMessage,

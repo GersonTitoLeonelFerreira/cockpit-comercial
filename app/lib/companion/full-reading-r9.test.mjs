@@ -688,12 +688,20 @@ test('D5: o log da leitura registra modo, motivo, tokens de entrada, saída e ca
 // E. Leitura de continuação
 // ---------------------------------------------------------------------------
 
-// 15 mensagens que a leitura anterior viu (100 → 44 min) e 3 novas.
+// 15 mensagens que a leitura anterior viu (100 → 44 min) e 3 novas. As 5
+// primeiras (fora do contexto da continuação) são longas: a continuação sai
+// mais barata que a leitura completa (rodada 10, C1).
+const LONG_FILLER =
+  ' Conversa sintética sobre o pedido, o prazo e a forma de pagamento.'.repeat(60)
+
 function conversation() {
   const seen =
     Array.from({ length: 15 }, (_, index) => msg(index + 1, 100 - index * 4, {
       direction: index % 2 === 0 ? 'incoming' : 'outgoing',
       author_kind: index % 2 === 0 ? 'customer' : 'human_agent',
+      ...(index < 5
+        ? { text_content: `Mensagem número ${String(index + 1).padStart(3, '0')}.${LONG_FILLER}` }
+        : {}),
     }))
 
   return [...seen, msg(16, 20), msg(17, 10), msg(18, 5)]
@@ -897,7 +905,7 @@ test('G2/G3: revisar_em no passado relê uma vez (continuação); vazio não rel
 test('F: prompt v6 geral — gênero, pendência "nenhum", catálogo ambíguo, áudio, EVENTO, continuação e ciclo encerrado', () => {
   const system = buildFullReadingSystemPrompt()
 
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v6')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v7')
   assert.match(system, /Gênero: use o gênero do cliente só quando a conversa deixar claro[^\n]*Na dúvida, escreva "o cliente"/)
   assert.match(system, /"nenhum" para o que não está pendente com ninguém[^\n]*Nunca use "cliente" ou "vendedor" para dizer que não há pendência/)
   assert.match(system, /mais de um item do catálogo, a nenhum item, ou for diferente do produto registrado no fechamento[^\n]*afirmacoes_a_confirmar e em contradicoes_cadastro[^\n]*não pode ser cobrar nem oferecer algo com base num plano escolhido por suposição/)

@@ -96,7 +96,9 @@ test('I1/I3: o core transcreve sozinho pelo mesmo fluxo, um por vez, e segura a 
 
   // A espera vai no pedido do painel (até 60 s).
   assert.match(core, /const AUTO_TRANSCRIPTION_HOLD_MS = 60 \* 1000/)
-  assert.match(core, /now - batch\.startedAt > AUTO_TRANSCRIPTION_HOLD_MS/)
+  // Rodada 10 (B1): os 60 s contam do primeiro pedido segurado, já antes
+  // de a fila começar.
+  assert.match(core, /now - autoTranscriptionHoldStartedAt\.at > AUTO_TRANSCRIPTION_HOLD_MS/)
   // Depois da última transcrição, segura mais um pouco (a captura leva o
   // texto) e então pede a atualização: uma leitura só, já com o texto.
   assert.match(core, /const AUTO_TRANSCRIPTION_CAPTURE_GRACE_MS = 5000/)

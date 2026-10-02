@@ -275,6 +275,7 @@ export default function CompanionReadingsSection({ cycleId }: { cycleId: string 
 
   return (
     <section
+      id="leitura-do-companion"
       data-companion-readings-section=""
       style={{
         background: DS.panelBg,

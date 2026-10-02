@@ -285,6 +285,18 @@
             ? { full_reading_panel: true }
             : {}
         ),
+
+        // Rodada 10 (J, HML): captura do ciclo encerrado para a leitura de
+        // atendimento. Sem a flag, a chave não existe.
+        ...(
+          readBoolean(
+            canonicalCapabilities,
+            'can_read_closed_cycle',
+            null,
+          ) === true
+            ? { can_read_closed_cycle: true }
+            : {}
+        ),
       })
 
     const flags =

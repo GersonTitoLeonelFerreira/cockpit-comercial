@@ -159,6 +159,26 @@
             ? resolution.flags
             : null
 
+        // Rodada 10 (J, HML): ciclo encerrado só com a capability do
+        // servidor (leitura completa ligada). A RPC continua decidindo.
+        const capabilities =
+          isRecord(resolution.capabilities)
+            ? resolution.capabilities
+            : null
+
+        if (
+          normalizeRequiredText(
+            cycle?.id,
+          ) &&
+          resolution.status ===
+            'CLOSED_CYCLE' &&
+          capabilities
+            ?.can_read_closed_cycle ===
+            true
+        ) {
+          return true
+        }
+
         return Boolean(
           normalizeRequiredText(
             cycle?.id,

@@ -20,7 +20,7 @@ import {
 } from '../companion/full-reading/anthropic-client'
 
 import {
-  FULL_READING_PROMPT_VERSION,
+  FULL_READING_COMPATIBLE_PROMPT_VERSIONS,
   type FullReadingCommercialContext,
   type FullReadingKanbanContext,
 } from '../companion/full-reading/prompt'
@@ -121,7 +121,7 @@ export async function loadLatestFullReading({
       .eq('cycle_id', scope.cycle_id)
       .eq('conversation_key', scope.conversation_key)
       .eq('status', 'succeeded')
-      .eq('prompt_version', FULL_READING_PROMPT_VERSION)
+      .in('prompt_version', [...FULL_READING_COMPATIBLE_PROMPT_VERSIONS])
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()

@@ -1691,8 +1691,46 @@ function remainingAutoTranscriptions({
   }
 }
 
+// Rodada 10 (B): quanto o painel segura a leitura por causa do áudio.
+// Antes da fila começar (áudio pendente que vai para a fila automática),
+// já no primeiro pedido do painel; durante a fila; e um pouco depois da
+// última transcrição, enquanto a captura leva o texto. O limite de 60 s,
+// contado do primeiro pedido segurado, fica com quem chama.
+function computeAutoTranscriptionHold({
+  batch = null,
+  pendingCount = 0,
+  remaining = 0,
+  now = Date.now(),
+  graceMs = 5000,
+} = {}) {
+  if (batch) {
+    const transcribing =
+      batch.done < batch.total && !batch.finishedAt
+
+    const waitingCapture =
+      batch.succeeded > 0 &&
+      (!batch.finishedAt || now - batch.finishedAt < graceMs)
+
+    if (!transcribing && !waitingCapture) {
+      return null
+    }
+
+    return {
+      current: Math.min(batch.done + 1, batch.total),
+      total: batch.total,
+    }
+  }
+
+  const total = Math.min(pendingCount, remaining)
+
+  return total > 0
+    ? { current: 1, total }
+    : null
+}
+
 const api = Object.freeze({
   create: createCompanionAnalysisController,
+  computeAutoTranscriptionHold,
   AUTO_TRANSCRIPTION_MAX_SECONDS,
   AUTO_TRANSCRIPTION_HOURLY_LIMIT,
   AUTO_TRANSCRIPTION_WINDOW_MS,

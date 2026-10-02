@@ -57,12 +57,17 @@ import {
 } from './full-reading-runner'
 
 import {
+  FULL_READING_COMPATIBLE_PROMPT_VERSIONS,
   FULL_READING_PROMPT_VERSION,
 } from '../companion/full-reading/prompt'
 
 import {
   isFullReadingPanelEnabled,
 } from './full-reading-flag'
+
+import {
+  closedAtFromCycleRow,
+} from './full-reading-closed-cycle'
 
 import {
   PROVIDER_CREDIT_EXHAUSTED_CODE,
@@ -571,6 +576,15 @@ export function planFullReadingPanel({
   const nowTime =
     toTime(now) ?? Date.now()
 
+  // D5 (rodada 10): leitura de versão compatível (mesmo formato da
+  // decisão) continua valendo; a troca de versão não força releitura.
+  const compatibleVersions =
+    new Set(
+      promptVersion === FULL_READING_PROMPT_VERSION
+        ? FULL_READING_COMPATIBLE_PROMPT_VERSIONS
+        : [promptVersion],
+    )
+
   // J: ciclo encerrado só é lido quando o cliente escreveu depois do
   // encerramento; aí só mensagem deixa a leitura velha.
   const closedCycle =
@@ -630,7 +644,7 @@ export function planFullReadingPanel({
       .filter(
         (run) =>
           run.cycle_id === cycleId &&
-          run.prompt_version === promptVersion &&
+          compatibleVersions.has(run.prompt_version ?? '') &&
           run.failure_code !== DUPLICATE_RUN_FAILURE_CODE,
       )
       .map(withExpiry)
@@ -646,7 +660,7 @@ export function planFullReadingPanel({
       : ordered.find(
           (run) =>
             run.cycle_id === cycleId &&
-            run.prompt_version !== promptVersion &&
+            !compatibleVersions.has(run.prompt_version ?? '') &&
             isUsableReadingRun(run),
         ) ?? null
 
@@ -688,12 +702,25 @@ export function planFullReadingPanel({
   if (!reading) {
     staleReasons.push('sem_leitura')
   } else {
+    // Rodada 10 (A2): a etapa aplicada é a que a leitura sugeriu (pelo
+    // painel ou pelo Yolen): a leitura continua valendo e não relê.
+    const suggestedStage =
+      (reading.decision as { etapa_kanban_sugerida?: unknown } | null)?.etapa_kanban_sugerida
+
+    // Ciclo encerrado segue a regra do J (só mensagem do cliente depois do
+    // encerramento relê).
+    const appliedSuggestion =
+      !closedCycle &&
+      typeof suggestedStage === 'string' &&
+      suggestedStage === kanban.status
+
     staleReasons.push(
       ...changedAfter({
         referenceTime: reading.reference_time,
         latestObservedAt: staleObservedAt,
         kanban,
-      }).filter((reason) => !(closedService && reason === 'kanban_mudou')),
+      }).filter((reason) =>
+        !((closedService || appliedSuggestion) && reason === 'kanban_mudou')),
     )
 
     const kanbanAtRun =
@@ -701,6 +728,7 @@ export function planFullReadingPanel({
 
     if (
       !closedService &&
+      !appliedSuggestion &&
       kanbanAtRun &&
       kanbanAtRun.status !== kanban.status &&
       !staleReasons.includes('kanban_mudou')
@@ -865,7 +893,7 @@ export function planFullReadingPanel({
       const recentRetryableFailures =
         ordered.filter(
           (run) =>
-            run.prompt_version === promptVersion &&
+            compatibleVersions.has(run.prompt_version ?? '') &&
             withExpiry(run).status === 'failed' &&
             classifyRunFailure(withExpiry(run).failure_code) !== 'deterministic' &&
             nowTime - (toTime(run.created_at) ?? 0) < FULL_READING_AUTO_RETRY_WINDOW_MS,
@@ -1080,13 +1108,7 @@ function kanbanFromRow(
   }
 
   const closedAt =
-    status === 'perdido'
-      ? rowText(row.lost_at) ?? rowText(row.closed_at) ?? rowText(row.stage_entered_at)
-      : status === 'cancelado'
-        ? rowText(row.canceled_at) ?? rowText(row.closed_at) ?? rowText(row.stage_entered_at)
-        : status === 'ganho'
-          ? rowText(row.won_at) ?? rowText(row.closed_at) ?? rowText(row.stage_entered_at)
-          : rowText(row.closed_at)
+    closedAtFromCycleRow(row)
 
   return {
     status,

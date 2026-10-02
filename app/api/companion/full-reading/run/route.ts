@@ -44,6 +44,7 @@ import {
 } from '@/app/lib/server/full-reading-runner'
 
 import {
+  FULL_READING_COMPATIBLE_PROMPT_VERSIONS,
   FULL_READING_EVAL_PROMPT_VERSION,
   FULL_READING_PROMPT_VERSION,
 } from '@/app/lib/companion/full-reading/prompt'
@@ -296,8 +297,8 @@ export async function GET(
   if (modeParam === 'continuacao') {
     const versions =
       evalRun
-        ? [FULL_READING_EVAL_PROMPT_VERSION, FULL_READING_PROMPT_VERSION]
-        : [FULL_READING_PROMPT_VERSION]
+        ? [FULL_READING_EVAL_PROMPT_VERSION, ...FULL_READING_COMPATIBLE_PROMPT_VERSIONS]
+        : [...FULL_READING_COMPATIBLE_PROMPT_VERSIONS]
 
     for (const version of versions) {
       const { data, error } =

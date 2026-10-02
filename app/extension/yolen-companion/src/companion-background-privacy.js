@@ -142,6 +142,7 @@
         'can_create_successor_opportunity',
         'can_note_successor_opportunity',
         'full_reading_panel',
+        'can_read_closed_cycle',
       ]),
       actions: booleanFlags(payload.actions, [
         'can_analyze_conversation',

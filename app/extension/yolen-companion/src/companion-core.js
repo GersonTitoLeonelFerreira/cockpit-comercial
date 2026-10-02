@@ -658,6 +658,22 @@ function createCompanionCore(ctx) {
   const captureAlertsByContext =
     new Map()
 
+  // Rodada 10 (J, HML): ciclo encerrado. Enquanto a RPC recusar (migração
+  // não aplicada), a captura desse ciclo descansa 10 minutos, sem aviso de
+  // falha. Com a captura aceita e o cliente escrevendo depois do
+  // encerramento, as abas abrem (leitura de atendimento).
+  const CLOSED_CYCLE_CAPTURE_UNAVAILABLE =
+    'CLOSED_CYCLE_CAPTURE_UNAVAILABLE'
+
+  const CLOSED_CYCLE_CAPTURE_PARK_MS =
+    10 * 60 * 1000
+
+  const closedCycleCaptureParkedUntil =
+    new Map()
+
+  const closedServiceCycleIds =
+    new Set()
+
   const pendingCaptureIngestionPlans =
     new Map()
 
@@ -2196,6 +2212,9 @@ function createCompanionCore(ctx) {
       !state.isSelfConversation &&
       getCaptureConversationKey() &&
       resolutionIsEligible &&
+      !isClosedCycleCaptureParked(
+        state.leadResolutionViewModel?.cycle?.id,
+      ) &&
       window.YolenCompanionApi
         ?.ingestCapturedMessages,
     )
@@ -2430,6 +2449,114 @@ function createCompanionCore(ctx) {
   // Resultado da recuperação do lote (companion-core-api-composition):
   // chaves reenviadas sem base_version deixam de ter versão lembrada aqui
   // também; mensagens isoladas ou recusa do lote viram alerta de captura.
+  function parkClosedCycleCapture(cycleId) {
+    if (typeof cycleId !== 'string' || !cycleId) {
+      return
+    }
+
+    closedCycleCaptureParkedUntil.set(
+      cycleId,
+      Date.now() + CLOSED_CYCLE_CAPTURE_PARK_MS,
+    )
+  }
+
+  function isClosedCycleCaptureParked(cycleId) {
+    const until =
+      typeof cycleId === 'string'
+        ? closedCycleCaptureParkedUntil.get(cycleId)
+        : undefined
+
+    if (!until) {
+      return false
+    }
+
+    if (Date.now() >= until) {
+      closedCycleCaptureParkedUntil.delete(cycleId)
+      return false
+    }
+
+    return true
+  }
+
+  // As abas do ciclo encerrado só abrem com a capability do HML e depois
+  // de uma captura aceita em que o cliente escreveu depois do encerramento.
+  function withClosedServiceWorkspace(
+    outcome,
+    resolution,
+  ) {
+    if (
+      !outcome ||
+      outcome.workspace_ready === true ||
+      resolution?.status !== 'CLOSED_CYCLE' ||
+      resolution?.capabilities?.can_read_closed_cycle !== true ||
+      !closedServiceCycleIds.has(resolution?.cycle?.id)
+    ) {
+      return outcome
+    }
+
+    return Object.freeze({
+      ...outcome,
+      workspace_ready: true,
+    })
+  }
+
+  // true quando as abas acabaram de abrir para o ciclo encerrado.
+  function applyClosedServiceWorkspace() {
+    const outcome =
+      withClosedServiceWorkspace(
+        state.leadResolutionOutcome,
+        state.leadResolutionViewModel,
+      )
+
+    if (outcome === state.leadResolutionOutcome) {
+      return false
+    }
+
+    state = {
+      ...state,
+      leadResolutionOutcome: outcome,
+    }
+
+    return true
+  }
+
+  function rememberClosedCycleCapture(
+    payload,
+    responsePayload,
+  ) {
+    const closed =
+      responsePayload?.closed_cycle
+
+    const cycleId =
+      payload?.cycle_id
+
+    if (
+      !closed ||
+      typeof closed !== 'object' ||
+      closed.service !== true ||
+      typeof cycleId !== 'string' ||
+      closedServiceCycleIds.has(cycleId)
+    ) {
+      return
+    }
+
+    closedServiceCycleIds.add(cycleId)
+
+    if (
+      state.leadResolutionViewModel?.cycle?.id !== cycleId ||
+      !applyClosedServiceWorkspace()
+    ) {
+      return
+    }
+
+    renderPanel()
+
+    void loadCompanionClientContextForCurrentCycle()
+    void loadAgoraDecisionStateForCurrentCycle()
+    void loadAnalysisViewModelForCurrentCycle()
+    void loadCustomerViewModelForCurrentCycle()
+  }
+
   function applyCaptureRecovery(
     contextKey,
     payload,
@@ -2462,6 +2589,19 @@ function createCompanionCore(ctx) {
       Array.isArray(recovery.isolated)
         ? recovery.isolated
         : []
+
+    // Rodada 10 (J): recusa do ciclo encerrado (migração não aplicada) não
+    // é falha de captura: o painel fica como hoje.
+    if (
+      recovery.failure_code ===
+      CLOSED_CYCLE_CAPTURE_UNAVAILABLE
+    ) {
+      parkClosedCycleCapture(
+        payload?.cycle_id,
+      )
+
+      return null
+    }
 
     const code =
       recovery.failure_code ||
@@ -2914,7 +3054,10 @@ function createCompanionCore(ctx) {
         if (
           lastIngestedCaptureKeys.get(
             contextKey,
-          ) === plan.snapshotKey
+          ) === plan.snapshotKey ||
+          isClosedCycleCaptureParked(
+            plan.batches?.[0]?.cycle_id,
+          )
         ) {
           forgetPendingCapturePlan(
             contextKey,
@@ -2968,6 +3111,11 @@ function createCompanionCore(ctx) {
 
               throw requestError
             }
+
+            rememberClosedCycleCapture(
+              payload,
+              result.payload,
+            )
 
             // Captura confirmada: o resumo do lead em cache deixa de valer
             // para esta conversa, mesmo sem mudança visível.
@@ -3722,35 +3870,57 @@ function createCompanionCore(ctx) {
     }, 0)
   }
 
-  // { current, total } enquanto a transcrição automática desta conversa
-  // roda (até 60 s): o servidor não inicia leitura nova.
+  // { current, total } enquanto há áudio desta conversa para transcrever
+  // ou sendo transcrito (até 60 s desde o primeiro pedido segurado): o
+  // servidor não inicia leitura nova. Rodada 10 (B1): vale já no primeiro
+  // pedido do painel, antes da fila começar.
+  let autoTranscriptionHoldStartedAt = null
+
   function getFullReadingAudioHold() {
-    const batch = autoTranscriptionBatch
     const now = Date.now()
+    const conversationKey = state.conversationKey
+    const batch =
+      autoTranscriptionBatch &&
+      autoTranscriptionBatch.conversationKey === conversationKey
+        ? autoTranscriptionBatch
+        : null
+
+    let pendingCount = 0
+    let remaining = 0
+
+    if (!batch && conversationKey && canRunAutoTranscription()) {
+      pendingCount = getAutoTranscriptionCandidates().queue.length
+      remaining = getAutoTranscriptionAttempts(conversationKey, now).remaining
+    }
+
+    const hold =
+      typeof autoTranscriptionTools?.computeAutoTranscriptionHold === 'function'
+        ? autoTranscriptionTools.computeAutoTranscriptionHold({
+            batch,
+            pendingCount,
+            remaining,
+            now,
+            graceMs: AUTO_TRANSCRIPTION_CAPTURE_GRACE_MS,
+          })
+        : null
+
+    if (!hold) {
+      autoTranscriptionHoldStartedAt = null
+      return null
+    }
 
     if (
-      !batch ||
-      batch.conversationKey !== state.conversationKey ||
-      now - batch.startedAt > AUTO_TRANSCRIPTION_HOLD_MS
+      !autoTranscriptionHoldStartedAt ||
+      autoTranscriptionHoldStartedAt.conversationKey !== conversationKey
     ) {
+      autoTranscriptionHoldStartedAt = { conversationKey, at: now }
+    }
+
+    if (now - autoTranscriptionHoldStartedAt.at > AUTO_TRANSCRIPTION_HOLD_MS) {
       return null
     }
 
-    const transcribing =
-      batch.done < batch.total && !batch.finishedAt
-
-    const waitingCapture =
-      batch.succeeded > 0 &&
-      (!batch.finishedAt || now - batch.finishedAt < AUTO_TRANSCRIPTION_CAPTURE_GRACE_MS)
-
-    if (!transcribing && !waitingCapture) {
-      return null
-    }
-
-    return {
-      current: Math.min(batch.done + 1, batch.total),
-      total: batch.total,
-    }
+    return hold
   }
 
   // Aviso da transcrição automática no painel da leitura.
@@ -7747,22 +7917,139 @@ function createCompanionCore(ctx) {
       )
   }
 
+  // Rodada 10 (A1): etapa aplicada pelo painel. Sem esperar leitura
+  // nenhuma, o selo do topo, o quadro Kanban da ANÁLISE e o Relacionamento
+  // mostram a etapa nova; o cartão de etapa vira "Etapa aplicada: <etapa>"
+  // por uns 3 s e some.
+  const FULL_READING_APPLIED_CARD_MS = 3000
+  const FULL_READING_APPLIED_STAGE_MS = 60 * 1000
+  let fullReadingAppliedStage = null
+
+  function getActiveAppliedStage() {
+    const applied = fullReadingAppliedStage
+
+    if (
+      !applied ||
+      applied.cycleId !== getCanonicalResolutionCycleId() ||
+      Date.now() - applied.appliedAt > FULL_READING_APPLIED_STAGE_MS
+    ) {
+      return null
+    }
+
+    return applied
+  }
+
+  function withAppliedStage(view, kind) {
+    const applied = getActiveAppliedStage()
+
+    if (!view || !applied) {
+      return view
+    }
+
+    const showCard =
+      Date.now() - applied.appliedAt < FULL_READING_APPLIED_CARD_MS
+
+    if (kind === 'agora') {
+      const card = view.stage_card
+
+      return {
+        ...view,
+        kanban: { status: applied.status, label: applied.label },
+        kanban_line: `Etapa no kanban: ${applied.label}`,
+        stage_card: showCard
+          ? {
+              kind: 'applied',
+              current_label: applied.label,
+              suggested_label: applied.label,
+              suggested_status: applied.status,
+            }
+          : card && card.suggested_status === applied.status
+            ? null
+            : card,
+        view_key: `${view.view_key}|etapa:${applied.status}:${showCard ? 'card' : 'ok'}`,
+      }
+    }
+
+    return {
+      ...view,
+      summary: Array.isArray(view.summary)
+        ? view.summary.map((block) =>
+            block?.key === 'kanban'
+              ? { ...block, value: applied.label }
+              : block)
+        : view.summary,
+      view_key: `${view.view_key}|etapa:${applied.status}`,
+    }
+  }
+
+  function rememberAppliedStage(card, cycleId) {
+    fullReadingAppliedStage = {
+      cycleId,
+      status: card.suggested_status,
+      label: card.suggested_label,
+      appliedAt: Date.now(),
+    }
+
+    // O selo do topo e o Relacionamento leem a etapa da resolução e do
+    // contexto do cliente: atualizados na hora (a resolução relida pelo
+    // caminho canônico confirma em seguida).
+    const resolution = state.leadResolutionViewModel
+
+    if (resolution?.cycle?.id === cycleId) {
+      state = {
+        ...state,
+        leadResolutionViewModel: {
+          ...resolution,
+          cycle: { ...resolution.cycle, status: card.suggested_status },
+        },
+      }
+    }
+
+    const clientContext = state.companionClientContext
+
+    if (clientContext?.data?.identity?.cycle_id === cycleId) {
+      state = {
+        ...state,
+        companionClientContext: {
+          ...clientContext,
+          data: {
+            ...clientContext.data,
+            identity: {
+              ...clientContext.data.identity,
+              current_status: card.suggested_status,
+            },
+          },
+        },
+      }
+    }
+
+    window.setTimeout(() => {
+      renderPanel()
+    }, FULL_READING_APPLIED_CARD_MS + 50)
+  }
+
   function getCurrentFullReadingViews() {
     return {
       agora:
         isCurrentAgoraDecisionContext()
-          ? withCaptureFailureNotice(
-              readFullReadingView(
-                state.agoraDecisionState.data,
+          ? withAppliedStage(
+              withCaptureFailureNotice(
+                readFullReadingView(
+                  state.agoraDecisionState.data,
+                ),
               ),
+              'agora',
             )
           : null,
       analysis:
         isCurrentAnalysisViewContext()
-          ? withCaptureFailureNotice(
-              readFullReadingView(
-                state.analysisViewModel.data,
+          ? withAppliedStage(
+              withCaptureFailureNotice(
+                readFullReadingView(
+                  state.analysisViewModel.data,
+                ),
               ),
+              'analysis',
             )
           : null,
     }
@@ -8235,19 +8522,26 @@ function createCompanionCore(ctx) {
         return
       }
 
-      fullReadingStageAction = {
-        viewKey: view.view_key,
-        status: 'done',
-        message: 'Etapa aplicada no Yolen.',
-      }
+      fullReadingStageAction = null
+
+      // Rodada 10 (A1): a tela mostra a etapa nova na hora, sem esperar
+      // leitura. A2: com a etapa igual à sugerida, o backend não relê.
+      rememberAppliedStage(card, request.cycle_id)
 
       renderPanel()
 
-      // O ciclo é relido pelo caminho canônico (nunca editando o payload
-      // bruto aqui) e, com o kanban mudado, a leitura fica velha: o
-      // backend roda outra.
-      void resolveCurrentLead()
-      requestFullReadingRefresh()
+      // O ciclo é relido pelo caminho canônico. O pedido do painel sai
+      // depois da resolução (antes, a resolução invalidava a resposta do
+      // painel ainda em voo e a tela ficava com a etapa antiga).
+      coreApiComposition.clearLeadResolutionCache?.()
+
+      void Promise.resolve(resolveCurrentLead())
+        .catch(() => {})
+        .finally(() => {
+          window.setTimeout(() => {
+            requestFullReadingRefresh()
+          }, 1500)
+        })
     } catch (error) {
       fullReadingStageAction = {
         viewKey: view.view_key,
@@ -11068,6 +11362,10 @@ function createCompanionCore(ctx) {
         },
       )
 
+      // Rodada 10 (B1): com as transcrições salvas recuperadas, a fila
+      // automática já pode começar.
+      scheduleAutoTranscriptionCheck()
+
       state = {
         ...state,
         audioTranscriptionHistoryLoading: false,
@@ -11443,6 +11741,9 @@ function createCompanionCore(ctx) {
             }
           : {}),
       }
+
+      // Rodada 10 (J, HML): ciclo encerrado com leitura de atendimento.
+      applyClosedServiceWorkspace()
 
       renderPanel()
 

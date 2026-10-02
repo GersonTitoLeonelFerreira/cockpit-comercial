@@ -2833,6 +2833,15 @@
     card.classList.add('yolen-full-reading-stage')
     card.setAttribute('data-yolen-full-reading-stage-kind', String(stage.kind || ''))
 
+    // Rodada 10 (A1): etapa recém-aplicada, sem botão.
+    if (stage.kind === 'applied') {
+      const line = createTextElement(doc, 'div', 'yolen-fr-title', `Etapa aplicada: ${fullReadingText(stage.suggested_label)}`)
+      line.setAttribute('role', 'status')
+      line.setAttribute('data-yolen-full-reading-stage-applied', '')
+      card.appendChild(line)
+      return card
+    }
+
     const pills = doc.createElement('div')
     pills.className = 'yolen-fr-stage-pills'
     pills.appendChild(createPill(doc, stage.current_label, 'neutral'))

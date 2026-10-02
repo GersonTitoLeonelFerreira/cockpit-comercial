@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
+import {
+  isLegacyCompanionAiDisabled,
+  logLegacyAiSkipped,
+} from '@/app/lib/server/full-reading-flag'
 import type {
   AnalyzeConversationRequest,
   AnalyzeConversationResponse,
@@ -35,7 +39,22 @@ async function getAuthedSupabase() {
   return { supabase, user: data.user, activeCompanyId }
 }
 
+// Rodada 10 (F2): com a leitura completa ligada (HML), o Copiloto da página
+// do lead não gera outra análise paga: a análise vem da leitura do
+// Companion. A rota responde sem chamar a IA. Desligada, nada muda.
+const COPILOT_ANALYSIS_FROM_COMPANION_MESSAGE =
+  'Na homologação, a análise desta conversa vem da leitura do Companion.'
+
 export async function POST(req: Request) {
+  if (isLegacyCompanionAiDisabled()) {
+    logLegacyAiSkipped('/api/ai/analyze-conversation')
+
+    return NextResponse.json<AnalyzeConversationResponse>(
+      { ok: false, error: COPILOT_ANALYSIS_FROM_COMPANION_MESSAGE },
+      { status: 409 }
+    )
+  }
+
   try {
     const body = (await req.json()) as AnalyzeConversationRequest
 

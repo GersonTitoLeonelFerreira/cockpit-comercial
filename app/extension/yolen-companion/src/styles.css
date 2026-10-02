@@ -3501,6 +3501,26 @@ html.yolen-companion-collapsed #app {
   opacity: 0.8;
 }
 
+/* Rodada 10 (G): "Atualizar" e "Ler a conversa inteira" nunca quebram no
+   meio da palavra; sem espaço, "Ler a conversa inteira" vai inteira para a
+   linha de baixo. */
+#yolen-companion-panel .yolen-fr-footer {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+#yolen-companion-panel .yolen-fr-footer > .yolen-full-reading-footer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#yolen-companion-panel .yolen-fr-footer > .yolen-fr-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
 /* Cabeçalho do contato com a leitura completa. */
 #yolen-companion-panel .yolen-contact-card--full-reading {
   display: grid;

@@ -955,6 +955,8 @@ test('resolve-lead: can_note_successor_opportunity só com a leitura completa li
       ...closed.capabilities,
       can_note_successor_opportunity: true,
       full_reading_panel: true,
+      // Rodada 10 (J): captura do ciclo encerrado, só com a flag.
+      can_read_closed_cycle: true,
     })
     assert.deepEqual((await resolve(owned)).capabilities, {
       ...owned.capabilities,
@@ -1014,6 +1016,79 @@ test('resolve-lead: full_reading_panel só com a leitura completa ligada em prev
         assert.equal('full_reading_panel' in payload.capabilities, false, scenario.status)
         assert.deepEqual(payload.capabilities, scenario.capabilities, scenario.status)
       }
+    }
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
+
+// Rodada 10 (J): can_read_closed_cycle só com a leitura completa ligada em
+// preview, só para CLOSED_CYCLE e só para o dono do ciclo (ou gestor/admin).
+test('resolve-lead: can_read_closed_cycle só com a flag, só em ciclo encerrado e só para quem pode capturar', async () => {
+  const closed = ACTION_CONTRACT_SCENARIOS.find((scenario) => scenario.status === 'CLOSED_CYCLE')
+  const previous = {
+    COMPANION_FULL_READING_PANEL: process.env.COMPANION_FULL_READING_PANEL,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+  }
+
+  const resolveScenario = async (scenario) => {
+    useAdmin(scenario.steps())
+    const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+    return readJson(await POST(postRequest({ token, body: scenario.body })))
+  }
+
+  const resolveAll = async () => {
+    const result = []
+    for (const scenario of ACTION_CONTRACT_SCENARIOS) {
+      result.push([scenario, await resolveScenario(scenario)])
+    }
+    return result
+  }
+
+  try {
+    process.env.COMPANION_FULL_READING_PANEL = 'on'
+    process.env.VERCEL_ENV = 'preview'
+
+    for (const [scenario, payload] of await resolveAll()) {
+      assert.equal(
+        payload.capabilities.can_read_closed_cycle === true,
+        scenario.status === 'CLOSED_CYCLE',
+        scenario.status,
+      )
+    }
+
+    // Ciclo encerrado de outro vendedor: o vendedor não captura.
+    const otherOwner = {
+      ...closed,
+      steps: () => [
+        selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+        selectStep('profiles', ACTIVE_PROFILE),
+        selectStep('leads', [LEAD_ROW]),
+        selectStep('lead_profiles', LEAD_PROFILE_ROW),
+        selectStep('sales_cycles', [openCycle({ status: 'ganho', owner_user_id: IDS.otherSeller })]),
+        selectStep('profiles', { id: IDS.otherSeller, full_name: 'Vendedor Dois', email: 'v2@example.com' }),
+      ],
+    }
+
+    const other = await resolveScenario(otherOwner)
+    assert.equal(other.status, 'CLOSED_CYCLE')
+    assert.equal(other.capabilities.full_reading_panel, true)
+    assert.equal('can_read_closed_cycle' in other.capabilities, false)
+
+    for (const env of [
+      { COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'preview' },
+      { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production' },
+    ]) {
+      for (const [key, value] of Object.entries(env)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+
+      const payload = await resolveScenario(closed)
+      assert.equal('can_read_closed_cycle' in payload.capabilities, false)
     }
   } finally {
     for (const [key, value] of Object.entries(previous)) {

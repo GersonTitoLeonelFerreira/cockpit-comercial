@@ -37,13 +37,28 @@
 // atendimento; leitura de continuação (decisão anterior + contexto +
 // mensagens novas); ciclo encerrado lido como atendimento; revisar_em e
 // precisa_ler_inteira.
+//
+// v7 (rodada 10): leitura mais curta — limite de itens por campo, os mais
+// importantes primeiro, uma frase de até ~20 palavras por item, nada
+// repetido em dois campos e a decisão em até ~6 mil caracteres. Na
+// continuação, a decisão anterior vai compacta (sem condução, como
+// conduzir, mensagem e o que o gestor precisa saber, que são refeitos).
+// O formato da decisão é o mesmo da v6: uma leitura v6 continua valendo e
+// serve de base para a continuação.
 
 import {
   formatTranscriptTimestamp,
 } from './transcript'
 
 export const FULL_READING_PROMPT_VERSION =
-  'full-reading-v6'
+  'full-reading-v7'
+
+// Versões cuja leitura continua valendo no painel (mesmo formato de
+// decisão): a troca de versão não força releitura (rodada 10, D5).
+export const FULL_READING_COMPATIBLE_PROMPT_VERSIONS: readonly string[] = [
+  FULL_READING_PROMPT_VERSION,
+  'full-reading-v6',
+]
 
 // Medição pela rota de teste: rodadas com esta versão nunca viram a
 // leitura do painel (o painel só usa FULL_READING_PROMPT_VERSION).
@@ -175,9 +190,9 @@ Quando o kanban está em Ganho, Perdido ou Cancelado e o cliente escreveu depois
 5. Em Ganho, valem as regras de pós-venda (regra 2 do Kanban).
 
 ## Leitura de continuação
-Às vezes você não recebe a conversa inteira, e sim uma leitura de continuação: <leitura_anterior> (a decisão dada antes, já salva), <conversa_contexto> (as últimas mensagens que ela já tinha visto) e <mensagens_novas> (tudo o que entrou depois; "(atualizada)" marca uma mensagem que mudou desde então, por exemplo um áudio que ganhou transcrição).
+Às vezes você não recebe a conversa inteira, e sim uma leitura de continuação: <leitura_anterior> (um resumo da decisão dada antes, já salva: situação, cliente, pendências, oportunidades, contradições com o cadastro, fechamento, linha do tempo e etapa), <conversa_contexto> (as últimas mensagens que ela já tinha visto) e <mensagens_novas> (tudo o que entrou depois; "(atualizada)" marca uma mensagem que mudou desde então, por exemplo um áudio que ganhou transcrição).
 1. A leitura anterior foi feita antes e pode ter erro. As mensagens novas mandam.
-2. Atualize a leitura inteira: mantenha o que continua valendo, corrija o que as mensagens novas mudaram e responda a decisão completa, no mesmo formato.
+2. Atualize a leitura inteira: mantenha o que continua valendo, corrija o que as mensagens novas mudaram e responda a decisão completa, no mesmo formato. A condução do vendedor, como conduzir, a mensagem e o que o gestor precisa saber não vêm no resumo: refaça a partir das mensagens.
 3. Se algo nas mensagens novas contradiz a leitura anterior, corrija e diga isso em situacao_resumo. Diga também se a ação mudou em relação à leitura anterior e por quê, inclusive quando o tempo que passou muda a ação (um horário que já passou, um prazo vencido).
 4. Se o contexto não bastar para decidir com segurança (as mensagens novas falam de algo que não está no contexto nem na leitura anterior), responda precisa_ler_inteira true com o motivo; a conversa inteira é lida logo em seguida.
 Na leitura da conversa inteira, precisa_ler_inteira é sempre false.
@@ -187,6 +202,7 @@ ${EXPERT_CONDUCT_SECTION}
 ## Resposta
 Responda com um único objeto JSON com o campo "decisao". Preencha os campos na ordem do formato: primeiro entenda (situação, cliente, pendências, contradições com o cadastro, como conduzir), depois decida (ação e próximo passo), escreva a mensagem, a condução do vendedor e o que o gestor precisa saber, e por fim o resto.
 O painel mostra a decisão como está, então os campos são escritos para a tela: frases curtas, sem parágrafos, sem códigos.
+Leitura curta: cada item é uma frase de até ~20 palavras; houve e melhor, uma frase curta cada; nada repetido em dois campos; a decisão inteira cabe em ~6 mil caracteres. Limites, com os itens mais importantes primeiro: linha_do_tempo até 8; pendencias até 4; oportunidades até 3; afirmacoes_a_confirmar até 5; contradicoes_cadastro até 4; cliente com sabemos até 5, inferimos até 3 e a_confirmar até 3; conducao com acertos até 3 e ajustes até 3; como_conduzir com até 3 passos e evitar até 2; para_o_gestor até 2.
 situacao_resumo é a situação atual em 1 a 2 frases.
 cliente separa, em frases curtas: sabemos (o que o cliente disse ou fez, terminando com a data no formato (dd/mm) quando houver), inferimos (interpretação, com o motivo) e a_confirmar (o que falta descobrir ou confirmar).
 pendencias lista o que está em aberto: de "vendedor" quando o vendedor deve algo, "cliente" quando o cliente deve algo, e "nenhum" para o que não está pendente com ninguém (por exemplo "Nenhuma pergunta do cliente sem resposta"). Nunca use "cliente" ou "vendedor" para dizer que não há pendência.
@@ -197,7 +213,7 @@ mensagem_sugerida é o texto pronto para o vendedor enviar agora, no tom do What
 conducao separa acertos (frases curtas, com evidência) e ajustes; cada ajuste diz o que houve (houve) e como seria melhor (melhor), em frase curta.
 para_o_gestor traz de 0 a 2 frases: risco (jurídico, de reputação, de perder o cliente) ou falha de processo que a conversa mostra.
 etapa_kanban_sugerida é a etapa que a conversa indica (pode ser igual à atual); motivo_etapa é uma frase curta com a evidência (trecho curto e data); fechamento traz produto, valor, forma de pagamento e motivo da perda só quando ditos na conversa, e texto vazio quando não.
-linha_do_tempo traz até 10 marcos da conversa, em ordem, com dia (dd/mm), hora (hh:mm, ou vazio) e texto de até ~12 palavras.
+linha_do_tempo traz até 8 marcos da conversa, em ordem, com dia (dd/mm), hora (hh:mm, ou vazio) e texto de até ~12 palavras.
 afirmacoes_a_confirmar traz o que precisa de confirmação oficial; alertas_de_captura, só problemas da captura.
 revisar_em é a data e hora (ISO 8601 com o fuso de Brasília, por exemplo 2026-10-02T18:00:00-03:00) a partir da qual o próximo passo pode ter mudado só pela passagem do tempo: horário de visita, reunião ou consulta, prazo prometido, "retomar amanhã". Use o horário em que o passo muda (o início do compromisso ou o fim do prazo). Texto vazio quando o próximo passo não depende de horário. revisar_motivo diz o que acontece nesse horário, em poucas palavras (por exemplo "o horário da visita"), e fica vazio quando revisar_em é vazio.
 precisa_ler_inteira e precisa_ler_inteira_motivo: seção "Leitura de continuação".
@@ -539,20 +555,40 @@ export function buildFullReadingUserPrompt({
 }
 
 
-// Decisão anterior para a leitura de continuação: sem o registro do sistema
-// (alertas, kanban lido, uso), que não é leitura.
+// Decisão anterior para a leitura de continuação (rodada 10, C2): só o que
+// a leitura precisa para continuar — situação, cliente, pendências,
+// oportunidades, contradições, fechamento, linha do tempo e etapa. Condução,
+// como conduzir, mensagem e o que o gestor precisa saber são refeitos a
+// partir das mensagens.
+export const CONTINUATION_PREVIOUS_DECISION_FIELDS = [
+  'fase_relacao',
+  'venda_concluida',
+  'vez_de',
+  'situacao_resumo',
+  'cliente',
+  'pendencias',
+  'oportunidades',
+  'contradicoes_cadastro',
+  'fechamento',
+  'linha_do_tempo',
+  'etapa_kanban_sugerida',
+  'motivo_etapa',
+  'revisar_em',
+  'revisar_motivo',
+] as const
+
 export function previousDecisionForPrompt(
   decision: Record<string, unknown>,
 ): Record<string, unknown> {
-  const copy: Record<string, unknown> =
-    { ...decision }
+  const compact: Record<string, unknown> = {}
 
-  delete copy.sistema
-  delete copy.pedido
-  delete copy.precisa_ler_inteira
-  delete copy.precisa_ler_inteira_motivo
+  for (const field of CONTINUATION_PREVIOUS_DECISION_FIELDS) {
+    if (field in decision) {
+      compact[field] = decision[field]
+    }
+  }
 
-  return copy
+  return compact
 }
 
 export function buildFullReadingContinuationUserPrompt({

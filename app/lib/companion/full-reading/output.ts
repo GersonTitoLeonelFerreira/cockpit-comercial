@@ -21,6 +21,10 @@
 // passo pode ter mudado só pelo tempo) e precisa_ler_inteira/
 // precisa_ler_inteira_motivo (a leitura de continuação pede a conversa
 // inteira). Rodadas v5 gravadas não têm esses campos e continuam válidas.
+//
+// v7 (rodada 10): limites de itens por campo, os mais importantes primeiro
+// (applyFullReadingLimits corta o excesso sem falhar). O formato da
+// decisão é o mesmo da v6.
 
 export const FULL_READING_RELATIONSHIP_PHASES = [
   'primeiro_contato',
@@ -136,6 +140,23 @@ export const FULL_READING_PENDING_OWNERS = [
 
 export const FULL_READING_TIMELINE_MAX_ITEMS =
   10
+
+// Rodada 10 (D1): limites da v7.
+export const FULL_READING_V7_LIMITS = {
+  linha_do_tempo: 8,
+  pendencias: 4,
+  oportunidades: 3,
+  afirmacoes_a_confirmar: 5,
+  contradicoes_cadastro: 4,
+  cliente_sabemos: 5,
+  cliente_inferimos: 3,
+  cliente_a_confirmar: 3,
+  conducao_acertos: 3,
+  conducao_ajustes: 3,
+  como_conduzir_passos: 3,
+  como_conduzir_evitar: 2,
+  para_o_gestor: 2,
+} as const
 
 export type FullReadingTimelineItem = {
   dia: string
@@ -337,13 +358,13 @@ const CUSTOMER_SCHEMA = {
   ],
   properties: {
     sabemos: stringArray(
-      'O que o cliente disse ou fez.',
+      'O que o cliente disse ou fez. Até 5, os mais importantes primeiro.',
     ),
     inferimos: stringArray(
-      'Interpretações, com o motivo.',
+      'Interpretações, com o motivo. Até 3, as mais importantes primeiro.',
     ),
     a_confirmar: stringArray(
-      'O que ainda falta confirmar.',
+      'O que ainda falta confirmar. Até 3, o mais importante primeiro.',
     ),
   },
 } as const
@@ -351,7 +372,7 @@ const CUSTOMER_SCHEMA = {
 const OPPORTUNITIES_SCHEMA = {
   type: 'array',
   description:
-    'Oportunidades novas (adicionais, upgrades, indicações, retenção) com o status real.',
+    'Oportunidades novas (adicionais, upgrades, indicações, retenção) com o status real. Até 3, as mais importantes primeiro.',
   items: {
     type: 'object',
     additionalProperties: false,
@@ -374,7 +395,7 @@ const OPPORTUNITIES_SCHEMA = {
 const TIMELINE_SCHEMA = {
   type: 'array',
   description:
-    'Até 10 marcos da conversa em ordem, cada um em até ~12 palavras, sem códigos.',
+    'Até 8 marcos da conversa em ordem, cada um em até ~12 palavras, sem códigos.',
   items: {
     type: 'object',
     additionalProperties: false,
@@ -406,7 +427,7 @@ const TIMELINE_SCHEMA = {
 const PENDING_SCHEMA = {
   type: 'array',
   description:
-    'Pendências em frases curtas. de: vendedor (o vendedor deve algo), cliente (o cliente deve algo) ou nenhum (registro de que algo está resolvido, ex.: nenhuma pergunta sem resposta).',
+    'Pendências em frases curtas, até 4, as mais importantes primeiro. de: vendedor (o vendedor deve algo), cliente (o cliente deve algo) ou nenhum (registro de que algo está resolvido, ex.: nenhuma pergunta sem resposta).',
   items: {
     type: 'object',
     additionalProperties: false,
@@ -498,7 +519,7 @@ const TAIL_PROPERTIES = {
   fechamento: CLOSING_SCHEMA,
   oportunidades: OPPORTUNITIES_SCHEMA,
   afirmacoes_a_confirmar: stringArray(
-    'Afirmações do vendedor ou do cadastro que precisam de confirmação oficial.',
+    'Afirmações do vendedor ou do cadastro que precisam de confirmação oficial. Até 5, as mais importantes primeiro.',
   ),
   alertas_de_captura: stringArray(
     'Somente problemas da captura (ordem, autoria, mídia ausente) que podem afetar a leitura. Nada sobre o kanban ou a criação do lead.',
@@ -540,7 +561,7 @@ const DECISION_V5_PROPERTIES = {
   contradicoes_cadastro: {
     type: 'array',
     description:
-      'Cada afirmação da conversa sobre preço ou sobre o que o plano inclui comparada com o cadastro (nome e descrição do catálogo, preço, fatos oficiais). Lista vazia quando nada diverge.',
+      'Cada afirmação da conversa sobre preço ou sobre o que o plano inclui comparada com o cadastro (nome e descrição do catálogo, preço, fatos oficiais). Até 4, as que mudam o que o cliente paga ou recebe primeiro. Lista vazia quando nada diverge.',
     items: {
       type: 'object',
       additionalProperties: false,
@@ -642,12 +663,12 @@ const DECISION_V5_PROPERTIES = {
     ],
     properties: {
       acertos: stringArray(
-        'O que o vendedor fez bem, com evidência curta.',
+        'O que o vendedor fez bem, com evidência curta. Até 3.',
       ),
       ajustes: {
         type: 'array',
         description:
-          'O que o vendedor deve ajustar: o que houve e como seria melhor, cada um em frase curta.',
+          'O que o vendedor deve ajustar: o que houve e como seria melhor, uma frase curta cada. Até 3, os mais importantes primeiro.',
         items: {
           type: 'object',
           additionalProperties: false,
@@ -948,7 +969,9 @@ function parseDecisionCommon(
         texto: readString(item, 'texto', `${path}.linha_do_tempo[${index}]`, { allowEmpty: true }),
       }))
       .filter((item) => item.texto.length > 0)
-      .slice(0, FULL_READING_TIMELINE_MAX_ITEMS)
+      // Rodada 10 (D3): a linha do tempo é cronológica; o que passa do
+      // limite sai do começo (os marcos mais recentes ficam).
+      .slice(-FULL_READING_TIMELINE_MAX_ITEMS)
 
   const pendencias =
     readRecordList(decisionRaw, 'pendencias', path)
@@ -1350,6 +1373,15 @@ export type FullReadingSystemRecord = {
   // Leitura de atendimento de um ciclo encerrado (rodada 9, J).
   ciclo_encerrado?: string | null
   uso?: FullReadingUsage
+  // Rodada 10 (C1): estimativa de entrada e o modo escolhido.
+  estimativa?: {
+    completa: number
+    continuacao: number | null
+    proporcao: number | null
+    escolha: FullReadingMode
+  } | null
+  // Rodada 10 (D3): itens cortados por campo.
+  cortes?: Record<string, number> | null
 }
 
 export type FullReadingMode =
@@ -1522,5 +1554,156 @@ export function applyFullReadingCoherence(
         motivo: problem,
       },
     ],
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Limites da v7 (rodada 10, D3)
+// ---------------------------------------------------------------------------
+//
+// Corta o que passar do limite, sem falhar: fica o começo da lista (o
+// modelo põe o mais importante primeiro); na linha do tempo, em ordem
+// cronológica, ficam os marcos mais recentes. Devolve quanto foi cortado
+// de cada campo, para o log.
+
+function cutList<T>(
+  values: T[] | undefined,
+  limit: number,
+  field: string,
+  cuts: Record<string, number>,
+  keep: 'first' | 'last' = 'first',
+): T[] | undefined {
+  if (!Array.isArray(values) || values.length <= limit) {
+    return values
+  }
+
+  cuts[field] = values.length - limit
+
+  return keep === 'last'
+    ? values.slice(values.length - limit)
+    : values.slice(0, limit)
+}
+
+// Quanto a resposta crua do modelo passou de cada limite (o parser já
+// cortava alguns campos sem registrar). Resposta ilegível: nada.
+export function countFullReadingOverflow(
+  text: string,
+  limits: typeof FULL_READING_V7_LIMITS = FULL_READING_V7_LIMITS,
+): Record<string, number> {
+  let decision: Record<string, unknown> | null = null
+
+  try {
+    const parsed =
+      extractJsonObject(text)
+
+    decision =
+      isRecord(parsed) && isRecord(parsed.decisao)
+        ? parsed.decisao
+        : null
+  } catch {
+    decision = null
+  }
+
+  if (!decision) {
+    return {}
+  }
+
+  const nested = (key: string): Record<string, unknown> =>
+    isRecord(decision?.[key]) ? (decision?.[key] as Record<string, unknown>) : {}
+
+  const lengths: Record<string, unknown> = {
+    linha_do_tempo: decision.linha_do_tempo,
+    pendencias: decision.pendencias,
+    oportunidades: decision.oportunidades,
+    afirmacoes_a_confirmar: decision.afirmacoes_a_confirmar,
+    contradicoes_cadastro: decision.contradicoes_cadastro,
+    'cliente.sabemos': nested('cliente').sabemos,
+    'cliente.inferimos': nested('cliente').inferimos,
+    'cliente.a_confirmar': nested('cliente').a_confirmar,
+    'conducao.acertos': nested('conducao').acertos,
+    'conducao.ajustes': nested('conducao').ajustes,
+    'como_conduzir.passos': nested('como_conduzir').passos,
+    'como_conduzir.evitar': nested('como_conduzir').evitar,
+    para_o_gestor: decision.para_o_gestor,
+  }
+
+  const limitOf: Record<string, number> = {
+    linha_do_tempo: limits.linha_do_tempo,
+    pendencias: limits.pendencias,
+    oportunidades: limits.oportunidades,
+    afirmacoes_a_confirmar: limits.afirmacoes_a_confirmar,
+    contradicoes_cadastro: limits.contradicoes_cadastro,
+    'cliente.sabemos': limits.cliente_sabemos,
+    'cliente.inferimos': limits.cliente_inferimos,
+    'cliente.a_confirmar': limits.cliente_a_confirmar,
+    'conducao.acertos': limits.conducao_acertos,
+    'conducao.ajustes': limits.conducao_ajustes,
+    'como_conduzir.passos': limits.como_conduzir_passos,
+    'como_conduzir.evitar': limits.como_conduzir_evitar,
+    para_o_gestor: limits.para_o_gestor,
+  }
+
+  const overflow: Record<string, number> = {}
+
+  for (const [field, value] of Object.entries(lengths)) {
+    if (Array.isArray(value) && value.length > limitOf[field]) {
+      overflow[field] = value.length - limitOf[field]
+    }
+  }
+
+  return overflow
+}
+
+export function applyFullReadingLimits(
+  decision: FullReadingDecision,
+  limits: typeof FULL_READING_V7_LIMITS = FULL_READING_V7_LIMITS,
+): {
+  decision: FullReadingDecision
+  cuts: Record<string, number>
+} {
+  const cuts: Record<string, number> = {}
+
+  const next: FullReadingDecision = {
+    ...decision,
+    linha_do_tempo:
+      cutList(decision.linha_do_tempo, limits.linha_do_tempo, 'linha_do_tempo', cuts, 'last') ?? [],
+    pendencias:
+      cutList(decision.pendencias, limits.pendencias, 'pendencias', cuts) ?? [],
+    oportunidades:
+      cutList(decision.oportunidades, limits.oportunidades, 'oportunidades', cuts) ?? [],
+    afirmacoes_a_confirmar:
+      cutList(decision.afirmacoes_a_confirmar, limits.afirmacoes_a_confirmar, 'afirmacoes_a_confirmar', cuts) ?? [],
+    contradicoes_cadastro:
+      cutList(decision.contradicoes_cadastro, limits.contradicoes_cadastro, 'contradicoes_cadastro', cuts),
+    cliente: decision.cliente
+      ? {
+          ...decision.cliente,
+          sabemos: cutList(decision.cliente.sabemos, limits.cliente_sabemos, 'cliente.sabemos', cuts) ?? [],
+          inferimos: cutList(decision.cliente.inferimos, limits.cliente_inferimos, 'cliente.inferimos', cuts) ?? [],
+          a_confirmar: cutList(decision.cliente.a_confirmar, limits.cliente_a_confirmar, 'cliente.a_confirmar', cuts) ?? [],
+        }
+      : decision.cliente,
+    conducao: decision.conducao
+      ? {
+          ...decision.conducao,
+          acertos: cutList(decision.conducao.acertos, limits.conducao_acertos, 'conducao.acertos', cuts) ?? [],
+          ajustes: cutList(decision.conducao.ajustes, limits.conducao_ajustes, 'conducao.ajustes', cuts) ?? [],
+        }
+      : decision.conducao,
+    como_conduzir: decision.como_conduzir
+      ? {
+          ...decision.como_conduzir,
+          passos: cutList(decision.como_conduzir.passos, limits.como_conduzir_passos, 'como_conduzir.passos', cuts) ?? [],
+          evitar: cutList(decision.como_conduzir.evitar, limits.como_conduzir_evitar, 'como_conduzir.evitar', cuts) ?? [],
+        }
+      : decision.como_conduzir,
+    para_o_gestor:
+      cutList(decision.para_o_gestor, limits.para_o_gestor, 'para_o_gestor', cuts),
+  }
+
+  return {
+    decision: next,
+    cuts,
   }
 }

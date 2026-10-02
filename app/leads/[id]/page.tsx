@@ -8,6 +8,8 @@ import CyclePulsePanel from '@/app/sales-cycles/[id]/components/CyclePulsePanel'
 import SuccessorOpportunityAction from '@/app/sales-cycles/[id]/components/SuccessorOpportunityAction'
 import CompanionReadingsSection from '@/app/sales-cycles/[id]/components/CompanionReadingsSection'
 import { isFullReadingPanelEnabled } from '@/app/lib/server/full-reading-flag'
+import { createFullReadingAdminClient } from '@/app/lib/server/full-reading-runner'
+import { loadLatestLeadCompanionReading } from '@/app/lib/server/full-reading-cycle-readings'
 import {
   fmtDateShort,
   statusBadgeStyle,
@@ -404,6 +406,26 @@ async function getLeadPageData(
 
   const leadSummary = (leadSummaryData ?? null) as LeadConversationSummaryRow | null
 
+  // Rodada 10 (F1): só no HML (flag). O quadro "Resumo salvo na Yolen"
+  // mostra a última leitura do Companion; sem ela, fica como hoje.
+  const companionAdmin =
+    isFullReadingPanelEnabled(process.env)
+      ? createFullReadingAdminClient()
+      : null
+
+  const companionReading =
+    companionAdmin
+      ? await loadLatestLeadCompanionReading({
+          access: {
+            userClient: supabase,
+            admin: companionAdmin,
+            userId: auth.user.id,
+            activeCompanyId,
+          },
+          cycleIds: cycles.map((cycle) => cycle.id),
+        })
+      : null
+
   const { data: groupCycle } = await supabase
     .from('lead_group_cycles')
     .select('lead_groups:group_id(name)')
@@ -427,6 +449,7 @@ activeGroupName: groupRelation?.name ?? null,
 profileNameById,
 groupNameById,
 leadSummary,
+companionReading,
   }
 }
 
@@ -457,6 +480,7 @@ activeGroupName,
 profileNameById,
 groupNameById,
 leadSummary,
+companionReading,
   } = await getLeadPageData(leadId, requestedOpportunityId)
 
   const selectedProduct = selectedCycle.products ?? null
@@ -644,7 +668,52 @@ const cyclesById = new Map(
           Resumo salvo na Yolen
         </div>
 
-        {leadSummary ? (
+        {companionReading ? (
+          <div data-lead-companion-summary="" style={{ display: 'grid', gap: 8 }}>
+            <div
+              style={{
+                color: DS.textPrimary,
+                fontSize: 13,
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {companionReading.situation}
+            </div>
+
+            {companionReading.next_step ? (
+              <div
+                style={{
+                  color: DS.textPrimary,
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                }}
+              >
+                <span style={{ color: DS.textSecondary }}>Próximo passo: </span>
+                {companionReading.next_step}
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                color: DS.textMuted,
+                fontSize: 11,
+              }}
+            >
+              Leitura do Companion · {companionReading.when_label} ·{' '}
+              <Link
+                href={
+                  companionReading.cycle_id === selectedCycle.id
+                    ? '#leitura-do-companion'
+                    : `/leads/${lead.id}?opportunity=${companionReading.cycle_id}#leitura-do-companion`
+                }
+                style={{ color: DS.blueSoft }}
+              >
+                Ver a leitura completa
+              </Link>
+            </div>
+          </div>
+        ) : leadSummary ? (
           <>
             <div
               style={{
@@ -932,7 +1001,14 @@ const cyclesById = new Map(
           variant="compact"
         />
 
-        <CopilotTogglePanel cycle={copilotCycle} />
+        <CopilotTogglePanel
+          cycle={copilotCycle}
+          companionReadingHref={
+            isFullReadingPanelEnabled(process.env)
+              ? '#leitura-do-companion'
+              : null
+          }
+        />
 
         {/* Rodada 9 (Fase 2): leitura do Companion, só no HML (flag). */}
         {isFullReadingPanelEnabled(process.env) ? (

@@ -82,6 +82,8 @@ import {
   FULL_READING_OUTPUT_JSON_SCHEMA,
   FullReadingOutputError,
   applyFullReadingCoherence,
+  applyFullReadingLimits,
+  countFullReadingOverflow,
   findRegistryContradictionAlerts,
   parseFullReadingOutput,
   type FullReadingMode,
@@ -774,6 +776,22 @@ function totalInput(
   return (usage.entrada ?? 0) + (usage.cache_lido ?? 0) + (usage.cache_gravado ?? 0)
 }
 
+// Rodada 10 (C1): a continuação só vale quando a entrada dela é claramente
+// menor que a da leitura completa (a decisão anterior pode pesar mais que
+// a conversa inteira numa conversa curta). Estimativa por caracteres; o
+// system é o mesmo nos dois modos (e vem do cache), por isso fica de fora.
+export const CONTINUATION_MAX_INPUT_RATIO =
+  0.7
+
+const CHARS_PER_TOKEN_ESTIMATE =
+  3.5
+
+export function estimateInputTokens(
+  text: string,
+): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE)
+}
+
 // Saída que não é JSON válido (ou vem incompleta): a chamada repete uma vez.
 const OUTPUT_RETRY_CODES =
   new Set(['INVALID_MODEL_OUTPUT', 'EMPTY_PROVIDER_RESPONSE'])
@@ -996,6 +1014,52 @@ export async function executeFullReadingRun(
         kanban,
       })
 
+    // C1: continuação só quando sai claramente mais barata.
+    let estimate: {
+      completa: number
+      continuacao: number | null
+      proporcao: number | null
+      escolha: FullReadingMode
+    } | null = null
+
+    if (continuationPrompt) {
+      const fullTokens =
+        estimateInputTokens(fullPrompt())
+
+      const continuationTokens =
+        estimateInputTokens(continuationPrompt)
+
+      const ratio =
+        fullTokens > 0
+          ? Math.round((continuationTokens / fullTokens) * 100) / 100
+          : 1
+
+      const cheaper =
+        requested === 'continuacao' ||
+        continuationTokens < fullTokens * CONTINUATION_MAX_INPUT_RATIO
+
+      estimate = {
+        completa: fullTokens,
+        continuacao: continuationTokens,
+        proporcao: ratio,
+        escolha: cheaper ? 'continuacao' : 'completa',
+      }
+
+      logEvent('mode_estimate', {
+        run_id: input.runId,
+        full_input_tokens: fullTokens,
+        continuation_input_tokens: continuationTokens,
+        ratio,
+        choice: estimate.escolha,
+      })
+
+      if (!cheaper) {
+        continuationPrompt = null
+        fullReason = 'continuacao_mais_cara'
+        transcriptMessageCount = transcript.message_count
+      }
+    }
+
     mode =
       continuationPrompt ? 'continuacao' : 'completa'
 
@@ -1112,9 +1176,31 @@ export async function executeFullReadingRun(
     const { output, response } =
       result
 
+    // D3 (rodada 10): limites da v7; o excesso sai sem falhar e vai para o
+    // log.
+    const limited =
+      applyFullReadingLimits(output.decisao)
+
+    // O que o modelo escreveu além de cada limite (inclui o que o parser já
+    // cortava sem registrar).
+    const cuts: Record<string, number> = {
+      ...countFullReadingOverflow(response.text),
+    }
+
+    for (const [field, count] of Object.entries(limited.cuts)) {
+      cuts[field] = Math.max(cuts[field] ?? 0, count)
+    }
+
+    if (Object.keys(cuts).length > 0) {
+      logEvent('output_trimmed', {
+        run_id: input.runId,
+        cuts,
+      })
+    }
+
     // Na completa, o pedido de ler inteira não se aplica.
     const decision = {
-      ...output.decisao,
+      ...limited.decision,
       precisa_ler_inteira: false,
       precisa_ler_inteira_motivo: '',
     }
@@ -1173,6 +1259,11 @@ export async function executeFullReadingRun(
             ? kanban.status
             : null,
         uso: usage,
+        estimativa: estimate,
+        cortes:
+          Object.keys(cuts).length > 0
+            ? cuts
+            : null,
       },
     }
 

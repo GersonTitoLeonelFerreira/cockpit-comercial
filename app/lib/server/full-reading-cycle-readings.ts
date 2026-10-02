@@ -319,6 +319,22 @@ async function readVisibleCycle(
   }
 }
 
+async function hasActiveMembership(
+  access: CycleReadingsAccess,
+  companyId: string,
+): Promise<boolean> {
+  const { data: membership, error: membershipError } =
+    await access.userClient
+      .from('company_memberships')
+      .select('company_id, is_active')
+      .eq('company_id', companyId)
+      .eq('user_id', access.userId)
+      .eq('is_active', true)
+      .maybeSingle()
+
+  return !membershipError && Boolean(membership)
+}
+
 export async function loadCycleReadings({
   access,
   cycleId,
@@ -355,16 +371,7 @@ export async function loadCycleReadings({
   }
 
   // Vínculo ativo com a empresa ativa (mesma regra das rotas do ciclo).
-  const { data: membership, error: membershipError } =
-    await access.userClient
-      .from('company_memberships')
-      .select('company_id, is_active')
-      .eq('company_id', companyId)
-      .eq('user_id', access.userId)
-      .eq('is_active', true)
-      .maybeSingle()
-
-  if (membershipError || !membership) {
+  if (!(await hasActiveMembership(access, companyId))) {
     return { status: 403, body: { ok: false, error: 'NO_ACTIVE_MEMBERSHIP' } }
   }
 
@@ -450,5 +457,113 @@ export async function loadCycleReadings({
           ? buildCycleReadingDetail(selected, selectedCycle)
           : null,
     },
+  }
+}
+
+// Rodada 10 (F1): o quadro "Resumo salvo na Yolen" da página do lead mostra
+// a última leitura do Companion (situação, próximo passo, data e hora).
+// Mesmas regras de acesso da seção: vínculo ativo com a empresa ativa e só
+// os ciclos do lead visíveis para o usuário (RLS). Flag desligada, sem
+// acesso ou sem leitura: null (o quadro fica como hoje).
+export type LeadCompanionReadingSummary = {
+  cycle_id: string
+  run_id: string
+  when_label: string
+  situation: string
+  next_step: string | null
+}
+
+export async function loadLatestLeadCompanionReading({
+  access,
+  cycleIds,
+  env = process.env,
+}: {
+  access: CycleReadingsAccess
+  cycleIds: string[]
+  env?: Record<string, string | undefined>
+}): Promise<LeadCompanionReadingSummary | null> {
+  if (!isFullReadingPanelEnabled(env)) {
+    return null
+  }
+
+  const companyId =
+    access.activeCompanyId?.trim().toLowerCase() ?? ''
+
+  const ids =
+    [...new Set(cycleIds.map((id) => id.trim().toLowerCase()))]
+      .filter((id) => UUID_PATTERN.test(id))
+
+  if (!UUID_PATTERN.test(companyId) || ids.length === 0) {
+    return null
+  }
+
+  try {
+    if (!(await hasActiveMembership(access, companyId))) {
+      return null
+    }
+
+    const visible: CycleRow[] = []
+
+    for (const id of ids) {
+      const cycle =
+        await readVisibleCycle(access.userClient, companyId, id)
+
+      if (cycle) {
+        visible.push(cycle)
+      }
+    }
+
+    if (visible.length === 0) {
+      return null
+    }
+
+    const { data, error } =
+      await access.admin
+        .from(FULL_READING_RUNS_TABLE)
+        .select('run_id, cycle_id, status, prompt_version, completed_at, created_at, analysis_markdown, decision')
+        .eq('company_id', companyId)
+        .in('cycle_id', visible.map((cycle) => cycle.id))
+        .eq('status', 'succeeded')
+        .order('created_at', { ascending: false })
+        .limit(CYCLE_READINGS_LIMIT)
+
+    if (error) {
+      return null
+    }
+
+    const run =
+      ((data ?? []) as RunRow[]).find(usable) ?? null
+
+    const cycle =
+      run
+        ? visible.find((item) => item.id === run.cycle_id) ?? null
+        : null
+
+    const detail =
+      run && cycle
+        ? buildCycleReadingDetail(run, cycle)
+        : null
+
+    if (!run || !detail || !detail.situation) {
+      return null
+    }
+
+    const nextStep =
+      detail.next_step
+        ? [detail.next_step.title, detail.next_step.complement]
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .join(' ')
+        : ''
+
+    return {
+      cycle_id: run.cycle_id,
+      run_id: run.run_id,
+      when_label: detail.when_label,
+      situation: detail.situation,
+      next_step: nextStep || null,
+    }
+  } catch {
+    return null
   }
 }

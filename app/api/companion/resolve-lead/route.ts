@@ -488,6 +488,19 @@ function buildResolutionPayload({
           ? { full_reading_panel: true }
           : {}
       ),
+      // Rodada 10 (J): com a leitura completa ligada, a extensão captura a
+      // conversa do ciclo encerrado (dono do ciclo, gestor ou admin) para a
+      // leitura de atendimento. A RPC continua decidindo: enquanto a
+      // migração não for aplicada, ela recusa e o painel fica como hoje.
+      // Desligada, a chave nem aparece.
+      ...(
+        status === 'CLOSED_CYCLE' &&
+        Boolean(cycle?.id) &&
+        (isOwnedByMe || isAdminOrManager) &&
+        isFullReadingPanelEnabled()
+          ? { can_read_closed_cycle: true }
+          : {}
+      ),
     },
     actions: {
       can_analyze_conversation: canAnalyzeConversation,

@@ -12,6 +12,12 @@ import {
   type NormalizedCaptureMessage,
 } from '@/app/lib/companion/capture-ingestion'
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
+import {
+  CLOSED_CYCLE_CAPTURE_UNAVAILABLE,
+  customerWroteAfterClosureInLedger,
+  isClosedCycleCaptureUnavailable,
+  readClosedCycleCaptureTarget,
+} from '@/app/lib/server/full-reading-closed-cycle'
 
 type IngestionRpcMessageResult = {
   message_key?: unknown
@@ -382,6 +388,15 @@ export async function POST(request: Request) {
       },
     )
 
+    // Rodada 10 (J): só com a leitura completa ligada (HML) e só para ciclo
+    // encerrado. Ciclo aberto ou flag desligada: a chamada de hoje.
+    const closedCycle =
+      await readClosedCycleCaptureTarget({
+        admin,
+        companyId: tokenPayload.company_id,
+        cycleId: envelope.cycle_id,
+      })
+
     const { data, error } = await admin.rpc(
       'rpc_ingest_companion_messages',
       {
@@ -393,12 +408,54 @@ export async function POST(request: Request) {
           p_device_key: envelope.device_key,
           p_messages:
             envelope.messages,
+        ...(closedCycle
+          ? { p_allow_closed_cycle: true }
+          : {}),
       },
     )
 
     if (error) {
       const classification =
         classifyCaptureRpcError(error)
+
+      // A RPC ainda não aceita ciclo encerrado (migração não aplicada):
+      // recusa silenciosa, sem aviso de falha no painel.
+      if (
+        closedCycle &&
+        isClosedCycleCaptureUnavailable({
+          error,
+          classificationCode: classification.code,
+        })
+      ) {
+        logCaptureRejection({
+          source: 'rpc',
+          code: CLOSED_CYCLE_CAPTURE_UNAVAILABLE,
+          http_status: 409,
+          pg_code:
+            typeof error.code === 'string' ? error.code : null,
+          cycle_id: envelope.cycle_id,
+          batch_size: envelope.messages.length,
+        })
+
+        return NextResponse.json(
+          {
+            ok: false,
+            status: CLOSED_CYCLE_CAPTURE_UNAVAILABLE,
+            error:
+              'A captura de ciclo encerrado ainda não está disponível.',
+            validation: {
+              code: CLOSED_CYCLE_CAPTURE_UNAVAILABLE,
+              message_index: null,
+              message_key: null,
+              message_keys: null,
+            },
+          },
+          {
+            status: 409,
+            headers: corsHeaders,
+          },
+        )
+      }
 
       const rejectedIndex =
         findRpcRejectedMessageIndex(
@@ -556,10 +613,31 @@ export async function POST(request: Request) {
       )
     }
 
+    // Rodada 10 (J): ciclo encerrado aceito; o cliente escreveu depois do
+    // encerramento? Só então a extensão abre as abas (leitura de
+    // atendimento).
+    const closedCycleResult =
+      closedCycle
+        ? {
+            status: closedCycle.status,
+            service:
+              await customerWroteAfterClosureInLedger({
+                admin,
+                companyId: tokenPayload.company_id,
+                cycleId: envelope.cycle_id,
+                conversationKey: envelope.conversation_key,
+                closedAt: closedCycle.closed_at,
+              }),
+          }
+        : null
+
     return NextResponse.json(
       {
         ok: true,
         status: 'CAPTURE_INGESTED',
+        ...(closedCycleResult
+          ? { closed_cycle: closedCycleResult }
+          : {}),
         contract_version:
           envelope.contract_version,
         cycle_id: envelope.cycle_id,

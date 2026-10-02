@@ -16,10 +16,99 @@ type SalesCycleWithLead = SalesCycle & {
 
 export default function CopilotTogglePanel({
   cycle,
+  companionReadingHref = null,
 }: {
   cycle: SalesCycleWithLead
+  // Rodada 10 (F2, só no HML): a análise da conversa vem da leitura do
+  // Companion; o Copiloto não gera outra análise paga e leva para a seção.
+  // Sem a flag, o painel é o de hoje.
+  companionReadingHref?: string | null
 }) {
   const [open, setOpen] = useState(false)
+
+  if (companionReadingHref) {
+    return (
+      <>
+        <div
+          data-copilot-companion-reading=""
+          style={{
+            background: '#0d0f14',
+            border: '1px solid #1a1d2e',
+            borderRadius: 16,
+            padding: 18,
+            marginBottom: 14,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 14,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  color: '#3b82f6',
+                  fontSize: 10,
+                  fontWeight: 900,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  marginBottom: 8,
+                }}
+              >
+                Copiloto Comercial
+              </div>
+
+              <div
+                style={{
+                  color: '#edf2f7',
+                  fontSize: 16,
+                  fontWeight: 900,
+                  lineHeight: 1.25,
+                }}
+              >
+                Leitura do Companion
+              </div>
+
+              <div
+                style={{
+                  marginTop: 6,
+                  color: '#8fa3bc',
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                A análise desta conversa vem da leitura do Companion, sem gerar
+                outra análise.
+              </div>
+            </div>
+
+            <a
+              href={companionReadingHref}
+              style={{
+                border: '1px solid rgba(59,130,246,0.35)',
+                background: 'rgba(59,130,246,0.14)',
+                color: '#93c5fd',
+                borderRadius: 12,
+                padding: '10px 14px',
+                fontSize: 12,
+                fontWeight: 900,
+                whiteSpace: 'nowrap',
+                textDecoration: 'none',
+              }}
+            >
+              Ver a leitura do Companion
+            </a>
+          </div>
+        </div>
+
+        <AICoachingHistory cycleId={cycle.id} />
+      </>
+    )
+  }
 
   return (
     <>
