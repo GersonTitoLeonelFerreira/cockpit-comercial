@@ -1043,8 +1043,10 @@ test('conversa sem mensagem no ledger: nenhuma rodada (EMPTY_CONVERSATION), nem 
   assert.equal(plan({ runs: [], latestObservedAt: null, force: true }).action, 'skip')
 })
 
-test('painel: ciclo Ganho com mensagens nunca agenda o Claude nem grava rodada', async () => {
-  const memory = createMemoryAdmin(seed({ status: 'ganho', messages: [message({ observed_at: minutesBefore(1) })] }))
+// Rodada 9 (J): o ciclo fechado só é lido quando o cliente escreveu
+// depois do encerramento; aqui a mensagem é anterior a ele.
+test('painel: ciclo Ganho sem mensagem do cliente depois do fechamento nunca agenda o Claude nem grava rodada', async () => {
+  const memory = createMemoryAdmin(seed({ status: 'ganho', messages: [message({ occurred_at: minutesBefore(700), observed_at: minutesBefore(1) })] }))
   const { promise, scheduled } = resolveWith(memory, { force: true })
   const snapshot = await promise
 

@@ -67,6 +67,31 @@ export function sellerRepliedNotice(
   return `Você respondeu às ${clock}. A leitura atualiza quando o cliente responder.`
 }
 
+// Rodada 9 (I3).
+export function audioHoldNotice(
+  hold: { current: number; total: number },
+): string {
+  return `Transcrevendo áudio ${hold.current} de ${hold.total}…`
+}
+
+// Rodada 9 (J2).
+const CLOSED_SERVICE_LABELS: Record<string, string> = {
+  ganho: 'Ganho',
+  perdido: 'Perdido',
+  cancelado: 'Cancelado',
+}
+
+export function closedServiceNotice(
+  status: string,
+): string | null {
+  const label =
+    CLOSED_SERVICE_LABELS[status]
+
+  return label
+    ? `Oportunidade encerrada (${label}) · leitura de atendimento`
+    : null
+}
+
 export function reviewRunningNotice(
   review: { at: string; motivo: string },
 ): string {
@@ -212,6 +237,10 @@ export type FullReadingPanelStatusInput = {
   running_review?: { at: string; motivo: string } | null
   review_at?: string | null
   daily_cap_reached?: boolean
+  // Rodada 9 (I3): transcrição de áudio em andamento na extensão.
+  audio_hold?: { current: number; total: number } | null
+  // Rodada 9 (J): ciclo encerrado lido como atendimento (status).
+  closed_service?: string | null
 }
 
 export type FullReadingRefreshControl = {
@@ -233,6 +262,8 @@ export type FullReadingBandKind =
   | 'seller_replied'
   | 'review'
   | 'daily_cap'
+  | 'audio'
+  | 'closed_service'
 
 export type FullReadingStatusView = {
   running: 'first' | 'update' | null
@@ -771,8 +802,15 @@ function buildStatusView({
       ? panel.pending_update_at ?? null
       : null
 
+  const closedService =
+    panel.closed_service
+      ? closedServiceNotice(panel.closed_service)
+      : null
+
   const band: FullReadingStatusView['band'] =
-    state === 'running' && panel.running_review
+    state === 'running' && panel.audio_hold
+      ? { kind: 'audio', text: audioHoldNotice(panel.audio_hold) }
+      : state === 'running' && panel.running_review
       ? { kind: 'review', text: reviewRunningNotice(panel.running_review) }
       : capReached
         ? { kind: 'daily_cap', text: FULL_READING_DAILY_CAP_NOTICE }
@@ -780,7 +818,9 @@ function buildStatusView({
           ? { kind: 'burst', text: FULL_READING_BURST_NOTICE }
           : repliedClock
             ? { kind: 'seller_replied', text: sellerRepliedNotice(repliedClock) }
-            : null
+            : closedService
+              ? { kind: 'closed_service', text: closedService }
+              : null
 
   return {
     running:
@@ -837,6 +877,10 @@ function buildStatusView({
 export function buildPanelNotice(
   status: FullReadingStatusView,
 ): string | null {
+  if (status.band?.kind === 'audio') {
+    return status.band.text
+  }
+
   if (status.running === 'first') {
     return FULL_READING_RUNNING_NOTICE
   }

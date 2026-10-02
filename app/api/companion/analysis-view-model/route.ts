@@ -47,6 +47,8 @@ type AnalysisViewModelBody = {
   force_reanalysis?: unknown
   // Rodada 8: "if_changed" quando o "Atualizar" só relê se algo mudou.
   force_mode?: unknown
+  // Rodada 9: { current, total } enquanto a extensão transcreve áudio.
+  audio_hold?: unknown
 }
 
 function getCorsHeaders(
@@ -231,6 +233,9 @@ export async function POST(
           body.force_reanalysis,
         forceMode:
           body.force_mode,
+        // Rodada 9 (I3): áudio desta conversa sendo transcrito.
+        audioHold:
+          body.audio_hold,
         referenceTime,
         route: '/api/companion/analysis-view-model',
         schedule:

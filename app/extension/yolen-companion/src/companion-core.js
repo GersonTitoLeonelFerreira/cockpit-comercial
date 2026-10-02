@@ -264,6 +264,10 @@ function createCompanionCore(ctx) {
     get isLegacyAiDisabled() {
       return isLegacyAiDisabled
     },
+    // Rodada 9 (I3): transcrição automática em andamento.
+    get getFullReadingAudioHold() {
+      return getFullReadingAudioHold
+    },
     get analysisViewModelRequestSequence() {
       return analysisViewModelRequestSequence
     },
@@ -3302,9 +3306,14 @@ function createCompanionCore(ctx) {
     })
   }
 
-  async function transcribeNextVisibleAudio() {
+  // Rodada 9 (I): { target, automatic } — a transcrição automática escolhe
+  // o áudio (cliente primeiro) e recebe o resultado ('ok' | 'failed' |
+  // 'skipped'); o botão manual continua sem argumentos.
+  async function transcribeNextVisibleAudio({
+    target: requestedTarget = null,
+  } = {}) {
     if (state.audioTranscriptionLoading) {
-      return
+      return 'skipped'
     }
 
     const cycleId = getCanonicalResolutionCycleId()
@@ -3316,7 +3325,7 @@ function createCompanionCore(ctx) {
       }
 
       renderPanel()
-      return
+      return 'skipped'
     }
 
     const audioTargets =
@@ -3330,21 +3339,28 @@ function createCompanionCore(ctx) {
       }
 
       renderPanel()
-      return
+      return 'skipped'
     }
 
-    const nextTarget = audioTargets.find((target) => {
-      return !state.audioTranscriptionsByKey?.[getAudioTranscriptionKey(target)]
-    })
+    const nextTarget = requestedTarget
+      ? audioTargets.find((target) =>
+          target.key === requestedTarget.key &&
+          !state.audioTranscriptionsByKey?.[getAudioTranscriptionKey(target)])
+      : audioTargets.find((target) => {
+          return !state.audioTranscriptionsByKey?.[getAudioTranscriptionKey(target)]
+        })
 
     if (!nextTarget) {
-      state = {
-        ...state,
-        audioTranscriptionStatus: 'Todos os áudios visíveis desta conversa já foram transcritos.',
+      if (!requestedTarget) {
+        state = {
+          ...state,
+          audioTranscriptionStatus: 'Todos os áudios visíveis desta conversa já foram transcritos.',
+        }
+
+        renderPanel()
       }
 
-      renderPanel()
-      return
+      return 'skipped'
     }
 
     state = {
@@ -3386,7 +3402,7 @@ function createCompanionCore(ctx) {
 
     const releaseStaleTranscription = () => {
       if (!isAttemptCurrent()) {
-        return
+        return 'skipped'
       }
 
       clearAudioTranscriptionWatchdogTimer()
@@ -3395,18 +3411,19 @@ function createCompanionCore(ctx) {
         ...state,
         audioTranscriptionLoading: false,
       }
+
+      return 'skipped'
     }
 
     try {
       const audioCapture = await getAudioSource(nextTarget)
 
       if (!isAttemptCurrent()) {
-        return
+        return 'failed'
       }
 
       if (!isOperationContextCurrent(operationContext)) {
-        releaseStaleTranscription()
-        return
+        return releaseStaleTranscription()
       }
 
       if (!audioCapture?.ok) {
@@ -3423,12 +3440,11 @@ function createCompanionCore(ctx) {
       const audioBase64 = await blobToBase64(blob)
 
       if (!isAttemptCurrent()) {
-        return
+        return 'failed'
       }
 
       if (!isOperationContextCurrent(operationContext)) {
-        releaseStaleTranscription()
-        return
+        return releaseStaleTranscription()
       }
 
       const result = await window.YolenCompanionApi.transcribeAudio({
@@ -3441,12 +3457,11 @@ function createCompanionCore(ctx) {
       })
 
       if (!isAttemptCurrent()) {
-        return
+        return 'failed'
       }
 
       if (!isOperationContextCurrent(operationContext)) {
-        releaseStaleTranscription()
-        return
+        return releaseStaleTranscription()
       }
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data?.text) {
@@ -3499,14 +3514,15 @@ function createCompanionCore(ctx) {
           'Todos os áudios foram transcritos. A análise será atualizada automaticamente em 8 segundos.',
         )
       }
+
+      return 'ok'
     } catch (error) {
       if (!isAttemptCurrent()) {
-        return
+        return 'failed'
       }
 
       if (!isOperationContextCurrent(operationContext)) {
-        releaseStaleTranscription()
-        return
+        return releaseStaleTranscription()
       }
 
       clearAudioTranscriptionWatchdogTimer()
@@ -3521,7 +3537,262 @@ function createCompanionCore(ctx) {
       }
 
       renderPanel()
+      return 'failed'
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Rodada 9 (I): transcrição automática com a leitura completa no painel.
+  // Mesmo fluxo do botão (mesma rota, mesmo serviço), um áudio por vez:
+  // primeiro os do cliente, depois os do vendedor. Até 6 por conversa por
+  // hora; áudio de mais de 5 minutos fica para o botão; áudio já transcrito
+  // (na tela ou salvo na Yolen) não é transcrito de novo. Enquanto houver
+  // áudio desta conversa sendo transcrito (até 60 s), o painel pede ao
+  // servidor para não iniciar leitura nova (audio_hold); depois roda uma
+  // leitura só, já com o texto.
+  const autoTranscriptionTools =
+    globalThis.YolenCompanionAnalysisController
+  const AUTO_TRANSCRIPTION_HOLD_MS = 60 * 1000
+  // Depois da última transcrição, a captura leva o texto ao servidor
+  // (CAPTURE_INGESTION_DELAY_MS + o envio): a leitura espera mais um pouco,
+  // sempre dentro dos 60 s, e então o painel pede a atualização.
+  const AUTO_TRANSCRIPTION_CAPTURE_GRACE_MS = 5000
+  const autoTranscriptionAttempts = new Map()
+  const autoTranscriptionFailedKeys = new Set()
+  let autoTranscriptionBatch = null
+  let autoTranscriptionCheckTimerId = 0
+
+  function getAutoTranscriptionCandidates() {
+    if (typeof autoTranscriptionTools?.planAutoTranscriptionQueue !== 'function') {
+      return { queue: [], long: 0, failed: 0 }
+    }
+
+    return autoTranscriptionTools.planAutoTranscriptionQueue({
+      targets: getRelevantVisibleAudioTargets(),
+      messages: getAnalysisMessageBatch(),
+      isTranscribed: (target) =>
+        Boolean(state.audioTranscriptionsByKey?.[getAudioTranscriptionKey(target)]) ||
+        Boolean(getMessageTranscription(target.key)),
+      isFailed: (target) =>
+        autoTranscriptionFailedKeys.has(getAudioTranscriptionKey(target)),
+    })
+  }
+
+  function getAutoTranscriptionAttempts(conversationKey, now = Date.now()) {
+    if (typeof autoTranscriptionTools?.remainingAutoTranscriptions !== 'function') {
+      return { recent: [], remaining: 0 }
+    }
+
+    const { recent, remaining } =
+      autoTranscriptionTools.remainingAutoTranscriptions({
+        attempts: autoTranscriptionAttempts.get(conversationKey) || [],
+        now,
+      })
+
+    autoTranscriptionAttempts.set(conversationKey, recent)
+
+    return { recent, remaining }
+  }
+
+  function finishAutoTranscriptionBatch() {
+    const batch = autoTranscriptionBatch
+
+    if (!batch || batch.finishedAt) {
+      return
+    }
+
+    batch.finishedAt = Date.now()
+
+    if (batch.conversationKey !== state.conversationKey || batch.succeeded === 0) {
+      autoTranscriptionBatch = null
+      return
+    }
+
+    // Uma leitura só, já com o texto: depois da folga da captura.
+    window.setTimeout(() => {
+      if (autoTranscriptionBatch === batch) {
+        autoTranscriptionBatch = null
+      }
+
+      if (batch.conversationKey === state.conversationKey) {
+        requestFullReadingRefresh()
+      }
+    }, AUTO_TRANSCRIPTION_CAPTURE_GRACE_MS + 500)
+  }
+
+  function canRunAutoTranscription() {
+    const cycleId = getCanonicalResolutionCycleId()
+
+    return Boolean(
+      isFullReadingPanelMode() &&
+      cycleId &&
+      state.conversationKey &&
+      !state.isSelfConversation &&
+      state.audioTranscriptionHistoryCycleId === cycleId &&
+      !state.audioTranscriptionHistoryLoading,
+    )
+  }
+
+  function runAutoTranscriptionCheck() {
+    if (state.audioTranscriptionLoading) {
+      return
+    }
+
+    if (!canRunAutoTranscription()) {
+      if (autoTranscriptionBatch) {
+        finishAutoTranscriptionBatch()
+      }
+
+      return
+    }
+
+    const conversationKey = state.conversationKey
+
+    if (
+      autoTranscriptionBatch &&
+      (autoTranscriptionBatch.conversationKey !== conversationKey || autoTranscriptionBatch.finishedAt)
+    ) {
+      if (autoTranscriptionBatch.conversationKey !== conversationKey) {
+        autoTranscriptionBatch = null
+      } else {
+        return
+      }
+    }
+
+    const { queue } = getAutoTranscriptionCandidates()
+    const now = Date.now()
+    const { recent: attempts, remaining } = getAutoTranscriptionAttempts(conversationKey, now)
+
+    if (queue.length === 0 || remaining <= 0) {
+      if (autoTranscriptionBatch) {
+        finishAutoTranscriptionBatch()
+      }
+
+      return
+    }
+
+    if (!autoTranscriptionBatch) {
+      autoTranscriptionBatch = {
+        conversationKey,
+        startedAt: now,
+        total: Math.min(queue.length, remaining),
+        done: 0,
+        succeeded: 0,
+        failed: 0,
+      }
+    } else {
+      autoTranscriptionBatch.total = Math.max(
+        autoTranscriptionBatch.total,
+        autoTranscriptionBatch.done + Math.min(queue.length, remaining),
+      )
+    }
+
+    const batch = autoTranscriptionBatch
+    const target = queue[0]
+
+    attempts.push(now)
+
+    void Promise.resolve(transcribeNextVisibleAudio({ target }))
+      .then((outcome) => {
+        if (autoTranscriptionBatch !== batch) {
+          return
+        }
+
+        batch.done += 1
+
+        if (outcome === 'ok') {
+          batch.succeeded += 1
+        } else {
+          batch.failed += 1
+          autoTranscriptionFailedKeys.add(getAudioTranscriptionKey(target))
+        }
+
+        scheduleAutoTranscriptionCheck()
+      })
+  }
+
+  function scheduleAutoTranscriptionCheck() {
+    if (autoTranscriptionCheckTimerId) {
+      return
+    }
+
+    autoTranscriptionCheckTimerId = window.setTimeout(() => {
+      autoTranscriptionCheckTimerId = 0
+      runAutoTranscriptionCheck()
+    }, 0)
+  }
+
+  // { current, total } enquanto a transcrição automática desta conversa
+  // roda (até 60 s): o servidor não inicia leitura nova.
+  function getFullReadingAudioHold() {
+    const batch = autoTranscriptionBatch
+    const now = Date.now()
+
+    if (
+      !batch ||
+      batch.conversationKey !== state.conversationKey ||
+      now - batch.startedAt > AUTO_TRANSCRIPTION_HOLD_MS
+    ) {
+      return null
+    }
+
+    const transcribing =
+      batch.done < batch.total && !batch.finishedAt
+
+    const waitingCapture =
+      batch.succeeded > 0 &&
+      (!batch.finishedAt || now - batch.finishedAt < AUTO_TRANSCRIPTION_CAPTURE_GRACE_MS)
+
+    if (!transcribing && !waitingCapture) {
+      return null
+    }
+
+    return {
+      current: Math.min(batch.done + 1, batch.total),
+      total: batch.total,
+    }
+  }
+
+  // Aviso da transcrição automática no painel da leitura.
+  function getAutoTranscriptionNoticeHtml() {
+    if (!isFullReadingPanelMode() || !state.conversationKey) {
+      return ''
+    }
+
+    const { long, failed } = getAutoTranscriptionCandidates()
+    const lines = []
+
+    if (failed > 0) {
+      lines.push(
+        '<div class="yolen-fr-status yolen-fr-audio-failed" role="status" data-yolen-fr-audio-failed>' +
+          `<span>${escapeHtml(failed === 1 ? 'Não consegui transcrever 1 áudio.' : `Não consegui transcrever ${failed} áudios.`)}</span> ` +
+          '<button type="button" class="yolen-button yolen-button--link" data-yolen-action="auto-transcription-retry">Tentar de novo</button>' +
+          '</div>',
+      )
+    }
+
+    if (long > 0) {
+      lines.push(
+        '<div class="yolen-fr-status yolen-fr-audio-long" role="status" data-yolen-fr-audio-long>' +
+          escapeHtml(
+            long === 1
+              ? 'Um áudio tem mais de 5 minutos e não é transcrito sozinho: use "Transcrever áudio".'
+              : `${long} áudios têm mais de 5 minutos e não são transcritos sozinhos: use "Transcrever áudio".`,
+          ) +
+          '</div>',
+      )
+    }
+
+    return lines.join('')
+  }
+
+  function retryFailedAutoTranscriptions() {
+    for (const target of getRelevantVisibleAudioTargets()) {
+      autoTranscriptionFailedKeys.delete(getAudioTranscriptionKey(target))
+    }
+
+    scheduleAutoTranscriptionCheck()
+    renderPanel()
   }
 
   function buildConversationFingerprint(value) {
@@ -7115,6 +7386,8 @@ function createCompanionCore(ctx) {
           fullReadingAnalysis,
         )}
 
+        ${getAutoTranscriptionNoticeHtml()}
+
         ${
           transcribeAudioButton.trim()
             ? `<div class="yolen-inline-actions yolen-decision-actions">${transcribeAudioButton}</div>`
@@ -8068,6 +8341,7 @@ function createCompanionCore(ctx) {
           'agora',
           fullReadingAgora,
         ) +
+        getAutoTranscriptionNoticeHtml() +
         legacyHtml
       )
     }
@@ -9754,6 +10028,7 @@ function createCompanionCore(ctx) {
 
   function wirePanelInteractions(panel) {
     hydrateFullReadingSlots(panel)
+    scheduleAutoTranscriptionCheck()
     syncFullReadingPolling()
     syncFullReadingElapsedTicker()
     syncFullReadingMessage()
@@ -10153,6 +10428,15 @@ function createCompanionCore(ctx) {
       'click',
       () => {
         insertSuggestedMessageInChannel()
+      },
+    )
+
+    // Rodada 9 (I4): "Tentar de novo" dos áudios que falharam.
+    wireOnce(
+      panel.querySelector('[data-yolen-action="auto-transcription-retry"]'),
+      'click',
+      () => {
+        retryFailedAutoTranscriptions()
       },
     )
 

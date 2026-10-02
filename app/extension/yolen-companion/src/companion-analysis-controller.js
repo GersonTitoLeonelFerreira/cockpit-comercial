@@ -204,6 +204,17 @@ function createCompanionAnalysisController(ctx) {
     )
   }
 
+  function readFullReadingAudioHold() {
+    const hold =
+      typeof ctx.getFullReadingAudioHold === 'function'
+        ? ctx.getFullReadingAudioHold()
+        : null
+
+    return hold
+      ? { audio_hold: hold }
+      : {}
+  }
+
   function canScheduleAutomaticAnalysis() {
     if (isLegacyAnalysisDisabled()) {
       return false
@@ -515,6 +526,8 @@ function createCompanionAnalysisController(ctx) {
               options.forceFullReadingMode === 'full')
               ? { force_mode: options.forceFullReadingMode }
               : {}),
+            // Rodada 9 (I3): áudio desta conversa sendo transcrito.
+            ...readFullReadingAudioHold(),
           })
 
       if (!isStillCurrentContext()) {
@@ -1541,6 +1554,8 @@ function createCompanionAnalysisController(ctx) {
               options.forceFullReadingMode === 'full')
               ? { force_mode: options.forceFullReadingMode }
               : {}),
+            // Rodada 9 (I3): áudio desta conversa sendo transcrito.
+            ...readFullReadingAudioHold(),
           })
 
       if (!isStillCurrentContext()) {
@@ -1616,8 +1631,73 @@ function createCompanionAnalysisController(ctx) {
   }
 }
 
+// Rodada 9 (I): fila da transcrição automática, sem efeitos colaterais.
+// Áudios pendentes (sem transcrição na tela nem salva na Yolen), primeiro
+// os do cliente e depois os do vendedor, na ordem da conversa; áudio de
+// mais de 5 minutos fica para o botão; o que falhou só volta com "Tentar
+// de novo".
+const AUTO_TRANSCRIPTION_MAX_SECONDS = 5 * 60
+const AUTO_TRANSCRIPTION_HOURLY_LIMIT = 6
+const AUTO_TRANSCRIPTION_WINDOW_MS = 60 * 60 * 1000
+
+function planAutoTranscriptionQueue({
+  targets = [],
+  messages = [],
+  isTranscribed = () => false,
+  isFailed = () => false,
+  maxSeconds = AUTO_TRANSCRIPTION_MAX_SECONDS,
+} = {}) {
+  const byId = new Map(
+    Array.from(messages || []).map((message) => [message.id, message]),
+  )
+
+  const isCustomer = (target) => {
+    const message = byId.get(target.key)
+
+    return message?.direction === 'incoming' || message?.authorKind === 'customer'
+  }
+
+  const isLong = (target) =>
+    Number.isFinite(target.durationSeconds) &&
+    target.durationSeconds > maxSeconds
+
+  const pending = Array.from(targets || []).filter((target) => !isTranscribed(target))
+
+  const queue = pending
+    .filter((target) => !isLong(target) && !isFailed(target))
+    .sort((left, right) =>
+      (isCustomer(left) ? 0 : 1) - (isCustomer(right) ? 0 : 1) ||
+      left.index - right.index)
+
+  return {
+    queue,
+    long: pending.filter(isLong).length,
+    failed: pending.filter((target) => !isLong(target) && isFailed(target)).length,
+  }
+}
+
+// Até 6 transcrições automáticas por conversa por hora.
+function remainingAutoTranscriptions({
+  attempts = [],
+  now = Date.now(),
+  limit = AUTO_TRANSCRIPTION_HOURLY_LIMIT,
+  windowMs = AUTO_TRANSCRIPTION_WINDOW_MS,
+} = {}) {
+  const recent = Array.from(attempts || []).filter((time) => now - time < windowMs)
+
+  return {
+    recent,
+    remaining: Math.max(0, limit - recent.length),
+  }
+}
+
 const api = Object.freeze({
   create: createCompanionAnalysisController,
+  AUTO_TRANSCRIPTION_MAX_SECONDS,
+  AUTO_TRANSCRIPTION_HOURLY_LIMIT,
+  AUTO_TRANSCRIPTION_WINDOW_MS,
+  planAutoTranscriptionQueue,
+  remainingAutoTranscriptions,
 })
 
 root.YolenCompanionAnalysisController = api

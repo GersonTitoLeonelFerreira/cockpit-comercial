@@ -35,6 +35,13 @@ import 'server-only'
 // leitura é de continuação (o executor decide) a menos que o vendedor peça
 // "Ler a conversa inteira".
 //
+// Rodada 9 (Fase 3): ciclo em ganho, perdido ou cancelado é lido como
+// atendimento quando o cliente escreveu depois do encerramento (só as
+// mensagens posteriores deixam a leitura velha; sem elas, como antes); e,
+// enquanto a extensão transcreve um áudio desta conversa (até 60 s), nenhuma
+// leitura nova começa. Áudio que ganhou transcrição também deixa a leitura
+// velha (a leitura roda uma vez, já com o texto).
+//
 // Escreve SOMENTE em companion_full_reading_runs. sales_cycles e o
 // ledger são só lidos.
 
@@ -75,6 +82,10 @@ import {
 import type {
   FullReadingFullReason,
 } from '../companion/full-reading/continuation'
+
+import {
+  customerWroteAfterClosure,
+} from './full-reading-panel-view'
 
 import {
   RESUME_WORDING,
@@ -264,8 +275,48 @@ export type FullReadingPanelRunRow = {
   decision: unknown
 }
 
+// Rodada 9 (I3): progresso da transcrição automática na extensão.
+export type FullReadingAudioHold = {
+  current: number
+  total: number
+}
+
+const AUDIO_HOLD_MAX =
+  20
+
+export function normalizeAudioHold(
+  value: unknown,
+): FullReadingAudioHold | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  const record =
+    value as { current?: unknown; total?: unknown }
+
+  const current =
+    typeof record.current === 'number' ? Math.trunc(record.current) : Number.NaN
+
+  const total =
+    typeof record.total === 'number' ? Math.trunc(record.total) : Number.NaN
+
+  if (
+    !Number.isFinite(current) ||
+    !Number.isFinite(total) ||
+    total < 1 ||
+    total > AUDIO_HOLD_MAX ||
+    current < 1 ||
+    current > total
+  ) {
+    return null
+  }
+
+  return { current, total }
+}
+
 export type FullReadingPanelPlan = {
-  action: 'use' | 'wait' | 'start' | 'show_failure' | 'skip'
+  // 'hold' (rodada 9): a extensão está transcrevendo áudio desta conversa.
+  action: 'use' | 'wait' | 'start' | 'show_failure' | 'skip' | 'hold'
   reading: FullReadingPanelRunRow | null
   // Rodada 8: última leitura boa de uma versão anterior do prompt. Só para
   // mostrar enquanto a leitura atual roda ou falhou; nunca conta como
@@ -295,6 +346,9 @@ export type FullReadingPanelPlan = {
   review_due?: { at: string; motivo: string } | null
   // Rodada 9 (E2): gatilhos de leitura completa decididos aqui.
   full_reasons?: FullReadingFullReason[]
+  audio_hold?: FullReadingAudioHold | null
+  // Rodada 9 (J): ciclo encerrado lido como atendimento.
+  closed_service?: string | null
 }
 
 // Pedido gravado na rodada enquanto ela roda (a decisão completa substitui
@@ -482,6 +536,9 @@ export function planFullReadingPanel({
   creditExhaustedAt = null,
   lastClaudeSuccessAt = null,
   latestCustomerObservedAt,
+  latestCustomerOccurredAt = null,
+  latestTranscriptionObservedAt = null,
+  audioHold = null,
   burstQuietMs = FULL_READING_BURST_QUIET_MS,
 }: {
   runs: FullReadingPanelRunRow[]
@@ -492,6 +549,12 @@ export function planFullReadingPanel({
   // Rodada 9: última mensagem real do cliente (o que deixa a leitura
   // velha). Sem o valor, vale latestObservedAt (comportamento anterior).
   latestCustomerObservedAt?: string | null
+  // Rodada 9 (J): hora da última mensagem real do cliente (ciclo
+  // encerrado: só depois do encerramento conta).
+  latestCustomerOccurredAt?: string | null
+  // Rodada 9 (I): última transcrição de áudio que entrou no ledger.
+  latestTranscriptionObservedAt?: string | null
+  audioHold?: FullReadingAudioHold | null
   burstQuietMs?: number
   force: boolean
   // 'if_changed' (rodada 8, B4): "Atualizar" sem nada novo desde a
@@ -508,10 +571,29 @@ export function planFullReadingPanel({
   const nowTime =
     toTime(now) ?? Date.now()
 
-  const staleObservedAt =
+  // J: ciclo encerrado só é lido quando o cliente escreveu depois do
+  // encerramento; aí só mensagem deixa a leitura velha.
+  const closedCycle =
+    TERMINAL_CYCLE_STATUSES.has(kanban.status)
+
+  const closedService =
+    closedCycle &&
+    customerWroteAfterClosure({
+      closedAt: kanban.closed_at ?? null,
+      lastCustomerMessageAt: latestCustomerOccurredAt,
+    })
+
+  const messageObservedAt =
     latestCustomerObservedAt === undefined
       ? latestObservedAt
       : latestCustomerObservedAt
+
+  // I: áudio que ganhou transcrição também deixa a leitura velha.
+  const staleObservedAt =
+    toTime(latestTranscriptionObservedAt) !== null &&
+    (toTime(messageObservedAt) ?? 0) < (toTime(latestTranscriptionObservedAt) ?? 0)
+      ? latestTranscriptionObservedAt
+      : messageObservedAt
 
   const ordered =
     [...runs]
@@ -611,13 +693,14 @@ export function planFullReadingPanel({
         referenceTime: reading.reference_time,
         latestObservedAt: staleObservedAt,
         kanban,
-      }),
+      }).filter((reason) => !(closedService && reason === 'kanban_mudou')),
     )
 
     const kanbanAtRun =
       readKanbanAtRun(reading)
 
     if (
+      !closedService &&
       kanbanAtRun &&
       kanbanAtRun.status !== kanban.status &&
       !staleReasons.includes('kanban_mudou')
@@ -702,7 +785,7 @@ export function planFullReadingPanel({
       : []
 
   const skipReason =
-    TERMINAL_CYCLE_STATUSES.has(kanban.status)
+    closedCycle && !closedService
       ? CLOSED_CYCLE_SKIP_CODE
       : latestObservedAt === null
         ? EMPTY_CONVERSATION_SKIP_CODE
@@ -832,12 +915,25 @@ export function planFullReadingPanel({
     }
   }
 
+  // I3: com áudio desta conversa sendo transcrito, nenhuma leitura nova
+  // começa (nem pelo "Atualizar"); ela roda depois, já com o texto.
+  if (audioHold) {
+    return {
+      ...plan,
+      action: 'hold',
+      stale_reasons: staleReasons,
+      audio_hold: audioHold,
+      closed_service: closedService ? kanban.status : null,
+    }
+  }
+
   return {
     ...plan,
     action: 'start',
     stale_reasons: staleReasons,
     review_due: reviewDue,
     full_reasons: fullReasons,
+    closed_service: closedService ? kanban.status : null,
   }
 }
 
@@ -956,6 +1052,7 @@ export function normalizeFullReadingPanelScope({
 
 type CycleRow = {
   status?: unknown
+  won_at?: unknown
   stage_entered_at?: unknown
   next_action?: unknown
   next_action_date?: unknown
@@ -987,7 +1084,9 @@ function kanbanFromRow(
       ? rowText(row.lost_at) ?? rowText(row.closed_at) ?? rowText(row.stage_entered_at)
       : status === 'cancelado'
         ? rowText(row.canceled_at) ?? rowText(row.closed_at) ?? rowText(row.stage_entered_at)
-        : rowText(row.closed_at)
+        : status === 'ganho'
+          ? rowText(row.won_at) ?? rowText(row.closed_at) ?? rowText(row.stage_entered_at)
+          : rowText(row.closed_at)
 
   return {
     status,
@@ -1034,6 +1133,10 @@ export type FullReadingPanelSnapshot = {
   // Rodada 9 (G2): a extensão relê nesse horário com o painel aberto.
   review_at?: string | null
   daily_cap_reached?: boolean
+  // Rodada 9 (I3): transcrição de áudio em andamento.
+  audio_hold?: FullReadingAudioHold | null
+  // Rodada 9 (J): ciclo encerrado lido como atendimento (status).
+  closed_service?: string | null
 }
 
 export type FullReadingRunScheduler =
@@ -1178,6 +1281,8 @@ export type FullReadingLedgerActivity = {
   latest_person: { occurred_at: string; observed_at: string } | null
   // Hora da última mensagem real (qualquer lado): "Último contato".
   last_message_at: string | null
+  // Rodada 9 (I): última versão de áudio com transcrição.
+  latest_transcription_observed_at?: string | null
 }
 
 type ActivityRow = {
@@ -1187,6 +1292,7 @@ type ActivityRow = {
   observed_at?: unknown
   content_type?: unknown
   text_content?: unknown
+  audio_transcription?: unknown
 }
 
 function later(
@@ -1217,6 +1323,7 @@ export function summarizeLedgerActivity(
     latest_customer_occurred_at: null,
     latest_person: null,
     last_message_at: null,
+    latest_transcription_observed_at: null,
   }
 
   for (const row of rows) {
@@ -1242,6 +1349,15 @@ export function summarizeLedgerActivity(
 
     activity.last_message_at =
       later(activity.last_message_at, occurredAt)
+
+    if (
+      message.content_type === 'audio' &&
+      typeof row.audio_transcription === 'string' &&
+      row.audio_transcription.trim().length > 0
+    ) {
+      activity.latest_transcription_observed_at =
+        later(activity.latest_transcription_observed_at ?? null, observedAt)
+    }
 
     if (isCustomerMessage(message)) {
       activity.latest_customer_observed_at =
@@ -1270,7 +1386,7 @@ async function readLedgerActivity(
   const { data, error } =
     await admin
       .from('conversation_messages')
-      .select('direction, author_kind, occurred_at, observed_at, content_type, text_content')
+      .select('direction, author_kind, occurred_at, observed_at, content_type, text_content, audio_transcription')
       .eq('company_id', scope.company_id)
       .in('cycle_id', cycleIds)
       .eq('conversation_key', scope.conversation_key)
@@ -1505,11 +1621,13 @@ export async function resolveFullReadingPanel({
   createRunId,
   env = process.env,
   route,
+  audioHold = null,
 }: {
   admin: SupabaseClient
   scope: FullReadingPanelScope
   force: boolean
   forceMode?: 'always' | 'if_changed' | 'full'
+  audioHold?: FullReadingAudioHold | null
   now: string
   apiKey: string
   schedule: FullReadingRunScheduler
@@ -1520,7 +1638,7 @@ export async function resolveFullReadingPanel({
   const { data: cycleRow, error: cycleError } =
     await admin
       .from('sales_cycles')
-      .select('status, stage_entered_at, next_action, next_action_date, lost_at, canceled_at, closed_at')
+      .select('status, stage_entered_at, next_action, next_action_date, won_at, lost_at, canceled_at, closed_at')
       .eq('id', scope.cycle_id)
       .eq('company_id', scope.company_id)
       .maybeSingle()
@@ -1559,7 +1677,7 @@ export async function resolveFullReadingPanel({
     activity.last_message_at
 
   const lastCustomerMessageAt =
-    kanban.status === 'perdido' || kanban.status === 'cancelado'
+    TERMINAL_CYCLE_STATUSES.has(kanban.status)
       ? activity.latest_customer_occurred_at
       : null
 
@@ -1569,6 +1687,9 @@ export async function resolveFullReadingPanel({
     kanban,
     latestObservedAt,
     latestCustomerObservedAt: activity.latest_customer_observed_at,
+    latestCustomerOccurredAt: activity.latest_customer_occurred_at,
+    latestTranscriptionObservedAt: activity.latest_transcription_observed_at ?? null,
+    audioHold,
     force,
     forceMode,
     now,
@@ -1638,6 +1759,11 @@ export async function resolveFullReadingPanel({
         ? readReviewAt(plan.reading)?.at ?? null
         : null,
     daily_cap_reached: plan.skip_reason === DAILY_CAP_SKIP_CODE,
+    closed_service:
+      TERMINAL_CYCLE_STATUSES.has(kanban.status) &&
+      (plan.closed_service || (shownReading !== null && plan.skip_reason !== CLOSED_CYCLE_SKIP_CODE && customerWroteAfterClosure({ closedAt: kanban.closed_at ?? null, lastCustomerMessageAt: activity.latest_customer_occurred_at })))
+        ? kanban.status
+        : null,
   }
 
   const failureFields = {
@@ -1674,6 +1800,18 @@ export async function resolveFullReadingPanel({
         plan.active_run?.started_at ?? plan.active_run?.created_at ?? null,
       running_review:
         readRunRequest(plan.active_run)?.revisao ?? null,
+    }
+  }
+
+  if (plan.action === 'hold') {
+    return {
+      ...base,
+      state: 'running',
+      reading: shownReading,
+      failure_code: null,
+      started_run_id: null,
+      running_since: null,
+      audio_hold: plan.audio_hold ?? null,
     }
   }
 
@@ -1793,6 +1931,8 @@ function panelStatusInput(
     running_review: snapshot.running_review ?? null,
     review_at: snapshot.review_at ?? null,
     daily_cap_reached: snapshot.daily_cap_reached === true,
+    audio_hold: snapshot.audio_hold ?? null,
+    closed_service: snapshot.closed_service ?? null,
   }
 }
 
@@ -1910,6 +2050,7 @@ export async function loadFullReadingPanelForRequest({
   conversationKey,
   force,
   forceMode,
+  audioHold,
   referenceTime,
   schedule,
   createRunId,
@@ -1924,6 +2065,8 @@ export async function loadFullReadingPanelForRequest({
   // "if_changed" (Atualizar com a leitura em dia não relê); "full" (Ler a
   // conversa inteira); qualquer outro valor relê.
   forceMode?: unknown
+  // Rodada 9 (I3): { current, total } da transcrição na extensão.
+  audioHold?: unknown
   referenceTime: string
   schedule: FullReadingRunScheduler
   createRunId: () => string
@@ -1965,6 +2108,7 @@ export async function loadFullReadingPanelForRequest({
         createRunId,
         env,
         route,
+        audioHold: normalizeAudioHold(audioHold),
       })
 
     if (snapshot?.started_run_id) {

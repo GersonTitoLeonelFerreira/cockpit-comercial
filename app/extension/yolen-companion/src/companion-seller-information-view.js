@@ -2549,7 +2549,7 @@
       : ''
     line.className = failed
       ? 'yolen-full-reading-notice yolen-fr-notice yolen-status-warning'
-      : band && view.state !== 'running'
+      : band && (view.state !== 'running' || band === 'audio')
         ? 'yolen-full-reading-notice yolen-fr-notice yolen-fr-band'
         : 'yolen-inline-loading-status yolen-full-reading-notice yolen-fr-notice'
     line.setAttribute('role', 'status')
@@ -2569,8 +2569,9 @@
 
     line.appendChild(createTextElement(doc, 'span', 'yolen-fr-notice-text', notice))
 
-    // Primeira leitura: os segundos passando e quanto costuma levar.
-    if (status?.running === 'first') {
+    // Primeira leitura: os segundos passando e quanto costuma levar (não
+    // enquanto o áudio é transcrito: a leitura ainda nem começou).
+    if (status?.running === 'first' && band !== 'audio') {
       line.setAttribute('data-yolen-fr-running', 'first')
       const since = fullReadingText(status.running_since)
 
