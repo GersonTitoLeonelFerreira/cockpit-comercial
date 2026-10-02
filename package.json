@@ -24,6 +24,7 @@
     "test:companion-capture-state": "node --test supabase/phase-tests/phase-4-capture-state.test.mjs",
     "test:companion-ingestion-rpc": "node --test supabase/phase-tests/phase-4-message-ingestion-rpc.test.mjs",
     "test:companion-causal": "node --test supabase/phase-tests/phase-4-causal-message-version.test.mjs",
+    "test:companion-closed-cycle-capture": "node --test supabase/phase-tests/phase-r10-closed-cycle-capture.test.mjs",
     "test:schema-baseline": "node --test supabase/schema-baseline/schema-baseline.test.mjs",
     "test:companion-stateful-persistence": "node --test supabase/phase-tests/phase-5-stateful-persistence.test.mjs",
     "test:companion-stateful-context": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/stateful-copilot-real-context-loader.test.mjs",
