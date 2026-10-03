@@ -413,8 +413,8 @@ test('C2: a continuação manda a decisão anterior compacta — condução, com
 // ---------------------------------------------------------------------------
 
 test('D1/D2/D4: prompt full-reading-v7 geral, com os limites, uma frase curta por item e meta de ~6 mil caracteres', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v9')
-  assert.deepEqual(FULL_READING_COMPATIBLE_PROMPT_VERSIONS, ['full-reading-v9', 'full-reading-v8', 'full-reading-v7', 'full-reading-v6'])
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v10')
+  assert.deepEqual(FULL_READING_COMPATIBLE_PROMPT_VERSIONS, ['full-reading-v10', 'full-reading-v9', 'full-reading-v8', 'full-reading-v7', 'full-reading-v6'])
 
   const system = buildFullReadingSystemPrompt()
 

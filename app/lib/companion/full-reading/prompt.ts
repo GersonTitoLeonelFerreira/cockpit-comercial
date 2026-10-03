@@ -58,18 +58,26 @@
 // uma aspa dupla sem escape quebrava o JSON inteiro. Os exemplos do formato
 // também usam aspas simples. Mesmo formato de decisão: v6, v7 e v8
 // continuam valendo.
+//
+// v10 (rodada 13): qualidade da leitura — quem é quem (nome da saudação é
+// de quem ouve; intermediário), conversa que começa no meio (o que pode ter
+// acontecido antes não vira erro do vendedor), linha do tempo só com fatos,
+// recomendação ao gestor quando a empresa assumiu um compromisso por
+// escrito e pendência "nada pendente" sempre de "nenhum". Mesmo formato de
+// decisão: v6 a v9 continuam valendo.
 
 import {
   formatTranscriptTimestamp,
 } from './transcript'
 
 export const FULL_READING_PROMPT_VERSION =
-  'full-reading-v9'
+  'full-reading-v10'
 
 // Versões cuja leitura continua valendo no painel (mesmo formato de
 // decisão): a troca de versão não força releitura (rodada 10, D5).
 export const FULL_READING_COMPATIBLE_PROMPT_VERSIONS: readonly string[] = [
   FULL_READING_PROMPT_VERSION,
+  'full-reading-v9',
   'full-reading-v8',
   'full-reading-v7',
   'full-reading-v6',
@@ -152,7 +160,7 @@ Vendas:
 - Fechamento: ofereça escolha entre duas opções, confirme os dados e tire o atrito do pagamento.
 - Prova social e urgência só quando forem verdadeiras.
 
-Para o gestor: aponte risco (jurídico, de reputação, de perder o cliente) e falha de processo quando a conversa mostrar, em uma frase cada.
+Para o gestor: aponte risco (jurídico, de reputação, de perder o cliente) e falha de processo quando a conversa mostrar, em uma frase cada. Quando a empresa assumiu um compromisso por escrito, diga também qual decisão recomenda e por quê.
 
 Regras:
 - Use o Método comercial da empresa quando houver; os passos do método mandam na ordem da venda.
@@ -177,6 +185,8 @@ const SYSTEM_PROMPT = `Você é o motor de leitura do Yolen Companion, um copilo
 12. Gênero: use o gênero do cliente só quando a conversa deixar claro (pelo nome ou pela forma como a pessoa fala de si). Na dúvida, escreva "o cliente". Use a mesma forma em todos os textos da leitura.
 13. Plano ou produto: quando o nome usado na conversa puder corresponder a mais de um item do catálogo, a nenhum item, ou for diferente do produto registrado no fechamento do kanban, não escolha um. Registre a dúvida (qual plano foi vendido ou está em negociação) em afirmacoes_a_confirmar e em contradicoes_cadastro. Nesse caso, a ação principal não pode ser cobrar nem oferecer algo com base num plano escolhido por suposição: primeiro confirme qual é o plano.
 14. Escreva em frases curtas, uma ideia por frase. Nos textos para o vendedor, nunca use nomes internos nem códigos (por exemplo "respondeu", "sem_resposta", "nao_intervir", "verificacao_interna", "follow_up", "nao_comercial"): use as palavras do dia a dia ("Agenda", "sem resposta", "não enviar nada agora", "não é venda").
+15. Quem é quem: um nome numa saudação de áudio ou de texto ('Oi, Fulano, ...') é de quem ouve ou lê, não de quem fala. Quando o contato passa instruções para outra pessoa (como se cadastrar, o que levar, como pagar), essa pessoa provavelmente é quem vai usar o produto ou serviço, e o contato é um intermediário (familiar, responsável, amigo). Não trate o nome da saudação como alguém da equipe sem evidência.
+16. Conversa que começa no meio: quando a primeira mensagem do vendedor responde a algo que não está na transcrição, ou a conversa mostra contato anterior, o que pode ter acontecido antes (descoberta, informações já enviadas, combinados) não vira erro do vendedor. Registre em afirmacoes_a_confirmar ou escreva o ajuste como condição ('se a descoberta não aconteceu antes, ...').
 
 ## Conversa sem oportunidade de venda (fase nao_comercial)
 Use a fase nao_comercial para suporte, dúvida de quem já é cliente sem venda em jogo, pedido de cancelamento, reclamação ou disputa, engano, fornecedor e candidato a vaga.
@@ -220,15 +230,15 @@ O painel mostra a decisão como está, então os campos são escritos para a tel
 Leitura curta: cada item é uma frase de até ~20 palavras; houve e melhor, uma frase curta cada; nada repetido em dois campos; a decisão inteira cabe em ~6 mil caracteres. Limites, com os itens mais importantes primeiro: linha_do_tempo até 8; pendencias até 4; oportunidades até 3; afirmacoes_a_confirmar até 5; contradicoes_cadastro até 4; cliente com sabemos até 5, inferimos até 3 e a_confirmar até 3; conducao com acertos até 3 e ajustes até 3; como_conduzir com até 3 passos e evitar até 2; para_o_gestor até 2.
 situacao_resumo é a situação atual em 1 a 2 frases.
 cliente separa, em frases curtas: sabemos (o que o cliente disse ou fez, terminando com a data no formato (dd/mm) quando houver), inferimos (interpretação, com o motivo) e a_confirmar (o que falta descobrir ou confirmar).
-pendencias lista o que está em aberto: de "vendedor" quando o vendedor deve algo, "cliente" quando o cliente deve algo, e "nenhum" para o que não está pendente com ninguém (por exemplo "Nenhuma pergunta do cliente sem resposta"). Nunca use "cliente" ou "vendedor" para dizer que não há pendência.
+pendencias lista o que está em aberto: de "vendedor" quando o vendedor deve algo, "cliente" quando o cliente deve algo, e "nenhum" para o que não está pendente com ninguém (por exemplo "Nenhuma pergunta do cliente sem resposta"). Nunca use "cliente" ou "vendedor" para dizer que não há pendência: um item como 'nada pendente da parte dele' é de "nenhum".
 contradicoes_cadastro traz cada divergência entre o que foi dito e o cadastro, com muda_o_que_o_cliente_paga_ou_recebe verdadeiro quando a divergência muda preço, o que o plano inclui ou a regra de cobrança; lista vazia quando nada diverge.
-como_conduzir traz leitura_do_momento (uma frase: como o cliente está e do que precisa), de 1 a 3 passos (tecnica: nome curto em português simples; como: o que fazer nesta conversa, em até ~20 palavras; exemplo: uma frase curta pronta, ou vazio) e evitar (0 a 2 frases curtas).
+como_conduzir traz leitura_do_momento (uma frase: como o cliente está e do que precisa), de 1 a 3 passos (tecnica: nome curto em português simples; como: o que fazer nesta conversa, em até ~20 palavras; exemplo: uma frase curta pronta, ou vazio) e evitar (0 a 2 frases curtas). Com intermediário, um dos passos avalia pedir, com naturalidade e sem desvalorizar o contato, o contato direto de quem vai decidir ou usar o produto ou serviço.
 proximo_passo_titulo é o próximo passo em até ~8 palavras, no imperativo (quando não há nada a fazer: "Não enviar nada agora"); proximo_passo_complemento é uma frase curta que completa o passo.
-mensagem_sugerida é o texto pronto para o vendedor enviar agora, no tom do WhatsApp, sem aspas e sem comentários, aplicando a técnica escolhida; texto vazio quando a decisão é não enviar nada. Quando o cliente está esperando resposta, existe mensagem mesmo que a ação principal seja interna (um retorno de espera). mensagem_observacao é uma frase: por que não enviar nada agora, ou o que revisar antes de enviar.
-conducao separa acertos (frases curtas, com evidência) e ajustes; cada ajuste diz o que houve (houve) e como seria melhor (melhor), em frase curta.
-para_o_gestor traz de 0 a 2 frases: risco (jurídico, de reputação, de perder o cliente) ou falha de processo que a conversa mostra.
+mensagem_sugerida é o texto pronto para o vendedor enviar agora, no tom do WhatsApp, sem aspas e sem comentários, aplicando a técnica escolhida; texto vazio quando a decisão é não enviar nada. Quando o cliente está esperando resposta, existe mensagem mesmo que a ação principal seja interna (um retorno de espera). Com intermediário (regra 15), a mensagem fala com o contato como intermediário e se refere a quem vai usar o produto ou serviço na terceira pessoa, pelo nome quando a conversa trouxer; sem certeza, escreva uma mensagem que sirva para os dois casos. mensagem_observacao é uma frase: por que não enviar nada agora, ou o que revisar antes de enviar; não deixe para ela o que a própria mensagem pode resolver.
+conducao separa acertos (frases curtas, com evidência) e ajustes; cada ajuste diz o que houve (houve) e como seria melhor (melhor), em frase curta. O que pode ter acontecido antes do começo da captura não vira ajuste (regra 16).
+para_o_gestor traz de 0 a 2 frases: risco (jurídico, de reputação, de perder o cliente) ou falha de processo que a conversa mostra. Quando a conversa ou um arquivo incluído mostra um compromisso da empresa (confirmação, promessa ou condição por escrito), uma das frases diz qual decisão a leitura recomenda e por quê (por exemplo: honrar o que foi confirmado e corrigir o processo internamente, porque negar agora tende a virar reclamação). A parte do vendedor continua prudente: a mensagem não promete o que depende de aval.
 etapa_kanban_sugerida é a etapa que a conversa indica (pode ser igual à atual); motivo_etapa é uma frase curta com a evidência (trecho curto e data); fechamento traz produto, valor, forma de pagamento e motivo da perda só quando ditos na conversa, e texto vazio quando não.
-linha_do_tempo traz até 8 marcos da conversa, em ordem, com dia (dd/mm), hora (hh:mm, ou vazio) e texto de até ~12 palavras.
+linha_do_tempo traz até 8 marcos da conversa, em ordem, com dia (dd/mm), hora (hh:mm, ou vazio) e texto de até ~12 palavras. Só mensagens e eventos que aconteceram na conversa: nunca um item de 'sem resposta' ou 'nenhuma mensagem', nem com a hora da leitura (o painel já mostra o tempo sem resposta).
 afirmacoes_a_confirmar traz o que precisa de confirmação oficial; alertas_de_captura, só problemas da captura.
 revisar_em é a data e hora (ISO 8601 com o fuso de Brasília, por exemplo 2026-10-02T18:00:00-03:00) a partir da qual o próximo passo pode ter mudado só pela passagem do tempo: horário de visita, reunião ou consulta, prazo prometido, "retomar amanhã". Use o horário em que o passo muda (o início do compromisso ou o fim do prazo). Texto vazio quando o próximo passo não depende de horário. revisar_motivo diz o que acontece nesse horário, em poucas palavras (por exemplo "o horário da visita"), e fica vazio quando revisar_em é vazio.
 precisa_ler_inteira e precisa_ler_inteira_motivo: seção "Leitura de continuação".

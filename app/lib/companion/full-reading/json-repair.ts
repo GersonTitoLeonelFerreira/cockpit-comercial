@@ -22,6 +22,7 @@ export type JsonRepairKind =
   | 'aspas'
   | 'quebra_de_linha'
   | 'virgula'
+  | 'virgula_faltando'
   | 'jsonrepair'
 
 export type JsonParseDiagnostic = {
@@ -117,18 +118,33 @@ const KEY_AHEAD =
 const VALUE_START =
   /^(?:"|\{|\[|-|\d|true\b|false\b|null\b)/
 
-// A aspa em `from - 1` fecha o texto?
+// Rodada 13 (F): nome do campo que vem logo depois, no padrão de chave
+// ("campo":), ou null.
+function keyAhead(
+  source: string,
+  from: number,
+): string | null {
+  const match =
+    source.slice(from, from + 200).match(/^"([A-Za-z_][A-Za-z0-9_]*)"\s*:/)
+
+  return match ? match[1] : null
+}
+
+// A aspa em `from - 1` fecha o texto? 'virgula_faltando': fecha, e a
+// vírgula antes do próximo campo foi esquecida ("a": "x" "b": "y").
 function closesString(
   source: string,
   from: number,
   {
     isKey,
     container,
+    knownKeys,
   }: {
     isKey: boolean
     container: '{' | '[' | null
+    knownKeys: ReadonlySet<string> | null
   },
-): boolean {
+): boolean | 'virgula_faltando' {
   const next =
     skipSpaces(source, from)
 
@@ -137,6 +153,15 @@ function closesString(
 
   if (isKey) {
     return char === ':'
+  }
+
+  if (char === '"' && container === '{') {
+    const key =
+      keyAhead(source, next)
+
+    if (key && (!knownKeys || knownKeys.has(key))) {
+      return 'virgula_faltando'
+    }
   }
 
   if (char === undefined) {
@@ -190,6 +215,11 @@ function escapeControl(
 
 export function repairJsonStructure(
   source: string,
+  {
+    knownKeys = null,
+  }: {
+    knownKeys?: ReadonlySet<string> | null
+  } = {},
 ): {
   text: string
   kinds: JsonRepairKind[]
@@ -227,7 +257,18 @@ export function repairJsonStructure(
         }
 
         if (inner === '"') {
-          if (closesString(source, index + 1, { isKey, container })) {
+          const closing =
+            closesString(source, index + 1, { isKey, container, knownKeys })
+
+          if (closing === 'virgula_faltando') {
+            out += '",'
+            kinds.add('virgula_faltando')
+            index += 1
+            expectKey = true
+            break
+          }
+
+          if (closing) {
             out += '"'
             index += 1
             break
@@ -308,6 +349,38 @@ export type ParsedJson = {
   repairs: JsonRepairKind[]
 }
 
+// Rodada 13 (F1): um texto do resultado com um nome de campo do formato no
+// padrão de chave ("campo":) é sinal de campos juntados por uma vírgula
+// esquecida: o conserto não vale.
+export function hasEmbeddedFieldKey(
+  value: unknown,
+  knownKeys: ReadonlySet<string> | null,
+): boolean {
+  if (!knownKeys || knownKeys.size === 0) {
+    return false
+  }
+
+  if (typeof value === 'string') {
+    for (const match of value.matchAll(/"([A-Za-z_][A-Za-z0-9_]*)"\s*:/g)) {
+      if (knownKeys.has(match[1])) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => hasEmbeddedFieldKey(item, knownKeys))
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).some((item) => hasEmbeddedFieldKey(item, knownKeys))
+  }
+
+  return false
+}
+
 export type JsonParseFailure = {
   reason: 'sem_objeto' | 'json_invalido'
   diagnostic: JsonParseDiagnostic
@@ -316,6 +389,12 @@ export type JsonParseFailure = {
 // Devolve o valor (com os consertos feitos) ou a falha com o diagnóstico.
 export function parseJsonWithRepair(
   text: string,
+  {
+    knownKeys = null,
+  }: {
+    // Nomes dos campos do formato (rodada 13, F1).
+    knownKeys?: ReadonlySet<string> | null
+  } = {},
 ): ParsedJson | JsonParseFailure {
   const trimmed =
     text.trim()
@@ -354,12 +433,18 @@ export function parseJsonWithRepair(
   }
 
   const structural =
-    repairJsonStructure(sliced)
+    repairJsonStructure(sliced, { knownKeys })
 
   try {
-    return {
-      value: JSON.parse(structural.text),
-      repairs: [...around, ...structural.kinds],
+    const value =
+      JSON.parse(structural.text)
+
+    // F1: campo engolido por um texto — o passe local não vale.
+    if (!hasEmbeddedFieldKey(value, knownKeys)) {
+      return {
+        value,
+        repairs: [...around, ...structural.kinds],
+      }
     }
   } catch {
     // segue para a biblioteca
@@ -369,7 +454,12 @@ export function parseJsonWithRepair(
     const repaired =
       JSON.parse(jsonrepair(sliced))
 
-    if (repaired !== null && typeof repaired === 'object' && !Array.isArray(repaired)) {
+    if (
+      repaired !== null &&
+      typeof repaired === 'object' &&
+      !Array.isArray(repaired) &&
+      !hasEmbeddedFieldKey(repaired, knownKeys)
+    ) {
       return { value: repaired, repairs: [...around, 'jsonrepair'] }
     }
   } catch {

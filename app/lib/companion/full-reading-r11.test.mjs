@@ -225,8 +225,8 @@ test('B1: a transcrição mostra "[arquivo não incluído: tipo, nome]" com a re
 // ---------------------------------------------------------------------------
 
 test('B7: prompt v8 geral — linhas de áudio e arquivo, nunca adivinhar, arquivos_sugeridos; v7 e v6 continuam valendo', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v9')
-  assert.deepEqual(FULL_READING_COMPATIBLE_PROMPT_VERSIONS, ['full-reading-v9', 'full-reading-v8', 'full-reading-v7', 'full-reading-v6'])
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v10')
+  assert.deepEqual(FULL_READING_COMPATIBLE_PROMPT_VERSIONS, ['full-reading-v10', 'full-reading-v9', 'full-reading-v8', 'full-reading-v7', 'full-reading-v6'])
 
   const system = buildFullReadingSystemPrompt()
 

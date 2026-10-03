@@ -213,7 +213,7 @@ test('mensagens da cadeia: mesma message_key em dois ciclos fica uma vez, na ver
 })
 
 test('prompt v4: o marco é explicado de forma genérica (ciclo anterior encerrado, foco na oportunidade nova)', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v9')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v10')
 
   const system =
     buildFullReadingSystemPrompt()

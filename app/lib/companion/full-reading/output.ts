@@ -754,6 +754,24 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
   },
 } as const
 
+// Rodada 13 (D2): "Nenhuma pendência…", "Sem pendência…", "Nada
+// pendente…", "Nenhuma pergunta … sem resposta" — no começo do texto ou
+// depois de uma pausa ("Aguardando o retorno; nada pendente da parte dela").
+const NOTHING_PENDING_START =
+  /^(?:nenhum[a]?\b.*(?:pend|sem resposta|em aberto)|sem\s+pend[êe]ncia|nada\s+(?:mais\s+)?(?:pendente|em aberto)|n[ãa]o\s+h[áa]\s+(?:nada\s+)?(?:pend|em aberto))/i
+
+const NOTHING_PENDING_CLAUSE =
+  /[;:,.–—-]\s*(?:e\s+)?(?:nada\s+(?:mais\s+)?(?:pendente|em aberto)|nenhuma\s+pend[êe]ncia|sem\s+pend[êe]ncias?|n[ãa]o\s+h[áa]\s+(?:nada\s+)?pend)/i
+
+export function isNothingPendingText(
+  text: string,
+): boolean {
+  const value =
+    text.trim()
+
+  return NOTHING_PENDING_START.test(value) || NOTHING_PENDING_CLAUSE.test(value)
+}
+
 export class FullReadingOutputError extends Error {
   readonly code: string
   // Rodada 12 (C1): JSON que não abriu nem com o conserto — diagnóstico sem
@@ -903,11 +921,54 @@ function readStringArray(
 // saída estruturada, um JSON cercado por texto ou bloco de código. Rodada
 // 12 (C2): antes de desistir, conserta localmente (aspas sem escape, quebra
 // de linha crua, vírgula sobrando, texto em volta), sem chamada extra.
+// Rodada 13 (F1): nomes dos campos do formato, para o conserto não aceitar
+// um texto que engoliu outro campo ("a": "x" "b": "y").
+function collectSchemaKeys(
+  schema: unknown,
+  keys: Set<string>,
+): Set<string> {
+  if (Array.isArray(schema)) {
+    schema.forEach((item) => collectSchemaKeys(item, keys))
+    return keys
+  }
+
+  if (!schema || typeof schema !== 'object') {
+    return keys
+  }
+
+  const record =
+    schema as Record<string, unknown>
+
+  if (record.properties && typeof record.properties === 'object') {
+    for (const [key, value] of Object.entries(record.properties as Record<string, unknown>)) {
+      keys.add(key)
+      collectSchemaKeys(value, keys)
+    }
+  }
+
+  for (const nested of ['items', 'anyOf', 'oneOf']) {
+    if (nested in record) {
+      collectSchemaKeys(record[nested], keys)
+    }
+  }
+
+  return keys
+}
+
+let outputFieldNames: Set<string> | null = null
+
+export function fullReadingOutputFieldNames(): ReadonlySet<string> {
+  outputFieldNames ??=
+    collectSchemaKeys(FULL_READING_OUTPUT_JSON_SCHEMA, new Set(['analise_markdown', 'decisao']))
+
+  return outputFieldNames
+}
+
 export function extractJsonWithRepair(
   text: string,
 ): ParsedJson {
   const result =
-    parseJsonWithRepair(text)
+    parseJsonWithRepair(text, { knownKeys: fullReadingOutputFieldNames() })
 
   if ('value' in result) {
     return result
@@ -1014,17 +1075,27 @@ function parseDecisionCommon(
 
   const pendencias =
     readRecordList(decisionRaw, 'pendencias', path)
-      .map((item, index) => ({
-        de: lenient
-          ? readLenientCode(item, 'de', FULL_READING_PENDING_OWNERS, 'nenhum', `${path}.pendencias[${index}]`)
-          : readEnum(
-              item,
-              'de',
-              FULL_READING_PENDING_OWNERS,
-              `${path}.pendencias[${index}]`,
-            ),
-        texto: readString(item, 'texto', `${path}.pendencias[${index}]`, { allowEmpty: true }),
-      }))
+      .map((item, index) => {
+        const texto =
+          readString(item, 'texto', `${path}.pendencias[${index}]`, { allowEmpty: true })
+
+        const de =
+          lenient
+            ? readLenientCode(item, 'de', FULL_READING_PENDING_OWNERS, 'nenhum', `${path}.pendencias[${index}]`)
+            : readEnum(
+                item,
+                'de',
+                FULL_READING_PENDING_OWNERS,
+                `${path}.pendencias[${index}]`,
+              )
+
+        // Rodada 13 (D2): item que diz que não há nada pendente é de
+        // "nenhum", mesmo marcado como do cliente ou do vendedor.
+        return {
+          de: isNothingPendingText(texto) ? 'nenhum' as const : de,
+          texto,
+        }
+      })
       .filter((item) => item.texto.length > 0)
 
   const coachingRaw =

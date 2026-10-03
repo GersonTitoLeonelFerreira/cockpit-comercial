@@ -460,8 +460,8 @@ test('C1: o diagnóstico da falha não contém nenhuma letra do texto original',
 })
 
 test('C3: prompt v9 — falas com aspas simples, quebra só como \\n; v6, v7 e v8 continuam valendo', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v9')
-  assert.deepEqual(FULL_READING_COMPATIBLE_PROMPT_VERSIONS, ['full-reading-v9', 'full-reading-v8', 'full-reading-v7', 'full-reading-v6'])
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v10')
+  assert.deepEqual(FULL_READING_COMPATIBLE_PROMPT_VERSIONS, ['full-reading-v10', 'full-reading-v9', 'full-reading-v8', 'full-reading-v7', 'full-reading-v6'])
 
   const system = buildFullReadingSystemPrompt()
 

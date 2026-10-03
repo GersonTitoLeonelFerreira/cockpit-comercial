@@ -24,6 +24,7 @@ import {
   FULL_READING_PAYMENT_TYPE_CODES,
   findStageCoherenceProblem,
   isFullReadingKanbanStage,
+  isNothingPendingText,
   type FullReadingClosingData,
   type FullReadingCustomer,
   type FullReadingDecision,
@@ -2322,7 +2323,7 @@ function buildPending(
       // F2 (rodada 9): "Nenhuma pendência…" não é de ninguém, mesmo que o
       // modelo marque cliente ou vendedor.
       const owner =
-        NO_PENDING_WORDING.test(text)
+        NO_PENDING_WORDING.test(text) || isNothingPendingText(text)
           ? 'nenhum'
           : item?.de === 'vendedor' || item?.de === 'cliente' || item?.de === 'nenhum'
             ? item.de

@@ -504,7 +504,7 @@ test('B4: "Atualizar" com a leitura em dia não relê; "Ler de novo mesmo assim"
 })
 
 test('rodadas de medição (…-eval) nunca viram a leitura do painel nem seguram a rodada', () => {
-  assert.equal(FULL_READING_EVAL_PROMPT_VERSION, 'full-reading-v9-eval')
+  assert.equal(FULL_READING_EVAL_PROMPT_VERSION, 'full-reading-v10-eval')
 
   const evalRun = run({ run_id: 'run-eval', prompt_version: FULL_READING_EVAL_PROMPT_VERSION, created_at: minutesBefore(1), reference_time: minutesBefore(1) })
   const evalLive = run({ run_id: 'run-eval-live', prompt_version: FULL_READING_EVAL_PROMPT_VERSION, status: 'running', completed_at: null, decision: null, created_at: minutesBefore(0.5) })
@@ -521,7 +521,7 @@ test('rodadas de medição (…-eval) nunca viram a leitura do painel nem segura
 // ---------------------------------------------------------------------------
 
 test('esquema v5: sem analise_markdown; decisão na ordem "entender antes de decidir"; tudo obrigatório', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v9')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v10')
   assert.deepEqual(FULL_READING_OUTPUT_JSON_SCHEMA.required, ['decisao'])
   assert.equal('analise_markdown' in FULL_READING_OUTPUT_JSON_SCHEMA.properties, false)
 
