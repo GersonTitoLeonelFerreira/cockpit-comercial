@@ -108,7 +108,7 @@ function kanban(overrides = {}) {
 // ---------------------------------------------------------------------------
 
 test('prompt: versão atual e regras genéricas do kanban no sistema', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v7')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v8')
 
   const system =
     buildFullReadingSystemPrompt()

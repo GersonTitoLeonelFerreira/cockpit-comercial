@@ -410,6 +410,123 @@
     }
   }
 
+  // ------------------------------------------------------------------
+  // Rodada 11 (HML): imagem e arquivo viram mensagem com a marca de arquivo
+  // (a mesma do WhatsApp). Só quando o Core pede (leitura completa ligada);
+  // sem isso a bolha visual continua fora da captura, como hoje.
+  const MANYCHAT_FILE_HOST = 'manybot-files.manychat.io'
+  let mediaCaptureEnabled = false
+
+  function setMediaCaptureEnabled(value) {
+    mediaCaptureEnabled = value === true
+  }
+
+  function isManyChatFileUrl(value) {
+    try {
+      const url = new URL(String(value || ''), 'https://app.manychat.com/')
+      return url.protocol === 'https:' && url.hostname === MANYCHAT_FILE_HOST
+    } catch {
+      return false
+    }
+  }
+
+  function fileNameFromUrl(value) {
+    try {
+      const url = new URL(String(value || ''))
+      const tail = decodeURIComponent(url.pathname.split('/').pop() || '')
+      return /\.[a-z0-9]{2,5}$/i.test(tail) ? tail : ''
+    } catch {
+      return ''
+    }
+  }
+
+  function findManyChatImage(node) {
+    for (const image of queryAll(node, 'img')) {
+      const label = `${image.getAttribute?.('alt') || ''} ${image.getAttribute?.('aria-label') || ''}`.toLowerCase()
+
+      if (/emoji|sticker|figurinha|avatar/.test(label)) {
+        continue
+      }
+
+      if (isManyChatFileUrl(image.getAttribute?.('src'))) {
+        return image
+      }
+    }
+
+    return null
+  }
+
+  function findManyChatFileLink(node) {
+    for (const link of queryAll(node, 'a[href]')) {
+      const href = link.getAttribute?.('href') || ''
+
+      if (!isManyChatFileUrl(href)) {
+        continue
+      }
+
+      const name = normalizeText(readText(link)) || fileNameFromUrl(href)
+
+      if (/\.[a-z0-9]{2,5}$/i.test(name)) {
+        return { link, name, url: href }
+      }
+    }
+
+    return null
+  }
+
+  function describeManyChatAttachment(node, text, media) {
+    const tools = root.YolenCompanionMessageMutations
+
+    if (
+      !mediaCaptureEnabled ||
+      typeof tools?.buildAttachmentMarkerText !== 'function' ||
+      media.video > 0 ||
+      media.canvas > 0 ||
+      media.audio > 0
+    ) {
+      return null
+    }
+
+    const file = findManyChatFileLink(node)
+
+    if (file) {
+      const caption = normalizeText(text.replace(file.name, ''))
+
+      return {
+        kind: tools.attachmentKindFromFileName(file.name),
+        source_url: file.url,
+        text: tools.buildAttachmentMarkerText({
+          caption,
+          name: file.name,
+          sizeLabel: tools.readAttachmentSizeLabel(caption),
+          pages: tools.readAttachmentPageCount(caption),
+        }),
+      }
+    }
+
+    const image = findManyChatImage(node)
+
+    if (image) {
+      const source = image.getAttribute('src')
+
+      return {
+        kind: 'imagem',
+        source_url: source,
+        text: tools.buildAttachmentMarkerText({
+          caption: normalizeText(text),
+          name: fileNameFromUrl(source),
+          kind: 'imagem',
+        }),
+      }
+    }
+
+    return null
+  }
+
+  function normalizeText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim()
+  }
+
   function extractManyChatMessageContent(node) {
     const identity = identityApi().extractManyChatMessageIdentity(node)
     const evidence = base(identity)
@@ -452,6 +569,23 @@
     const hasText = text.length > 0
     const hasUnsupportedVisualMedia =
       media.video > 0 || media.image > 0 || media.canvas > 0
+
+    const attachment =
+      describeManyChatAttachment(native.node, text, media)
+
+    if (attachment) {
+      return Object.freeze({
+        ...evidence,
+        content_type: 'text',
+        text_content: attachment.text,
+        audio_transcription: null,
+        content_node_source: 'data-mid',
+        content_node_count: 1,
+        content_ready: true,
+        reason: null,
+        attachment_kind: attachment.kind,
+      })
+    }
 
     if (hasUnsupportedVisualMedia) {
       return Object.freeze({
@@ -644,6 +778,11 @@
   const api = Object.freeze({
     PLATFORM,
     SCHEMA_VERSION,
+    MANYCHAT_FILE_HOST,
+    setMediaCaptureEnabled,
+    isManyChatFileUrl,
+    findManyChatImage,
+    findManyChatFileLink,
     extractManyChatMessageContent,
     extractManyChatAutomationContent,
     isManyChatSystemLine,

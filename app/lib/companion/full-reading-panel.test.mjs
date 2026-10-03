@@ -429,7 +429,7 @@ test('painel: mensagem nova cria UMA rodada (trigger permitido pela constraint) 
   assert.equal(inserted[0].payload.trigger_source, FULL_READING_PANEL_TRIGGER_SOURCE)
   assert.ok(['manual_preview', 'analysis_job'].includes(FULL_READING_PANEL_TRIGGER_SOURCE))
   assert.equal(inserted[0].payload.prompt_version, FULL_READING_PROMPT_VERSION)
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v7')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v8')
   assert.equal(inserted[0].payload.status, 'queued')
 
   // Só companion_full_reading_runs recebe escrita.

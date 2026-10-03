@@ -104,8 +104,8 @@ export default function CopilotTogglePanel({
             </a>
           </div>
         </div>
-
-        <AICoachingHistory cycleId={cycle.id} />
+        {/* Rodada 11 (C1): sem "Orientações da IA" no HML — as orientações
+            já estão na Leitura do Companion. */}
       </>
     )
   }

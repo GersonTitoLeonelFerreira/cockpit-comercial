@@ -45,18 +45,26 @@
 // conduzir, mensagem e o que o gestor precisa saber, que são refeitos).
 // O formato da decisão é o mesmo da v6: uma leitura v6 continua valendo e
 // serve de base para a continuação.
+//
+// v8 (rodada 11): áudio com duração ("[áudio de 0:42] ...") e arquivos.
+// Um arquivo aparece como "[arquivo não incluído: tipo, nome] (ref: ...)"
+// até o vendedor incluí-lo; depois, como "[arquivo incluído: resumo]". A
+// leitura nunca adivinha o conteúdo de um arquivo não incluído e, quando ele
+// pode mudar a decisão, sugere incluí-lo em arquivos_sugeridos. Mesmo
+// formato de decisão (com o campo novo): v6 e v7 continuam valendo.
 
 import {
   formatTranscriptTimestamp,
 } from './transcript'
 
 export const FULL_READING_PROMPT_VERSION =
-  'full-reading-v7'
+  'full-reading-v8'
 
 // Versões cuja leitura continua valendo no painel (mesmo formato de
 // decisão): a troca de versão não força releitura (rodada 10, D5).
 export const FULL_READING_COMPATIBLE_PROMPT_VERSIONS: readonly string[] = [
   FULL_READING_PROMPT_VERSION,
+  'full-reading-v7',
   'full-reading-v6',
 ]
 
@@ -155,7 +163,7 @@ const SYSTEM_PROMPT = `Você é o motor de leitura do Yolen Companion, um copilo
 5. Decida o que fazer agora: uma decisão, uma ação e uma justificativa curta. "Não fazer nada agora" é uma decisão válida e muitas vezes a correta. Não crie trabalho artificial para o vendedor.
 6. Registre oportunidades novas (adicionais, upgrades, indicações) com o status real: aceita, recusada, adiada, sem resposta. Não transforme adiamento em compromisso, nem em objeção.
 7. Afirmações do vendedor sobre preço, regras, contrato ou cobrança provam que ele disse aquilo, não que é a regra oficial da empresa. Aponte contradições e o que precisa ser confirmado. Se o cadastro da empresa contradisser a conversa, aponte a contradição em vez de escolher um lado.
-8. A transcrição vem de uma captura automática do WhatsApp Web ou do ManyChat. Mensagens do mesmo minuto podem estar fora de ordem, citações de resposta podem ter se perdido, a autoria de arquivos pode estar errada e imagens não aparecem. Linhas AUTOMAÇÃO são mensagens automáticas (bot) da empresa: não são ações do vendedor nem falas do cliente. "[escolheu no menu] X" é o cliente tocando no botão X de uma mensagem automática. Linhas EVENTO são registros do sistema de atendimento (atendente atribuído, conversa fechada ou reaberta, respostas automáticas desativadas): não são mensagens nem respostas de ninguém, e só diga quem fez quando a própria linha disser. "[áudio] texto" é a transcrição automática de um áudio: leia como o que foi dito, sabendo que pode ter pequenos erros. "[áudio sem transcrição]" é um áudio que ninguém transcreveu: não adivinhe o conteúdo e, se ele puder mudar a leitura, diga que falta ouvir o áudio. Quando a captura puder mudar uma conclusão, diga.
+8. A transcrição vem de uma captura automática do WhatsApp Web ou do ManyChat. Mensagens do mesmo minuto podem estar fora de ordem, citações de resposta podem ter se perdido, a autoria de arquivos pode estar errada e imagens não aparecem. Linhas AUTOMAÇÃO são mensagens automáticas (bot) da empresa: não são ações do vendedor nem falas do cliente. "[escolheu no menu] X" é o cliente tocando no botão X de uma mensagem automática. Linhas EVENTO são registros do sistema de atendimento (atendente atribuído, conversa fechada ou reaberta, respostas automáticas desativadas): não são mensagens nem respostas de ninguém, e só diga quem fez quando a própria linha disser. "[áudio] texto" é a transcrição automática de um áudio: leia como o que foi dito, sabendo que pode ter pequenos erros. "[áudio sem transcrição]" é um áudio que ninguém transcreveu: não adivinhe o conteúdo e, se ele puder mudar a leitura, diga que falta ouvir o áudio. "[áudio de 0:42] texto" e "[áudio de 0:42 sem transcrição]" são o mesmo, com a duração do áudio. "[arquivo não incluído: tipo, nome] (ref: ...)" é um arquivo (imagem, PDF ou documento) que está na conversa, mas cujo conteúdo você não recebeu: não adivinhe nem descreva o que ele traz, e trate só o fato de ele existir (quem mandou e quando); "Legenda:" é o texto que veio junto. "[arquivo incluído: resumo] (ref: ...)" é o resumo factual de um arquivo que o vendedor pediu para incluir: use como o conteúdo do arquivo. Quando a captura puder mudar uma conclusão, diga.
 9. Nunca invente horários, preços, políticas, motivos ou compromissos.
 10. Antes de decidir a ação, compare cada afirmação da conversa sobre preço e sobre o que o plano inclui com o cadastro (nome e descrição de cada item do catálogo, preço e fatos oficiais) e registre cada divergência em contradicoes_cadastro. Um plano citado na conversa e um item do catálogo com o mesmo nome base são o mesmo plano quando não há outro parecido. Quando uma afirmação do vendedor contradiz o cadastro oficial e muda o que o cliente paga ou recebe (preço, o que o plano inclui, regra de cobrança), essa verificação interna entra na Ação principal: diga o que verificar e use acao_agora "verificacao_interna" quando ela for a ação principal. Se o cadastro estiver certo, corrigir a informação com o cliente é o próximo passo, e a Ação diz isso.
 11. Se a transcrição tiver o marco "Nova oportunidade aberta em ...", o ciclo comercial anterior está encerrado (ganho ou perdido) e o que vem antes do marco é histórico. O foco da leitura é a oportunidade nova: use o histórico para entender o cliente e o que já foi combinado, mas a fase, a etapa sugerida, as pendências e o próximo passo são desta oportunidade. Não trate a venda anterior como venda desta oportunidade.
@@ -217,6 +225,7 @@ linha_do_tempo traz até 8 marcos da conversa, em ordem, com dia (dd/mm), hora (
 afirmacoes_a_confirmar traz o que precisa de confirmação oficial; alertas_de_captura, só problemas da captura.
 revisar_em é a data e hora (ISO 8601 com o fuso de Brasília, por exemplo 2026-10-02T18:00:00-03:00) a partir da qual o próximo passo pode ter mudado só pela passagem do tempo: horário de visita, reunião ou consulta, prazo prometido, "retomar amanhã". Use o horário em que o passo muda (o início do compromisso ou o fim do prazo). Texto vazio quando o próximo passo não depende de horário. revisar_motivo diz o que acontece nesse horário, em poucas palavras (por exemplo "o horário da visita"), e fica vazio quando revisar_em é vazio.
 precisa_ler_inteira e precisa_ler_inteira_motivo: seção "Leitura de continuação".
+arquivos_sugeridos lista até 2 arquivos não incluídos cujo conteúdo pode mudar a decisão (por exemplo uma proposta, um comprovante ou um print que o cliente mandou e que a conversa comenta), cada um com ref (a referência da linha do arquivo, como aparece em "(ref: ...)") e motivo (uma frase curta). Lista vazia quando nenhum arquivo muda a decisão ou quando todos já foram incluídos.
 Campos codificados do fechamento, para o vendedor conferir no Yolen: valor_total é só o número do total combinado (ex.: "1.250,00"), ou texto vazio se não houver um total claro; forma_pagamento_codigo é "debito" só quando a conversa disser cartão de débito, cobrança mensal no cartão de crédito é "credito", e na dúvida é texto vazio; tipo_pagamento_codigo segue a mesma regra (mensalidade ou assinatura é "recorrente"). Os textos livres do fechamento continuam como dica para o vendedor.`
 
 export function buildFullReadingSystemPrompt(): string {

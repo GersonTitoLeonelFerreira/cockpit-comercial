@@ -1728,8 +1728,78 @@ function computeAutoTranscriptionHold({
     : null
 }
 
+// Rodada 11 (HML): "Incluir na leitura" — limites antes do envio (B4). O
+// envio passa pela rota do Companion, e o corpo de uma requisição tem teto
+// de ~4,5 MB: em base64, o arquivo enviado fica em até 3 MB. A imagem é
+// reduzida antes (lado maior até 1568 px, JPEG); o PDF acima de 3 MB ainda
+// não pode ser enviado.
+const ATTACHMENT_UPLOAD_LIMITS = Object.freeze({
+  image_max_bytes: 5 * 1024 * 1024,
+  pdf_max_bytes: 10 * 1024 * 1024,
+  pdf_max_pages: 20,
+  upload_max_bytes: 3 * 1024 * 1024,
+  image_max_edge: 1568,
+})
+
+function planAttachmentUpload({
+  kind,
+  sizeBytes = 0,
+  pages = null,
+} = {}) {
+  if (kind !== 'imagem' && kind !== 'pdf') {
+    return { ok: false, message: 'Este tipo de arquivo não pode ser incluído na leitura.' }
+  }
+
+  const size = Number(sizeBytes) || 0
+
+  if (size <= 0) {
+    return { ok: false, message: 'Não consegui pegar o arquivo na conversa.' }
+  }
+
+  if (kind === 'imagem') {
+    if (size > ATTACHMENT_UPLOAD_LIMITS.image_max_bytes) {
+      return { ok: false, message: 'Imagem acima de 5 MB: não é enviada.' }
+    }
+
+    return { ok: true, downscale: true, message: null }
+  }
+
+  if (size > ATTACHMENT_UPLOAD_LIMITS.pdf_max_bytes) {
+    return { ok: false, message: 'PDF acima de 10 MB: não é enviado.' }
+  }
+
+  if (Number.isInteger(pages) && pages > ATTACHMENT_UPLOAD_LIMITS.pdf_max_pages) {
+    return { ok: false, message: `PDF com mais de ${ATTACHMENT_UPLOAD_LIMITS.pdf_max_pages} páginas: não é enviado.` }
+  }
+
+  if (size > ATTACHMENT_UPLOAD_LIMITS.upload_max_bytes) {
+    return { ok: false, message: 'PDF acima de 3 MB: ainda não pode ser enviado.' }
+  }
+
+  return { ok: true, downscale: false, message: null }
+}
+
+// Páginas do PDF pelos objetos /Type /Page (sem /Pages), no texto latin1.
+function countPdfPagesFromText(text) {
+  return (String(text || '').match(/\/Type\s*\/Page(?![a-z])/g) || []).length
+}
+
+// Texto da recusa vinda do servidor ou da extensão (sem código interno).
+const ATTACHMENT_SOURCE_MESSAGES = Object.freeze({
+  attachment_not_visible: 'Role a conversa até o arquivo e tente de novo.',
+  attachment_too_large: 'O arquivo é grande demais para enviar.',
+})
+
+function attachmentSourceMessage(reason) {
+  return ATTACHMENT_SOURCE_MESSAGES[reason] || 'Não consegui pegar o arquivo na conversa. Abra o arquivo e tente de novo.'
+}
+
 const api = Object.freeze({
   create: createCompanionAnalysisController,
+  ATTACHMENT_UPLOAD_LIMITS,
+  planAttachmentUpload,
+  countPdfPagesFromText,
+  attachmentSourceMessage,
   computeAutoTranscriptionHold,
   AUTO_TRANSCRIPTION_MAX_SECONDS,
   AUTO_TRANSCRIPTION_HOURLY_LIMIT,

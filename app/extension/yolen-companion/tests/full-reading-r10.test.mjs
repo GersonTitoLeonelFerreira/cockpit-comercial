@@ -128,8 +128,9 @@ test('A1: depois do "Aplicar" dar certo, a tela muda sem esperar leitura — sel
   assert.match(applied, /kind: 'applied'/)
   assert.match(applied, /card && card\.suggested_status === applied\.status\s*\?\s*null/)
   assert.match(applied, /block\?\.key === 'kanban'/)
-  assert.match(core, /\? withAppliedStage\(\s*withCaptureFailureNotice\(\s*readFullReadingView\(\s*state\.agoraDecisionState\.data,\s*\),\s*\),\s*'agora',\s*\)/)
-  assert.match(core, /\? withAppliedStage\(\s*withCaptureFailureNotice\(\s*readFullReadingView\(\s*state\.analysisViewModel\.data,\s*\),\s*\),\s*'analysis',\s*\)/)
+  // Rodada 11: o estado local do "Incluir na leitura" vai por cima.
+  assert.match(core, /\? withAttachmentState\(\s*withAppliedStage\(\s*withCaptureFailureNotice\(\s*readFullReadingView\(\s*state\.agoraDecisionState\.data,\s*\),\s*\),\s*'agora',\s*\),\s*'agora',\s*\)/)
+  assert.match(core, /\? withAttachmentState\(\s*withAppliedStage\(\s*withCaptureFailureNotice\(\s*readFullReadingView\(\s*state\.analysisViewModel\.data,\s*\),\s*\),\s*'analysis',\s*\),\s*'analysis',\s*\)/)
 })
 
 // ---------------------------------------------------------------------------

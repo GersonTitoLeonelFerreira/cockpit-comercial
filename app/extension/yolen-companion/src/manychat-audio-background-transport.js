@@ -427,9 +427,117 @@
     })
   }
 
+  // ------------------------------------------------------------------
+  // Rodada 11 (HML): arquivo (imagem/PDF) para "Incluir na leitura". Mesmo
+  // domínio permitido do áudio (manybot-files.manychat.io), mesmo remetente
+  // permitido; tipo image/* ou application/pdf; até 10 MB.
+  const ATTACHMENT_SOURCE_ACTION = 'FETCH_MANYCHAT_ATTACHMENT_SOURCE'
+  const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+
+  function normalizeAttachmentMime(value) {
+    const mime = requiredText(value)?.split(';')[0]?.trim().toLowerCase() || null
+
+    return mime && (mime.startsWith('image/') || mime === 'application/pdf')
+      ? mime
+      : null
+  }
+
+  async function fetchManyChatAttachment({
+    url,
+    fetchImpl = root.fetch,
+    maxBytes = MAX_ATTACHMENT_BYTES,
+  } = {}) {
+    const refused = (reason) =>
+      Object.freeze({ ready: false, reason, content_base64: null, mime_type: null, size_bytes: 0 })
+
+    const validated = validateManyChatAudioUrl(url)
+
+    if (!validated.valid) {
+      return refused('attachment_url_not_allowed')
+    }
+
+    if (typeof fetchImpl !== 'function') {
+      return refused('fetch_unavailable')
+    }
+
+    try {
+      const response = await fetchImpl(validated.url, {
+        method: 'GET',
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'follow',
+      })
+
+      if (!response || response.ok !== true) {
+        return refused('attachment_fetch_failed')
+      }
+
+      if (!validateManyChatAudioUrl(response.url || validated.url).valid) {
+        return refused('attachment_redirect_not_allowed')
+      }
+
+      const mimeType = normalizeAttachmentMime(response.headers?.get?.('content-type'))
+
+      if (!mimeType) {
+        return refused('attachment_content_type_invalid')
+      }
+
+      const declaredLength = Number(response.headers?.get?.('content-length'))
+
+      if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+        return refused('attachment_too_large')
+      }
+
+      const bytes = new Uint8Array(await response.arrayBuffer())
+
+      if (bytes.length === 0) {
+        return refused('attachment_empty')
+      }
+
+      if (bytes.length > maxBytes) {
+        return refused('attachment_too_large')
+      }
+
+      return Object.freeze({
+        ready: true,
+        reason: null,
+        content_base64: bytesToBase64(bytes),
+        mime_type: mimeType,
+        size_bytes: bytes.length,
+      })
+    } catch {
+      return refused('attachment_fetch_failed')
+    }
+  }
+
+  async function handleAttachmentSourceRequest(message, sender, { fetchImpl } = {}) {
+    if (!isAllowedAudioSourceSender(sender)) {
+      return Object.freeze({
+        ok: false,
+        statusCode: 403,
+        payload: Object.freeze({ ready: false, reason: 'sender_not_allowed' }),
+      })
+    }
+
+    const media = await fetchManyChatAttachment({
+      url: message?.payload?.attachment_url,
+      ...(fetchImpl ? { fetchImpl } : {}),
+    })
+
+    return Object.freeze({
+      ok: media.ready === true,
+      statusCode: media.ready === true ? 200 : 409,
+      payload: media,
+    })
+  }
+
   const api = Object.freeze({
     PLATFORM,
     SCHEMA_VERSION,
+    ATTACHMENT_SOURCE_ACTION,
+    MAX_ATTACHMENT_BYTES,
+    fetchManyChatAttachment,
+    handleAttachmentSourceRequest,
     ALLOWED_AUDIO_HOST,
     MAX_AUDIO_BYTES,
     AUDIO_SOURCE_ACTION,

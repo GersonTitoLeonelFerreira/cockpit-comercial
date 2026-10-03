@@ -56,6 +56,10 @@ export type ClaudeReadingRequest = {
   preferStructuredOutput?: boolean
   // Marca o system (parte fixa) para o cache de prompt.
   cacheSystemPrompt?: boolean
+  // Rodada 11: blocos antes do texto do usuário (imagem ou PDF em base64)
+  // e pensamento desligado para o modelo que não aceita o adaptativo.
+  userContent?: Record<string, unknown>[] | null
+  thinking?: 'adaptive' | 'off'
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
   // Rodada 7: uma linha de log por chamada HTTP ao Claude (rota, tokens),
@@ -183,7 +187,7 @@ export function buildClaudeRequestBody(
   request: Pick<
     ClaudeReadingRequest,
     'model' | 'system' | 'userText' | 'maxTokens' | 'effort' | 'outputSchema'
-  > & Partial<Pick<ClaudeReadingRequest, 'cacheSystemPrompt'>>,
+  > & Partial<Pick<ClaudeReadingRequest, 'cacheSystemPrompt' | 'userContent' | 'thinking'>>,
   options: { structured: boolean },
 ): Record<string, unknown> {
   const outputConfig: Record<string, unknown> = {}
@@ -220,13 +224,23 @@ export function buildClaudeRequestBody(
             },
           ]
         : systemText,
-    thinking: {
-      type: 'adaptive',
-    },
+    ...(request.thinking === 'off'
+      ? {}
+      : {
+          thinking: {
+            type: 'adaptive',
+          },
+        }),
     messages: [
       {
         role: 'user',
-        content: request.userText,
+        content:
+          Array.isArray(request.userContent) && request.userContent.length > 0
+            ? [
+                ...request.userContent,
+                { type: 'text', text: request.userText },
+              ]
+            : request.userText,
       },
     ],
   }

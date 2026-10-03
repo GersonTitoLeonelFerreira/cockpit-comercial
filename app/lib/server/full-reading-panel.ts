@@ -70,6 +70,26 @@ import {
 } from './full-reading-closed-cycle'
 
 import {
+  ATTACHMENT_IN_PROGRESS_MS,
+  countAttachmentSummariesSince,
+  loadConversationAttachments,
+  type AttachmentStatus,
+} from './full-reading-attachments'
+
+import {
+  attachmentsViewKey,
+  buildAttachmentSuggestionView,
+  buildAttachmentsView,
+} from './full-reading-attachments-view'
+
+import {
+  attachmentRef,
+  parseAttachmentMarker,
+  type AttachmentKind,
+  type ParsedAttachment,
+} from '../companion/full-reading/attachments'
+
+import {
   PROVIDER_CREDIT_EXHAUSTED_CODE,
   isCreditExhaustedMessage,
 } from '../companion/full-reading/anthropic-client'
@@ -543,6 +563,7 @@ export function planFullReadingPanel({
   latestCustomerObservedAt,
   latestCustomerOccurredAt = null,
   latestTranscriptionObservedAt = null,
+  latestAttachmentIncludedAt = null,
   audioHold = null,
   burstQuietMs = FULL_READING_BURST_QUIET_MS,
 }: {
@@ -559,6 +580,8 @@ export function planFullReadingPanel({
   latestCustomerOccurredAt?: string | null
   // Rodada 9 (I): última transcrição de áudio que entrou no ledger.
   latestTranscriptionObservedAt?: string | null
+  // Rodada 11: o vendedor incluiu um arquivo depois da leitura.
+  latestAttachmentIncludedAt?: string | null
   audioHold?: FullReadingAudioHold | null
   burstQuietMs?: number
   force: boolean
@@ -734,6 +757,18 @@ export function planFullReadingPanel({
       !staleReasons.includes('kanban_mudou')
     ) {
       staleReasons.push('kanban_mudou')
+    }
+
+    // Rodada 11 (B3): arquivo incluído depois da leitura relê uma vez (em
+    // continuação, se sair mais barata).
+    const included =
+      toTime(latestAttachmentIncludedAt)
+
+    const reference =
+      toTime(reading.reference_time)
+
+    if (included !== null && reference !== null && included > reference) {
+      staleReasons.push('arquivo_incluido')
     }
   }
 
@@ -1006,12 +1041,14 @@ export function countRunsForDailyCap(
   }).length
 }
 
-async function isDailyCapReached(
+// Leituras de hoje que chamaram o Claude (sem a contagem: 0, o teto é
+// proteção de custo).
+export async function countFullReadingRunsToday(
   admin: SupabaseClient,
   companyId: string,
   now: string,
   cap: number,
-): Promise<boolean> {
+): Promise<number> {
   try {
     const { data, error } =
       await admin
@@ -1022,14 +1059,35 @@ async function isDailyCapReached(
         .limit(cap + 50)
 
     if (error) {
-      return false
+      return 0
     }
 
-    return countRunsForDailyCap((data ?? []) as { status?: unknown; failure_code?: unknown }[]) >= cap
+    return countRunsForDailyCap((data ?? []) as { status?: unknown; failure_code?: unknown }[])
   } catch {
-    // Sem a contagem, a leitura segue (o teto é proteção de custo).
-    return false
+    return 0
   }
+}
+
+async function isDailyCapReached(
+  admin: SupabaseClient,
+  companyId: string,
+  now: string,
+  cap: number,
+): Promise<boolean> {
+  const runs =
+    await countFullReadingRunsToday(admin, companyId, now, cap)
+
+  // Rodada 11 (B4): cada resumo de arquivo conta no teto.
+  const attachments =
+    runs >= cap
+      ? 0
+      : await countAttachmentSummariesSince({
+          admin,
+          companyId,
+          since: startOfBrasiliaDay(now),
+        })
+
+  return runs + attachments >= cap
 }
 
 // ---------------------------------------------------------------------------
@@ -1159,6 +1217,21 @@ export type FullReadingPanelSnapshot = {
   audio_hold?: FullReadingAudioHold | null
   // Rodada 9 (J): ciclo encerrado lido como atendimento (status).
   closed_service?: string | null
+  // Rodada 11 (B2): arquivos da conversa e o que o vendedor já incluiu.
+  attachments?: FullReadingPanelAttachment[]
+  attachments_available?: boolean
+}
+
+export type FullReadingPanelAttachment = {
+  message_key: string
+  ref: string
+  kind: AttachmentKind
+  name: string | null
+  size_label: string | null
+  pages: number | null
+  occurred_at: string
+  from: 'cliente' | 'vendedor' | 'automacao'
+  status: 'nao_incluido' | AttachmentStatus
 }
 
 export type FullReadingRunScheduler =
@@ -1305,9 +1378,22 @@ export type FullReadingLedgerActivity = {
   last_message_at: string | null
   // Rodada 9 (I): última versão de áudio com transcrição.
   latest_transcription_observed_at?: string | null
+  // Rodada 11 (B2): arquivos (última versão de cada mensagem).
+  attachments?: FullReadingLedgerAttachment[]
+}
+
+export type FullReadingLedgerAttachment = {
+  message_key: string
+  occurred_at: string
+  observed_at: string
+  author_kind: string | null
+  direction: string | null
+  parsed: ParsedAttachment
 }
 
 type ActivityRow = {
+  message_key?: unknown
+  is_deleted?: unknown
   direction?: unknown
   author_kind?: unknown
   occurred_at?: unknown
@@ -1346,9 +1432,48 @@ export function summarizeLedgerActivity(
     latest_person: null,
     last_message_at: null,
     latest_transcription_observed_at: null,
+    attachments: [],
   }
 
+  const attachmentsByKey =
+    new Map<string, FullReadingLedgerAttachment>()
+
   for (const row of rows) {
+    // Rodada 11: arquivo (marca no texto), a versão observada mais recente.
+    const attachmentKey =
+      rowText(row.message_key)
+
+    const attachmentObserved =
+      rowText(row.observed_at)
+
+    const attachmentOccurred =
+      rowText(row.occurred_at)
+
+    if (attachmentKey && attachmentObserved && attachmentOccurred) {
+      const previous =
+        attachmentsByKey.get(attachmentKey)
+
+      if (!previous || (toTime(previous.observed_at) ?? 0) < (toTime(attachmentObserved) ?? 0)) {
+        const parsed =
+          row.is_deleted === true
+            ? null
+            : parseAttachmentMarker(typeof row.text_content === 'string' ? row.text_content : null)
+
+        if (parsed) {
+          attachmentsByKey.set(attachmentKey, {
+            message_key: attachmentKey,
+            occurred_at: attachmentOccurred,
+            observed_at: attachmentObserved,
+            author_kind: typeof row.author_kind === 'string' ? row.author_kind : null,
+            direction: typeof row.direction === 'string' ? row.direction : null,
+            parsed,
+          })
+        } else if (previous) {
+          attachmentsByKey.delete(attachmentKey)
+        }
+      }
+    }
+
     const message = {
       direction: typeof row.direction === 'string' ? row.direction : null,
       author_kind: typeof row.author_kind === 'string' ? row.author_kind : null,
@@ -1397,6 +1522,10 @@ export function summarizeLedgerActivity(
     }
   }
 
+  activity.attachments =
+    [...attachmentsByKey.values()]
+      .sort((left, right) => (toTime(left.occurred_at) ?? 0) - (toTime(right.occurred_at) ?? 0))
+
   return activity
 }
 
@@ -1408,7 +1537,7 @@ async function readLedgerActivity(
   const { data, error } =
     await admin
       .from('conversation_messages')
-      .select('direction, author_kind, occurred_at, observed_at, content_type, text_content, audio_transcription')
+      .select('message_key, is_deleted, direction, author_kind, occurred_at, observed_at, content_type, text_content, audio_transcription')
       .eq('company_id', scope.company_id)
       .in('cycle_id', cycleIds)
       .eq('conversation_key', scope.conversation_key)
@@ -1632,6 +1761,31 @@ async function startRun({
   }
 }
 
+// Rodada 11: "resumindo" parado há mais de 2 minutos (a rota caiu no
+// meio) aparece como falha, para o vendedor poder tentar de novo.
+export function attachmentPanelStatus(
+  record: { status: AttachmentStatus; requested_at: string | null } | undefined,
+  now: string,
+): FullReadingPanelAttachment['status'] {
+  if (!record) {
+    return 'nao_incluido'
+  }
+
+  if (record.status === 'resumindo') {
+    const requested =
+      toTime(record.requested_at)
+
+    const current =
+      toTime(now)
+
+    if (requested === null || (current !== null && current - requested >= ATTACHMENT_IN_PROGRESS_MS)) {
+      return 'falhou'
+    }
+  }
+
+  return record.status
+}
+
 export async function resolveFullReadingPanel({
   admin,
   scope,
@@ -1686,11 +1840,48 @@ export async function resolveFullReadingPanel({
       ? chain.map((link) => link.id)
       : [scope.cycle_id]
 
-  const [runs, activity] =
+  const [runs, activity, attachmentState] =
     await Promise.all([
       readRuns(admin, scope),
       readLedgerActivity(admin, scope, chainCycleIds),
+      loadConversationAttachments({
+        admin,
+        companyId: scope.company_id,
+        conversationKey: scope.conversation_key,
+      }),
     ])
+
+  const latestAttachmentIncludedAt =
+    attachmentState.records
+      .filter((record) => record.status === 'incluido' && record.summarized_at)
+      .map((record) => record.summarized_at as string)
+      .sort((left, right) => (toTime(right) ?? 0) - (toTime(left) ?? 0))[0] ?? null
+
+  const recordsByKey =
+    new Map(attachmentState.records.map((record) => [record.message_key, record]))
+
+  const attachments: FullReadingPanelAttachment[] =
+    (activity.attachments ?? []).map((item) => {
+      const record =
+        recordsByKey.get(item.message_key)
+
+      return {
+        message_key: item.message_key,
+        ref: attachmentRef(item.message_key),
+        kind: item.parsed.kind,
+        name: item.parsed.name,
+        size_label: item.parsed.size_label,
+        pages: item.parsed.pages,
+        occurred_at: item.occurred_at,
+        from:
+          item.author_kind === 'automation'
+            ? 'automacao'
+            : item.author_kind === 'customer' || (item.author_kind !== 'human_agent' && item.direction === 'incoming')
+              ? 'cliente'
+              : 'vendedor',
+        status: attachmentPanelStatus(record, now),
+      }
+    })
 
   const latestObservedAt =
     activity.latest_observed_at
@@ -1711,6 +1902,7 @@ export async function resolveFullReadingPanel({
     latestCustomerObservedAt: activity.latest_customer_observed_at,
     latestCustomerOccurredAt: activity.latest_customer_occurred_at,
     latestTranscriptionObservedAt: activity.latest_transcription_observed_at ?? null,
+    latestAttachmentIncludedAt,
     audioHold,
     force,
     forceMode,
@@ -1781,6 +1973,8 @@ export async function resolveFullReadingPanel({
         ? readReviewAt(plan.reading)?.at ?? null
         : null,
     daily_cap_reached: plan.skip_reason === DAILY_CAP_SKIP_CODE,
+    attachments,
+    attachments_available: attachmentState.available,
     closed_service:
       TERMINAL_CYCLE_STATUSES.has(kanban.status) &&
       (plan.closed_service || (shownReading !== null && plan.skip_reason !== CLOSED_CYCLE_SKIP_CODE && customerWroteAfterClosure({ closedAt: kanban.closed_at ?? null, lastCustomerMessageAt: activity.latest_customer_occurred_at })))
@@ -1923,16 +2117,33 @@ export function buildAgoraFullReadingView(
     referenceTime?: string
   },
 ): FullReadingAgoraView {
-  return buildFullReadingAgoraView({
-    state: snapshot.state,
-    reading: snapshot.reading,
-    failureCode: snapshot.failure_code,
-    kanban: snapshot.kanban,
-    cycleId,
-    lastCustomerMessageAt: snapshot.last_customer_message_at,
-    lastMessageAt: snapshot.last_message_at ?? null,
-    panel: panelStatusInput(snapshot),
-  })
+  const view =
+    buildFullReadingAgoraView({
+      state: snapshot.state,
+      reading: snapshot.reading,
+      failureCode: snapshot.failure_code,
+      kanban: snapshot.kanban,
+      cycleId,
+      lastCustomerMessageAt: snapshot.last_customer_message_at,
+      lastMessageAt: snapshot.last_message_at ?? null,
+      panel: panelStatusInput(snapshot),
+    })
+
+  // Rodada 11 (B2): a leitura sugere incluir um arquivo.
+  const suggestion =
+    buildAttachmentSuggestionView({
+      suggestions: (snapshot.reading?.decision as { arquivos_sugeridos?: unknown } | null)?.arquivos_sugeridos,
+      attachments: snapshot.attachments ?? [],
+      available: snapshot.attachments_available === true,
+    })
+
+  return suggestion
+    ? {
+        ...view,
+        attachment_suggestion: suggestion,
+        view_key: `${view.view_key}|arq:${suggestion.message_key}`,
+      }
+    : view
 }
 
 function panelStatusInput(
@@ -1961,14 +2172,30 @@ function panelStatusInput(
 export function buildAnalysisFullReadingView(
   snapshot: FullReadingPanelSnapshot,
 ): FullReadingAnalysisView {
-  return buildFullReadingAnalysisView({
-    state: snapshot.state,
-    reading: snapshot.reading,
-    failureCode: snapshot.failure_code,
-    kanban: snapshot.kanban,
-    lastMessageAt: snapshot.last_message_at ?? null,
-    panel: panelStatusInput(snapshot),
-  })
+  const view =
+    buildFullReadingAnalysisView({
+      state: snapshot.state,
+      reading: snapshot.reading,
+      failureCode: snapshot.failure_code,
+      kanban: snapshot.kanban,
+      lastMessageAt: snapshot.last_message_at ?? null,
+      panel: panelStatusInput(snapshot),
+    })
+
+  // Rodada 11 (B2): "Arquivos na conversa (N)".
+  const attachments =
+    buildAttachmentsView({
+      attachments: snapshot.attachments ?? [],
+      available: snapshot.attachments_available === true,
+    })
+
+  return attachments
+    ? {
+        ...view,
+        attachments,
+        view_key: `${view.view_key}|arq:${attachmentsViewKey(snapshot.attachments ?? [])}`,
+      }
+    : view
 }
 
 type AgoraSignalLike = {

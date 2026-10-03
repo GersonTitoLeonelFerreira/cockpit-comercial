@@ -79,6 +79,12 @@ import {
 } from '../companion/full-reading/anthropic-client'
 
 import {
+  attachmentSummariesAt,
+  loadConversationAttachments,
+  type AttachmentRecord,
+} from './full-reading-attachments'
+
+import {
   FULL_READING_OUTPUT_JSON_SCHEMA,
   FullReadingOutputError,
   applyFullReadingCoherence,
@@ -407,6 +413,12 @@ export type FullReadingRunInput = {
     admin: SupabaseClient
     companyId: string
   }) => Promise<LoadedCommercialConfig>
+  // Rodada 11: arquivos incluídos pelo vendedor (resumos).
+  loadAttachments?: (args: {
+    admin: SupabaseClient
+    companyId: string
+    conversationKey: string
+  }) => Promise<AttachmentRecord[]>
 }
 
 export type FullReadingRunResult =
@@ -815,6 +827,13 @@ export async function executeFullReadingRun(
   const loadKanban =
     input.loadKanban ?? loadFullReadingKanban
 
+  const loadAttachments =
+    input.loadAttachments ??
+    (input.loadMessages
+      ? async () => [] as AttachmentRecord[]
+      : async (args: { admin: SupabaseClient; companyId: string; conversationKey: string }) =>
+          (await loadConversationAttachments(args)).records)
+
   const loadChain =
     input.loadChain ??
     (input.loadMessages
@@ -855,11 +874,46 @@ export async function executeFullReadingRun(
       conversationKey: input.conversationKey,
     }
 
+    // Rodada 11: o resumo do arquivo incluído entra na mensagem do arquivo
+    // (só o que já existia no momento de referência da leitura).
+    let attachmentRecords: AttachmentRecord[] = []
+
+    try {
+      attachmentRecords =
+        await loadAttachments({
+          admin: input.admin,
+          companyId: input.companyId,
+          conversationKey: input.conversationKey,
+        })
+    } catch {
+      attachmentRecords = []
+    }
+
+    const withAttachmentSummaries = (
+      list: NormalizedLedgerMessage[],
+      referenceTime: string,
+    ): NormalizedLedgerMessage[] => {
+      const summaries =
+        attachmentSummariesAt(attachmentRecords, referenceTime)
+
+      if (summaries.size === 0) {
+        return list
+      }
+
+      return list.map((message) =>
+        summaries.has(message.message_key)
+          ? { ...message, attachment_summary: summaries.get(message.message_key) }
+          : message)
+    }
+
     const messages =
-      await loadMessages({
-        ...messageArgs,
-        referenceTime: input.referenceTime,
-      })
+      withAttachmentSummaries(
+        await loadMessages({
+          ...messageArgs,
+          referenceTime: input.referenceTime,
+        }),
+        input.referenceTime,
+      )
 
     let markers: FullReadingTranscriptMarker[] = []
 
@@ -966,10 +1020,13 @@ export async function executeFullReadingRun(
 
     if (fullReason === null && baseRun) {
       const previous =
-        await loadMessages({
-          ...messageArgs,
-          referenceTime: baseRun.reference_time,
-        })
+        withAttachmentSummaries(
+          await loadMessages({
+            ...messageArgs,
+            referenceTime: baseRun.reference_time,
+          }),
+          baseRun.reference_time,
+        )
 
       const split =
         splitContinuationMessages({

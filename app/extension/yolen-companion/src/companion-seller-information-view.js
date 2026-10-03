@@ -3045,6 +3045,13 @@
       nodes.push(buildStageCard(doc, stage, options))
     }
 
+    // Rodada 11 (B2): a leitura sugere incluir um arquivo.
+    const suggestion = buildAttachmentSuggestion(doc, view.attachment_suggestion)
+
+    if (suggestion) {
+      nodes.push(suggestion)
+    }
+
     const facts = Array.isArray(view.facts) ? view.facts : []
 
     if (facts.length > 0) {
@@ -3125,6 +3132,128 @@
     attention: { icon: 'attention', iconClass: 'yolen-fr-icon--attention' },
     neutral: { icon: 'waiting', iconClass: 'yolen-fr-icon--neutral' },
     ok: { icon: 'ok', iconClass: 'yolen-fr-icon--ok' },
+  }
+
+  // ------------------------------------------------------------------
+  // Rodada 11 (HML): arquivos da conversa ("Incluir na leitura").
+  function createAttachmentIncludeButton(doc, item, label) {
+    const button = createButton(doc, {
+      label,
+      action: 'full-reading-attachment-include',
+      variant: 'link',
+    })
+
+    button.setAttribute('data-yolen-fr-attachment-key', String(item.message_key || ''))
+    button.setAttribute('data-yolen-fr-attachment-kind', String(item.kind || ''))
+
+    if (item.busy === true) {
+      button.disabled = true
+      button.setAttribute('aria-disabled', 'true')
+    }
+
+    return button
+  }
+
+  function buildAttachmentsCard(doc, attachments) {
+    const items = Array.isArray(attachments?.items) ? attachments.items : []
+
+    if (items.length === 0) {
+      return null
+    }
+
+    const card = createCard(doc, {
+      key: 'attachments',
+      label: fullReadingText(attachments.title) || `Arquivos na conversa (${items.length})`,
+    })
+
+    card.setAttribute('data-yolen-fr-attachments', String(items.length))
+
+    const list = doc.createElement('ul')
+    list.className = 'yolen-fr-list yolen-fr-attachments'
+
+    for (const item of items) {
+      const row = doc.createElement('li')
+      row.className = 'yolen-fr-list-item yolen-fr-attachment'
+      row.setAttribute('data-yolen-fr-attachment', String(item.message_key || ''))
+      row.setAttribute('data-yolen-fr-attachment-status', String(item.status || ''))
+
+      const content = doc.createElement('div')
+      content.className = 'yolen-fr-list-text'
+
+      const title = [
+        fullReadingText(item.kind_label),
+        fullReadingText(item.name),
+      ]
+        .filter(Boolean)
+        .join(' · ')
+
+      content.appendChild(createTextElement(doc, 'div', 'yolen-fr-attachment-title', title))
+
+      const meta = [
+        fullReadingText(item.from_label),
+        fullReadingText(item.when_label),
+        fullReadingText(item.size_label),
+      ]
+        .filter(Boolean)
+        .join(' · ')
+
+      if (meta) {
+        content.appendChild(createTextElement(doc, 'div', 'yolen-fr-attachment-meta', meta))
+      }
+
+      const status = fullReadingText(item.status_text)
+
+      if (status) {
+        const line = createTextElement(doc, 'div', 'yolen-fr-attachment-status', status)
+        line.setAttribute('role', 'status')
+        content.appendChild(line)
+      }
+
+      row.appendChild(content)
+
+      if (item.can_include === true && fullReadingText(item.include_label)) {
+        row.appendChild(createAttachmentIncludeButton(doc, item, item.include_label))
+      }
+
+      list.appendChild(row)
+    }
+
+    card.appendChild(list)
+
+    const note = fullReadingText(attachments.note)
+
+    if (note) {
+      card.appendChild(createTextElement(doc, 'div', 'yolen-fr-status yolen-fr-attachments-note', note))
+    }
+
+    return card
+  }
+
+  function buildAttachmentSuggestion(doc, suggestion) {
+    const text = fullReadingText(suggestion?.text)
+
+    if (!text) {
+      return null
+    }
+
+    const line = doc.createElement('div')
+    line.className = 'yolen-fr-status yolen-fr-attachment-suggestion'
+    line.setAttribute('role', 'status')
+    line.setAttribute('data-yolen-fr-attachment-suggestion', String(suggestion.message_key || ''))
+    line.appendChild(createTextElement(doc, 'span', '', text))
+
+    const status = fullReadingText(suggestion.status_text)
+
+    if (status) {
+      line.appendChild(createTextElement(doc, 'span', 'yolen-fr-attachment-status', ` ${status}`))
+    }
+
+    if (suggestion.can_include === true) {
+      line.appendChild(doc.createTextNode(' '))
+      line.appendChild(createAttachmentIncludeButton(doc, suggestion, 'Incluir na leitura'))
+    }
+
+    return line
   }
 
   function buildAnalysisFullReadingNodes(doc, view) {
@@ -3208,6 +3337,13 @@
         ),
       )
       nodes.push(card)
+    }
+
+    // Rodada 11 (B2): "Arquivos na conversa (N)".
+    const attachments = buildAttachmentsCard(doc, view.attachments)
+
+    if (attachments) {
+      nodes.push(attachments)
     }
 
     const acertos = fullReadingList(view.coaching?.acertos)

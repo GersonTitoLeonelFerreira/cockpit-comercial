@@ -247,7 +247,17 @@ export type FullReadingDecision = {
   revisar_motivo?: string
   precisa_ler_inteira?: boolean
   precisa_ler_inteira_motivo?: string
+  // v8 (rodada 11): arquivo não incluído que pode mudar a decisão.
+  arquivos_sugeridos?: FullReadingSuggestedAttachment[]
 }
+
+export type FullReadingSuggestedAttachment = {
+  ref: string
+  motivo: string
+}
+
+export const FULL_READING_SUGGESTED_ATTACHMENTS_MAX =
+  2
 
 export type FullReadingOutput = {
   // v5: null (o modelo não escreve mais a análise em texto).
@@ -548,6 +558,31 @@ const TAIL_PROPERTIES = {
     type: 'string',
     description:
       'Por que precisa ler a conversa inteira, em uma frase; texto vazio quando não precisa.',
+  },
+  arquivos_sugeridos: {
+    type: 'array',
+    description:
+      'Até 2 arquivos não incluídos cujo conteúdo pode mudar a decisão. Lista vazia quando nenhum.',
+    items: {
+      type: 'object',
+      additionalProperties: false,
+      required: [
+        'ref',
+        'motivo',
+      ],
+      properties: {
+        ref: {
+          type: 'string',
+          description:
+            'A referência do arquivo, como aparece em "(ref: ...)".',
+        },
+        motivo: {
+          type: 'string',
+          description:
+            'Por que incluir, em uma frase curta.',
+        },
+      },
+    },
   },
 } as const
 
@@ -1235,6 +1270,48 @@ function readOptionalText(
 
 // Campos novos da v6. Ausentes ou fora do formato: vazios (nunca derrubam
 // a leitura).
+// v8: lista de arquivos sugeridos; formato fora do esperado vira vazio.
+function readSuggestedAttachments(
+  decisionRaw: Record<string, unknown>,
+): FullReadingSuggestedAttachment[] {
+  const value =
+    decisionRaw.arquivos_sugeridos
+
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const seen =
+    new Set<string>()
+
+  const items: FullReadingSuggestedAttachment[] = []
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') {
+      continue
+    }
+
+    const ref =
+      typeof (item as { ref?: unknown }).ref === 'string'
+        ? ((item as { ref: string }).ref).trim().toLowerCase()
+        : ''
+
+    const motivo =
+      typeof (item as { motivo?: unknown }).motivo === 'string'
+        ? ((item as { motivo: string }).motivo).replace(/\s+/g, ' ').trim()
+        : ''
+
+    if (!/^arq-[0-9a-z]{6,8}$/.test(ref) || seen.has(ref)) {
+      continue
+    }
+
+    seen.add(ref)
+    items.push({ ref, motivo: motivo.slice(0, 200) })
+  }
+
+  return items.slice(0, FULL_READING_SUGGESTED_ATTACHMENTS_MAX)
+}
+
 function parseDecisionV6Extras(
   decisionRaw: Record<string, unknown>,
 ): Required<Pick<
@@ -1243,6 +1320,7 @@ function parseDecisionV6Extras(
   | 'revisar_motivo'
   | 'precisa_ler_inteira'
   | 'precisa_ler_inteira_motivo'
+  | 'arquivos_sugeridos'
 >> {
   const revisarEm =
     normalizeReviewAt(decisionRaw.revisar_em)
@@ -1263,6 +1341,8 @@ function parseDecisionV6Extras(
       precisa
         ? readOptionalText(decisionRaw, 'precisa_ler_inteira_motivo')
         : '',
+    arquivos_sugeridos:
+      readSuggestedAttachments(decisionRaw),
   }
 }
 

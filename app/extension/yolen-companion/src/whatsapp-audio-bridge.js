@@ -14,6 +14,36 @@
     const originalMediaPlay = HTMLMediaElement.prototype.play
   
     let activeCaptureRequest = null
+
+    // Rodada 11 (HML): arquivo pedido pelo "Incluir na leitura".
+    const FILE_CAPTURE_TIMEOUT_MS = 10000
+    const MAX_FILE_BYTES = 10 * 1024 * 1024
+    let activeFileCapture = null
+    const suppressedDownloadUrls = new Set()
+
+    function takeFileCapture(blob) {
+      if (!activeFileCapture || activeFileCapture.expiresAt <= Date.now()) {
+        activeFileCapture = null
+        return null
+      }
+
+      const type = String(blob.type || '').toLowerCase()
+      const wanted =
+        blob.size > 0 &&
+        blob.size <= MAX_FILE_BYTES &&
+        (type === 'application/pdf' ||
+          type.startsWith('image/') ||
+          type === 'application/octet-stream' ||
+          type === '')
+
+      if (!wanted) {
+        return null
+      }
+
+      const request = activeFileCapture
+      activeFileCapture = null
+      return request
+    }
   
     const captureInFlightRequestIds = new Set()
     const completedCaptureRequestIds = new Set()
@@ -62,6 +92,26 @@
         activeCaptureRequest?.requestId === event.data?.requestId
       ) {
         activeCaptureRequest = null
+      }
+
+      // Rodada 11 (HML): "Incluir na leitura" — o próximo blob de arquivo.
+      if (
+        event.data?.action === 'CAPTURE_NEXT_FILE' &&
+        typeof event.data?.requestId === 'string'
+      ) {
+        activeFileCapture = {
+          requestId: event.data.requestId,
+          expiresAt: Date.now() + FILE_CAPTURE_TIMEOUT_MS,
+        }
+
+        return
+      }
+
+      if (
+        event.data?.action === 'CAPTURE_FILE_FINISHED' &&
+        activeFileCapture?.requestId === event.data?.requestId
+      ) {
+        activeFileCapture = null
       }
     })
   
@@ -323,6 +373,31 @@
   
     URL.createObjectURL = function createYolenTrackedObjectURL(value) {
       const objectUrl = originalCreateObjectURL(value)
+
+      // Rodada 11 (HML): arquivo pedido — guarda o blob para a extensão e
+      // não deixa o WhatsApp baixar o arquivo para o disco.
+      const fileRequest =
+        value instanceof Blob ? takeFileCapture(value) : null
+
+      if (fileRequest) {
+        suppressedDownloadUrls.add(objectUrl)
+
+        window.postMessage(
+          {
+            source: MESSAGE_SOURCE,
+            action: 'FILE_BLOB_CAPTURED',
+            requestId: fileRequest.requestId,
+            file: {
+              blob: value,
+              mimeType: value.type || '',
+              size: value.size,
+            },
+          },
+          window.location.origin,
+        )
+
+        return objectUrl
+      }
   
       if (value instanceof Blob) {
         /*
@@ -335,4 +410,32 @@
   
       return objectUrl
     }
+
+    // Rodada 11 (HML): o arquivo pedido pelo "Incluir na leitura" não é
+    // baixado para o disco (o WhatsApp baixa clicando num link com o blob).
+    const originalAnchorClick = HTMLAnchorElement.prototype.click
+
+    HTMLAnchorElement.prototype.click = function yolenGuardedAnchorClick(
+      ...args
+    ) {
+      if (this.href && suppressedDownloadUrls.has(this.href)) {
+        suppressedDownloadUrls.delete(this.href)
+        return undefined
+      }
+
+      return originalAnchorClick.apply(this, args)
+    }
+
+    document.addEventListener(
+      'click',
+      (event) => {
+        const anchor = event.target?.closest?.('a[href]')
+
+        if (anchor && suppressedDownloadUrls.has(anchor.href)) {
+          suppressedDownloadUrls.delete(anchor.href)
+          event.preventDefault()
+        }
+      },
+      true,
+    )
   })()

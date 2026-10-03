@@ -1694,6 +1694,9 @@ function createWhatsAppAdapter({
     function buildReliableMessageFromNode(
     node,
     observedAt,
+    {
+      includeMedia = false,
+    } = {},
   ) {
     const id = getMessageDataId(node)
 
@@ -1727,12 +1730,42 @@ function createWhatsAppAdapter({
         ?.describeBubbleAttachmentEvidence
         ?.(node) || null
 
-    const text =
+    let text =
       attachment
         ? attachment.evidenceText
         : getCapturedMessageBodyText(
             node,
           )
+
+    // Rodada 11 (HML): áudio com a duração; arquivo e imagem com tipo,
+    // tamanho e páginas (a legenda continua antes da marca).
+    if (includeMedia) {
+      const bubble =
+        node.closest?.('[data-id]') ||
+        container ||
+        node
+
+      if (hasAudio) {
+        text =
+          text ||
+          mediaTools().buildAudioDurationText(
+            readBubbleAudioDurationSeconds(bubble),
+          )
+      } else if (attachment) {
+        text =
+          buildDocumentMarkerText(
+            bubble,
+            attachment.fileName,
+            stripAttachmentMarkerLines(attachment.evidenceText),
+          )
+      } else if (findBubbleImage(bubble)) {
+        text =
+          mediaTools().buildAttachmentMarkerText({
+            caption: text,
+            kind: 'imagem',
+          })
+      }
+    }
 
     if (!text && !hasAudio) {
       return null
@@ -1767,6 +1800,9 @@ function createWhatsAppAdapter({
   function readVisibleMessageEntries({
     observedAt,
     getPreviousMessage,
+    // Rodada 11 (HML): áudio, imagem e arquivo sem nó de texto também viram
+    // mensagem. Sem a leitura completa, a captura é a de hoje.
+    includeMediaBubbles = false,
   }) {
     const main =
       getMainConversationRoot()
@@ -1819,6 +1855,10 @@ function createWhatsAppAdapter({
             buildReliableMessageFromNode(
               node,
               observedAt,
+              {
+                includeMedia:
+                  includeMediaBubbles === true,
+              },
             ),
         })
       })
@@ -1848,12 +1888,19 @@ function createWhatsAppAdapter({
         }
 
         const message =
-          buildAttachmentOnlyMessageFromBubble(
-            bubble,
-            messageId,
-            main,
-            observedAt,
-          )
+          includeMediaBubbles === true
+            ? buildMediaOnlyMessageFromBubble(
+                bubble,
+                messageId,
+                main,
+                observedAt,
+              )
+            : buildAttachmentOnlyMessageFromBubble(
+                bubble,
+                messageId,
+                main,
+                observedAt,
+              )
 
         if (!message) {
           return
@@ -2070,6 +2117,311 @@ function createWhatsAppAdapter({
       text:
         descriptor.evidenceText,
       hasAudio: false,
+      observedAt,
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Rodada 11 (HML): mídia na captura do WhatsApp.
+  //
+  // A nota de voz, a foto e o cartão de arquivo vêm numa bolha sem o nó de
+  // texto com data e hora ([data-pre-plain-text]). Antes só o cartão de
+  // arquivo com nome virava mensagem; o áudio e a imagem eram descartados.
+  // A detecção do áudio é a mesma do botão de transcrição (ícones e rótulos
+  // de mensagem de voz); a chave é o data-id da bolha, a mesma do alvo de
+  // transcrição, então a transcrição manual já salva é reaproveitada.
+  const MEDIA_QUOTED_SELECTOR = [
+    '[data-testid*="quoted" i]',
+    '[data-testid*="reply" i]',
+    '[aria-label*="quoted" i]',
+    '[aria-label*="mensagem citada" i]',
+    '[aria-label*="resposta" i]',
+  ].join(',')
+
+  // Figurinha, emoji, prévia de link e vídeo ficam de fora.
+  const MEDIA_EXCLUDED_IMAGE_SELECTOR = [
+    '[data-testid*="sticker" i]',
+    '[aria-label*="figurinha" i]',
+    '[aria-label*="sticker" i]',
+    '[data-testid*="emoji" i]',
+    '[data-testid*="link-preview" i]',
+    '[data-testid*="video" i]',
+    'img.emoji',
+    'img[data-plain-text]',
+    'header',
+  ].join(',')
+
+  const MEDIA_VIDEO_SELECTOR = [
+    'video',
+    '[data-icon*="media-play" i]',
+    '[data-icon*="video" i]',
+    '[data-testid*="video" i]',
+  ].join(',')
+
+  function mediaTools() {
+    return messageMutationTools
+  }
+
+  function readBubbleTextSegments(
+    element,
+    {
+      skipMeta = false,
+    } = {},
+  ) {
+    const segments = []
+
+    const visit = (current) => {
+      if (!current) {
+        return
+      }
+
+      if (current.nodeType === 3) {
+        const value =
+          normalizeMessageText(current.textContent)
+
+        if (value) {
+          segments.push(value)
+        }
+
+        return
+      }
+
+      if (current.nodeType !== 1) {
+        return
+      }
+
+      if (
+        skipMeta &&
+        current.matches?.('[data-testid="msg-meta"]')
+      ) {
+        return
+      }
+
+      current.childNodes?.forEach?.(visit)
+    }
+
+    visit(element)
+
+    return segments
+  }
+
+  const CLOCK_SEGMENT =
+    /(?:^|\D)([01]?\d|2[0-3]):([0-5]\d)(?!\d)/
+
+  // Horário da bolha: o do rodapé da mensagem; sem ele, o último horário
+  // visível (a duração do áudio vem antes).
+  function readBubbleTimeLabel(bubble) {
+    const meta =
+      bubble.querySelector?.('[data-testid="msg-meta"]')
+
+    const segments =
+      readBubbleTextSegments(meta || bubble)
+
+    for (let index = segments.length - 1; index >= 0; index -= 1) {
+      const match =
+        segments[index].match(CLOCK_SEGMENT)
+
+      if (match) {
+        return `${match[1].padStart(2, '0')}:${match[2]}`
+      }
+    }
+
+    return null
+  }
+
+  const DURATION_SEGMENT =
+    /^(?:(\d{1,2}):)?(\d{1,2}):([0-5]\d)$/
+
+  function readBubbleAudioDurationSeconds(bubble) {
+    const hasMeta = Boolean(
+      bubble.querySelector?.('[data-testid="msg-meta"]'),
+    )
+
+    const segments =
+      readBubbleTextSegments(bubble, { skipMeta: hasMeta })
+
+    const durations =
+      segments
+        .map((segment) => segment.match(DURATION_SEGMENT))
+        .filter(Boolean)
+
+    // Sem o rodapé, o último horário é a hora da mensagem.
+    const candidates =
+      hasMeta
+        ? durations
+        : durations.slice(0, -1)
+
+    const match = candidates[0]
+
+    if (!match) {
+      return null
+    }
+
+    const seconds =
+      Number(match[1] || 0) * 3600 +
+      Number(match[2]) * 60 +
+      Number(match[3])
+
+    return seconds > 0 ? seconds : null
+  }
+
+  function findBubbleImage(bubble) {
+    if (
+      !bubble?.querySelectorAll ||
+      bubble.querySelector?.(MEDIA_VIDEO_SELECTOR)
+    ) {
+      return null
+    }
+
+    for (const image of bubble.querySelectorAll('img')) {
+      if (
+        image.closest?.(MEDIA_EXCLUDED_IMAGE_SELECTOR) ||
+        image.closest?.(MEDIA_QUOTED_SELECTOR)
+      ) {
+        continue
+      }
+
+      const source =
+        image.getAttribute?.('src') || ''
+
+      const label = [
+        image.getAttribute?.('alt') || '',
+        image.getAttribute?.('aria-label') || '',
+      ]
+        .join(' ')
+        .toLowerCase()
+
+      if (/figurinha|sticker|emoji/.test(label)) {
+        continue
+      }
+
+      // Foto da conversa: blob da própria página (ou a prévia em data:).
+      // Avatar e figurinha remota (https) ficam de fora.
+      if (/^(?:blob:|data:image\/)/i.test(source)) {
+        return image
+      }
+    }
+
+    return null
+  }
+
+  function stripAttachmentMarkerLines(text) {
+    return String(text || '')
+      .split('\n')
+      .filter((line) => !/^\[Arquivo\b/.test(line.trim()))
+      .join('\n')
+      .trim()
+  }
+
+  function buildDocumentMarkerText(bubble, fileName, caption) {
+    const details =
+      readBubbleTextSegments(bubble).join(' · ')
+
+    return mediaTools().buildAttachmentMarkerText({
+      caption,
+      name: fileName,
+      kind: mediaTools().attachmentKindFromFileName(fileName),
+      sizeLabel: mediaTools().readAttachmentSizeLabel(details),
+      pages: mediaTools().readAttachmentPageCount(details),
+    })
+  }
+
+  function buildMediaOnlyMessageFromBubble(
+    bubble,
+    messageId,
+    main,
+    observedAt,
+  ) {
+    if (
+      !bubble?.querySelector ||
+      bubble.closest?.(MEDIA_QUOTED_SELECTOR) ||
+      bubble.querySelector('[data-pre-plain-text]')
+    ) {
+      return null
+    }
+
+    const hasAudio =
+      messageContainerHasAudio(bubble)
+
+    const image =
+      hasAudio
+        ? null
+        : findBubbleImage(bubble)
+
+    const documentCard =
+      hasAudio || image
+        ? null
+        : messageMutationTools
+            ?.describeAttachmentOnlyBubble
+            ?.(bubble) || null
+
+    if (!hasAudio && !image && !documentCard) {
+      return null
+    }
+
+    const time =
+      documentCard?.time ||
+      readBubbleTimeLabel(bubble)
+
+    const date =
+      time
+        ? inferAttachmentDateFromNeighbors(
+            bubble,
+            main,
+          )
+        : null
+
+    if (!time || !date) {
+      return null
+    }
+
+    const outgoing =
+      isOutgoingMessageNode(bubble)
+
+    const prePlainText =
+      `[${time}, ${date}] ${outgoing ? 'Yolen' : 'Cliente'}: `
+
+    const timestamp =
+      parseWhatsAppMessageTimestamp(
+        prePlainText,
+      )
+
+    if (!timestamp) {
+      return null
+    }
+
+    const text =
+      hasAudio
+        ? mediaTools().buildAudioDurationText(
+            readBubbleAudioDurationSeconds(bubble),
+          )
+        : image
+          ? mediaTools().buildAttachmentMarkerText({
+              kind: 'imagem',
+            })
+          : buildDocumentMarkerText(
+              bubble,
+              documentCard.fileName,
+              '',
+            )
+
+    return {
+      id: messageId,
+      timestampMs:
+        timestamp.timestampMs,
+      timestampLabel:
+        timestamp.timestampLabel,
+      dateKey: timestamp.dateKey,
+      direction:
+        outgoing
+          ? 'outgoing'
+          : 'incoming',
+      sender:
+        getMessageSenderFromPrePlainText(
+          prePlainText,
+        ),
+      text,
+      hasAudio,
       observedAt,
     }
   }
@@ -3769,6 +4121,164 @@ function createWhatsAppAdapter({
 
   // Escuta o bridge de áudio do page world (whatsapp-audio-bridge.js) e
   // guarda os blobs capturados; o Core recebe só eventos de status.
+  // ------------------------------------------------------------------
+  // Rodada 11 (HML): "Incluir na leitura" — o arquivo vem da própria
+  // página. Foto: o blob já mostrado na bolha. PDF/documento: o blob já
+  // aberto na bolha ou, sem ele, o bridge da página guarda o próximo blob
+  // de arquivo criado pelo WhatsApp quando o cartão é clicado (e impede o
+  // download para o disco do vendedor). Nada é escrito no DOM.
+  const FILE_CAPTURE_TIMEOUT_MS = 10000
+
+  function findBubbleByMessageKey(main, messageKey) {
+    for (const element of main.querySelectorAll('[data-id]')) {
+      if (element.getAttribute('data-id') === messageKey) {
+        return element
+      }
+    }
+
+    return null
+  }
+
+  async function fetchPageBlob(source) {
+    const response = await fetch(source)
+
+    if (!response.ok) {
+      throw new Error('attachment_source_unavailable')
+    }
+
+    return response.blob()
+  }
+
+  function clickDocumentControl(bubble) {
+    const control =
+      bubble.querySelector('[data-icon*="download" i]')?.closest?.('button, [role="button"]') ||
+      bubble.querySelector('[data-icon*="document" i]')?.closest?.('button, [role="button"]') ||
+      bubble.querySelector('[data-testid*="document" i]') ||
+      bubble.querySelector('[role="button"]')
+
+    if (!control) {
+      return false
+    }
+
+    control.click?.()
+    return true
+  }
+
+  function captureNextFileFromBridge(requestId, trigger) {
+    return new Promise((resolve) => {
+      let settled = false
+      let timer = null
+
+      const finish = (blob) => {
+        if (settled) {
+          return
+        }
+
+        settled = true
+        window.clearTimeout(timer)
+        window.removeEventListener('message', listener)
+        window.postMessage(
+          {
+            source: 'YOLEN_COMPANION_CONTENT_SCRIPT',
+            action: 'CAPTURE_FILE_FINISHED',
+            requestId,
+          },
+          window.location.origin,
+        )
+        resolve(blob)
+      }
+
+      const listener = (event) => {
+        if (
+          event.source !== window ||
+          event.origin !== window.location.origin ||
+          event.data?.source !== 'YOLEN_COMPANION_WHATSAPP_AUDIO_BRIDGE' ||
+          event.data?.action !== 'FILE_BLOB_CAPTURED' ||
+          event.data?.requestId !== requestId
+        ) {
+          return
+        }
+
+        finish(event.data.file?.blob instanceof Blob ? event.data.file.blob : null)
+      }
+
+      window.addEventListener('message', listener)
+      window.postMessage(
+        {
+          source: 'YOLEN_COMPANION_CONTENT_SCRIPT',
+          action: 'CAPTURE_NEXT_FILE',
+          requestId,
+        },
+        window.location.origin,
+      )
+
+      timer = window.setTimeout(() => finish(null), FILE_CAPTURE_TIMEOUT_MS)
+
+      if (!trigger()) {
+        finish(null)
+      }
+    })
+  }
+
+  async function getAttachmentSource({
+    messageKey,
+    kind,
+  } = {}) {
+    const refused = (reason) => ({ ok: false, blob: null, reason })
+    const main = getMainConversationRoot()
+
+    const bubble =
+      main && typeof messageKey === 'string' && messageKey
+        ? findBubbleByMessageKey(main, messageKey)
+        : null
+
+    if (!bubble) {
+      return refused('attachment_not_visible')
+    }
+
+    try {
+      if (kind === 'imagem') {
+        const source =
+          findBubbleImage(bubble)?.getAttribute?.('src')
+
+        if (!source) {
+          return refused('attachment_source_unavailable')
+        }
+
+        const blob = await fetchPageBlob(source)
+
+        return { ok: true, blob, mimeType: blob.type || 'image/jpeg', reason: null }
+      }
+
+      const fileName =
+        messageMutationTools?.describeAttachmentOnlyBubble?.(bubble)?.fileName || null
+
+      const anchor =
+        bubble.querySelector('a[href^="blob:"]')
+
+      if (anchor) {
+        const blob = await fetchPageBlob(anchor.getAttribute('href'))
+
+        return { ok: true, blob, mimeType: blob.type || 'application/pdf', fileName, reason: null }
+      }
+
+      const requestId =
+        `file-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+      const blob =
+        await captureNextFileFromBridge(
+          requestId,
+          () => clickDocumentControl(bubble),
+        )
+
+      return blob
+        ? { ok: true, blob, mimeType: blob.type || 'application/pdf', fileName, reason: null }
+        : refused('attachment_source_unavailable')
+    } catch {
+      return refused('attachment_source_unavailable')
+    }
+  }
+
   function listenToAudioBridge({
     onBridgeReady,
     onAudioCaptured,
@@ -4709,6 +5219,7 @@ function createWhatsAppAdapter({
     resetCapturedAudio,
     insertTextIntoEmptyComposer,
     readVisibleMessageEntries,
+    getAttachmentSource,
     waitForWhatsAppApp,
     injectWhatsAppAudioBridge,
     listenToWhatsAppIdentityBridge,

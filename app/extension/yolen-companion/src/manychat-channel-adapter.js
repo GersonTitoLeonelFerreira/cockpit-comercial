@@ -528,8 +528,10 @@
       }
     }
 
-    function readVisibleMessageEntries({ observedAt } = {}) {
+    function readVisibleMessageEntries({ observedAt, includeMediaBubbles = false } = {}) {
       syncInstance()
+      // Rodada 11 (HML): imagem e arquivo só com a leitura completa.
+      root.YolenManyChatMessageContent?.setMediaCaptureEnabled?.(includeMediaBubbles === true)
       const read = readNormalizedMessages()
 
       if (!read) {
@@ -924,6 +926,88 @@
       }
     }
 
+    // ------------------------------------------------------------------
+    // Rodada 11 (HML): "Incluir na leitura" — imagem ou PDF da bolha, só do
+    // domínio de arquivos do ManyChat, baixado pelo background (o content
+    // script não baixa por CORS). Mesma conversa viva antes e depois.
+
+    const fetchAttachmentSource =
+      typeof options.fetchAttachmentSource === 'function'
+        ? options.fetchAttachmentSource
+        : (url) =>
+            sendRuntimeMessage({
+              source: EXTENSION_SOURCE,
+              action: 'FETCH_MANYCHAT_ATTACHMENT_SOURCE',
+              payload: { attachment_url: url },
+            })
+
+    async function getAttachmentSource({ messageKey } = {}) {
+      const refused = (reason) => ({ ok: false, blob: null, reason })
+      const conversationKey = syncInstance()
+      const conversationRoot = getConversationRoot()
+      const contentApi = root.YolenManyChatMessageContent ?? null
+
+      if (!conversationKey || !conversationRoot || !contentApi || typeof messageKey !== 'string') {
+        return refused('attachment_not_visible')
+      }
+
+      const prefix = `${conversationKey}::`
+      const rawKey = messageKey.startsWith(prefix) ? messageKey.slice(prefix.length) : messageKey
+      const startedGeneration = generation
+
+      let nodes = []
+
+      try {
+        nodes = Array.from(conversationRoot.querySelectorAll(VALIDATED_SELECTORS.messages))
+      } catch {
+        return refused('attachment_not_visible')
+      }
+
+      for (const node of nodes) {
+        const message = messageProfileApi.readManyChatMessage(node)
+
+        if (message?.message_key !== rawKey) {
+          continue
+        }
+
+        const file = contentApi.findManyChatFileLink?.(node) ?? null
+        const image = file ? null : contentApi.findManyChatImage?.(node) ?? null
+        const url = file?.url || image?.getAttribute?.('src') || null
+
+        if (!url || contentApi.isManyChatFileUrl?.(url) !== true) {
+          return refused('attachment_source_unavailable')
+        }
+
+        let response = null
+
+        try {
+          response = await fetchAttachmentSource(url)
+        } catch {
+          response = null
+        }
+
+        if (syncInstance() !== conversationKey || generation !== startedGeneration) {
+          return refused('conversation_changed')
+        }
+
+        const payload = response?.payload
+
+        if (response?.ok !== true || payload?.ready !== true || typeof payload.content_base64 !== 'string') {
+          return refused(payload?.reason || 'attachment_source_unavailable')
+        }
+
+        return {
+          ok: true,
+          blob: base64ToBlob(payload.content_base64, payload.mime_type),
+          mimeType: payload.mime_type,
+          fileName: file?.name ?? null,
+          reason: null,
+        }
+      }
+
+      return refused('attachment_not_visible')
+    }
+
     // Sem bridge de captura de áudio no page world do ManyChat: a fonte é
     // a URL validada do próprio <audio>.
     function listenToAudioBridge() {
@@ -956,6 +1040,7 @@
       getCapabilities,
       getCurrentConversationKey,
       readConversationSnapshot,
+      getAttachmentSource,
       getContactEvidence,
       acquireContactEvidence,
       revalidateConversationIdentity,

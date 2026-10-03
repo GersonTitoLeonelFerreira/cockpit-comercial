@@ -1171,7 +1171,141 @@
   // exclusão do próprio WhatsApp (isDeletedMessageText). Uma mensagem
   // que só sai da consulta atual do DOM permanece ativa e intocada.
 
+  // ------------------------------------------------------------------
+  // Rodada 11 (HML): marcas de mídia no texto capturado. Só os adaptadores
+  // no modo da leitura completa as usam; o resto da captura não muda.
+  //
+  // - Áudio: "[duração 0:42]" no texto do áudio (o ledger não tem coluna
+  //   de duração; a leitura transforma em "[áudio de 0:42 …]").
+  // - Arquivo: a mesma marca de hoje, "[Arquivo: nome]", com tipo, tamanho
+  //   e páginas quando houver: "[Arquivo: Proposta.pdf | tipo: pdf |
+  //   tamanho: 1,2 MB | páginas: 3]". Imagem sem nome: "[Arquivo | tipo:
+  //   imagem]". A legenda, quando há, vem antes, como hoje.
+  const MEDIA_KINDS = Object.freeze(['imagem', 'pdf', 'documento'])
+
+  const IMAGE_FILE_EXTENSIONS =
+    /\.(?:jpe?g|png|webp|gif|heic|heif|bmp)$/i
+
+  function formatAudioDuration(seconds) {
+    const total = Math.round(Number(seconds))
+
+    if (!Number.isFinite(total) || total <= 0) {
+      return ''
+    }
+
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+  }
+
+  function buildAudioDurationText(seconds) {
+    const label = formatAudioDuration(seconds)
+
+    return label ? `[duração ${label}]` : ''
+  }
+
+  function attachmentKindFromFileName(name) {
+    const value = String(name || '').trim()
+
+    if (/\.pdf$/i.test(value)) {
+      return 'pdf'
+    }
+
+    if (IMAGE_FILE_EXTENSIONS.test(value)) {
+      return 'imagem'
+    }
+
+    return 'documento'
+  }
+
+  function sanitizeMarkerValue(value) {
+    return normalizeText(value)
+      .replace(/[|\[\]\n]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 160)
+  }
+
+  // "1,2 MB", "350 kB", "12 bytes" no cartão do arquivo.
+  function readAttachmentSizeLabel(text) {
+    const match = String(text || '').match(
+      /(\d+(?:[.,]\d+)?)\s*(bytes?|b|kb|kib|mb|mib|gb)\b/i,
+    )
+
+    if (!match) {
+      return ''
+    }
+
+    const unit = match[2].toLowerCase()
+
+    const label =
+      unit.startsWith('k')
+        ? 'kB'
+        : unit.startsWith('m')
+          ? 'MB'
+          : unit.startsWith('g')
+            ? 'GB'
+            : 'bytes'
+
+    return `${match[1].replace('.', ',')} ${label}`
+  }
+
+  function readAttachmentPageCount(text) {
+    const match = String(text || '').match(
+      /(\d{1,4})\s*(?:p[aá]ginas?|pages?)\b/i,
+    )
+
+    const value = match ? Number(match[1]) : NaN
+
+    return Number.isInteger(value) && value > 0
+      ? value
+      : null
+  }
+
+  function buildAttachmentMarkerText({
+    caption = '',
+    name = '',
+    kind = '',
+    sizeLabel = '',
+    pages = null,
+  } = {}) {
+    const safeName = sanitizeMarkerValue(name)
+    const safeKind =
+      MEDIA_KINDS.includes(kind)
+        ? kind
+        : safeName
+          ? attachmentKindFromFileName(safeName)
+          : 'documento'
+
+    const parts = [
+      `[Arquivo${safeName ? `: ${safeName}` : ''}`,
+      `tipo: ${safeKind}`,
+    ]
+
+    const safeSize = sanitizeMarkerValue(sizeLabel)
+
+    if (safeSize) {
+      parts.push(`tamanho: ${safeSize}`)
+    }
+
+    if (Number.isInteger(pages) && pages > 0) {
+      parts.push(`páginas: ${pages}`)
+    }
+
+    return [
+      normalizeText(caption),
+      `${parts.join(' | ')}]`,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
   const api = Object.freeze({
+    MEDIA_KINDS,
+    attachmentKindFromFileName,
+    buildAttachmentMarkerText,
+    buildAudioDurationText,
+    formatAudioDuration,
+    readAttachmentPageCount,
+    readAttachmentSizeLabel,
     areCapturedMessagesEqual,
     buildMessageSnapshotFingerprint,
     buildStableCaptureConversationKey,

@@ -783,6 +783,15 @@ async function handleCompanionMessage(message, sender) {
     return fetchBackendBuildIdentity()
   }
 
+  // Rodada 11 (HML): arquivo do ManyChat (imagem/PDF) só do domínio de
+  // arquivos do ManyChat, com tipo e tamanho conferidos.
+  if (message.action === 'FETCH_MANYCHAT_ATTACHMENT_SOURCE') {
+    return manyChatAudioTransportTools.handleAttachmentSourceRequest(
+      message,
+      sender,
+    )
+  }
+
   // FASE 6 — fonte de áudio do ManyChatAdapter (só a mídia validada).
   if (message.action === 'FETCH_MANYCHAT_AUDIO_SOURCE') {
     return manyChatAudioTransportTools.handleAudioSourceRequest(
@@ -992,6 +1001,19 @@ async function handleCompanionMessage(message, sender) {
     return requestYolenWithToken(
       message,
       '/api/companion/full-reading/message',
+      message.payload,
+    )
+  }
+
+  // Rodada 11 (HML): "Incluir na leitura" — o arquivo vai para a rota, que
+  // guarda só o resumo. A rota só existe no preview com a flag ligada.
+  if (
+    message.action ===
+    'INCLUDE_FULL_READING_ATTACHMENT'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/full-reading/attachments',
       message.payload,
     )
   }

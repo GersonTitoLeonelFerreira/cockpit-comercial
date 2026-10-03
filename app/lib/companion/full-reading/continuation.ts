@@ -70,6 +70,9 @@ function signature(
     message.deletion_reason ?? '',
     message.author_kind ?? '',
     message.direction ?? '',
+    // Rodada 11: arquivo incluído depois da leitura anterior entra entre as
+    // novas, marcado como atualizado.
+    message.attachment_summary ?? '',
   ])
 }
 

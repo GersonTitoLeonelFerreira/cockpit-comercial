@@ -13,6 +13,11 @@
 // - Ganho e Perdido sugeridos nunca são aplicados por aqui: o botão abre
 //   o fechamento estruturado do Yolen, com a confirmação do vendedor.
 
+import type {
+  FullReadingAttachmentSuggestionView,
+  FullReadingAttachmentsView,
+} from './full-reading-attachments-view'
+
 import {
   FULL_READING_KANBAN_STAGES,
   FULL_READING_PAYMENT_METHOD_CODES,
@@ -366,6 +371,8 @@ export type FullReadingAttention = {
 }
 
 export type FullReadingAgoraView = {
+  // Rodada 11 (B2): "A leitura sugere incluir: ...".
+  attachment_suggestion?: FullReadingAttachmentSuggestionView
   state: FullReadingPanelState
   notice: string | null
   failure_code: string | null
@@ -444,6 +451,8 @@ export type FullReadingOpportunityView = {
 }
 
 export type FullReadingAnalysisView = {
+  // Rodada 11 (B2): "Arquivos na conversa (N)".
+  attachments?: FullReadingAttachmentsView
   state: FullReadingPanelState
   notice: string | null
   failure_code: string | null

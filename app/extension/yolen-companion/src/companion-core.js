@@ -1710,6 +1710,10 @@ function createCompanionCore(ctx) {
           conversationMessageLedger.get(
             messageId,
           ),
+        // Rodada 11 (HML): áudio, imagem e arquivo sem texto entram na
+        // captura só com a leitura completa.
+        includeMediaBubbles:
+          isFullReadingPanelMode(),
       })
 
     if (!visibleEntries) {
@@ -8028,26 +8032,264 @@ function createCompanionCore(ctx) {
     }, FULL_READING_APPLIED_CARD_MS + 50)
   }
 
+  // ------------------------------------------------------------------
+  // Rodada 11 (HML): "Incluir na leitura". O vendedor pede; a extensão pega
+  // o arquivo no canal (WhatsApp: a própria página; ManyChat: o domínio de
+  // arquivos do ManyChat), confere os limites, reduz a imagem e manda à
+  // rota, que guarda só o resumo. Depois, o painel pede a atualização (a
+  // leitura relê uma vez, em continuação se sair mais barata).
+  const attachmentIncludeState = new Map()
+
+  function withAttachmentState(view, kind) {
+    if (!view || attachmentIncludeState.size === 0) {
+      return view
+    }
+
+    const overlay = (item) => {
+      const local =
+        item?.message_key ? attachmentIncludeState.get(item.message_key) : null
+
+      // Incluído: vale o que o servidor mostrar assim que o painel voltar.
+      if (!local || (local.status === 'done' && item.status === 'incluido')) {
+        return item
+      }
+
+      return {
+        ...item,
+        busy: local.status === 'sending',
+        status_text: local.text,
+        can_include: local.status === 'error',
+        include_label: local.status === 'error' ? 'Tentar de novo' : item.include_label,
+      }
+    }
+
+    const signature =
+      Array.from(attachmentIncludeState.entries())
+        .map(([key, local]) => `${key.length}:${local.status}:${local.text.length}`)
+        .join(',')
+
+    if (kind === 'agora') {
+      return view.attachment_suggestion
+        ? {
+            ...view,
+            attachment_suggestion: overlay(view.attachment_suggestion),
+            view_key: `${view.view_key}|arq-local:${signature}`,
+          }
+        : view
+    }
+
+    return view.attachments
+      ? {
+          ...view,
+          attachments: {
+            ...view.attachments,
+            items: (view.attachments.items || []).map(overlay),
+          },
+          view_key: `${view.view_key}|arq-local:${signature}`,
+        }
+      : view
+  }
+
+  async function downscaleImageBlob(blob) {
+    const limits =
+      autoTranscriptionTools?.ATTACHMENT_UPLOAD_LIMITS
+
+    if (
+      typeof createImageBitmap !== 'function' ||
+      typeof document?.createElement !== 'function'
+    ) {
+      return blob
+    }
+
+    try {
+      const bitmap = await createImageBitmap(blob)
+      const maxEdge = limits?.image_max_edge || 1568
+      const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height))
+      const supported = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(blob.type)
+
+      if (scale === 1 && supported && blob.size <= 1.5 * 1024 * 1024) {
+        bitmap.close?.()
+        return blob
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+      canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+      bitmap.close?.()
+
+      const reduced = await new Promise((resolve) => {
+        canvas.toBlob((result) => resolve(result), 'image/jpeg', 0.85)
+      })
+
+      return reduced || blob
+    } catch {
+      return blob
+    }
+  }
+
+  async function readPdfPageCount(blob) {
+    try {
+      const buffer = await blob.arrayBuffer()
+      const text = new TextDecoder('latin1').decode(new Uint8Array(buffer))
+      return autoTranscriptionTools?.countPdfPagesFromText?.(text) || null
+    } catch {
+      return null
+    }
+  }
+
+  function setAttachmentIncludeState(messageKey, status, text) {
+    if (status) {
+      attachmentIncludeState.set(messageKey, { status, text })
+    } else {
+      attachmentIncludeState.delete(messageKey)
+    }
+
+    renderPanel()
+  }
+
+  async function handleAttachmentIncludeClick(button) {
+    const messageKey =
+      button?.getAttribute?.('data-yolen-fr-attachment-key') || ''
+
+    const kind =
+      button?.getAttribute?.('data-yolen-fr-attachment-kind') || ''
+
+    if (
+      !messageKey ||
+      !isFullReadingPanelMode() ||
+      attachmentIncludeState.get(messageKey)?.status === 'sending' ||
+      typeof channelAdapter.getAttachmentSource !== 'function' ||
+      typeof window.YolenCompanionApi?.includeFullReadingAttachment !== 'function'
+    ) {
+      return
+    }
+
+    const cycleId = getCanonicalResolutionCycleId()
+    const conversationKey = getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      return
+    }
+
+    const isStillCurrent = () =>
+      getCanonicalResolutionCycleId() === cycleId &&
+      getCaptureConversationKey() === conversationKey
+
+    setAttachmentIncludeState(messageKey, 'sending', 'Enviando o arquivo…')
+
+    try {
+      const source =
+        await channelAdapter.getAttachmentSource({ messageKey, kind })
+
+      if (!isStillCurrent()) {
+        attachmentIncludeState.delete(messageKey)
+        return
+      }
+
+      if (!source?.ok || !source.blob) {
+        setAttachmentIncludeState(
+          messageKey,
+          'error',
+          autoTranscriptionTools?.attachmentSourceMessage?.(source?.reason) ||
+            'Não consegui pegar o arquivo na conversa.',
+        )
+        return
+      }
+
+      const pages =
+        kind === 'pdf' ? await readPdfPageCount(source.blob) : null
+
+      const plan =
+        autoTranscriptionTools?.planAttachmentUpload?.({
+          kind,
+          sizeBytes: source.blob.size,
+          pages,
+        }) || { ok: false, message: 'Não consegui pegar o arquivo na conversa.' }
+
+      if (!plan.ok) {
+        setAttachmentIncludeState(messageKey, 'error', plan.message)
+        return
+      }
+
+      const blob =
+        plan.downscale ? await downscaleImageBlob(source.blob) : source.blob
+
+      if (blob.size > (autoTranscriptionTools?.ATTACHMENT_UPLOAD_LIMITS?.upload_max_bytes || 0)) {
+        setAttachmentIncludeState(messageKey, 'error', 'O arquivo é grande demais para enviar.')
+        return
+      }
+
+      const contentBase64 = await blobToBase64(blob)
+
+      if (!isStillCurrent()) {
+        attachmentIncludeState.delete(messageKey)
+        return
+      }
+
+      const result =
+        await window.YolenCompanionApi.includeFullReadingAttachment({
+          cycle_id: cycleId,
+          conversation_key: conversationKey,
+          message_key: messageKey,
+          kind,
+          media_type: kind === 'pdf' ? 'application/pdf' : blob.type || source.mimeType || 'image/jpeg',
+          file_name: source.fileName || null,
+          size_bytes: source.blob.size,
+          content_base64: contentBase64,
+        })
+
+      if (!isStillCurrent()) {
+        attachmentIncludeState.delete(messageKey)
+        return
+      }
+
+      if (!result?.ok || !result.payload?.ok) {
+        setAttachmentIncludeState(
+          messageKey,
+          'error',
+          typeof result?.payload?.error === 'string' && result.payload.error
+            ? result.payload.error
+            : 'Não consegui ler o arquivo agora.',
+        )
+        return
+      }
+
+      // O resumo já está salvo: o painel relê (a linha "[arquivo incluído]").
+      // Até o painel voltar, o arquivo aparece como incluído (sem o botão).
+      setAttachmentIncludeState(messageKey, 'done', 'Incluído na leitura. Atualizando…')
+      requestFullReadingRefresh()
+    } catch {
+      setAttachmentIncludeState(messageKey, 'error', 'Não consegui ler o arquivo agora.')
+    }
+  }
+
   function getCurrentFullReadingViews() {
     return {
       agora:
         isCurrentAgoraDecisionContext()
-          ? withAppliedStage(
-              withCaptureFailureNotice(
-                readFullReadingView(
-                  state.agoraDecisionState.data,
+          ? withAttachmentState(
+              withAppliedStage(
+                withCaptureFailureNotice(
+                  readFullReadingView(
+                    state.agoraDecisionState.data,
+                  ),
                 ),
+                'agora',
               ),
               'agora',
             )
           : null,
       analysis:
         isCurrentAnalysisViewContext()
-          ? withAppliedStage(
-              withCaptureFailureNotice(
-                readFullReadingView(
-                  state.analysisViewModel.data,
+          ? withAttachmentState(
+              withAppliedStage(
+                withCaptureFailureNotice(
+                  readFullReadingView(
+                    state.analysisViewModel.data,
+                  ),
                 ),
+                'analysis',
               ),
               'analysis',
             )
@@ -10371,6 +10613,21 @@ function createCompanionCore(ctx) {
       .forEach((button) => {
         wireOnce(button, 'click', () => {
           void handleFullReadingStageClick()
+        })
+      })
+
+    // Rodada 11 (HML): "Incluir na leitura".
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="full-reading-attachment-include"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          if (button.disabled) {
+            return
+          }
+
+          void handleAttachmentIncludeClick(button)
         })
       })
 

@@ -1014,6 +1014,14 @@
     return sendToBackground('TRANSCRIBE_AUDIO', payload)
   }
 
+  // Rodada 11 (HML): "Incluir na leitura" de um arquivo da conversa.
+  async function includeFullReadingAttachment(payload) {
+    return sendToBackground(
+      'INCLUDE_FULL_READING_ATTACHMENT',
+      payload,
+    )
+  }
+
   async function loadAudioTranscriptions(payload) {
     return sendToBackground(
       'LOAD_AUDIO_TRANSCRIPTIONS',
@@ -1111,6 +1119,7 @@
     registerMessageAction,
     registerActionEvent,
     transcribeAudio,
+    includeFullReadingAttachment,
     loadAudioTranscriptions,
     ingestCapturedMessages,
     createSuccessorOpportunity,

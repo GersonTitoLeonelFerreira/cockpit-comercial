@@ -26,6 +26,13 @@ import {
   type LedgerEventKind,
 } from './conversation-events'
 
+import {
+  attachmentRef,
+  describeAttachmentLine,
+  parseAttachmentMarker,
+  parseAudioDurationMarker,
+} from './attachments'
+
 import type {
   NormalizedLedgerAuthorKind,
   NormalizedLedgerMessage,
@@ -53,6 +60,9 @@ export type FullReadingTranscriptMessage = Pick<
   | 'deletion_reason'
 > & {
   message_key?: string
+  // Rodada 11: resumo do arquivo incluído pelo vendedor ("Incluir na
+  // leitura"), quando já existia no momento de referência da leitura.
+  attachment_summary?: string | null
 }
 
 // Marco que não é mensagem (ex.: "Nova oportunidade aberta em ..."): entra
@@ -175,6 +185,16 @@ export function describeMessageContent(
     (message.content_type || 'text').toLowerCase()
 
   if (contentType === 'audio') {
+    // Rodada 11: o áudio do WhatsApp chega com a duração no texto.
+    const duration =
+      parseAudioDurationMarker(message.text_content)
+
+    if (duration) {
+      return transcription.length > 0
+        ? `[áudio de ${duration}] ${transcription}`
+        : `[áudio de ${duration} sem transcrição]`
+    }
+
     if (transcription.length > 0) {
       return `[áudio] ${transcription}`
     }
@@ -182,6 +202,25 @@ export function describeMessageContent(
     return text.length > 0
       ? `[áudio] ${text}`
       : '[áudio sem transcrição]'
+  }
+
+  // Rodada 11: arquivo (imagem, PDF, documento). O conteúdo só entra
+  // quando o vendedor incluiu o arquivo; antes disso, só que ele existe.
+  const attachment =
+    message.is_deleted
+      ? null
+      : parseAttachmentMarker(message.text_content)
+
+  if (attachment) {
+    return describeAttachmentLine({
+      attachment,
+      ref: attachmentRef(message.message_key ?? message.id),
+      summary:
+        typeof message.attachment_summary === 'string' &&
+        message.attachment_summary.trim().length > 0
+          ? message.attachment_summary
+          : null,
+    })
   }
 
   if (text.length === 0) {

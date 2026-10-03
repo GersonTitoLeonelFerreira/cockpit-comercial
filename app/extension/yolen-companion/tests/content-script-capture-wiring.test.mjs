@@ -171,7 +171,8 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
 
     assert.match(
       synchronizeBlock,
-      /buildReliableMessageFromNode\(\s*node,\s*observedAt,\s*\)/,
+      // Rodada 11: a opção includeMedia (leitura completa) pode vir junto.
+      /buildReliableMessageFromNode\(\s*node,\s*observedAt,\s*(?:\{\s*includeMedia:[^}]*\},\s*)?\)/,
     )
 
     assert.match(
