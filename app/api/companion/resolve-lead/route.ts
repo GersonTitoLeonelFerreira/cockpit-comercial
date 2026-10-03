@@ -490,8 +490,9 @@ function buildResolutionPayload({
       ),
       // Rodada 10 (J): com a leitura completa ligada, a extensão captura a
       // conversa do ciclo encerrado (dono do ciclo, gestor ou admin) para a
-      // leitura de atendimento. A RPC continua decidindo: enquanto a
-      // migração não for aplicada, ela recusa e o painel fica como hoje.
+      // leitura de atendimento. A RPC continua decidindo (migração
+      // 20261003090000, já aplicada); se ela recusar, o painel fica como
+      // hoje.
       // Desligada, a chave nem aparece.
       ...(
         status === 'CLOSED_CYCLE' &&

@@ -418,8 +418,8 @@ export async function POST(request: Request) {
       const classification =
         classifyCaptureRpcError(error)
 
-      // A RPC ainda não aceita ciclo encerrado (migração não aplicada):
-      // recusa silenciosa, sem aviso de falha no painel.
+      // A RPC recusou o ciclo encerrado (defesa: banco sem a migração
+      // 20261003090000): recusa silenciosa, sem aviso de falha no painel.
       if (
         closedCycle &&
         isClosedCycleCaptureUnavailable({
@@ -442,7 +442,7 @@ export async function POST(request: Request) {
             ok: false,
             status: CLOSED_CYCLE_CAPTURE_UNAVAILABLE,
             error:
-              'A captura de ciclo encerrado ainda não está disponível.',
+              'A captura de ciclo encerrado não está disponível agora.',
             validation: {
               code: CLOSED_CYCLE_CAPTURE_UNAVAILABLE,
               message_index: null,

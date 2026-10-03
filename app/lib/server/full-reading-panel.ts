@@ -71,7 +71,9 @@ import {
 
 import {
   ATTACHMENT_IN_PROGRESS_MS,
+  IMAGE_LOW_RESOLUTION_FAILURE,
   countAttachmentSummariesSince,
+  isLowResolutionImage,
   loadConversationAttachments,
   type AttachmentStatus,
 } from './full-reading-attachments'
@@ -1232,6 +1234,8 @@ export type FullReadingPanelAttachment = {
   occurred_at: string
   from: 'cliente' | 'vendedor' | 'automacao'
   status: 'nao_incluido' | AttachmentStatus
+  // Rodada 12: por que falhou (imagem_baixa_resolucao, arquivo_ilegivel...).
+  failure_code?: string | null
 }
 
 export type FullReadingRunScheduler =
@@ -1364,6 +1368,16 @@ async function readGlobalClaudeState(
 const ACTIVITY_ROWS_LIMIT =
   200
 
+// Rodada 12 (B2): versões repetidas (ex.: o contador do player de áudio
+// gravado como versão nova por extensões antigas) não podem empurrar as
+// mensagens reais para fora da janela: sem mudança real na primeira
+// página, lê as seguintes (até 5).
+const ACTIVITY_MAX_PAGES =
+  5
+
+const ACTIVITY_PREDECESSOR_KEYS_LIMIT =
+  50
+
 export type FullReadingLedgerActivity = {
   // Última versão observada de mensagem real (qualquer lado).
   latest_observed_at: string | null
@@ -1393,6 +1407,7 @@ export type FullReadingLedgerAttachment = {
 
 type ActivityRow = {
   message_key?: unknown
+  version?: unknown
   is_deleted?: unknown
   direction?: unknown
   author_kind?: unknown
@@ -1422,8 +1437,153 @@ function later(
     : current
 }
 
+// Rodada 12 (B2): só mudança real de conteúdo é atividade (mensagem nova,
+// transcrição nova ou alterada, exclusão, texto alterado). Em áudio, o
+// rótulo de duração ("[duração 0:42]", ou o tempo corrido do player) não é
+// conteúdo: diferença só nele, inclusive vazio ↔ rótulo, não conta.
+const AUDIO_LABEL_TEXT =
+  /^\[(?:duração|áudio)\s+(?:\d{1,2}:)?\d{1,3}:[0-5]\d\]$/i
+
+function activityText(
+  row: ActivityRow,
+): string {
+  const contentType =
+    typeof row.content_type === 'string'
+      ? row.content_type.toLowerCase()
+      : 'text'
+
+  const text =
+    typeof row.text_content === 'string'
+      ? row.text_content.trim()
+      : ''
+
+  return contentType === 'audio' && AUDIO_LABEL_TEXT.test(text)
+    ? ''
+    : text
+}
+
+function activityTranscription(
+  row: ActivityRow,
+): string {
+  return typeof row.audio_transcription === 'string'
+    ? row.audio_transcription.trim()
+    : ''
+}
+
+export function activityContentSignature(
+  row: ActivityRow,
+): string {
+  return JSON.stringify([
+    row.is_deleted === true,
+    typeof row.content_type === 'string' ? row.content_type.toLowerCase() : 'text',
+    activityText(row),
+    activityTranscription(row),
+  ])
+}
+
+function rowVersion(
+  row: ActivityRow,
+): number | null {
+  return typeof row.version === 'number' && Number.isInteger(row.version)
+    ? row.version
+    : null
+}
+
+type ActivityChange = {
+  // A versão mudou o conteúdo (ou é a primeira da mensagem).
+  meaningful: boolean
+  // A transcrição apareceu ou mudou nesta versão.
+  transcription_changed: boolean
+}
+
+// Cada versão comparada com a anterior da mesma mensagem (na janela ou nas
+// anteriores lidas à parte). Sem a anterior e com versão > 1, conta como
+// mudança (não dá para provar que é repetida).
+export function classifyActivityRows(
+  rows: ActivityRow[],
+  predecessors: ActivityRow[] = [],
+): Map<ActivityRow, ActivityChange> {
+  const result =
+    new Map<ActivityRow, ActivityChange>()
+
+  const byKey =
+    new Map<string, ActivityRow[]>()
+
+  for (const row of [...rows, ...predecessors]) {
+    const key =
+      rowText(row.message_key)
+
+    if (!key) {
+      continue
+    }
+
+    const list =
+      byKey.get(key) ?? []
+
+    list.push(row)
+    byKey.set(key, list)
+  }
+
+  const inWindow =
+    new Set(rows)
+
+  for (const list of byKey.values()) {
+    list.sort((left, right) => {
+      const leftVersion = rowVersion(left)
+      const rightVersion = rowVersion(right)
+
+      if (leftVersion !== null && rightVersion !== null && leftVersion !== rightVersion) {
+        return leftVersion - rightVersion
+      }
+
+      return (toTime(rowText(left.observed_at)) ?? 0) - (toTime(rowText(right.observed_at)) ?? 0)
+    })
+
+    let previous: ActivityRow | null = null
+
+    for (const row of list) {
+      if (inWindow.has(row)) {
+        result.set(
+          row,
+          previous
+            ? {
+                meaningful:
+                  activityContentSignature(previous) !== activityContentSignature(row),
+                transcription_changed:
+                  activityTranscription(row).length > 0 &&
+                  activityTranscription(row) !== activityTranscription(previous),
+              }
+            : {
+                meaningful: true,
+                transcription_changed: activityTranscription(row).length > 0,
+              },
+        )
+      }
+
+      previous = row
+    }
+  }
+
+  for (const row of rows) {
+    if (!result.has(row)) {
+      result.set(row, {
+        meaningful: true,
+        transcription_changed: activityTranscription(row).length > 0,
+      })
+    }
+  }
+
+  return result
+}
+
 export function summarizeLedgerActivity(
   rows: ActivityRow[],
+  {
+    predecessors = [],
+  }: {
+    // Versões anteriores, fora da janela, só para comparar (rodada 12).
+    predecessors?: ActivityRow[]
+  } = {},
 ): FullReadingLedgerActivity {
   const activity: FullReadingLedgerActivity = {
     latest_observed_at: null,
@@ -1437,6 +1597,9 @@ export function summarizeLedgerActivity(
 
   const attachmentsByKey =
     new Map<string, FullReadingLedgerAttachment>()
+
+  const changes =
+    classifyActivityRows(rows, predecessors)
 
   for (const row of rows) {
     // Rodada 11: arquivo (marca no texto), a versão observada mais recente.
@@ -1485,11 +1648,18 @@ export function summarizeLedgerActivity(
       continue
     }
 
-    const observedAt =
-      rowText(row.observed_at)
+    const change =
+      changes.get(row) ?? { meaningful: true, transcription_changed: false }
 
     const occurredAt =
       rowText(row.occurred_at)
+
+    // Rodada 12 (B2): versão sem mudança real não mexe nos horários de
+    // atividade (leitura velha, espera de 20 s, vendedor respondeu).
+    const observedAt =
+      change.meaningful
+        ? rowText(row.observed_at)
+        : null
 
     activity.latest_observed_at =
       later(activity.latest_observed_at, observedAt)
@@ -1499,11 +1669,10 @@ export function summarizeLedgerActivity(
 
     if (
       message.content_type === 'audio' &&
-      typeof row.audio_transcription === 'string' &&
-      row.audio_transcription.trim().length > 0
+      change.transcription_changed
     ) {
       activity.latest_transcription_observed_at =
-        later(activity.latest_transcription_observed_at ?? null, observedAt)
+        later(activity.latest_transcription_observed_at ?? null, rowText(row.observed_at))
     }
 
     if (isCustomerMessage(message)) {
@@ -1529,33 +1698,178 @@ export function summarizeLedgerActivity(
   return activity
 }
 
-async function readLedgerActivity(
+const ACTIVITY_COLUMNS =
+  'message_key, version, is_deleted, direction, author_kind, occurred_at, observed_at, content_type, text_content, audio_transcription'
+
+function ledgerReadFailed(): Error {
+  return Object.assign(
+    new Error('Falha ao ler o ledger da conversa.'),
+    { code: 'FULL_READING_LEDGER_READ_FAILED' },
+  )
+}
+
+function activityRowId(
+  row: ActivityRow,
+): string {
+  return `${rowText(row.message_key) ?? ''}#${rowVersion(row) ?? rowText(row.observed_at) ?? ''}`
+}
+
+// Rodada 12 (B2): a versão anterior das mensagens cuja primeira versão na
+// janela não é a 1 (para saber se a versão da janela mudou algo).
+async function readActivityPredecessors(
+  admin: SupabaseClient,
+  scope: FullReadingPanelScope,
+  cycleIds: string[],
+  rows: ActivityRow[],
+): Promise<ActivityRow[]> {
+  const firstVersion =
+    new Map<string, number>()
+
+  const versionsSeen =
+    new Set<string>()
+
+  let oldestObserved: string | null = null
+
+  for (const row of rows) {
+    const key = rowText(row.message_key)
+    const version = rowVersion(row)
+
+    if (!key || version === null) {
+      continue
+    }
+
+    versionsSeen.add(`${key}#${version}`)
+    firstVersion.set(key, Math.min(firstVersion.get(key) ?? version, version))
+
+    const observed = rowText(row.observed_at)
+
+    if (observed && (oldestObserved === null || (toTime(observed) ?? 0) < (toTime(oldestObserved) ?? 0))) {
+      oldestObserved = observed
+    }
+  }
+
+  const missing =
+    [...firstVersion.entries()]
+      .filter(([key, version]) => version > 1 && !versionsSeen.has(`${key}#${version - 1}`))
+      .map(([key]) => key)
+      .slice(0, ACTIVITY_PREDECESSOR_KEYS_LIMIT)
+
+  if (missing.length === 0 || oldestObserved === null) {
+    return []
+  }
+
+  const { data, error } =
+    await admin
+      .from('conversation_messages')
+      .select(ACTIVITY_COLUMNS)
+      .eq('company_id', scope.company_id)
+      .in('cycle_id', cycleIds)
+      .eq('conversation_key', scope.conversation_key)
+      .in('message_key', missing)
+      .lte('observed_at', oldestObserved)
+      .order('observed_at', { ascending: false })
+      .limit(ACTIVITY_ROWS_LIMIT * 2)
+
+  if (error) {
+    // Sem as anteriores, a versão conta como mudança (como antes).
+    return []
+  }
+
+  const wanted =
+    new Map(missing.map((key) => [key, (firstVersion.get(key) ?? 1) - 1]))
+
+  const found =
+    new Map<string, ActivityRow>()
+
+  for (const row of (data ?? []) as ActivityRow[]) {
+    const key = rowText(row.message_key)
+    const version = rowVersion(row)
+
+    if (!key || version === null || !wanted.has(key) || version > (wanted.get(key) ?? 0)) {
+      continue
+    }
+
+    const current = found.get(key)
+
+    if (!current || version > (rowVersion(current) ?? 0)) {
+      found.set(key, row)
+    }
+  }
+
+  return [...found.values()]
+}
+
+export async function readLedgerActivity(
   admin: SupabaseClient,
   scope: FullReadingPanelScope,
   cycleIds: string[],
 ): Promise<FullReadingLedgerActivity> {
-  const { data, error } =
-    await admin
-      .from('conversation_messages')
-      .select('message_key, is_deleted, direction, author_kind, occurred_at, observed_at, content_type, text_content, audio_transcription')
-      .eq('company_id', scope.company_id)
-      .in('cycle_id', cycleIds)
-      .eq('conversation_key', scope.conversation_key)
-      .order('observed_at', { ascending: false })
-      .limit(ACTIVITY_ROWS_LIMIT)
+  const rows: ActivityRow[] = []
+  const seen = new Set<string>()
+  let activity: FullReadingLedgerActivity | null = null
 
-  if (error) {
-    throw Object.assign(
-      new Error('Falha ao ler o ledger da conversa.'),
-      { code: 'FULL_READING_LEDGER_READ_FAILED' },
-    )
+  for (let page = 0; page < ACTIVITY_MAX_PAGES; page += 1) {
+    const oldest =
+      rows.length > 0
+        ? rowText(rows[rows.length - 1]?.observed_at)
+        : null
+
+    let query =
+      admin
+        .from('conversation_messages')
+        .select(ACTIVITY_COLUMNS)
+        .eq('company_id', scope.company_id)
+        .in('cycle_id', cycleIds)
+        .eq('conversation_key', scope.conversation_key)
+
+    if (oldest) {
+      query = query.lte('observed_at', oldest)
+    }
+
+    const { data, error } =
+      await query
+        .order('observed_at', { ascending: false })
+        .limit(ACTIVITY_ROWS_LIMIT)
+
+    if (error) {
+      throw ledgerReadFailed()
+    }
+
+    const pageRows =
+      (data ?? []) as ActivityRow[]
+
+    let added = 0
+
+    for (const row of pageRows) {
+      const id = activityRowId(row)
+
+      if (!seen.has(id)) {
+        seen.add(id)
+        rows.push(row)
+        added += 1
+      }
+    }
+
+    const exhausted =
+      pageRows.length < ACTIVITY_ROWS_LIMIT || added === 0
+
+    const predecessors =
+      exhausted
+        ? []
+        : await readActivityPredecessors(admin, scope, cycleIds, rows)
+
+    activity =
+      summarizeLedgerActivity(rows, { predecessors })
+
+    if (
+      exhausted ||
+      (activity.latest_observed_at !== null && activity.latest_customer_observed_at !== null)
+    ) {
+      break
+    }
   }
 
-  const rows =
-    (data ?? []) as ActivityRow[]
-
-  const activity =
-    summarizeLedgerActivity(rows)
+  activity ??= summarizeLedgerActivity(rows)
 
   // Só eventos nas linhas mais recentes (raro): a conversa não está vazia.
   if (activity.latest_observed_at === null && rows.length > 0) {
@@ -1764,11 +2078,16 @@ async function startRun({
 // Rodada 11: "resumindo" parado há mais de 2 minutos (a rota caiu no
 // meio) aparece como falha, para o vendedor poder tentar de novo.
 export function attachmentPanelStatus(
-  record: { status: AttachmentStatus; requested_at: string | null } | undefined,
+  record: { status: AttachmentStatus; requested_at: string | null; kind?: unknown; size_bytes?: unknown } | undefined,
   now: string,
 ): FullReadingPanelAttachment['status'] {
   if (!record) {
     return 'nao_incluido'
+  }
+
+  // Rodada 12 (A4): foto "incluida" com a prévia vale como falha.
+  if (record.status === 'incluido' && isLowResolutionImage(record)) {
+    return 'falhou'
   }
 
   if (record.status === 'resumindo') {
@@ -1853,7 +2172,7 @@ export async function resolveFullReadingPanel({
 
   const latestAttachmentIncludedAt =
     attachmentState.records
-      .filter((record) => record.status === 'incluido' && record.summarized_at)
+      .filter((record) => record.status === 'incluido' && record.summarized_at && !isLowResolutionImage(record))
       .map((record) => record.summarized_at as string)
       .sort((left, right) => (toTime(right) ?? 0) - (toTime(left) ?? 0))[0] ?? null
 
@@ -1880,6 +2199,10 @@ export async function resolveFullReadingPanel({
               ? 'cliente'
               : 'vendedor',
         status: attachmentPanelStatus(record, now),
+        failure_code:
+          record && isLowResolutionImage(record)
+            ? IMAGE_LOW_RESOLUTION_FAILURE
+            : record?.failure_code ?? null,
       }
     })
 

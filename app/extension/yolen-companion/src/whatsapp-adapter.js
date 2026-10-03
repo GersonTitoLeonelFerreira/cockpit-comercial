@@ -1597,6 +1597,9 @@ function createWhatsAppAdapter({
           '[data-icon="ptt"]',
           '[data-icon="audio-play"]',
           '[data-icon="audio-pip"]',
+          // Rodada 12: tocando, o ícone vira o de pausa.
+          '[data-icon="audio-pause"]',
+          '[data-icon="ptt-pause"]',
           'button[aria-label*="mensagem de voz" i]',
           'button[aria-label*="voice message" i]',
           'button[aria-label*="reproduzir áudio" i]',
@@ -1696,6 +1699,7 @@ function createWhatsAppAdapter({
     observedAt,
     {
       includeMedia = false,
+      previousText = null,
     } = {},
   ) {
     const id = getMessageDataId(node)
@@ -1748,8 +1752,10 @@ function createWhatsAppAdapter({
       if (hasAudio) {
         text =
           text ||
-          mediaTools().buildAudioDurationText(
-            readBubbleAudioDurationSeconds(bubble),
+          readStableAudioDurationText(
+            id,
+            bubble,
+            previousText,
           )
       } else if (attachment) {
         text =
@@ -1797,6 +1803,21 @@ function createWhatsAppAdapter({
   // Lê as mensagens visíveis da conversa aberta e devolve entradas
   // normalizadas em memória (sem escrever no DOM do WhatsApp). O ledger e
   // a decisão de captura pertencem ao Core; aqui só existe leitura física.
+  function readPreviousMessageText(getPreviousMessage, messageId) {
+    try {
+      const previous =
+        typeof getPreviousMessage === 'function'
+          ? getPreviousMessage(messageId)
+          : null
+
+      return typeof previous?.text === 'string'
+        ? previous.text
+        : null
+    } catch {
+      return null
+    }
+  }
+
   function readVisibleMessageEntries({
     observedAt,
     getPreviousMessage,
@@ -1858,6 +1879,11 @@ function createWhatsAppAdapter({
               {
                 includeMedia:
                   includeMediaBubbles === true,
+                previousText:
+                  readPreviousMessageText(
+                    getPreviousMessage,
+                    messageId,
+                  ),
               },
             ),
         })
@@ -1894,6 +1920,10 @@ function createWhatsAppAdapter({
                 messageId,
                 main,
                 observedAt,
+                readPreviousMessageText(
+                  getPreviousMessage,
+                  messageId,
+                ),
               )
             : buildAttachmentOnlyMessageFromBubble(
                 bubble,
@@ -2265,6 +2295,236 @@ function createWhatsAppAdapter({
     return seconds > 0 ? seconds : null
   }
 
+  // Rodada 12 (B1): a duração do áudio é lida uma vez e congelada por
+  // mensagem. Durante a reprodução (e com o áudio pausado no meio) o
+  // WhatsApp troca o rótulo pelo tempo corrido (0:00, 0:01, ...); esse valor
+  // nunca vira texto da mensagem, e o rótulo que some não vira texto vazio.
+  // Assim, ouvir um áudio não cria versão nova no ledger.
+  const FROZEN_AUDIO_DURATION_LIMIT = 2000
+  const frozenAudioDurations = new Map()
+
+  const AUDIO_DURATION_TEXT =
+    /^\[duração (?:\d{1,2}:)?\d{1,3}:[0-5]\d\]$/
+
+  const AUDIO_PLAYING_SELECTOR = [
+    '[data-icon="audio-pause"]',
+    '[data-icon="ptt-pause"]',
+    '[data-icon="pause"]',
+    'button[aria-label*="pausar" i]',
+    'button[aria-label*="pause" i]',
+  ].join(',')
+
+  function freezeAudioDuration(messageKey, seconds, { replace = false } = {}) {
+    const value = Math.round(Number(seconds))
+
+    if (!messageKey || !Number.isFinite(value) || value <= 0) {
+      return frozenAudioDurations.get(messageKey) ?? null
+    }
+
+    const current = frozenAudioDurations.get(messageKey)
+
+    // A bolha parada fixa o valor uma vez; a duração do arquivo capturado
+    // só corrige quando difere de verdade (mais de 1 s).
+    if (current && (!replace || Math.abs(current - value) <= 1)) {
+      return current
+    }
+
+    if (!current && frozenAudioDurations.size >= FROZEN_AUDIO_DURATION_LIMIT) {
+      frozenAudioDurations.delete(frozenAudioDurations.keys().next().value)
+    }
+
+    frozenAudioDurations.set(messageKey, value)
+
+    return value
+  }
+
+  // Tocando, ou pausado no meio (barra de progresso fora do começo).
+  function isBubbleAudioInPlayback(bubble) {
+    if (bubble?.querySelector?.(AUDIO_PLAYING_SELECTOR)) {
+      return true
+    }
+
+    const audio =
+      bubble?.querySelector?.('audio')
+
+    if (audio && audio.paused === false) {
+      return true
+    }
+
+    const slider =
+      bubble?.querySelector?.('[role="slider"][aria-valuenow], input[type="range"]')
+
+    const position =
+      Number(slider?.getAttribute?.('aria-valuenow') ?? slider?.value ?? 0)
+
+    return Number.isFinite(position) && position > 0
+  }
+
+  function readStableAudioDurationText(messageKey, bubble, previousText) {
+    const frozen =
+      frozenAudioDurations.get(messageKey)
+
+    if (frozen) {
+      return mediaTools().buildAudioDurationText(frozen)
+    }
+
+    if (!isBubbleAudioInPlayback(bubble)) {
+      const seconds =
+        freezeAudioDuration(
+          messageKey,
+          readBubbleAudioDurationSeconds(bubble),
+        )
+
+      if (seconds) {
+        return mediaTools().buildAudioDurationText(seconds)
+      }
+    }
+
+    // Sem rótulo confiável agora: fica o texto que a mensagem já tinha.
+    return typeof previousText === 'string' && AUDIO_DURATION_TEXT.test(previousText)
+      ? previousText
+      : ''
+  }
+
+  // Rodada 12 (A1): a foto inteira para "Incluir na leitura". Só blob: da
+  // própria página (a prévia data: é a miniatura borrada que o WhatsApp
+  // mostra antes ou enquanto a foto carrega e nunca é enviada); entre os
+  // candidatos, o de maior resolução.
+  function listBubbleImageCandidates(bubble) {
+    if (
+      !bubble?.querySelectorAll ||
+      bubble.querySelector?.(MEDIA_VIDEO_SELECTOR)
+    ) {
+      return []
+    }
+
+    return Array.from(bubble.querySelectorAll('img')).filter((image) => {
+      if (
+        image.closest?.(MEDIA_EXCLUDED_IMAGE_SELECTOR) ||
+        image.closest?.(MEDIA_QUOTED_SELECTOR)
+      ) {
+        return false
+      }
+
+      const label = [
+        image.getAttribute?.('alt') || '',
+        image.getAttribute?.('aria-label') || '',
+      ]
+        .join(' ')
+        .toLowerCase()
+
+      return !/figurinha|sticker|emoji/.test(label)
+    })
+  }
+
+  function imageArea(image) {
+    const width =
+      Number(image.naturalWidth) || Number(image.getAttribute?.('width')) || 0
+
+    const height =
+      Number(image.naturalHeight) || Number(image.getAttribute?.('height')) || 0
+
+    return width * height
+  }
+
+  function findBubbleFullImage(bubble) {
+    let best = null
+    let bestArea = -1
+
+    for (const image of listBubbleImageCandidates(bubble)) {
+      if (!/^blob:/i.test(image.getAttribute?.('src') || '')) {
+        continue
+      }
+
+      const area =
+        imageArea(image)
+
+      if (area > bestArea) {
+        best = image
+        bestArea = area
+      }
+    }
+
+    return best
+  }
+
+  // Rodada 12 (A2): foto não baixada automaticamente — o botão de baixar da
+  // própria bolha carrega a foto na conversa (não salva no disco nem abre o
+  // visualizador). Só esse botão é clicado; nunca a foto.
+  const PHOTO_LOAD_TIMEOUT_MS = 10000
+
+  function findBubblePhotoDownloadControl(bubble) {
+    const icon =
+      bubble.querySelector?.('[data-icon="media-download"], [data-icon="download"], [data-icon*="media-download" i]')
+
+    const control =
+      icon?.closest?.('button, [role="button"]') || null
+
+    // O botão não pode ser a própria foto (abriria o visualizador).
+    return control && !control.querySelector?.('img')
+      ? control
+      : null
+  }
+
+  function isMediaViewerOpen() {
+    return Boolean(
+      document.querySelector?.('[data-testid="media-viewer"], [data-testid*="media-viewer" i], [data-animate-media-viewer]'),
+    )
+  }
+
+  function waitForBubbleFullImage(bubble, timeoutMs = PHOTO_LOAD_TIMEOUT_MS) {
+    return new Promise((resolve) => {
+      const startedAt = Date.now()
+
+      const check = () => {
+        const image =
+          findBubbleFullImage(bubble)
+
+        if (image) {
+          resolve(image)
+          return
+        }
+
+        if (Date.now() - startedAt >= timeoutMs) {
+          resolve(null)
+          return
+        }
+
+        window.setTimeout(check, 250)
+      }
+
+      check()
+    })
+  }
+
+  async function loadBubbleFullImage(bubble, timeoutMs = PHOTO_LOAD_TIMEOUT_MS) {
+    const ready =
+      findBubbleFullImage(bubble)
+
+    if (ready) {
+      return ready
+    }
+
+    const control =
+      findBubblePhotoDownloadControl(bubble)
+
+    if (!control) {
+      return null
+    }
+
+    const viewerWasOpen =
+      isMediaViewerOpen()
+
+    control.click()
+
+    // Se o clique abriu o visualizador, desiste (sem foto).
+    if (!viewerWasOpen && isMediaViewerOpen()) {
+      return null
+    }
+
+    return waitForBubbleFullImage(bubble, timeoutMs)
+  }
+
   function findBubbleImage(bubble) {
     if (
       !bubble?.querySelectorAll ||
@@ -2331,6 +2591,7 @@ function createWhatsAppAdapter({
     messageId,
     main,
     observedAt,
+    previousText = null,
   ) {
     if (
       !bubble?.querySelector ||
@@ -2392,8 +2653,10 @@ function createWhatsAppAdapter({
 
     const text =
       hasAudio
-        ? mediaTools().buildAudioDurationText(
-            readBubbleAudioDurationSeconds(bubble),
+        ? readStableAudioDurationText(
+            messageId,
+            bubble,
+            previousText,
           )
         : image
           ? mediaTools().buildAttachmentMarkerText({
@@ -2539,6 +2802,17 @@ function createWhatsAppAdapter({
   }
 
   function getAudioTargetDurationSeconds(container) {
+    // Rodada 12 (B1): a duração congelada vale mais que o rótulo de agora
+    // (que, tocando, é o tempo corrido).
+    const frozen =
+      frozenAudioDurations.get(
+        container.closest?.('[data-id]')?.getAttribute?.('data-id') || '',
+      )
+
+    if (frozen) {
+      return frozen
+    }
+
     const messageRoot =
       container.closest?.('.message-in, .message-out, [data-id], [role="row"]') ||
       container
@@ -2829,6 +3103,9 @@ function createWhatsAppAdapter({
   }
 
   function assignCapturedAudioEntryToTarget(entry, target) {
+    // Rodada 12 (B1): a duração do arquivo capturado também congela.
+    freezeAudioDuration(target?.key, entry?.durationSeconds, { replace: true })
+
     capturedAudioBlobEntries = capturedAudioBlobEntries.map((currentEntry) => {
       return currentEntry.id === entry.id
         ? {
@@ -4238,11 +4515,15 @@ function createWhatsAppAdapter({
 
     try {
       if (kind === 'imagem') {
+        // Rodada 12 (A1/A2): só a foto inteira (blob:), nunca a prévia.
+        const image =
+          await loadBubbleFullImage(bubble)
+
         const source =
-          findBubbleImage(bubble)?.getAttribute?.('src')
+          image?.getAttribute?.('src')
 
         if (!source) {
-          return refused('attachment_source_unavailable')
+          return refused('photo_not_loaded')
         }
 
         const blob = await fetchPageBlob(source)

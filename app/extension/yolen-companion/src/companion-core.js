@@ -658,9 +658,9 @@ function createCompanionCore(ctx) {
   const captureAlertsByContext =
     new Map()
 
-  // Rodada 10 (J, HML): ciclo encerrado. Enquanto a RPC recusar (migração
-  // não aplicada), a captura desse ciclo descansa 10 minutos, sem aviso de
-  // falha. Com a captura aceita e o cliente escrevendo depois do
+  // Rodada 10 (J, HML): ciclo encerrado. Se a RPC recusar (defesa: banco
+  // sem a migração 20261003090000), a captura desse ciclo descansa 10
+  // minutos, sem aviso de falha. Com a captura aceita e o cliente escrevendo depois do
   // encerramento, as abas abrem (leitura de atendimento).
   const CLOSED_CYCLE_CAPTURE_UNAVAILABLE =
     'CLOSED_CYCLE_CAPTURE_UNAVAILABLE'
@@ -2594,8 +2594,8 @@ function createCompanionCore(ctx) {
         ? recovery.isolated
         : []
 
-    // Rodada 10 (J): recusa do ciclo encerrado (migração não aplicada) não
-    // é falha de captura: o painel fica como hoje.
+    // Rodada 10 (J): recusa do ciclo encerrado (defesa: banco sem a
+    // migração) não é falha de captura: o painel fica como hoje.
     if (
       recovery.failure_code ===
       CLOSED_CYCLE_CAPTURE_UNAVAILABLE
@@ -8128,6 +8128,24 @@ function createCompanionCore(ctx) {
     }
   }
 
+  async function readImageDimensions(blob) {
+    if (typeof createImageBitmap !== 'function') {
+      return null
+    }
+
+    try {
+      const bitmap = await createImageBitmap(blob)
+      const dimensions = { width: bitmap.width, height: bitmap.height }
+
+      bitmap.close?.()
+
+      return dimensions
+    } catch {
+      // Não decodifica: a foto não carregou de verdade.
+      return { width: 0, height: 0 }
+    }
+  }
+
   async function readPdfPageCount(blob) {
     try {
       const buffer = await blob.arrayBuffer()
@@ -8195,6 +8213,22 @@ function createCompanionCore(ctx) {
             'Não consegui pegar o arquivo na conversa.',
         )
         return
+      }
+
+      // Rodada 12 (A3): foto com o lado maior abaixo de 300 px é a prévia
+      // (miniatura) — não chama o servidor, sem custo.
+      if (kind === 'imagem') {
+        const dimensions =
+          await readImageDimensions(source.blob)
+
+        if (dimensions && autoTranscriptionTools?.isPreviewSizedImage?.(dimensions)) {
+          setAttachmentIncludeState(
+            messageKey,
+            'error',
+            autoTranscriptionTools.PHOTO_NOT_LOADED_MESSAGE,
+          )
+          return
+        }
       }
 
       const pages =

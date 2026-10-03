@@ -225,8 +225,8 @@ test('B1: a transcrição mostra "[arquivo não incluído: tipo, nome]" com a re
 // ---------------------------------------------------------------------------
 
 test('B7: prompt v8 geral — linhas de áudio e arquivo, nunca adivinhar, arquivos_sugeridos; v7 e v6 continuam valendo', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v8')
-  assert.deepEqual(FULL_READING_COMPATIBLE_PROMPT_VERSIONS, ['full-reading-v8', 'full-reading-v7', 'full-reading-v6'])
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v9')
+  assert.deepEqual(FULL_READING_COMPATIBLE_PROMPT_VERSIONS, ['full-reading-v9', 'full-reading-v8', 'full-reading-v7', 'full-reading-v6'])
 
   const system = buildFullReadingSystemPrompt()
 
@@ -313,7 +313,7 @@ test('B2: Análise — "Arquivos na conversa (N)" com "Incluir na leitura" só e
   assert.equal(big.status_text, 'PDF com mais de 20 páginas: não é enviado.')
   assert.equal(failed.include_label, 'Tentar de novo')
 
-  // Sem a tabela (migração não aplicada): a lista aparece, sem botão.
+  // Sem a tabela (defesa: banco sem a migração): a lista aparece, sem botão.
   const unavailable = buildAttachmentsView({ available: false, attachments: [panelAttachment()] })
 
   assert.equal(unavailable.items[0].can_include, false)
@@ -844,7 +844,7 @@ test('B4: cada resumo conta no teto diário de leituras', async () => {
   assert.equal(admin.writes.length, 0)
 })
 
-test('B5: sem a tabela (migração não aplicada) nada é chamado nem gravado; arquivo fora do ledger é recusado', async () => {
+test('B5: sem a tabela (defesa: banco sem a migração) nada é chamado nem gravado; arquivo fora do ledger é recusado', async () => {
   const missing = fakeAdmin({ missingTable: true })
   const first = includeInput(missing)
 

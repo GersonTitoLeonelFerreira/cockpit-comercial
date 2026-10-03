@@ -10,7 +10,7 @@
 //   Nesses casos nada é gravado e o modelo não é chamado.
 // - Gestor/admin pode incluir em ciclo de outro vendedor; o ator é sempre
 //   o do token.
-// - Sem a tabela (migração não aplicada): 409, sem chamar o modelo.
+// - Sem a tabela (defesa: banco sem a migração): 409, sem chamar o modelo.
 
 import assert from 'node:assert/strict'
 import { register } from 'node:module'
@@ -285,14 +285,14 @@ test('B6: dono do ciclo inclui — um resumo, só o resumo gravado, ator do toke
   })
 })
 
-test('B5/B6: sem a tabela (migração não aplicada) — 409, sem chamar o modelo; arquivo que não está no ledger — 404', async () => {
+test('B5/B6: sem a tabela (defesa: banco sem a migração) — 409, sem chamar o modelo; arquivo que não está no ledger — 404', async () => {
   await withFlag(true, async (claude) => {
     const missing = fakeAdmin({ attachmentsTable: false })
     const { response, payload } = await post(missing)
 
     assert.equal(response.status, 409)
     assert.equal(payload.code, 'ATTACHMENTS_UNAVAILABLE')
-    assert.equal(payload.error, 'A inclusão de arquivos ainda não está disponível.')
+    assert.equal(payload.error, 'A inclusão de arquivos não está disponível agora.')
 
     const unknown = fakeAdmin()
     const other = await post(unknown, { ...BODY, message_key: 'mensagem-que-nao-existe' })

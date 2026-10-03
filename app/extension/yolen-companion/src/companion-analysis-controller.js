@@ -1739,6 +1739,8 @@ const ATTACHMENT_UPLOAD_LIMITS = Object.freeze({
   pdf_max_pages: 20,
   upload_max_bytes: 3 * 1024 * 1024,
   image_max_edge: 1568,
+  // Rodada 12 (A3): abaixo disso (lado maior) é a prévia da foto.
+  image_min_edge: 300,
 })
 
 function planAttachmentUpload({
@@ -1785,10 +1787,23 @@ function countPdfPagesFromText(text) {
 }
 
 // Texto da recusa vinda do servidor ou da extensão (sem código interno).
+// Rodada 12 (A2/A3): só a prévia da foto (miniatura) — nada é enviado.
+const PHOTO_NOT_LOADED_MESSAGE =
+  'A foto ainda não carregou no WhatsApp. Abra a foto na conversa e clique em Incluir de novo.'
+
 const ATTACHMENT_SOURCE_MESSAGES = Object.freeze({
   attachment_not_visible: 'Role a conversa até o arquivo e tente de novo.',
   attachment_too_large: 'O arquivo é grande demais para enviar.',
+  photo_not_loaded: PHOTO_NOT_LOADED_MESSAGE,
 })
+
+// Lado maior abaixo de 300 px é a prévia, não a foto.
+function isPreviewSizedImage(dimensions) {
+  const width = Number(dimensions?.width) || 0
+  const height = Number(dimensions?.height) || 0
+
+  return Math.max(width, height) < ATTACHMENT_UPLOAD_LIMITS.image_min_edge
+}
 
 function attachmentSourceMessage(reason) {
   return ATTACHMENT_SOURCE_MESSAGES[reason] || 'Não consegui pegar o arquivo na conversa. Abra o arquivo e tente de novo.'
@@ -1800,6 +1815,8 @@ const api = Object.freeze({
   planAttachmentUpload,
   countPdfPagesFromText,
   attachmentSourceMessage,
+  isPreviewSizedImage,
+  PHOTO_NOT_LOADED_MESSAGE,
   computeAutoTranscriptionHold,
   AUTO_TRANSCRIPTION_MAX_SECONDS,
   AUTO_TRANSCRIPTION_HOURLY_LIMIT,

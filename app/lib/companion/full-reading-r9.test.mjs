@@ -905,7 +905,7 @@ test('G2/G3: revisar_em no passado relê uma vez (continuação); vazio não rel
 test('F: prompt v6 geral — gênero, pendência "nenhum", catálogo ambíguo, áudio, EVENTO, continuação e ciclo encerrado', () => {
   const system = buildFullReadingSystemPrompt()
 
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v8')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v9')
   assert.match(system, /Gênero: use o gênero do cliente só quando a conversa deixar claro[^\n]*Na dúvida, escreva "o cliente"/)
   assert.match(system, /"nenhum" para o que não está pendente com ninguém[^\n]*Nunca use "cliente" ou "vendedor" para dizer que não há pendência/)
   assert.match(system, /mais de um item do catálogo, a nenhum item, ou for diferente do produto registrado no fechamento[^\n]*afirmacoes_a_confirmar e em contradicoes_cadastro[^\n]*não pode ser cobrar nem oferecer algo com base num plano escolhido por suposição/)

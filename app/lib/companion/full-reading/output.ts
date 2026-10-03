@@ -26,6 +26,13 @@
 // (applyFullReadingLimits corta o excesso sem falhar). O formato da
 // decisão é o mesmo da v6.
 
+import {
+  parseJsonWithRepair,
+  type JsonParseDiagnostic,
+  type JsonRepairKind,
+  type ParsedJson,
+} from './json-repair'
+
 export const FULL_READING_RELATIONSHIP_PHASES = [
   'primeiro_contato',
   'descoberta',
@@ -260,6 +267,8 @@ export const FULL_READING_SUGGESTED_ATTACHMENTS_MAX =
   2
 
 export type FullReadingOutput = {
+  // Rodada 12 (C2): consertos feitos no JSON antes da validação.
+  reparo_json?: JsonRepairKind[]
   // v5: null (o modelo não escreve mais a análise em texto).
   analise_markdown: string | null
   decisao: FullReadingDecision
@@ -302,7 +311,7 @@ const codeText = (
   description: string,
 ) => ({
   type: 'string',
-  description: `${description} Valores: ${values.map((value) => (value ? value : '"" (vazio)')).join(', ')}.`,
+  description: `${description} Valores: ${values.map((value) => (value ? value : 'texto vazio')).join(', ')}.`,
 })
 
 const CLOSING_SCHEMA = {
@@ -343,7 +352,7 @@ const CLOSING_SCHEMA = {
     valor_total: {
       type: 'string',
       description:
-        'Só o número do total combinado (ex.: "1.250,00"), ou texto vazio se não houver um total claro.',
+        "Só o número do total combinado (ex.: '1.250,00'), ou texto vazio se não houver um total claro.",
     },
     forma_pagamento_codigo: codeText(
       FULL_READING_PAYMENT_METHOD_CODES,
@@ -507,7 +516,7 @@ const ACTION_PROPERTIES = {
   proximo_passo_titulo: {
     type: 'string',
     description:
-      'O próximo passo do vendedor em até ~8 palavras, no imperativo, sem códigos (ex.: "Confirmar o horário da visita").',
+      "O próximo passo do vendedor em até ~8 palavras, no imperativo, sem códigos (ex.: 'Confirmar o horário da visita').",
   },
   proximo_passo_complemento: {
     type: 'string',
@@ -542,12 +551,12 @@ const TAIL_PROPERTIES = {
   revisar_em: {
     type: 'string',
     description:
-      'Data e hora (ISO 8601 com o fuso de Brasília, ex.: 2026-10-02T18:00:00-03:00) a partir da qual o próximo passo pode ter mudado só pela passagem do tempo (horário de visita, reunião ou consulta, prazo prometido, "retomar amanhã"). Texto vazio quando o passo não depende de horário.',
+      "Data e hora (ISO 8601 com o fuso de Brasília, ex.: 2026-10-02T18:00:00-03:00) a partir da qual o próximo passo pode ter mudado só pela passagem do tempo (horário de visita, reunião ou consulta, prazo prometido, 'retomar amanhã'). Texto vazio quando o passo não depende de horário.",
   },
   revisar_motivo: {
     type: 'string',
     description:
-      'O que acontece nesse horário, em poucas palavras (ex.: "o horário da visita"). Texto vazio quando revisar_em é vazio.',
+      "O que acontece nesse horário, em poucas palavras (ex.: 'o horário da visita'). Texto vazio quando revisar_em é vazio.",
   },
   precisa_ler_inteira: {
     type: 'boolean',
@@ -574,7 +583,7 @@ const TAIL_PROPERTIES = {
         ref: {
           type: 'string',
           description:
-            'A referência do arquivo, como aparece em "(ref: ...)".',
+            "A referência do arquivo, como aparece em '(ref: ...)'.",
         },
         motivo: {
           type: 'string',
@@ -747,14 +756,19 @@ export const FULL_READING_OUTPUT_JSON_SCHEMA = {
 
 export class FullReadingOutputError extends Error {
   readonly code: string
+  // Rodada 12 (C1): JSON que não abriu nem com o conserto — diagnóstico sem
+  // o texto original.
+  readonly diagnostic: JsonParseDiagnostic | null
 
   constructor(
     code: string,
     message: string,
+    diagnostic: JsonParseDiagnostic | null = null,
   ) {
     super(message)
     this.name = 'FullReadingOutputError'
     this.code = code
+    this.diagnostic = diagnostic
   }
 }
 
@@ -886,42 +900,32 @@ function readStringArray(
 }
 
 // Aceita o JSON puro (saída estruturada) ou, no modo de contingência sem
-// saída estruturada, um JSON cercado por texto ou bloco de código.
+// saída estruturada, um JSON cercado por texto ou bloco de código. Rodada
+// 12 (C2): antes de desistir, conserta localmente (aspas sem escape, quebra
+// de linha crua, vírgula sobrando, texto em volta), sem chamada extra.
+export function extractJsonWithRepair(
+  text: string,
+): ParsedJson {
+  const result =
+    parseJsonWithRepair(text)
+
+  if ('value' in result) {
+    return result
+  }
+
+  throw new FullReadingOutputError(
+    'INVALID_MODEL_OUTPUT',
+    result.reason === 'sem_objeto'
+      ? 'a resposta não contém um objeto JSON'
+      : 'o JSON da resposta é inválido',
+    result.diagnostic,
+  )
+}
+
 export function extractJsonObject(
   text: string,
 ): unknown {
-  const trimmed =
-    text.trim()
-
-  try {
-    return JSON.parse(trimmed)
-  } catch {
-    // segue para a extração tolerante
-  }
-
-  const start =
-    trimmed.indexOf('{')
-
-  const end =
-    trimmed.lastIndexOf('}')
-
-  if (start === -1 || end <= start) {
-    throw new FullReadingOutputError(
-      'INVALID_MODEL_OUTPUT',
-      'a resposta não contém um objeto JSON',
-    )
-  }
-
-  try {
-    return JSON.parse(
-      trimmed.slice(start, end + 1),
-    )
-  } catch {
-    throw new FullReadingOutputError(
-      'INVALID_MODEL_OUTPUT',
-      'o JSON da resposta é inválido',
-    )
-  }
+  return extractJsonWithRepair(text).value
 }
 
 function readRecordList(
@@ -1358,12 +1362,21 @@ export function parseFullReadingOutput(
     format?: FullReadingOutputFormat
   } = {},
 ): FullReadingOutput {
+  const extracted =
+    extractJsonWithRepair(text)
+
   const parsed =
-    extractJsonObject(text)
+    extracted.value
 
   if (!isRecord(parsed)) {
     fail('resposta', 'deveria ser um objeto')
   }
+
+  // Rodada 12 (C2): o que foi consertado (só aparece quando houve conserto).
+  const repaired =
+    extracted.repairs.length > 0
+      ? { reparo_json: extracted.repairs }
+      : {}
 
   const resolved =
     format === 'auto'
@@ -1392,6 +1405,7 @@ export function parseFullReadingOutput(
     return {
       analise_markdown: analysis,
       decisao: common,
+      ...repaired,
     }
   }
 
@@ -1407,6 +1421,7 @@ export function parseFullReadingOutput(
       ...parseDecisionV5Extras(decisionRaw, path),
       ...(hasV6Fields ? parseDecisionV6Extras(decisionRaw) : {}),
     },
+    ...repaired,
   }
 }
 

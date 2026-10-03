@@ -257,7 +257,7 @@ test('E3: HML com ciclo encerrado — manda p_allow_closed_cycle = true e diz se
   assert.deepEqual(second.payload.closed_cycle, { status: 'ganho', service: false })
 })
 
-test('E4: migração não aplicada (função sem o parâmetro) — 409 com código próprio, sem conteúdo no log', async () => {
+test('E4: defesa — banco sem a migração (função sem o parâmetro) — 409 com código próprio, sem conteúdo no log', async () => {
   const admin = fakeAdmin({ rpcResult: MISSING_FUNCTION, cycle: WON })
   const { response, payload, logs } = await post(admin, HML)
 

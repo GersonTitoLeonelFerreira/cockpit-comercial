@@ -78,6 +78,10 @@ import {
   type ClaudeReadingResponse,
 } from '../companion/full-reading/anthropic-client'
 
+import type {
+  JsonParseDiagnostic,
+} from '../companion/full-reading/json-repair'
+
 import {
   attachmentSummariesAt,
   loadConversationAttachments,
@@ -419,11 +423,111 @@ export type FullReadingRunInput = {
     companyId: string
     conversationKey: string
   }) => Promise<AttachmentRecord[]>
+  // Rodada 12 (B3): duração congelada de cada áudio.
+  loadAudioLabels?: (args: {
+    admin: SupabaseClient
+    companyId: string
+    conversationKey: string
+  }) => Promise<Map<string, string>>
 }
 
 export type FullReadingRunResult =
   | { status: 'succeeded' }
   | { status: 'failed'; failure_code: string }
+
+// Rodada 12 (B3): a duração do áudio na leitura é a congelada — o rótulo
+// da primeira versão que o trouxe (gravada com a bolha parada). Versões
+// gravadas durante a reprodução por extensões antigas (o tempo corrido do
+// player, ou sem rótulo) nunca viram a duração.
+const AUDIO_DURATION_LABEL =
+  /^\[duração (?:\d{1,2}:)?\d{1,3}:[0-5]\d\]$/
+
+export function frozenAudioLabelsFromRows(
+  rows: { message_key?: unknown; version?: unknown; text_content?: unknown }[],
+): Map<string, string> {
+  const best =
+    new Map<string, { version: number; label: string }>()
+
+  for (const row of rows) {
+    const key =
+      typeof row.message_key === 'string' ? row.message_key : ''
+
+    const version =
+      typeof row.version === 'number' ? row.version : Number.POSITIVE_INFINITY
+
+    const label =
+      typeof row.text_content === 'string' ? row.text_content.trim() : ''
+
+    if (!key || !AUDIO_DURATION_LABEL.test(label)) {
+      continue
+    }
+
+    const current =
+      best.get(key)
+
+    if (!current || version < current.version) {
+      best.set(key, { version, label })
+    }
+  }
+
+  return new Map([...best.entries()].map(([key, value]) => [key, value.label]))
+}
+
+export function withFrozenAudioLabels<T extends {
+  message_key: string
+  content_type: string
+  text_content: string | null
+}>(
+  messages: T[],
+  labels: Map<string, string>,
+): T[] {
+  if (labels.size === 0) {
+    return messages
+  }
+
+  return messages.map((message) => {
+    const label =
+      labels.get(message.message_key)
+
+    const current =
+      (message.text_content ?? '').trim()
+
+    return label &&
+      (message.content_type || '').toLowerCase() === 'audio' &&
+      (current === '' || AUDIO_DURATION_LABEL.test(current)) &&
+      current !== label
+      ? { ...message, text_content: label }
+      : message
+  })
+}
+
+export async function loadFrozenAudioLabels({
+  admin,
+  companyId,
+  conversationKey,
+}: {
+  admin: SupabaseClient
+  companyId: string
+  conversationKey: string
+}): Promise<Map<string, string>> {
+  try {
+    const { data, error } =
+      await admin
+        .from('conversation_messages')
+        .select('message_key, version, text_content')
+        .eq('company_id', companyId)
+        .eq('conversation_key', conversationKey)
+        .eq('content_type', 'audio')
+        .order('version', { ascending: true })
+        .limit(3000)
+
+    return error
+      ? new Map()
+      : frozenAudioLabelsFromRows((data ?? []) as { message_key?: unknown; version?: unknown; text_content?: unknown }[])
+  } catch {
+    return new Map()
+  }
+}
 
 export async function loadFullReadingMessages({
   admin,
@@ -639,6 +743,16 @@ function describeFailure(
   }
 }
 
+// Rodada 12 (C4): a linha da segunda chamada depois de um JSON inválido.
+export function buildJsonRetryHint(
+  diagnostic: JsonParseDiagnostic,
+): string {
+  const near =
+    diagnostic.position ?? diagnostic.length
+
+  return `Sua resposta anterior não era um JSON válido (erro perto do caractere ${near}). Responda de novo só com o objeto JSON; dentro dos textos use aspas simples.`
+}
+
 function logEvent(
   event: string,
   fields: Record<string, unknown>,
@@ -840,6 +954,12 @@ export async function executeFullReadingRun(
       ? async ({ cycleId }: { cycleId: string }) => [cycleId]
       : loadFullReadingChainIds)
 
+  const loadAudioLabels =
+    input.loadAudioLabels ??
+    (input.loadMessages
+      ? async () => new Map<string, string>()
+      : loadFrozenAudioLabels)
+
   let transcriptMessageCount: number | null =
     null
 
@@ -889,18 +1009,36 @@ export async function executeFullReadingRun(
       attachmentRecords = []
     }
 
+    let audioLabels =
+      new Map<string, string>()
+
+    try {
+      audioLabels =
+        await loadAudioLabels({
+          admin: input.admin,
+          companyId: input.companyId,
+          conversationKey: input.conversationKey,
+        })
+    } catch {
+      audioLabels = new Map()
+    }
+
     const withAttachmentSummaries = (
       list: NormalizedLedgerMessage[],
       referenceTime: string,
     ): NormalizedLedgerMessage[] => {
+      // Rodada 12 (B3): duração congelada do áudio, nunca o tempo corrido.
+      const frozen =
+        withFrozenAudioLabels(list, audioLabels)
+
       const summaries =
         attachmentSummariesAt(attachmentRecords, referenceTime)
 
       if (summaries.size === 0) {
-        return list
+        return frozen
       }
 
-      return list.map((message) =>
+      return frozen.map((message) =>
         summaries.has(message.message_key)
           ? { ...message, attachment_summary: summaries.get(message.message_key) }
           : message)
@@ -1130,6 +1268,11 @@ export async function executeFullReadingRun(
     ): Promise<{ output: FullReadingOutput; response: ClaudeReadingResponse }> => {
       let attempt = 0
 
+      // Rodada 12 (C4): depois de um JSON que não abriu nem com o conserto,
+      // a segunda chamada leva uma linha curta no fim da mensagem do usuário
+      // (o system fica igual, para o cache).
+      let retryHint: string | null = null
+
       while (true) {
         attempt += 1
 
@@ -1138,7 +1281,10 @@ export async function executeFullReadingRun(
             apiKey: input.apiKey,
             model: input.model,
             system: buildFullReadingSystemPrompt(),
-            userText,
+            userText:
+              retryHint
+                ? `${userText}\n\n${retryHint}`
+                : userText,
             maxTokens: FULL_READING_MAX_TOKENS,
             effort: input.effort,
             outputSchema:
@@ -1182,20 +1328,51 @@ export async function executeFullReadingRun(
           addUsage(usage, response)
 
         try {
+          const output =
+            parseFullReadingOutput(response.text, { format: 'v6' })
+
+          // Rodada 12 (C2): o JSON foi consertado localmente.
+          if (output.reparo_json && output.reparo_json.length > 0) {
+            logEvent('output_repaired', {
+              run_id: input.runId,
+              mode: callMode,
+              attempt,
+              repair: output.reparo_json,
+            })
+          }
+
           return {
-            output: parseFullReadingOutput(response.text, { format: 'v6' }),
+            output,
             response,
           }
         } catch (error) {
+          // Rodada 12 (C1): diagnóstico sem o texto (letras viram "a",
+          // dígitos viram "0").
+          if (error instanceof FullReadingOutputError && error.diagnostic) {
+            logEvent('output_parse_failed', {
+              run_id: input.runId,
+              mode: callMode,
+              attempt,
+              stop_reason: response.stop_reason,
+              ...error.diagnostic,
+            })
+          }
+
           if (
             attempt === 1 &&
             error instanceof FullReadingOutputError &&
             OUTPUT_RETRY_CODES.has(error.code)
           ) {
+            retryHint =
+              error.diagnostic
+                ? buildJsonRetryHint(error.diagnostic)
+                : null
+
             logEvent('output_retry', {
               run_id: input.runId,
               mode: callMode,
               failure_code: error.code,
+              with_hint: retryHint !== null,
             })
 
             continue

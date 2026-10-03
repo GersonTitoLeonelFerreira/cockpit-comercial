@@ -7,7 +7,7 @@
 //   fila começar), até 60 s; sequência da evidência: uma leitura só, depois
 //   das transcrições.
 // - E: ciclo encerrado só no HML — captura com a capability do servidor;
-//   recusa da RPC (migração não aplicada) sem aviso e sem repetir; abas
+//   recusa da RPC (defesa: banco sem a migração) sem aviso e sem repetir; abas
 //   abrem só com a captura aceita e o cliente escrevendo depois do
 //   encerramento.
 // - G: "Atualizar" e "Ler a conversa inteira" sem quebrar palavra.
@@ -252,7 +252,7 @@ test('E3: a extensão captura ciclo encerrado só com a capability do HML; sem e
   assert.equal(resolutionController.deriveCanonicalResolutionOutcome(viewModel).workspace_ready, false)
 })
 
-test('E4: recusa da RPC (migração não aplicada) não vira aviso de falha nem repete; abas só com a captura aceita e o cliente depois do encerramento', () => {
+test('E4: recusa da RPC (defesa: banco sem a migração) não vira aviso de falha nem repete; abas só com a captura aceita e o cliente depois do encerramento', () => {
   const core = readSrc('companion-core.js')
 
   // Recusa silenciosa: sem alerta, ciclo descansa 10 min.

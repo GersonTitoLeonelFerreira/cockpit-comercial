@@ -30,6 +30,7 @@ export type FullReadingAttachmentInput = {
   occurred_at: string
   from: 'cliente' | 'vendedor' | 'automacao'
   status: 'nao_incluido' | 'resumindo' | 'incluido' | 'falhou'
+  failure_code?: string | null
 }
 
 export type FullReadingAttachmentItemView = {
@@ -72,7 +73,15 @@ const FROM_LABELS: Record<FullReadingAttachmentInput['from'], string> = {
 }
 
 export const ATTACHMENTS_UNAVAILABLE_NOTE =
-  'A inclusão de arquivos ainda não está disponível.'
+  'A inclusão de arquivos não está disponível agora.'
+
+// Rodada 12 (A4/A5): o porquê da falha, sem código interno.
+const FAILURE_TEXTS: Record<string, string> = {
+  imagem_baixa_resolucao:
+    'A foto ainda não carregou no WhatsApp. Abra a foto na conversa e clique em Incluir de novo.',
+  arquivo_ilegivel:
+    'Não deu para ler o arquivo. Abra no WhatsApp e tente de novo.',
+}
 
 function whenLabel(
   occurredAt: string,
@@ -158,7 +167,7 @@ function statusText(
     case 'resumindo':
       return 'Lendo o arquivo…'
     case 'falhou':
-      return limit ?? 'Não consegui ler o arquivo.'
+      return limit ?? FAILURE_TEXTS[item.failure_code ?? ''] ?? 'Não consegui ler o arquivo.'
     default:
       return limit
   }

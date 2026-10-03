@@ -8,8 +8,9 @@
 // ao modelo um resumo factual (uma vez só por arquivo) e guarda SÓ o resumo
 // em companion_conversation_attachments. O arquivo não é guardado.
 //
-// Enquanto a migração da tabela não for aplicada, nada é chamado: a rota
-// responde que a inclusão ainda não está disponível.
+// A tabela vem da migração 20261003100000 (já aplicada). Defesa: sem a
+// tabela, nada é chamado e a rota responde que a inclusão não está
+// disponível agora.
 
 import type {
   SupabaseClient,
@@ -54,6 +55,25 @@ export const ATTACHMENT_SUMMARY_MAX_CHARS =
 export const ATTACHMENT_IN_PROGRESS_MS =
   2 * 60_000
 
+// Rodada 12 (A4): imagem com menos de 5 KB é a prévia (miniatura) do
+// WhatsApp, não a foto: recusada antes do resumo, sem custo e fora do teto
+// diário. Um "incluido" antigo abaixo disso vale como falha.
+export const IMAGE_MIN_BYTES =
+  5 * 1024
+
+export const IMAGE_LOW_RESOLUTION_FAILURE =
+  'imagem_baixa_resolucao'
+
+// Rodada 12 (A5): o modelo disse que não dá para ler o arquivo.
+export const UNREADABLE_FAILURE =
+  'arquivo_ilegivel'
+
+export const PHOTO_NOT_LOADED_MESSAGE =
+  'A foto ainda não carregou no WhatsApp. Abra a foto na conversa e clique em Incluir de novo.'
+
+export const UNREADABLE_MESSAGE =
+  'Não deu para ler o arquivo. Abra no WhatsApp e tente de novo.'
+
 export type AttachmentStatus =
   'resumindo' | 'incluido' | 'falhou'
 
@@ -61,6 +81,7 @@ export type AttachmentRecord = {
   message_key: string
   kind: AttachmentKind
   file_name: string | null
+  size_bytes?: number | null
   status: AttachmentStatus
   summary: string | null
   failure_code: string | null
@@ -88,7 +109,7 @@ export class AttachmentIncludeError extends Error {
   }
 }
 
-// Tabela ainda não criada (migração não aplicada).
+// Tabela ausente (defesa: banco sem a migração 20261003100000).
 function isMissingTableError(
   error: { code?: unknown; message?: unknown } | null | undefined,
 ): boolean {
@@ -139,6 +160,8 @@ function toRecord(
         ? kind
         : 'documento',
     file_name: text(row.file_name),
+    size_bytes:
+      typeof row.size_bytes === 'number' ? row.size_bytes : null,
     status,
     summary: text(row.summary),
     failure_code: text(row.failure_code),
@@ -165,7 +188,7 @@ export async function loadConversationAttachments({
     const { data, error } =
       await admin
         .from(ATTACHMENTS_TABLE)
-        .select('message_key, kind, file_name, status, summary, failure_code, requested_at, summarized_at')
+        .select('message_key, kind, file_name, size_bytes, status, summary, failure_code, requested_at, summarized_at')
         .eq('company_id', companyId)
         .eq('conversation_key', conversationKey)
         .limit(200)
@@ -186,6 +209,17 @@ export async function loadConversationAttachments({
   }
 }
 
+// Rodada 12 (A4): imagem "incluida" abaixo do mínimo (a prévia) não vale.
+export function isLowResolutionImage(
+  record: { kind?: unknown; size_bytes?: unknown },
+): boolean {
+  return (
+    record.kind === 'imagem' &&
+    typeof record.size_bytes === 'number' &&
+    record.size_bytes < IMAGE_MIN_BYTES
+  )
+}
+
 // Resumos que já existiam no momento de referência de uma leitura.
 export function attachmentSummariesAt(
   records: AttachmentRecord[],
@@ -204,6 +238,7 @@ export function attachmentSummariesAt(
     if (
       record.status === 'incluido' &&
       record.summary &&
+      !isLowResolutionImage(record) &&
       !Number.isNaN(at) &&
       (Number.isNaN(limit) || at <= limit)
     ) {
@@ -382,6 +417,8 @@ export function readReceivedAttachment({
 export const ATTACHMENT_SUMMARY_SYSTEM_PROMPT = [
   'Você resume um arquivo que apareceu numa conversa de vendas, para o vendedor entender o que o arquivo traz.',
   '',
+  'A primeira linha da resposta é só uma destas: LEGIVEL: sim, LEGIVEL: parcial ou LEGIVEL: nao. Use nao quando não der para ler o conteúdo (foto borrada, pequena demais, escura ou cortada); nesse caso não escreva mais nada. Depois da primeira linha, o resumo.',
+  '',
   'Escreva em português do Brasil, em texto corrido, no máximo 5 frases curtas:',
   '- o que é o arquivo (ex.: proposta, comprovante, print de conversa, foto de produto, contrato, boleto);',
   '- datas, valores, prazos, nomes de plano, produto ou serviço que aparecem nele;',
@@ -406,6 +443,47 @@ export function redactSensitiveNumbers(
     .replace(/\b(?:\d[ -]?){12,18}\d\b/g, '[dado pessoal omitido]')
     // Agência/conta.
     .replace(/\b(ag[eê]ncia|ag\.?|conta(?:\s+corrente)?|c\/c)\s*:?\s*[\d.-]{3,}/gi, '$1 [dado bancário omitido]')
+}
+
+export type AttachmentLegibility =
+  'sim' | 'parcial' | 'nao'
+
+// Rodada 12 (A5): a primeira linha "LEGIVEL: ..." sai do resumo. Sem ela,
+// vale "sim".
+export function splitLegibilityLine(
+  value: string,
+): {
+  legibility: AttachmentLegibility
+  text: string
+} {
+  const lines =
+    value.replace(/\r\n?/g, '\n').split('\n')
+
+  const firstIndex =
+    lines.findIndex((line) => line.trim().length > 0)
+
+  const match =
+    firstIndex >= 0
+      ? lines[firstIndex].trim().replace(/[*_`]/g, '').match(/^LEG[IÍ]VEL\s*:\s*(sim|parcial|n[aã]o)\b\.?$/i)
+      : null
+
+  if (!match) {
+    return { legibility: 'sim', text: value }
+  }
+
+  const word =
+    match[1].toLowerCase()
+
+  return {
+    legibility:
+      word === 'parcial'
+        ? 'parcial'
+        : word === 'sim'
+          ? 'sim'
+          : 'nao',
+    text:
+      lines.slice(firstIndex + 1).join('\n'),
+  }
 }
 
 export function normalizeAttachmentSummary(
@@ -440,6 +518,7 @@ export async function summarizeAttachment({
   logger?: (line: string) => void
 }): Promise<{
   summary: string
+  legibility: AttachmentLegibility
   model: string
   input_tokens: number | null
   output_tokens: number | null
@@ -481,10 +560,15 @@ export async function summarizeAttachment({
       },
     })
 
-  const summary =
-    normalizeAttachmentSummary(response.text)
+  const { legibility, text: body } =
+    splitLegibilityLine(response.text)
 
-  if (!summary) {
+  const summary =
+    legibility === 'nao'
+      ? ''
+      : normalizeAttachmentSummary(body)
+
+  if (!summary && legibility !== 'nao') {
     throw new ClaudeProviderError({
       code: 'EMPTY_PROVIDER_RESPONSE',
       message: 'O modelo não devolveu o resumo.',
@@ -493,6 +577,7 @@ export async function summarizeAttachment({
 
   return {
     summary,
+    legibility,
     model: response.model ?? model,
     input_tokens: response.input_tokens,
     output_tokens: response.output_tokens,
@@ -596,7 +681,7 @@ export async function includeConversationAttachment(
   const { data: existingRows, error: existingError } =
     await input.admin
       .from(ATTACHMENTS_TABLE)
-      .select('id, status, summary, requested_at')
+      .select('id, status, summary, requested_at, kind, size_bytes')
       .eq('company_id', input.scope.company_id)
       .eq('conversation_key', input.scope.conversation_key)
       .eq('message_key', messageKey)
@@ -607,7 +692,7 @@ export async function includeConversationAttachment(
       throw new AttachmentIncludeError({
         code: 'ATTACHMENTS_UNAVAILABLE',
         status: 409,
-        message: 'A inclusão de arquivos ainda não está disponível.',
+        message: 'A inclusão de arquivos não está disponível agora.',
       })
     }
 
@@ -619,9 +704,15 @@ export async function includeConversationAttachment(
   }
 
   const existing =
-    (existingRows ?? [])[0] as { id?: unknown; status?: unknown; summary?: unknown; requested_at?: unknown } | undefined
+    (existingRows ?? [])[0] as { id?: unknown; status?: unknown; summary?: unknown; requested_at?: unknown; kind?: unknown; size_bytes?: unknown } | undefined
 
-  if (existing?.status === 'incluido' && typeof existing.summary === 'string') {
+  // Rodada 12 (A4): "incluido" antigo com a prévia da foto vale como falha
+  // (pode incluir de novo; a linha é atualizada).
+  if (
+    existing?.status === 'incluido' &&
+    typeof existing.summary === 'string' &&
+    !isLowResolutionImage(existing)
+  ) {
     return {
       status: 'ja_incluido',
       message_key: messageKey,
@@ -638,6 +729,53 @@ export async function includeConversationAttachment(
       code: 'ATTACHMENT_IN_PROGRESS',
       status: 409,
       message: 'Este arquivo já está sendo lido.',
+    })
+  }
+
+  const writeRow = (values: Record<string, unknown>) =>
+    existing
+      ? input.admin
+          .from(ATTACHMENTS_TABLE)
+          .update(values)
+          .eq('company_id', input.scope.company_id)
+          .eq('conversation_key', input.scope.conversation_key)
+          .eq('message_key', messageKey)
+      : input.admin
+          .from(ATTACHMENTS_TABLE)
+          .insert(values)
+
+  const fileNameValue =
+    typeof input.fileName === 'string' && input.fileName.trim()
+      ? input.fileName.trim().slice(0, 300)
+      : null
+
+  // Rodada 12 (A4): a prévia da foto (menos de 5 KB) é recusada antes do
+  // resumo: sem chamada, sem custo e fora do teto diário.
+  if (attachment.kind === 'imagem' && attachment.bytes.length < IMAGE_MIN_BYTES) {
+    await writeRow({
+      company_id: input.scope.company_id,
+      cycle_id: input.scope.cycle_id,
+      conversation_key: input.scope.conversation_key,
+      message_key: messageKey,
+      kind: attachment.kind,
+      file_name: fileNameValue,
+      size_bytes: attachment.bytes.length,
+      page_count: null,
+      status: 'falhou',
+      summary: null,
+      failure_code: IMAGE_LOW_RESOLUTION_FAILURE,
+      model: null,
+      input_tokens: null,
+      output_tokens: null,
+      included_by: input.userId,
+      requested_at: now(),
+      summarized_at: null,
+    })
+
+    throw new AttachmentIncludeError({
+      code: 'ATTACHMENT_IMAGE_LOW_RESOLUTION',
+      status: 422,
+      message: PHOTO_NOT_LOADED_MESSAGE,
     })
   }
 
@@ -659,9 +797,7 @@ export async function includeConversationAttachment(
   }
 
   const fileName =
-    typeof input.fileName === 'string' && input.fileName.trim()
-      ? input.fileName.trim().slice(0, 300)
-      : null
+    fileNameValue
 
   const sizeBytes =
     Number.isInteger(input.sizeBytes) && (input.sizeBytes as number) >= 0
@@ -687,16 +823,7 @@ export async function includeConversationAttachment(
   }
 
   const { error: claimError } =
-    existing
-      ? await input.admin
-          .from(ATTACHMENTS_TABLE)
-          .update(base)
-          .eq('company_id', input.scope.company_id)
-          .eq('conversation_key', input.scope.conversation_key)
-          .eq('message_key', messageKey)
-      : await input.admin
-          .from(ATTACHMENTS_TABLE)
-          .insert(base)
+    await writeRow(base)
 
   if (claimError) {
     throw new AttachmentIncludeError({
@@ -708,7 +835,7 @@ export async function includeConversationAttachment(
         isMissingTableError(claimError) ? 409 : 500,
       message:
         isMissingTableError(claimError)
-          ? 'A inclusão de arquivos ainda não está disponível.'
+          ? 'A inclusão de arquivos não está disponível agora.'
           : 'Não consegui registrar o arquivo agora.',
     })
   }
@@ -730,6 +857,26 @@ export async function includeConversationAttachment(
         model: input.model,
         fetchImpl: input.fetchImpl,
       })
+
+    // Rodada 12 (A5): ilegível — falha, sem resumo para a leitura; conta no
+    // teto diário (houve chamada).
+    if (result.legibility === 'nao') {
+      await finish({
+        status: 'falhou',
+        failure_code: UNREADABLE_FAILURE,
+        summary: null,
+        model: result.model,
+        input_tokens: result.input_tokens,
+        output_tokens: result.output_tokens,
+        summarized_at: null,
+      })
+
+      throw new AttachmentIncludeError({
+        code: 'ATTACHMENT_UNREADABLE',
+        status: 422,
+        message: UNREADABLE_MESSAGE,
+      })
+    }
 
     const { error: saveError } =
       await finish({

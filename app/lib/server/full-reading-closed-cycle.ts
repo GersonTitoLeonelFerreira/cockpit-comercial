@@ -3,11 +3,11 @@
 // Só com a leitura completa ligada (COMPANION_FULL_READING_PANEL=on e
 // VERCEL_ENV=preview). A rota de captura lê o ciclo; se ele está em ganho,
 // perdido ou cancelado, pede à RPC p_allow_closed_cycle = true (parâmetro
-// da migração 20261003090000, que o dono do banco aplica). Enquanto a
-// migração não for aplicada, a RPC recusa (função sem o parâmetro ou ciclo
-// encerrado): a rota responde com um código próprio, sem aviso de falha no
-// painel, e a extensão para de tentar por um tempo. Ciclo aberto e flag
-// desligada: chamada idêntica à de hoje.
+// da migração 20261003090000, já aplicada). Defesa: se a RPC ainda assim
+// recusar (banco sem o parâmetro, ou ciclo encerrado), a rota responde com
+// um código próprio, sem aviso de falha no painel, e a extensão para de
+// tentar por um tempo. Ciclo aberto e flag desligada: chamada idêntica à de
+// hoje.
 //
 // Depois de uma captura aceita, a rota diz se o cliente escreveu depois do
 // encerramento (o mesmo critério da leitura de atendimento). Só então a
@@ -31,7 +31,8 @@ export const CLOSED_CYCLE_CAPTURE_UNAVAILABLE =
 export const CLOSED_CYCLE_STATUSES =
   new Set(['ganho', 'perdido', 'cancelado'])
 
-// Função sem o parâmetro novo (migração ainda não aplicada) ou ambígua.
+// Função sem o parâmetro novo (banco sem a migração 20261003090000) ou
+// ambígua.
 const MISSING_FUNCTION_CODES =
   new Set(['PGRST202', 'PGRST203', '42883'])
 

@@ -140,7 +140,7 @@ function agora({ decisionOverrides = {}, markdown = MARKDOWN, kanbanOverrides = 
 // ---------------------------------------------------------------------------
 
 test('prompt v3: contradição com o cadastro que muda o que o cliente paga ou recebe entra na Ação', () => {
-  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v8')
+  assert.equal(FULL_READING_PROMPT_VERSION, 'full-reading-v9')
 
   const system =
     buildFullReadingSystemPrompt()
@@ -203,7 +203,9 @@ test('esquema v3: cliente e códigos obrigatórios; códigos aceitam texto vazio
     assert.match(closing.tipo_pagamento_codigo.description, new RegExp(`\\b${code}\\b`))
   }
 
-  assert.match(closing.forma_pagamento_codigo.description, /"" \(vazio\)/)
+  // Rodada 12 (C3): o vazio é descrito sem aspas duplas ("texto vazio").
+  assert.match(closing.forma_pagamento_codigo.description, /texto vazio\.$/)
+  assert.doesNotMatch(closing.forma_pagamento_codigo.description, /"/)
   assert.equal(closing.valor_total.type, 'string')
 })
 

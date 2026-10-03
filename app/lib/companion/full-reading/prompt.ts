@@ -52,18 +52,25 @@
 // leitura nunca adivinha o conteúdo de um arquivo não incluído e, quando ele
 // pode mudar a decisão, sugere incluí-lo em arquivos_sugeridos. Mesmo
 // formato de decisão (com o campo novo): v6 e v7 continuam valendo.
+//
+// v9 (rodada 12): dentro dos textos do JSON, falas citadas com aspas
+// simples ou sem aspas (nunca aspas duplas) e quebra de linha só como \n —
+// uma aspa dupla sem escape quebrava o JSON inteiro. Os exemplos do formato
+// também usam aspas simples. Mesmo formato de decisão: v6, v7 e v8
+// continuam valendo.
 
 import {
   formatTranscriptTimestamp,
 } from './transcript'
 
 export const FULL_READING_PROMPT_VERSION =
-  'full-reading-v8'
+  'full-reading-v9'
 
 // Versões cuja leitura continua valendo no painel (mesmo formato de
 // decisão): a troca de versão não força releitura (rodada 10, D5).
 export const FULL_READING_COMPATIBLE_PROMPT_VERSIONS: readonly string[] = [
   FULL_READING_PROMPT_VERSION,
+  'full-reading-v8',
   'full-reading-v7',
   'full-reading-v6',
 ]
@@ -208,7 +215,7 @@ Na leitura da conversa inteira, precisa_ler_inteira é sempre false.
 ${EXPERT_CONDUCT_SECTION}
 
 ## Resposta
-Responda com um único objeto JSON com o campo "decisao". Preencha os campos na ordem do formato: primeiro entenda (situação, cliente, pendências, contradições com o cadastro, como conduzir), depois decida (ação e próximo passo), escreva a mensagem, a condução do vendedor e o que o gestor precisa saber, e por fim o resto.
+Responda com um único objeto JSON com o campo "decisao". Dentro dos textos do JSON, cite falas com aspas simples ('…') ou sem aspas, nunca com aspas duplas; quebra de linha só como \\n. Preencha os campos na ordem do formato: primeiro entenda (situação, cliente, pendências, contradições com o cadastro, como conduzir), depois decida (ação e próximo passo), escreva a mensagem, a condução do vendedor e o que o gestor precisa saber, e por fim o resto.
 O painel mostra a decisão como está, então os campos são escritos para a tela: frases curtas, sem parágrafos, sem códigos.
 Leitura curta: cada item é uma frase de até ~20 palavras; houve e melhor, uma frase curta cada; nada repetido em dois campos; a decisão inteira cabe em ~6 mil caracteres. Limites, com os itens mais importantes primeiro: linha_do_tempo até 8; pendencias até 4; oportunidades até 3; afirmacoes_a_confirmar até 5; contradicoes_cadastro até 4; cliente com sabemos até 5, inferimos até 3 e a_confirmar até 3; conducao com acertos até 3 e ajustes até 3; como_conduzir com até 3 passos e evitar até 2; para_o_gestor até 2.
 situacao_resumo é a situação atual em 1 a 2 frases.
