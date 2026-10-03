@@ -54,7 +54,7 @@ import {
 
 import { verifyCompanionRequestToken } from '../../../lib/server/companion-token'
 import {
-  isLegacyCompanionAiDisabled,
+  isFullReadingEnabledForUser,
   legacyAiDisabledBody,
   logLegacyAiSkipped,
 } from '../../../lib/server/full-reading-flag'
@@ -439,7 +439,8 @@ export async function POST(request: Request) {
 
   // Rodada 7: com a leitura completa ligada, esta chamada de IA do caminho
   // antigo não roda.
-  if (isLegacyCompanionAiDisabled()) {
+  // Rodada 17: por usuário (preview: todos; produção: só quem está na lista).
+  if (isFullReadingEnabledForUser({ userId: token.sub })) {
     logLegacyAiSkipped('/api/companion/method-guidance')
 
     return NextResponse.json(

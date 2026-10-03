@@ -3,7 +3,7 @@ import {
 } from '@supabase/supabase-js'
 
 import {
-  isLegacyCompanionAiDisabled,
+  isFullReadingEnabledForUser,
   legacyAiDisabledBody,
   logLegacyAiSkipped,
 } from '@/app/lib/server/full-reading-flag'
@@ -134,7 +134,8 @@ export async function POST(
 
   // Rodada 7: com a leitura completa ligada, nada é republicado na fila da
   // análise stateful.
-  if (isLegacyCompanionAiDisabled()) {
+  // Rodada 17: por usuário (preview: todos; produção: só quem está na lista).
+  if (isFullReadingEnabledForUser({ userId: token.sub })) {
     logLegacyAiSkipped('/api/companion/analysis-job-retry')
 
     return NextResponse.json(

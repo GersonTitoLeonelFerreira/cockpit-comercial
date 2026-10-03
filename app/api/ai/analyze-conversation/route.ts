@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
 import {
+  isFullReadingEnabledForUser,
   isLegacyCompanionAiDisabled,
   logLegacyAiSkipped,
 } from '@/app/lib/server/full-reading-flag'
@@ -72,7 +73,19 @@ export async function POST(req: Request) {
       )
     }
 
-    const { supabase, activeCompanyId } = await getAuthedSupabase()
+    const { supabase, user, activeCompanyId } = await getAuthedSupabase()
+
+    // Rodada 17: o mesmo 409 por usuário da sessão (o mesmo da página do
+    // lead), antes de qualquer RPC ou chamada a modelo. Preview: a trava
+    // global acima já respondeu; produção: só quem está na lista.
+    if (isFullReadingEnabledForUser({ userId: user?.id })) {
+      logLegacyAiSkipped('/api/ai/analyze-conversation')
+
+      return NextResponse.json<AnalyzeConversationResponse>(
+        { ok: false, error: COPILOT_ANALYSIS_FROM_COMPANION_MESSAGE },
+        { status: 409 }
+      )
+    }
 
     if (!activeCompanyId) {
       return NextResponse.json<AnalyzeConversationResponse>(

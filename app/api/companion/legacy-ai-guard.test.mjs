@@ -375,3 +375,78 @@ test('R16: preview com a flag ligada — 409 para qualquer usuário, com ou sem 
     assert.equal(response.status, 409)
     assert.equal(totalAiActivity(), 0)
   }))
+
+// ---------------------------------------------------------------------
+// Rodada 17 (botão de produção, parte 3): as outras cinco rotas antigas
+// também usam a regra por usuário (sub do token). Preview com a flag: 409
+// para todos (testes acima). Produção: 409 só para quem está na lista; os
+// outros passam da trava como hoje. As filas seguem a regra global (D3).
+// ---------------------------------------------------------------------
+
+const R17_ROUTES = ['retry', 'leadSummary', 'methodGuidance', 'registerPreview', 'diagnosticPreview']
+
+test('R17: produção com o usuário do token na lista — as cinco rotas respondem 409 sem tocar em nada', () =>
+  withSellerList({
+    COMPANION_FULL_READING_PANEL: 'on',
+    VERCEL_ENV: 'production',
+    COMPANION_FULL_READING_SELLER_IDS: ` ${OTHER_USER}, ${USER.toUpperCase()} `,
+  }, async () => {
+    for (const name of R17_ROUTES) {
+      resetCalls()
+
+      const response = await routes[name](request(BODIES[name]))
+      const payload = await response.json()
+
+      assert.equal(response.status, 409, name)
+      assert.equal(payload.code, 'LEGACY_AI_DISABLED', name)
+      assert.equal(totalAiActivity(), 0, name)
+    }
+
+    // As filas continuam com a regra global: em produção processam.
+    resetCalls()
+    await consumers.deepAnalysis({ analysis_job_id: 'x' }, { deliveryCount: 1 })
+    await consumers.shadow({ run_id: 'x' })
+    assert.equal(calls.statefulWorker, 1)
+    assert.equal(calls.shadowWorker, 1)
+  }))
+
+test('R17: produção com o usuário fora da lista (ou lista vazia) — as cinco rotas passam da trava como hoje', async () => {
+  for (const list of [OTHER_USER, '', undefined]) {
+    await withSellerList({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: list }, async () => {
+      for (const name of R17_ROUTES) {
+        resetCalls()
+
+        const response = await routes[name](request(BODIES[name]))
+        const payload = await response.json().catch(() => ({}))
+
+        assert.notEqual(payload.code, 'LEGACY_AI_DISABLED', `${name} ${String(list)}`)
+        assert.ok(calls.createClient >= 1, `${name}: a rota devia seguir e abrir o banco`)
+      }
+    })
+  }
+})
+
+test('R17: flag desligada em produção, mesmo com o usuário na lista — as cinco rotas passam da trava como hoje', () =>
+  withSellerList({ COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: USER }, async () => {
+    for (const name of R17_ROUTES) {
+      resetCalls()
+
+      const response = await routes[name](request(BODIES[name]))
+      const payload = await response.json().catch(() => ({}))
+
+      assert.notEqual(payload.code, 'LEGACY_AI_DISABLED', name)
+      assert.ok(calls.createClient >= 1, name)
+    }
+  }))
+
+test('R17: preview com a flag ligada — 409 nas cinco rotas para qualquer usuário, com ou sem lista', () =>
+  withSellerList({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'preview', COMPANION_FULL_READING_SELLER_IDS: OTHER_USER }, async () => {
+    for (const name of R17_ROUTES) {
+      resetCalls()
+
+      const response = await routes[name](request(BODIES[name]))
+
+      assert.equal(response.status, 409, name)
+      assert.equal(totalAiActivity(), 0, name)
+    }
+  }))
