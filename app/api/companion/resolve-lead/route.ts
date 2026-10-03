@@ -7,7 +7,7 @@ import {
 } from '@/app/lib/server/companion-token'
 import { verifyActiveCompanionProfile } from '@/app/lib/companion/companion-principal-access'
 import { evaluateSuccessorOpportunityEligibility } from '@/app/lib/companion/successor-opportunity'
-import { isFullReadingPanelEnabled } from '@/app/lib/server/full-reading-flag'
+import { isFullReadingEnabledForUser } from '@/app/lib/server/full-reading-flag'
 
 type ResolveLeadBody = {
   phone?: unknown
@@ -382,6 +382,10 @@ function buildResolutionPayload({
     authorizationRole === 'admin' ||
     authorizationRole === 'manager'
   const isOwnedByMe = cycle?.owner_user_id === tokenPayload.sub
+  // Rodada 15: leitura completa (e Nova oportunidade) por usuário: em
+  // produção, só quem está em COMPANION_FULL_READING_SELLER_IDS.
+  const fullReadingForUser =
+    isFullReadingEnabledForUser({ userId: tokenPayload.sub })
 
   const canReadLeadProfile =
     status === 'OWNED_BY_ME' ||
@@ -466,17 +470,19 @@ function buildResolutionPayload({
       // "Nova oportunidade" a partir do ciclo fechado (decisão do Controle
       // Mestre, 01/10/2026): só CLOSED_CYCLE e só quando todas as regras da
       // Yolen permitem (evaluateSuccessorOpportunityEligibility). A
-      // extensão decide pela capability, nunca pelo status.
+      // extensão decide pela capability, nunca pelo status. Rodada 15
+      // (D4): só com a leitura completa ligada para o usuário.
       can_create_successor_opportunity:
         status === 'CLOSED_CYCLE' &&
-        canCreateSuccessorOpportunity === true,
+        canCreateSuccessorOpportunity === true &&
+        fullReadingForUser,
       // Rodada 6 (HML): "O que é esta oportunidade?" só existe com a
       // leitura completa ligada (COMPANION_FULL_READING_PANEL=on em
       // preview). Desligada, a chave nem aparece e a resposta é a de hoje.
       ...(
         status === 'CLOSED_CYCLE' &&
         canCreateSuccessorOpportunity === true &&
-        isFullReadingPanelEnabled()
+        fullReadingForUser
           ? { can_note_successor_opportunity: true }
           : {}
       ),
@@ -484,7 +490,7 @@ function buildResolutionPayload({
       // disso já na resolução (antes de qualquer AGORA) e não dispara o
       // caminho antigo de IA. Desligada, a chave nem aparece.
       ...(
-        isFullReadingPanelEnabled()
+        fullReadingForUser
           ? { full_reading_panel: true }
           : {}
       ),
@@ -498,7 +504,7 @@ function buildResolutionPayload({
         status === 'CLOSED_CYCLE' &&
         Boolean(cycle?.id) &&
         (isOwnedByMe || isAdminOrManager) &&
-        isFullReadingPanelEnabled()
+        fullReadingForUser
           ? { can_read_closed_cycle: true }
           : {}
       ),
@@ -986,22 +992,28 @@ export async function POST(request: Request) {
     }
 
     if (!openCycle) {
+      // Rodada 15: Nova oportunidade só com a leitura completa ligada para o
+      // usuário. Desligada, o texto é o da main.
       const successorEligibility =
-        evaluateSuccessorOpportunityEligibility({
-          actorUserId: tokenPayload.sub,
-          role: membership.role,
-          lead,
-          sourceCycle: latestCycle,
-          cycles: cycleRows,
-        })
+        isFullReadingEnabledForUser({ userId: tokenPayload.sub })
+          ? evaluateSuccessorOpportunityEligibility({
+              actorUserId: tokenPayload.sub,
+              role: membership.role,
+              lead,
+              sourceCycle: latestCycle,
+              cycles: cycleRows,
+            })
+          : null
 
       return NextResponse.json(
         buildResolutionPayload({
           status: 'CLOSED_CYCLE',
           userMessage:
-            successorEligibility.eligible
-              ? 'Este lead possui apenas ciclo fechado. Ajustes no ciclo fechado são feitos só na Yolen.'
-              : 'Este lead possui apenas ciclo fechado. Ajustes e nova oportunidade são feitos dentro da Yolen.',
+            !successorEligibility
+              ? 'Este lead possui apenas ciclo fechado. Nova oportunidade deve ser criada dentro da Yolen.'
+              : successorEligibility.eligible
+                ? 'Este lead possui apenas ciclo fechado. Ajustes no ciclo fechado são feitos só na Yolen.'
+                : 'Este lead possui apenas ciclo fechado. Ajustes e nova oportunidade são feitos dentro da Yolen.',
           lead,
           leadProfile,
           cycle: latestCycle,
@@ -1012,7 +1024,7 @@ export async function POST(request: Request) {
           tokenPayload,
           authorizationRole: membership.role,
           canCreateSuccessorOpportunity:
-            successorEligibility.eligible,
+            successorEligibility?.eligible === true,
         }),
         {
           status: 200,

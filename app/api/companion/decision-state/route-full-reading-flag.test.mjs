@@ -183,6 +183,10 @@ for (const env of [
   { COMPANION_FULL_READING_PANEL: 'off', VERCEL_ENV: 'preview' },
   { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production' },
   { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: undefined },
+  // Rodada 15: produção com o usuário fora da lista (ou lista vazia).
+  { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: '10000000-0000-4000-8000-0000000000a2' },
+  { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: '' },
+  { COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: USER },
 ]) {
   test(`flag desligada (${JSON.stringify(env)}): AGORA e ANÁLISE respondem exatamente como hoje`, () =>
     withEnv({ ...env, ANTHROPIC_API_KEY: 'sk-ant-teste' }, async () => {
@@ -321,6 +325,25 @@ test('flag ligada em preview: a resposta de hoje ganha só `full_reading` (e per
     assert.deepEqual(analysisView.sections, [])
 
     // Rodada fresca: nenhuma escrita.
+    assert.deepEqual(memory.writes, [])
+  }))
+
+// Rodada 15: em produção, a regra é por usuário (sub do token).
+test('produção com o usuário do token na lista: AGORA e ANÁLISE ganham `full_reading`, como no preview', () =>
+  withEnv({
+    COMPANION_FULL_READING_PANEL: 'on',
+    VERCEL_ENV: 'production',
+    COMPANION_FULL_READING_SELLER_IDS: ` 10000000-0000-4000-8000-0000000000a2, ${USER.toUpperCase()} `,
+    ANTHROPIC_API_KEY: 'sk-ant-teste',
+  }, async () => {
+    const memory = freshRunAdmin()
+    adminBox.admin = memory.admin
+
+    const agora = await (await decisionStatePost(request({ cycle_id: CYCLE, conversation_key: CONVERSATION }))).json()
+    const analysis = await (await analysisPost(request({ cycle_id: CYCLE, conversation_key: CONVERSATION }))).json()
+
+    assert.equal(agora.data.full_reading.state, 'ready')
+    assert.equal(analysis.data.full_reading.has_reading, true)
     assert.deepEqual(memory.writes, [])
   }))
 

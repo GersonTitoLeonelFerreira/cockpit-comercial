@@ -409,3 +409,24 @@ o código mostra que falta ou difere de um pacote para vendedores:
 | D12 | Leituras e arquivos gravados no HML (mesmo banco) devem aparecer em produção quando o vendedor for ligado? E o teto diário deve contar HML e produção juntos? | R5. |
 | D13 | Teto diário: por empresa (como hoje) ou também por vendedor? O padrão de 100 vale para produção? | `full-reading-panel.ts:160-191`. |
 | D14 | Vendedor desligado no meio da sessão: a extensão pode ficar no modo da leitura até recarregar a página? | R7. |
+
+---
+
+## 10. Decisões do Controle Mestre
+
+DECISÕES
+
+- D1: Preview continua global (COMPANION_FULL_READING_PANEL=on liga para todos). Produção: liga só com COMPANION_FULL_READING_PANEL=on e o usuário em COMPANION_FULL_READING_SELLER_IDS. Outros ambientes: desligado.
+- D2: A lista vale para quem está usando (sub do token na extensão; usuário da sessão na Yolen web), não para o dono do ciclo.
+- D3: As filas companion-deep-analysis-v3 e message-intelligence-shadow-v1 continuam com a regra global de preview (em produção processam como hoje). As rotas que criam esses jobs é que passam a recusar para quem está ligado. O runner em segundo plano herda a decisão da requisição que o agendou.
+- D4: Nova oportunidade entra no botão: capability e rota só para quem estiver ligado. A migração 20261001150000 já está aplicada no banco (a função rpc_create_successor_cycle_from_companion existe). Não editar o arquivo da migração.
+- D5: O PR #356 entra no mesmo pacote; as melhorias dele na análise antiga valem para todos (aceito pelo dono). Os PRs #356 e #351 serão fechados quando o pacote novo for aberto.
+- D6: Aceito. O pacote do piloto só vai para quem está na lista; quem sair da lista volta ao pacote normal.
+- D7: Sem limite novo de transcrição no servidor durante o piloto. O Controle Mestre acompanha o custo; revisar antes da liberação ampla.
+- D8: Igual ao D7, para a MENSAGEM da leitura.
+- D9: COMPANION_AI_PROVIDER não será definida em produção.
+- D10: Pacote do piloto novo, não o E2E: igual ao pacote PROD (mesmo ID no Firefox, mesmas origens, sem localhost, confere o escopo production), com MANYCHAT_CAPTURE_ENABLED=true e a identificação "Piloto" no nome e no cabeçalho. Substitui o pacote normal no navegador do vendedor.
+- D11: Banco conferido pelo Controle Mestre. 20260930060000: aplicada. 20261001090000: NÃO aplicada e não necessária (o código grava 'analysis_job'). 20261001150000: aplicada. 20261003090000: aplicada. 20261003100000: aplicada.
+- D12: Cada ambiente vê só as próprias leituras: toda consulta a companion_full_reading_runs filtra pelo vercel_env do deployment. Os resumos de arquivo (companion_conversation_attachments) são compartilhados entre ambientes.
+- D13: Teto diário por empresa e por ambiente, padrão 100. O teto falha fechado: erro na contagem não inicia leitura.
+- D14: A extensão segue a capability da última resolução bem-sucedida da conversa atual. Durante o carregamento mantém o modo anterior; o modo não fica preso até recarregar a página.

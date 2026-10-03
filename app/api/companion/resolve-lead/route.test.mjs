@@ -704,7 +704,9 @@ const ACTION_CONTRACT_SCENARIOS = [
   },
   {
     status: 'CLOSED_CYCLE',
-    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true, can_create_successor_opportunity: true },
+    // Rodada 15 (D4): Nova oportunidade só com a leitura completa ligada
+    // para o usuário; a matriz roda com ela desligada.
+    capabilities: { can_create_lead: false, can_analyze_conversation: false, can_apply_suggestion: false, can_open_pool: false, can_open_cycle: true, can_create_successor_opportunity: false },
     steps: () => [
       selectStep('company_memberships', ACTIVE_MEMBERSHIP),
       selectStep('profiles', ACTIVE_PROFILE),
@@ -821,7 +823,37 @@ test('resolve-lead contrato de ações (4B.5L): manager mantém can_analyze_conv
 // (decisão do Controle Mestre, 01/10/2026), com as regras da Yolen.
 // ---------------------------------------------------------------------
 
-async function resolveClosed({ role = 'member', cycles }) {
+// Rodada 15: env de um bloco de teste; devolve o que `run` devolver.
+async function withEnv(values, run) {
+  const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]))
+
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+
+  try {
+    return await run()
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+// Leitura completa ligada para todos (preview), como no HML.
+const FULL_READING_PREVIEW = {
+  COMPANION_FULL_READING_PANEL: 'on',
+  VERCEL_ENV: 'preview',
+  COMPANION_FULL_READING_SELLER_IDS: undefined,
+}
+
+async function resolveClosed({ role = 'member', cycles, env = FULL_READING_PREVIEW }) {
+  return withEnv(env, () => resolveClosedNow({ role, cycles }))
+}
+
+async function resolveClosedNow({ role, cycles }) {
   useAdmin([
     selectStep('company_memberships', { ...ACTIVE_MEMBERSHIP, role }),
     selectStep('profiles', ACTIVE_PROFILE),
@@ -914,7 +946,7 @@ test('capability Nova oportunidade: lead excluído responde SOFT_DELETED, sem a 
   assert.notEqual(payload.capabilities?.can_create_successor_opportunity, true)
 })
 
-test('capability Nova oportunidade: nunca aparece fora de CLOSED_CYCLE (ciclo aberto do próprio vendedor)', async () => {
+test('capability Nova oportunidade: nunca aparece fora de CLOSED_CYCLE (ciclo aberto do próprio vendedor)', () => withEnv(FULL_READING_PREVIEW, async () => {
   useAdmin([
     selectStep('company_memberships', ACTIVE_MEMBERSHIP),
     selectStep('profiles', ACTIVE_PROFILE),
@@ -928,7 +960,7 @@ test('capability Nova oportunidade: nunca aparece fora de CLOSED_CYCLE (ciclo ab
 
   assert.equal(payload.status, 'OWNED_BY_ME')
   assert.equal(payload.capabilities.can_create_successor_opportunity, false)
-})
+}))
 
 // Rodada 6: "O que é esta oportunidade?" só aparece com a leitura completa
 // ligada (COMPANION_FULL_READING_PANEL=on em preview). Desligada, a chave
@@ -953,6 +985,7 @@ test('resolve-lead: can_note_successor_opportunity só com a leitura completa li
 
     assert.deepEqual((await resolve(closed)).capabilities, {
       ...closed.capabilities,
+      can_create_successor_opportunity: true,
       can_note_successor_opportunity: true,
       full_reading_panel: true,
       // Rodada 10 (J): captura do ciclo encerrado, só com a flag.
@@ -1096,4 +1129,123 @@ test('resolve-lead: can_read_closed_cycle só com a flag, só em ciclo encerrado
       else process.env[key] = value
     }
   }
+})
+
+// ---------------------------------------------------------------------
+// Rodada 15 (botão de produção, parte 1): em produção, a leitura completa
+// e Nova oportunidade só para quem está em COMPANION_FULL_READING_SELLER_IDS
+// (sub do token). Fora da lista, a resposta do ciclo encerrado é a da main.
+// ---------------------------------------------------------------------
+
+const MAIN_CLOSED_CYCLE_MESSAGE =
+  'Este lead possui apenas ciclo fechado. Nova oportunidade deve ser criada dentro da Yolen.'
+
+const FOUR_SWITCHED_CAPABILITIES = [
+  'full_reading_panel',
+  'can_read_closed_cycle',
+  'can_note_successor_opportunity',
+  'can_create_successor_opportunity',
+]
+
+const PRODUCTION_ON = { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production' }
+
+async function resolveClosedAsUserA() {
+  const closed = ACTION_CONTRACT_SCENARIOS.find((scenario) => scenario.status === 'CLOSED_CYCLE')
+  adminBox.admin = createStepAdmin(closed.steps()).admin
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const payload = await readJson(await POST(postRequest({ token, body: closed.body })))
+
+  assert.equal(payload.status, 'CLOSED_CYCLE')
+
+  return { closed, payload }
+}
+
+test('R15 resolve-lead em produção: usuário na lista → as quatro capabilities e o texto da leitura completa', async () => {
+  for (const list of [
+    IDS.userA,
+    ` ${IDS.otherSeller} ,${IDS.userA.toUpperCase()} , nao-e-uuid`,
+  ]) {
+    const { closed, payload } = await withEnv(
+      { ...PRODUCTION_ON, COMPANION_FULL_READING_SELLER_IDS: list },
+      resolveClosedAsUserA,
+    )
+
+    assert.deepEqual(payload.capabilities, {
+      ...closed.capabilities,
+      can_create_successor_opportunity: true,
+      can_note_successor_opportunity: true,
+      full_reading_panel: true,
+      can_read_closed_cycle: true,
+    }, list)
+    assert.equal(
+      payload.user_message,
+      'Este lead possui apenas ciclo fechado. Ajustes no ciclo fechado são feitos só na Yolen.',
+    )
+  }
+})
+
+test('R15 resolve-lead em produção: usuário fora da lista, lista vazia, flag desligada ou fora de produção → resposta da main', async () => {
+  for (const env of [
+    { ...PRODUCTION_ON, COMPANION_FULL_READING_SELLER_IDS: IDS.otherSeller },
+    { ...PRODUCTION_ON, COMPANION_FULL_READING_SELLER_IDS: '' },
+    { ...PRODUCTION_ON, COMPANION_FULL_READING_SELLER_IDS: undefined },
+    { COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: IDS.userA },
+    { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'development', COMPANION_FULL_READING_SELLER_IDS: IDS.userA },
+    { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: undefined, COMPANION_FULL_READING_SELLER_IDS: IDS.userA },
+  ]) {
+    const { closed, payload } = await withEnv(env, resolveClosedAsUserA)
+
+    assert.deepEqual(payload.capabilities, closed.capabilities, JSON.stringify(env))
+    assert.equal(payload.capabilities.can_create_successor_opportunity, false)
+
+    for (const key of FOUR_SWITCHED_CAPABILITIES.slice(0, 3)) {
+      assert.equal(key in payload.capabilities, false, `${key} ${JSON.stringify(env)}`)
+    }
+
+    assert.equal(payload.user_message, MAIN_CLOSED_CYCLE_MESSAGE, JSON.stringify(env))
+  }
+})
+
+test('R15 resolve-lead em produção: a lista vale para quem está usando (sub do token), nos demais status também', async () => {
+  const owned = ACTION_CONTRACT_SCENARIOS.find((scenario) => scenario.status === 'OWNED_BY_ME')
+
+  const resolveOwned = async (sub) => {
+    adminBox.admin = createStepAdmin(owned.steps()).admin
+    const token = buildToken({ sub, companyId: IDS.companyA })
+    return readJson(await POST(postRequest({ token, body: owned.body })))
+  }
+
+  const listed = await withEnv(
+    { ...PRODUCTION_ON, COMPANION_FULL_READING_SELLER_IDS: IDS.userA },
+    () => resolveOwned(IDS.userA),
+  )
+
+  assert.equal(listed.status, 'OWNED_BY_ME')
+  assert.deepEqual(listed.capabilities, { ...owned.capabilities, full_reading_panel: true })
+
+  const notListed = await withEnv(
+    { ...PRODUCTION_ON, COMPANION_FULL_READING_SELLER_IDS: IDS.otherSeller },
+    () => resolveOwned(IDS.userA),
+  )
+
+  assert.deepEqual(notListed.capabilities, owned.capabilities)
+})
+
+test('R15 resolve-lead em produção: vendedor fora da lista nunca recebe Nova oportunidade, mesmo elegível', async () => {
+  const payload = await resolveClosed({
+    env: { ...PRODUCTION_ON, COMPANION_FULL_READING_SELLER_IDS: IDS.otherSeller },
+    cycles: [openCycle({ status: 'ganho', owner_user_id: IDS.otherSeller, won_owner_user_id: IDS.userA })],
+  })
+
+  assert.equal(payload.capabilities.can_create_successor_opportunity, false)
+  assert.equal('can_note_successor_opportunity' in payload.capabilities, false)
+  assert.equal(payload.user_message, MAIN_CLOSED_CYCLE_MESSAGE)
+
+  const listed = await resolveClosed({
+    env: { ...PRODUCTION_ON, COMPANION_FULL_READING_SELLER_IDS: IDS.userA },
+    cycles: [openCycle({ status: 'ganho', owner_user_id: IDS.otherSeller, won_owner_user_id: IDS.userA })],
+  })
+
+  assert.equal(listed.capabilities.can_create_successor_opportunity, true)
+  assert.equal(listed.capabilities.can_note_successor_opportunity, true)
 })

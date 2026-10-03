@@ -223,6 +223,8 @@ export async function POST(
     const fullReading =
       await loadFullReadingPanelForRequest({
         admin,
+        userId:
+          token.sub,
         companyId:
           token.company_id,
         cycleId:

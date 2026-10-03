@@ -39,7 +39,7 @@ import {
 } from '../companion/companion-client-context-contract'
 
 import {
-  isFullReadingPanelEnabled,
+  isFullReadingEnabledForUser,
 } from './full-reading-flag'
 
 import {
@@ -1031,8 +1031,9 @@ export async function loadCompanionClientContext({
   // Rodada 9 (C): com a leitura completa no HML, o Relacionamento usa só
   // mensagens reais e, numa Nova oportunidade, a cadeia inteira (ciclo de
   // origem + ciclo atual), como a leitura. Flag desligada: igual a hoje.
+  // Rodada 15: a regra é por usuário (quem está usando).
   const fullReading =
-    isFullReadingPanelEnabled(process.env)
+    isFullReadingEnabledForUser({ env: process.env, userId })
 
   let chainCycleIds: string[] =
     [cycleId]

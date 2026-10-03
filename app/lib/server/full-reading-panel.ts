@@ -62,6 +62,7 @@ import {
 } from '../companion/full-reading/prompt'
 
 import {
+  isFullReadingEnabledForUser,
   isFullReadingPanelEnabled,
 } from './full-reading-flag'
 
@@ -2612,11 +2613,12 @@ function logPanelEvent(
 }
 
 // Chamada pelas rotas DEPOIS que o loader de hoje já validou a sessão e o
-// acesso ao ciclo/conversa. Devolve null com a flag desligada (a rota
-// responde exatamente como hoje) ou se o painel não conseguir ler o
-// próprio estado — nunca derruba o AGORA/ANÁLISE de hoje.
+// acesso ao ciclo/conversa. Devolve null com a flag desligada para o
+// usuário (a rota responde exatamente como hoje) ou se o painel não
+// conseguir ler o próprio estado — nunca derruba o AGORA/ANÁLISE de hoje.
 export async function loadFullReadingPanelForRequest({
   admin,
+  userId,
   companyId,
   cycleId,
   conversationKey,
@@ -2630,6 +2632,9 @@ export async function loadFullReadingPanelForRequest({
   route,
 }: {
   admin: SupabaseClient
+  // Rodada 15: quem está usando (sub do token). Em produção, só quem está
+  // em COMPANION_FULL_READING_SELLER_IDS.
+  userId: string | null | undefined
   companyId: unknown
   cycleId: unknown
   conversationKey: unknown
@@ -2649,7 +2654,7 @@ export async function loadFullReadingPanelForRequest({
   snapshot: FullReadingPanelSnapshot
   scope: FullReadingPanelScope
 } | null> {
-  if (!isFullReadingPanelEnabled(env)) {
+  if (!isFullReadingEnabledForUser({ env, userId })) {
     return null
   }
 

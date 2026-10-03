@@ -1058,3 +1058,78 @@ test(
     )
   },
 )
+
+// Rodada 15: o Relacionamento da leitura completa (cadeia de ciclos e filtro
+// de eventos) segue a regra por usuário: em produção, só para quem está em
+// COMPANION_FULL_READING_SELLER_IDS (sub do token).
+test(
+  'R15: cadeia de ciclos do Relacionamento só com a leitura completa ligada para quem está usando',
+  async () => {
+    const CHAIN_SELECT =
+      'id, origin_cycle_id, created_at, opportunity_type'
+
+    const ENV_KEYS = [
+      'COMPANION_FULL_READING_PANEL',
+      'VERCEL_ENV',
+      'COMPANION_FULL_READING_SELLER_IDS',
+    ]
+
+    const readsChain = async (env) => {
+      const previous =
+        Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]))
+
+      for (const key of ENV_KEYS) {
+        if (env[key] === undefined) delete process.env[key]
+        else process.env[key] = env[key]
+      }
+
+      try {
+        const admin =
+          createFakeAdmin(baseFixtures())
+
+        const selects = []
+        const from = admin.from
+
+        admin.from = (table) => {
+          const query = from(table)
+          const select = query.select.bind(query)
+
+          query.select = (columns) => {
+            selects.push(`${table}:${columns}`)
+            return select(columns)
+          }
+
+          return query
+        }
+
+        await loadCompanionClientContext({
+          admin,
+          token: buildToken(),
+          cycle_id: CYCLE_ID,
+          conversation_key: CONVERSATION_KEY,
+          reference_time: REFERENCE_TIME,
+        })
+
+        return selects.includes(`sales_cycles:${CHAIN_SELECT}`)
+      } finally {
+        for (const [key, value] of Object.entries(previous)) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+      }
+    }
+
+    const production = {
+      COMPANION_FULL_READING_PANEL: 'on',
+      VERCEL_ENV: 'production',
+    }
+
+    assert.equal(await readsChain({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'preview' }), true)
+    assert.equal(await readsChain({ ...production, COMPANION_FULL_READING_SELLER_IDS: ` ${OWNER_USER_ID.toUpperCase()} ` }), true)
+
+    assert.equal(await readsChain({ ...production, COMPANION_FULL_READING_SELLER_IDS: OTHER_USER_ID }), false)
+    assert.equal(await readsChain(production), false)
+    assert.equal(await readsChain({ VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: OWNER_USER_ID }), false)
+    assert.equal(await readsChain({}), false)
+  },
+)
