@@ -1,7 +1,7 @@
 // Rodada 10 (HML), item J: captura em ciclo encerrado.
 //
-// Só com a leitura completa ligada (COMPANION_FULL_READING_PANEL=on e
-// VERCEL_ENV=preview). A rota de captura lê o ciclo; se ele está em ganho,
+// Só com a leitura completa ligada para quem captura (regra por usuário da
+// rodada 15: preview com a flag, ou produção com o usuário na lista). A rota de captura lê o ciclo; se ele está em ganho,
 // perdido ou cancelado, pede à RPC p_allow_closed_cycle = true (parâmetro
 // da migração 20261003090000, já aplicada). Defesa: se a RPC ainda assim
 // recusar (banco sem o parâmetro, ou ciclo encerrado), a rota responde com
@@ -21,7 +21,7 @@ import {
 } from '@/app/lib/companion/full-reading/conversation-events'
 
 import {
-  isFullReadingPanelEnabled,
+  isFullReadingEnabledForUser,
   type FullReadingFlagEnv,
 } from './full-reading-flag'
 
@@ -97,20 +97,24 @@ export function closedAtFromCycleRow(
         : text(row.closed_at)
 }
 
-// null: flag desligada, ciclo aberto, não encontrado ou leitura falhou (a
-// chamada segue exatamente como hoje).
+// null: regra desligada para o usuário, ciclo aberto, não encontrado ou
+// leitura falhou (a chamada segue exatamente como hoje).
 export async function readClosedCycleCaptureTarget({
   admin,
+  userId,
   companyId,
   cycleId,
   env = process.env,
 }: {
   admin: SupabaseClient
+  // Rodada 16: quem captura (sub do token). Em produção, só quem está em
+  // COMPANION_FULL_READING_SELLER_IDS; desligada, nenhuma consulta.
+  userId: string | null | undefined
   companyId: string
   cycleId: string
   env?: FullReadingFlagEnv
 }): Promise<ClosedCycleCaptureTarget | null> {
-  if (!isFullReadingPanelEnabled(env)) {
+  if (!isFullReadingEnabledForUser({ env, userId })) {
     return null
   }
 

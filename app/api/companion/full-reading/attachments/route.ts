@@ -4,11 +4,12 @@
 //   { cycle_id, conversation_key, message_key, kind, media_type,
 //     file_name, size_bytes, content_base64 }
 //
-// Só existe com COMPANION_FULL_READING_PANEL=on e VERCEL_ENV=preview (404
-// fora disso). Exige a sessão do Companion e o mesmo acesso ao ciclo das
-// demais rotas (vínculo ativo, ciclo da carteira ou gestor/admin). O
-// arquivo vem da extensão: o servidor nunca baixa um endereço. Só o resumo
-// é guardado; o arquivo não.
+// Só existe com COMPANION_FULL_READING_PANEL=on (404 fora disso) e só para
+// quem tem a leitura completa ligada (preview: todos; produção: a lista
+// COMPANION_FULL_READING_SELLER_IDS; 404 para os outros). Exige a sessão
+// do Companion e o mesmo acesso ao ciclo das demais rotas (vínculo ativo,
+// ciclo da carteira ou gestor/admin). O arquivo vem da extensão: o servidor
+// nunca baixa um endereço. Só o resumo é guardado; o arquivo não.
 
 import {
   createClient,
@@ -28,7 +29,7 @@ import {
 } from '@/app/lib/server/companion-lead-summary-store'
 
 import {
-  isFullReadingPanelEnabled,
+  isFullReadingEnabledForUser,
 } from '@/app/lib/server/full-reading-flag'
 
 import {
@@ -100,10 +101,16 @@ function notFound(): NextResponse {
   )
 }
 
+// Rodada 16: a rota existe com a flag ligada (preview ou produção); quem pode
+// usar é decidido por usuário, depois do token (isFullReadingEnabledForUser).
+function isFlagOn(): boolean {
+  return process.env.COMPANION_FULL_READING_PANEL === 'on'
+}
+
 export async function OPTIONS(
   request: Request,
 ) {
-  if (!isFullReadingPanelEnabled()) {
+  if (!isFlagOn()) {
     return notFound()
   }
 
@@ -116,7 +123,7 @@ export async function OPTIONS(
 export async function POST(
   request: Request,
 ) {
-  if (!isFullReadingPanelEnabled()) {
+  if (!isFlagOn()) {
     return notFound()
   }
 
@@ -134,6 +141,11 @@ export async function POST(
 
   if (!token) {
     return fail(401, 'INVALID_COMPANION_SESSION', 'Sessão do Companion inválida ou expirada.')
+  }
+
+  // Desligada para o usuário: o mesmo 404, sem consulta, gravação ou modelo.
+  if (!isFullReadingEnabledForUser({ userId: token.sub })) {
+    return notFound()
   }
 
   const body = (

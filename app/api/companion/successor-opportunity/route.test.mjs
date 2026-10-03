@@ -27,6 +27,13 @@ mock.module('@supabase/supabase-js', {
 
 const { POST } = await import('./route.ts')
 
+// Rodada 16 (D4): Nova oportunidade só para quem tem a leitura completa
+// ligada. Os testes de antes rodam como no HML (preview com a flag ligada,
+// para qualquer usuário); os casos de produção ficam no fim do arquivo.
+process.env.COMPANION_FULL_READING_PANEL = 'on'
+process.env.VERCEL_ENV = 'preview'
+delete process.env.COMPANION_FULL_READING_SELLER_IDS
+
 const IDS = {
   company: '40000000-0000-4000-8000-000000000001',
   otherCompany: '40000000-0000-4000-8000-000000000002',
@@ -268,7 +275,7 @@ async function withFlag(values, run) {
   }
 }
 
-test('nota da oportunidade: com a flag ligada em preview vai para p_note (limpa); desligada, p_note null como antes', async () => {
+test('nota da oportunidade: com a flag ligada em preview vai para p_note (limpa); desligada, a rota recusa (R16) sem chamar a RPC', async () => {
   const body = { ...VALID, note: '  Quer   passar para o plano anual \uD83D ' }
 
   await withFlag({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'preview' }, async () => {
@@ -279,16 +286,19 @@ test('nota da oportunidade: com a flag ligada em preview vai para p_note (limpa)
     assert.equal(admin.calls.rpc[0].args.p_note, 'Quer passar para o plano anual �')
   })
 
+  // Rodada 16 (D4): com a leitura completa desligada para o usuário, a rota
+  // inteira recusa (antes: p_note null).
   for (const env of [
     { COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'preview' },
     { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production' },
   ]) {
     await withFlag(env, async () => {
       const admin = fakeAdmin()
-      const { response } = await post(body, admin)
+      const { response, payload } = await post(body, admin)
 
-      assert.equal(response.status, 200)
-      assert.equal(admin.calls.rpc[0].args.p_note, null)
+      assert.equal(response.status, 403)
+      assert.equal(payload.status, 'SUCCESSOR_NOT_ENABLED')
+      assert.equal(admin.calls.rpc.length, 0)
     })
   }
 
@@ -300,5 +310,110 @@ test('nota da oportunidade: com a flag ligada em preview vai para p_note (limpa)
       await post({ ...VALID, note }, admin)
       assert.equal(admin.calls.rpc[0].args.p_note, null)
     }
+  })
+})
+
+// ---------------------------------------------------------------------
+// Rodada 16 (botão de produção, parte 2, D4): logo depois do token, a regra
+// por usuário. Desligada: 403 SUCCESSOR_NOT_ENABLED, sem ler o banco e sem
+// a RPC. Ligada: tudo como antes, e p_note segue a mesma regra.
+// ---------------------------------------------------------------------
+
+const NOT_ENABLED = {
+  ok: false,
+  status: 'SUCCESSOR_NOT_ENABLED',
+  error: 'Nova oportunidade não está disponível para este usuário.',
+}
+
+const PRODUCTION = { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production' }
+
+async function withEnv(values, run) {
+  const previousList = process.env.COMPANION_FULL_READING_SELLER_IDS
+
+  if (values.COMPANION_FULL_READING_SELLER_IDS === undefined) delete process.env.COMPANION_FULL_READING_SELLER_IDS
+  else process.env.COMPANION_FULL_READING_SELLER_IDS = values.COMPANION_FULL_READING_SELLER_IDS
+
+  try {
+    return await withFlag(
+      { COMPANION_FULL_READING_PANEL: values.COMPANION_FULL_READING_PANEL, VERCEL_ENV: values.VERCEL_ENV },
+      run,
+    )
+  } finally {
+    if (previousList === undefined) delete process.env.COMPANION_FULL_READING_SELLER_IDS
+    else process.env.COMPANION_FULL_READING_SELLER_IDS = previousList
+  }
+}
+
+test('R16 Nova oportunidade: produção com o usuário do token na lista — cria como hoje e a nota vai para p_note', async () => {
+  await withEnv({ ...PRODUCTION, COMPANION_FULL_READING_SELLER_IDS: ` ${IDS.other}, ${IDS.me.toUpperCase()} ` }, async () => {
+    const admin = fakeAdmin()
+    const { response, payload } = await post({ ...VALID, note: 'Nota sintética da oportunidade.' }, admin)
+
+    assert.equal(response.status, 200)
+    assert.equal(payload.status, 'SUCCESSOR_CREATED')
+    assert.equal(admin.calls.rpc.length, 1)
+    assert.equal(admin.calls.rpc[0].args.p_actor_user_id, IDS.me)
+    assert.equal(admin.calls.rpc[0].args.p_note, 'Nota sintética da oportunidade.')
+  })
+})
+
+test('R16 Nova oportunidade: produção com o usuário fora da lista (ou lista vazia) — 403 sem ler o banco nem chamar a RPC', async () => {
+  for (const list of [IDS.other, '', undefined]) {
+    await withEnv({ ...PRODUCTION, COMPANION_FULL_READING_SELLER_IDS: list }, async () => {
+      const admin = fakeAdmin()
+      const { response, payload } = await post(VALID, admin)
+
+      assert.equal(response.status, 403, String(list))
+      assert.deepEqual(payload, NOT_ENABLED)
+      assert.equal(response.headers.get('access-control-allow-origin'), 'moz-extension://test')
+      assert.deepEqual(admin.calls.reads, [])
+      assert.equal(admin.calls.rpc.length, 0)
+    })
+  }
+})
+
+test('R16 Nova oportunidade: flag desligada (produção com o usuário na lista, ou preview) — 403 sem RPC', async () => {
+  for (const env of [
+    { COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: IDS.me },
+    { COMPANION_FULL_READING_PANEL: 'off', VERCEL_ENV: 'preview', COMPANION_FULL_READING_SELLER_IDS: undefined },
+    { COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: undefined, COMPANION_FULL_READING_SELLER_IDS: IDS.me },
+  ]) {
+    await withEnv(env, async () => {
+      const admin = fakeAdmin()
+      const { response, payload } = await post(VALID, admin)
+
+      assert.equal(response.status, 403, JSON.stringify(env))
+      assert.deepEqual(payload, NOT_ENABLED)
+      assert.deepEqual(admin.calls.reads, [])
+      assert.equal(admin.calls.rpc.length, 0)
+    })
+  }
+})
+
+test('R16 Nova oportunidade: token inválido continua 401 antes da regra, mesmo desligada', async () => {
+  await withEnv({ ...PRODUCTION, COMPANION_FULL_READING_SELLER_IDS: undefined }, async () => {
+    const admin = fakeAdmin()
+    adminBox.admin = admin
+
+    const response = await POST(
+      new Request('http://localhost/api/companion/successor-opportunity', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(VALID),
+      }),
+    )
+
+    assert.equal(response.status, 401)
+    assert.equal(admin.calls.rpc.length, 0)
+  })
+})
+
+test('R16 Nova oportunidade: preview com a flag ligada — igual a hoje para qualquer usuário, com ou sem lista', async () => {
+  await withEnv({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'preview', COMPANION_FULL_READING_SELLER_IDS: IDS.other }, async () => {
+    const admin = fakeAdmin()
+    const { response } = await post(VALID, admin)
+
+    assert.equal(response.status, 200)
+    assert.equal(admin.calls.rpc.length, 1)
   })
 })

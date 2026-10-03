@@ -3,10 +3,12 @@
 // POST /api/companion/full-reading/message
 //   { cycle_id, conversation_key, seller_intent }
 //
-// Só existe com COMPANION_FULL_READING_PANEL=on e VERCEL_ENV=preview (404
-// fora disso). Exige a sessão do Companion e o mesmo acesso ao ciclo das
-// demais rotas. Só lê o banco: não grava telemetria nem nada. A resposta
-// traz a mensagem; quem envia é o vendedor (Incluir/Copiar).
+// Só existe com COMPANION_FULL_READING_PANEL=on (404 fora disso) e só para
+// quem tem a leitura completa ligada (preview: todos; produção: a lista
+// COMPANION_FULL_READING_SELLER_IDS; 404 para os outros). Exige a sessão
+// do Companion e o mesmo acesso ao ciclo das demais rotas. Só lê o banco:
+// não grava telemetria nem nada. A resposta traz a mensagem; quem envia é
+// o vendedor (Incluir/Copiar).
 
 import {
   createClient,
@@ -26,8 +28,8 @@ import {
 } from '@/app/lib/server/companion-lead-summary-store'
 
 import {
-  isFullReadingPanelEnabled,
-} from '@/app/lib/server/full-reading-panel'
+  isFullReadingEnabledForUser,
+} from '@/app/lib/server/full-reading-flag'
 
 import {
   FullReadingMessageError,
@@ -94,10 +96,16 @@ function notFound(): NextResponse {
   )
 }
 
+// Rodada 16: a rota existe com a flag ligada (preview ou produção); quem pode
+// usar é decidido por usuário, depois do token (isFullReadingEnabledForUser).
+function isFlagOn(): boolean {
+  return process.env.COMPANION_FULL_READING_PANEL === 'on'
+}
+
 export async function OPTIONS(
   request: Request,
 ) {
-  if (!isFullReadingPanelEnabled()) {
+  if (!isFlagOn()) {
     return notFound()
   }
 
@@ -110,7 +118,7 @@ export async function OPTIONS(
 export async function POST(
   request: Request,
 ) {
-  if (!isFullReadingPanelEnabled()) {
+  if (!isFlagOn()) {
     return notFound()
   }
 
@@ -128,6 +136,11 @@ export async function POST(
 
   if (!token) {
     return fail(401, 'INVALID_COMPANION_SESSION', 'Sessão do Companion inválida ou expirada.')
+  }
+
+  // Desligada para o usuário: o mesmo 404, sem consulta, gravação ou modelo.
+  if (!isFullReadingEnabledForUser({ userId: token.sub })) {
+    return notFound()
   }
 
   const body = (

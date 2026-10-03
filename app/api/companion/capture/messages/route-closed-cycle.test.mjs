@@ -149,6 +149,7 @@ async function post(admin, env) {
   const saved = {
     COMPANION_FULL_READING_PANEL: process.env.COMPANION_FULL_READING_PANEL,
     VERCEL_ENV: process.env.VERCEL_ENV,
+    COMPANION_FULL_READING_SELLER_IDS: process.env.COMPANION_FULL_READING_SELLER_IDS,
   }
 
   for (const [key, value] of Object.entries(env)) {
@@ -280,4 +281,65 @@ test('E4: a RPC ainda recusa o ciclo encerrado — mesmo código próprio', asyn
   assert.equal(admin.calls.rpc[0].args.p_allow_closed_cycle, true)
   assert.equal(response.status, 409)
   assert.equal(payload.status, 'CLOSED_CYCLE_CAPTURE_UNAVAILABLE')
+})
+
+// ---------------------------------------------------------------------
+// Rodada 16 (botão de produção, parte 2): o ciclo encerrado segue a regra
+// por usuário (sub do token). Produção: só quem está em
+// COMPANION_FULL_READING_SELLER_IDS; fora da lista, nenhuma consulta ao
+// ciclo e a chamada de hoje.
+// ---------------------------------------------------------------------
+
+const OTHER_USER = 'dddddddd-0000-4000-8000-0000000000a2'
+
+test('R16: produção com o usuário do token na lista — ciclo encerrado como no HML (lê o ciclo e manda o parâmetro)', async () => {
+  const customerAfter = [
+    { direction: 'incoming', author_kind: 'customer', occurred_at: '2026-10-02T12:00:00.000Z', content_type: 'text', text_content: 'Mensagem sintética.' },
+  ]
+
+  const admin = fakeAdmin({ rpcResult: RPC_OK, cycle: WON, ledger: customerAfter })
+  const { response, payload } = await post(admin, {
+    ...PRODUCTION,
+    COMPANION_FULL_READING_SELLER_IDS: ` ${OTHER_USER}, ${IDS.user.toUpperCase()} `,
+  })
+
+  assert.equal(response.status, 200)
+  assert.equal(admin.calls.tables.includes('sales_cycles'), true)
+  assert.equal(admin.calls.rpc[0].args.p_allow_closed_cycle, true)
+  assert.deepEqual(payload.closed_cycle, { status: 'ganho', service: true })
+})
+
+test('R16: produção com o usuário fora da lista (ou lista vazia) — nenhuma consulta ao ciclo, chamada e recusa de hoje', async () => {
+  for (const list of [OTHER_USER, '', undefined]) {
+    const admin = fakeAdmin({ rpcResult: CLOSED_REFUSAL, cycle: WON })
+    const { response, payload } = await post(admin, { ...PRODUCTION, COMPANION_FULL_READING_SELLER_IDS: list })
+
+    assert.equal(admin.calls.tables.includes('sales_cycles'), false, String(list))
+    assert.equal('p_allow_closed_cycle' in admin.calls.rpc[0].args, false, String(list))
+    assert.equal(response.status, 409)
+    assert.equal(payload.validation.code, 'CAPTURE_CYCLE_CLOSED')
+    assert.equal('closed_cycle' in payload, false)
+  }
+})
+
+test('R16: flag desligada em produção, mesmo com o usuário na lista — chamada de hoje, sem ler o ciclo', async () => {
+  const admin = fakeAdmin({ rpcResult: RPC_OK, cycle: WON })
+  const { response, payload } = await post(admin, {
+    COMPANION_FULL_READING_PANEL: undefined,
+    VERCEL_ENV: 'production',
+    COMPANION_FULL_READING_SELLER_IDS: IDS.user,
+  })
+
+  assert.equal(response.status, 200)
+  assert.equal(admin.calls.tables.includes('sales_cycles'), false)
+  assert.equal('p_allow_closed_cycle' in admin.calls.rpc[0].args, false)
+  assert.equal('closed_cycle' in payload, false)
+})
+
+test('R16: preview com a flag ligada — igual a hoje para qualquer usuário, com ou sem lista', async () => {
+  const admin = fakeAdmin({ rpcResult: RPC_OK, cycle: WON })
+  const { response } = await post(admin, { ...HML, COMPANION_FULL_READING_SELLER_IDS: OTHER_USER })
+
+  assert.equal(response.status, 200)
+  assert.equal(admin.calls.rpc[0].args.p_allow_closed_cycle, true)
 })

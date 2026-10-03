@@ -9,7 +9,7 @@ import {
   readSuccessorNote,
 } from '@/app/lib/companion/successor-opportunity'
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
-import { isFullReadingPanelEnabled } from '@/app/lib/server/full-reading-flag'
+import { isFullReadingEnabledForUser } from '@/app/lib/server/full-reading-flag'
 
 // "Nova oportunidade" pelo Companion (decisão do Controle Mestre,
 // 01/10/2026): cria um ciclo sucessor a partir de um ciclo Ganho/Perdido,
@@ -121,6 +121,23 @@ export async function POST(request: Request) {
           error: 'Sessão do Companion inválida ou expirada.',
         },
         401,
+      )
+    }
+
+    // Rodada 16 (D4): Nova oportunidade só para quem tem a leitura completa
+    // ligada (preview: todos; produção: a lista). Desligada: 403, sem RPC.
+    const fullReadingForUser =
+      isFullReadingEnabledForUser({ userId: tokenPayload.sub })
+
+    if (!fullReadingForUser) {
+      return respond(
+        request,
+        {
+          ok: false,
+          status: 'SUCCESSOR_NOT_ENABLED',
+          error: 'Nova oportunidade não está disponível para este usuário.',
+        },
+        403,
       )
     }
 
@@ -258,7 +275,7 @@ export async function POST(request: Request) {
         p_source_cycle_id: sourceCycle.id,
         p_opportunity_type: body.opportunity_type,
         // "O que é esta oportunidade?": só com a leitura completa ligada.
-        p_note: readSuccessorNote(body.note, isFullReadingPanelEnabled()),
+        p_note: readSuccessorNote(body.note, fullReadingForUser),
       },
     )
 

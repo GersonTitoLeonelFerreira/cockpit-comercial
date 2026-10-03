@@ -291,3 +291,87 @@ for (const [label, env] of [
       assert.equal(calls.shadowWorker, 1)
     }))
 }
+
+// ---------------------------------------------------------------------
+// Rodada 16 (botão de produção, parte 2): a trava de
+// /api/companion/analyze-conversation é por usuário (sub do token). No
+// preview com a flag ligada continua 409 para todos (testes acima); em
+// produção, só quem está em COMPANION_FULL_READING_SELLER_IDS recebe 409.
+// As outras rotas antigas e as filas seguem a regra global (só preview).
+// ---------------------------------------------------------------------
+
+async function withSellerList(values, run) {
+  const previous = process.env.COMPANION_FULL_READING_SELLER_IDS
+
+  if (values.COMPANION_FULL_READING_SELLER_IDS === undefined) delete process.env.COMPANION_FULL_READING_SELLER_IDS
+  else process.env.COMPANION_FULL_READING_SELLER_IDS = values.COMPANION_FULL_READING_SELLER_IDS
+
+  try {
+    return await withFlag(
+      { COMPANION_FULL_READING_PANEL: values.COMPANION_FULL_READING_PANEL, VERCEL_ENV: values.VERCEL_ENV },
+      run,
+    )
+  } finally {
+    if (previous === undefined) delete process.env.COMPANION_FULL_READING_SELLER_IDS
+    else process.env.COMPANION_FULL_READING_SELLER_IDS = previous
+  }
+}
+
+const OTHER_USER = '70000000-0000-4000-8000-0000000000a2'
+
+test('R16: produção com o usuário do token na lista — analyze-conversation responde 409 sem tocar em nada', () =>
+  withSellerList({
+    COMPANION_FULL_READING_PANEL: 'on',
+    VERCEL_ENV: 'production',
+    COMPANION_FULL_READING_SELLER_IDS: ` ${OTHER_USER}, ${USER.toUpperCase()} `,
+  }, async () => {
+    resetCalls()
+
+    const response = await routes.analyze(request(BODIES.analyze))
+    const payload = await response.json()
+
+    assert.equal(response.status, 409)
+    assert.equal(payload.code, 'LEGACY_AI_DISABLED')
+    assert.equal(totalAiActivity(), 0)
+
+    // As filas continuam com a regra global (em produção processam).
+    resetCalls()
+    await consumers.deepAnalysis({ analysis_job_id: 'x' }, { deliveryCount: 1 })
+    assert.equal(calls.statefulWorker, 1)
+  }))
+
+test('R16: produção com o usuário fora da lista (ou lista vazia) — analyze-conversation segue como hoje (sem 409)', async () => {
+  for (const list of [OTHER_USER, '', undefined]) {
+    await withSellerList({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: list }, async () => {
+      resetCalls()
+
+      const response = await routes.analyze(request(BODIES.analyze))
+      const payload = await response.json().catch(() => ({}))
+
+      assert.notEqual(response.status, 409, String(list))
+      assert.notEqual(payload.code, 'LEGACY_AI_DISABLED', String(list))
+      assert.ok(calls.createClient >= 1, 'a rota devia seguir e abrir o banco')
+    })
+  }
+})
+
+test('R16: flag desligada em produção, mesmo com o usuário na lista — analyze-conversation segue como hoje', () =>
+  withSellerList({ COMPANION_FULL_READING_PANEL: undefined, VERCEL_ENV: 'production', COMPANION_FULL_READING_SELLER_IDS: USER }, async () => {
+    resetCalls()
+
+    const response = await routes.analyze(request(BODIES.analyze))
+    const payload = await response.json().catch(() => ({}))
+
+    assert.notEqual(payload.code, 'LEGACY_AI_DISABLED')
+    assert.ok(calls.createClient >= 1)
+  }))
+
+test('R16: preview com a flag ligada — 409 para qualquer usuário, com ou sem lista', () =>
+  withSellerList({ COMPANION_FULL_READING_PANEL: 'on', VERCEL_ENV: 'preview', COMPANION_FULL_READING_SELLER_IDS: OTHER_USER }, async () => {
+    resetCalls()
+
+    const response = await routes.analyze(request(BODIES.analyze))
+
+    assert.equal(response.status, 409)
+    assert.equal(totalAiActivity(), 0)
+  }))

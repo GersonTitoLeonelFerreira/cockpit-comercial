@@ -887,6 +887,9 @@ test('B3: o servidor nunca baixa um endereço — a rota só recebe o arquivo', 
     assert.doesNotMatch(source, /\bsource_url\b|\bfile_url\b|new URL\(/)
   }
 
-  assert.match(route, /isFullReadingPanelEnabled\(\)/)
+  // Rodada 16: a rota existe com a flag 'on' e, depois do token, vale a
+  // regra por usuário.
+  assert.match(route, /COMPANION_FULL_READING_PANEL === 'on'/)
+  assert.match(route, /isFullReadingEnabledForUser\(\{ userId: token\.sub \}\)/)
   assert.match(route, /resolveCompanionLeadIdentity/)
 })

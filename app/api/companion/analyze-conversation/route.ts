@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { send } from '@vercel/queue'
 import {
-  isLegacyCompanionAiDisabled,
+  isFullReadingEnabledForUser,
   legacyAiDisabledBody,
   logLegacyAiSkipped,
 } from '@/app/lib/server/full-reading-flag'
@@ -489,8 +489,9 @@ export async function POST(request: Request) {
     }
 
     // Rodada 7: com a leitura completa ligada, a análise stateful (fila
-    // companion-deep-analysis-v3) não é criada nem publicada.
-    if (isLegacyCompanionAiDisabled()) {
+    // companion-deep-analysis-v3) não é criada nem publicada. Rodada 16: por
+    // usuário (preview: todos; produção: só quem está na lista).
+    if (isFullReadingEnabledForUser({ userId: tokenPayload.sub })) {
       logLegacyAiSkipped('/api/companion/analyze-conversation')
 
       return NextResponse.json(

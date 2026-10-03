@@ -322,3 +322,112 @@ test('B4/B6: o servidor recusa arquivo fora do formato e endereço no lugar do a
     assert.equal(claude.length, 0)
   })
 })
+
+// ---------------------------------------------------------------------
+// Rodada 16 (botão de produção, parte 2): a rota existe com a flag 'on'
+// (preview ou produção); depois do token, a regra por usuário decide. Em
+// produção, só quem está em COMPANION_FULL_READING_SELLER_IDS; fora da
+// lista, o mesmo 404 de hoje, sem leitura, gravação ou modelo.
+// ---------------------------------------------------------------------
+
+// `panel: undefined` explícito apaga a flag (o padrão é 'on').
+async function withProduction(list, fn, options = {}) {
+  const panel = 'panel' in options ? options.panel : 'on'
+
+  return withFlag(true, async (claude) => {
+    const previousList = process.env.COMPANION_FULL_READING_SELLER_IDS
+
+    process.env.VERCEL_ENV = 'production'
+
+    if (panel === undefined) delete process.env.COMPANION_FULL_READING_PANEL
+    else process.env.COMPANION_FULL_READING_PANEL = panel
+
+    if (list === undefined) delete process.env.COMPANION_FULL_READING_SELLER_IDS
+    else process.env.COMPANION_FULL_READING_SELLER_IDS = list
+
+    try {
+      return await fn(claude)
+    } finally {
+      if (previousList === undefined) delete process.env.COMPANION_FULL_READING_SELLER_IDS
+      else process.env.COMPANION_FULL_READING_SELLER_IDS = previousList
+    }
+  })
+}
+
+test('R16 anexos: produção com o usuário do token na lista — inclui como no HML (OPTIONS 204)', async () => {
+  await withProduction(` ${IDS.other}, ${IDS.me.toUpperCase()} `, async (claude) => {
+    box.admin = fakeAdmin()
+    assert.equal((await OPTIONS(request(null, { method: 'OPTIONS' }))).status, 204)
+
+    const admin = fakeAdmin()
+    const { response, payload } = await post(admin)
+
+    assert.equal(response.status, 200, JSON.stringify(payload))
+    assert.deepEqual(payload, { ok: true, data: { status: 'incluido', message_key: MESSAGE } })
+    assert.equal(claude.length, 1)
+    assert.equal(admin.calls.writes[0].payload.included_by, IDS.me)
+  })
+})
+
+test('R16 anexos: produção com o usuário fora da lista (ou lista vazia) — 404 de hoje, sem leitura, gravação nem modelo', async () => {
+  for (const list of [IDS.other, '', undefined]) {
+    await withProduction(list, async (claude) => {
+      const admin = fakeAdmin()
+      const { response, payload } = await post(admin)
+
+      assert.equal(response.status, 404, String(list))
+      assert.equal(payload, 'Not Found')
+      assert.deepEqual(admin.calls.reads, [])
+      assert.deepEqual(admin.calls.writes, [])
+      assert.equal(claude.length, 0)
+    })
+  }
+})
+
+test('R16 anexos: flag desligada em produção, mesmo com o usuário na lista — 404 (OPTIONS e POST), sem ler nada', async () => {
+  for (const panel of [undefined, 'off']) {
+    await withProduction(IDS.me, async (claude) => {
+      const admin = fakeAdmin()
+      box.admin = admin
+
+      assert.equal((await OPTIONS(request(null, { method: 'OPTIONS' }))).status, 404)
+
+      const { response } = await post(admin)
+
+      assert.equal(response.status, 404)
+      assert.deepEqual(admin.calls.reads, [])
+      assert.equal(claude.length, 0)
+    }, { panel })
+  }
+})
+
+test('R16 anexos: flag on em produção e token inválido — 401 (antes da regra por usuário)', async () => {
+  await withProduction(IDS.me, async (claude) => {
+    for (const token of [null, buildExpiredToken({ sub: IDS.me, companyId: IDS.company }), 'token-forjado']) {
+      const admin = fakeAdmin()
+      const { response, payload } = await post(admin, BODY, { token })
+
+      assert.equal(response.status, 401)
+      assert.equal(payload.code, 'INVALID_COMPANION_SESSION')
+      assert.deepEqual(admin.calls.reads, [])
+    }
+
+    assert.equal(claude.length, 0)
+  })
+})
+
+test('R16 anexos: preview com a flag ligada — igual a hoje para qualquer usuário, com ou sem lista', async () => {
+  await withFlag(true, async (claude) => {
+    process.env.COMPANION_FULL_READING_SELLER_IDS = IDS.other
+
+    try {
+      const admin = fakeAdmin()
+      const { response } = await post(admin)
+
+      assert.equal(response.status, 200)
+      assert.equal(claude.length, 1)
+    } finally {
+      delete process.env.COMPANION_FULL_READING_SELLER_IDS
+    }
+  })
+})

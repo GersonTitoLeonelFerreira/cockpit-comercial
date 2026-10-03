@@ -393,6 +393,7 @@ export async function POST(request: Request) {
     const closedCycle =
       await readClosedCycleCaptureTarget({
         admin,
+        userId: tokenPayload.sub,
         companyId: tokenPayload.company_id,
         cycleId: envelope.cycle_id,
       })
